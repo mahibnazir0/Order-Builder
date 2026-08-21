@@ -1,0 +1,15 @@
+# Build output
+build/
+out/
+cmake-build-*/
+
+# IDE / editor files
+.vs/
+.vscode/
+*.user
+.idea/
+CMakeUserPresets.json
+
+# OS cruft
+.DS_Store
+Thumbs.db
