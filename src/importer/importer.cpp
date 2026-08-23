@@ -1,22 +1,109 @@
-#include "importer/importer.hpp"
+#include "importer.hpp"
+#include "logger.hpp"
+#include "json.hpp"
 
+#include <fstream>
 #include <stdexcept>
 
 namespace ob {
 
-// TODO(mahib): implement.
-std::vector<ProductRecord> Importer::import_products(const std::string& /*path*/) {
-    throw std::logic_error("Importer::import_products not implemented");
+using json = nlohmann::json;
+
+namespace {
+
+// Safe field access: return j[key] as type T, or `fallback` if the key is
+// missing or null. Keeps a bad record from killing the whole load — the
+// Validator handles "is this record actually acceptable" later.
+template <typename T>
+T get_or(const json& j, const char* key, T fallback) {
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return fallback;
+    try {
+        return it->get<T>();
+    } catch (const json::exception&) {
+        return fallback;   // wrong type in the file — leave it to the Validator
+    }
 }
 
-// TODO(dev2): implement.
-DemandFile Importer::import_demand(const std::string& /*path*/) {
-    throw std::logic_error("Importer::import_demand not implemented");
+STRRecord parse_str(const json& j) {
+    STRRecord r;
+    r.idpr               = get_or<std::string>(j, "IDPR", "");
+    r.bnfpo              = get_or<int>(j, "BNFPO", 0);
+    r.locfrno            = get_or<std::string>(j, "LOCFRNO", "");
+    r.loctono            = get_or<std::string>(j, "LOCTONO", "");
+    r.matnr               = get_or<std::string>(j, "MATNR", "");
+    r.datfr_ta           = get_or<std::string>(j, "DATFR_TA", "");
+    r.datto_ta           = get_or<std::string>(j, "DATTO_TA", "");
+    r.ship_cond          = get_or<std::string>(j, "SHIP_COND", "");
+    r.planner_trans      = get_or<std::string>(j, "PLANNER_TRANS", "");
+    r.planner_snp        = get_or<std::string>(j, "PLANNER_SNP", "");
+    r.planner_trans_nmix = get_or<std::string>(j, "PLANNER_TRANS_NMIX", "");
+    r.confirmed_date     = get_or<std::string>(j, "CONFIRMED_DATE", "");
+    r.avail_date         = get_or<std::string>(j, "AVAIL_DATE", "");
+    r.tprio              = get_or<int>(j, "TPRIO", 0);
+    r.trans              = get_or<double>(j, "TRANS", 0.0);
+    r.avail_qty          = get_or<int>(j, "AVAIL_QTY", 0);
+    r.unitofmeas         = get_or<std::string>(j, "UNITOFMEAS", "");
+    r.ctl_date           = get_or<std::string>(j, "CTL_DATE", "");
+    r.bstrf              = get_or<int>(j, "BSTRF", 0);
+    r.gr_proc_time       = get_or<int>(j, "GR_PROC_TIME", 0);
+    r.gi_proc_time       = get_or<int>(j, "GI_PROC_TIME", 0);
+    r.pl_deliv_time      = get_or<int>(j, "PL_DELIV_TIME", 0);
+    return r;
 }
 
-// TODO(mahib): implement.
-std::vector<PlaceholderRecord> Importer::import_placeholder(const std::string& /*path*/) {
-    throw std::logic_error("Importer::import_placeholder not implemented");
+CTLRecord parse_ctl(const json& j) {
+    CTLRecord r;
+    r.zdate            = get_or<std::string>(j, "ZDATE", "");
+    r.zday             = get_or<std::string>(j, "ZDAY", "");
+    r.level_load_start = get_or<int>(j, "LEVEL_LOAD_START", 0);
+    r.level_load_end   = get_or<int>(j, "LEVEL_LOAD_END", 0);
+    r.auto_o2          = get_or<int>(j, "AUTO_O2", 0);
+    return r;
 }
 
-}  // namespace ob
+DNMRecord parse_dnm(const json& j) {
+    DNMRecord r;
+    r.planner_snp = get_or<std::string>(j, "PLANNER_SNP", "");
+    r.locfrno     = get_or<std::string>(j, "LOCFRNO", "");
+    return r;
+}
+
+} // anonymous namespace
+
+DemandFile Importer::load_demand(const std::string& json_path) {
+    std::ifstream in(json_path);
+    if (!in) {
+        throw std::runtime_error("Cannot open demand file: " + json_path);
+    }
+
+    json root;
+    try {
+        in >> root;
+    } catch (const json::parse_error& e) {
+        throw std::runtime_error("Demand file is not valid JSON: " + std::string(e.what()));
+    }
+
+    DemandFile demand;
+    demand.request_id = get_or<std::string>(root, "REQUEST_ID", "");
+
+    // Each block is optional at the top level; absent block = empty vector.
+    if (root.contains("STR") && root["STR"].is_array()) {
+        demand.str.reserve(root["STR"].size());
+        for (const auto& item : root["STR"]) demand.str.push_back(parse_str(item));
+    }
+    if (root.contains("CTL") && root["CTL"].is_array()) {
+        for (const auto& item : root["CTL"]) demand.ctl.push_back(parse_ctl(item));
+    }
+    if (root.contains("DNM") && root["DNM"].is_array()) {
+        for (const auto& item : root["DNM"]) demand.dnm.push_back(parse_dnm(item));
+    }
+
+    LOG_INFO("Loaded demand: " + std::to_string(demand.str.size()) + " STR, "
+             + std::to_string(demand.ctl.size()) + " CTL, "
+             + std::to_string(demand.dnm.size()) + " DNM");
+
+    return demand;
+}
+
+} // namespace ob

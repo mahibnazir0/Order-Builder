@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "demand_types.hpp"
 #include "types.hpp"
 
 namespace ob {

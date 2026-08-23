@@ -17,31 +17,8 @@ struct ProductRecord {
     std::string product_id;  // TODO(mahib): confirm key field name
 };
 
-// A single "STR" record from the demand file.
-// TODO(dev2): replace placeholder fields with real STR schema.
-struct STRRecord {
-    std::string id;  // TODO(dev2)
-};
-
-// A single "CTL" record from the demand file.
-// TODO(dev2): replace placeholder fields with real CTL schema.
-struct CTLRecord {
-    std::string id;  // TODO(dev2)
-};
-
-// A single "DNM" record from the demand file.
-// TODO(dev2): replace placeholder fields with real DNM schema.
-struct DNMRecord {
-    std::string id;  // TODO(dev2)
-};
-
-// Parsed demand file: collection of STR/CTL/DNM records.
-// TODO(dev2): confirm this is the right shape for the parsed demand file.
-struct DemandFile {
-    std::vector<STRRecord> str_records;
-    std::vector<CTLRecord> ctl_records;
-    std::vector<DNMRecord> dnm_records;
-};
+// STRRecord, CTLRecord, DNMRecord, and DemandFile (the demand file structs)
+// now live in demand_types.hpp -- include that header where they're needed.
 
 // A single record from the placeholder input file.
 // TODO(mahib): replace with real placeholder-file schema once defined.
