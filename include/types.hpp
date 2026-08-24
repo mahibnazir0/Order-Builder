@@ -19,17 +19,14 @@ namespace ob {
 //
 // PlaceholderRecord (and PlaceholderLoadResult) now live in
 // placeholder_types.hpp -- include that header where they're needed.
+//
+// JoinResult (and JoinedLine, ProductIndex) now live in joiner.hpp --
+// include that header where they're needed.
 
 // A single validation failure surfaced by Validator.
 // TODO(mahib): confirm error fields (severity, source record, message, etc.).
 struct ValidationError {
     std::string message;  // TODO(mahib)
-};
-
-// Result of joining product/demand/placeholder data.
-// TODO(dev2): confirm join key(s) and result shape.
-struct JoinResult {
-    std::string key;  // TODO(dev2)
 };
 
 // Summary of a single freight lane, produced by Reporter.

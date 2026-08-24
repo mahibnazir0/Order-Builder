@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "joiner.hpp"
 #include "types.hpp"
 
 namespace ob {

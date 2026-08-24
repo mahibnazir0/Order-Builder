@@ -109,20 +109,21 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
         p.cases_unit_load  = to_int(at(c, "cases_unit_load"));
         p.pallet_id        = at(c, "pallet_id");
 
-        // Duplicate ID: last one wins, but keep a count so it is never silent.
-        auto existing = id_to_index.find(p.id);
-        if (existing != id_to_index.end()) {
+        // Rows sharing an ID are pallet-type variants (TLD / PTL / PGM / GMA),
+        // not data errors: same product, different Cases_Unit_Load. They are
+        // ALL kept so the Joiner can choose the right one. duplicate_ids counts
+        // how many IDs appear more than once, purely for reporting.
+        if (id_to_index.find(p.id) != id_to_index.end()) {
             ++result.duplicate_ids;
-            result.products[existing->second] = p;   // overwrite
         } else {
             id_to_index[p.id] = result.products.size();
-            result.products.push_back(p);
         }
+        result.products.push_back(p);
     }
 
     LOG_INFO("Loaded product master: " + std::to_string(result.rows_read)
-             + " rows, " + std::to_string(result.products.size()) + " unique IDs, "
-             + std::to_string(result.duplicate_ids) + " duplicates");
+             + " rows, " + std::to_string(id_to_index.size()) + " unique IDs, "
+             + std::to_string(result.duplicate_ids) + " pallet-type variants");
 
     return result;
 }
