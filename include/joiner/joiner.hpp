@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "demand_types.hpp"
+#include "placeholder_types.hpp"
+#include "product_types.hpp"
 #include "types.hpp"
 
 namespace ob {

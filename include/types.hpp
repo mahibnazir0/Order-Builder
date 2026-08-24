@@ -11,20 +11,14 @@
 
 namespace ob {
 
-// A single product master record.
-// TODO(mahib): replace placeholder fields with real product schema.
-struct ProductRecord {
-    std::string product_id;  // TODO(mahib): confirm key field name
-};
-
+// ProductRecord (the product master struct) now lives in product_types.hpp --
+// include that header where it's needed.
+//
 // STRRecord, CTLRecord, DNMRecord, and DemandFile (the demand file structs)
 // now live in demand_types.hpp -- include that header where they're needed.
-
-// A single record from the placeholder input file.
-// TODO(mahib): replace with real placeholder-file schema once defined.
-struct PlaceholderRecord {
-    std::string id;  // TODO(mahib)
-};
+//
+// PlaceholderRecord (and PlaceholderLoadResult) now live in
+// placeholder_types.hpp -- include that header where they're needed.
 
 // A single validation failure surfaced by Validator.
 // TODO(mahib): confirm error fields (severity, source record, message, etc.).

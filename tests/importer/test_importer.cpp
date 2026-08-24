@@ -1,4 +1,6 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+// doctest's main() is implemented once for the whole ob_tests binary, in
+// tests/importer/test_product_importer.cpp. Every other test TU just includes
+// the header.
 #include "doctest.h"
 #include "importer.hpp"
 #include <stdexcept>

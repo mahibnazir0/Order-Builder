@@ -1,0 +1,130 @@
+#include "product_importer.hpp"
+#include "logger.hpp"
+
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
+#include <algorithm>
+#include <cctype>
+
+namespace ob {
+
+namespace {
+
+// Trim leading/trailing whitespace (and stray \r from CRLF files on Windows).
+std::string trim(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return "";
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return s.substr(a, b - a + 1);
+}
+
+// Split one CSV line on commas. The product file has no quoted/embedded commas,
+// so a simple split is correct here; if that ever changes this is the one place
+// to upgrade to a quote-aware parse.
+std::vector<std::string> split_csv(const std::string& line) {
+    std::vector<std::string> out;
+    std::string cell;
+    std::stringstream ss(line);
+    while (std::getline(ss, cell, ',')) out.push_back(trim(cell));
+    return out;
+}
+
+// Safe numeric parse: return fallback if the cell is blank or not a number,
+// rather than throwing. The Validator decides whether a 0 here is acceptable.
+double to_double(const std::string& s, double fallback = 0.0) {
+    if (s.empty()) return fallback;
+    try { return std::stod(s); } catch (...) { return fallback; }
+}
+int to_int(const std::string& s, int fallback = 0) {
+    if (s.empty()) return fallback;
+    try { return std::stoi(s); } catch (...) { return fallback; }
+}
+
+// Case-insensitive header match, so "UoM" / "uom" / "UOM" all resolve.
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+} // anonymous namespace
+
+ProductLoadResult ProductImporter::load(const std::string& csv_path) {
+    std::ifstream in(csv_path);
+    if (!in) {
+        throw std::runtime_error("Cannot open product file: " + csv_path);
+    }
+
+    std::string header_line;
+    if (!std::getline(in, header_line)) {
+        throw std::runtime_error("Product file is empty: " + csv_path);
+    }
+
+    // Map expected column name -> its index in this file, so column order
+    // changes in the source do not break the reader.
+    std::vector<std::string> headers = split_csv(header_line);
+    std::unordered_map<std::string, int> col;
+    for (int i = 0; i < static_cast<int>(headers.size()); ++i) {
+        col[lower(headers[i])] = i;
+    }
+
+    const char* required[] = {"id", "length", "width", "height", "strength",
+                              "uom", "weight", "cases_unit_load", "pallet_id"};
+    for (const char* r : required) {
+        if (col.find(r) == col.end()) {
+            throw std::runtime_error("Product file missing required column: " + std::string(r));
+        }
+    }
+
+    auto at = [&](const std::vector<std::string>& cells, const char* name) -> std::string {
+        auto it = col.find(name);
+        if (it == col.end()) return "";
+        int idx = it->second;
+        return (idx < static_cast<int>(cells.size())) ? cells[idx] : "";
+    };
+
+    ProductLoadResult result;
+    std::unordered_map<std::string, size_t> id_to_index; // for duplicate detection
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (trim(line).empty()) continue;
+        std::vector<std::string> c = split_csv(line);
+        ++result.rows_read;
+
+        ProductRecord p;
+        p.id               = at(c, "id");
+        p.description      = at(c, "description");
+        p.length_in        = to_double(at(c, "length"));
+        p.width_in         = to_double(at(c, "width"));
+        p.height_in        = to_double(at(c, "height"));
+        p.strength         = to_int(at(c, "strength"));
+        p.uom              = at(c, "uom");
+        p.weight_lb        = to_double(at(c, "weight"));
+        p.cases_layer      = to_int(at(c, "cases_layer"));
+        p.layers_unit_load = to_int(at(c, "layers_unit_load"));
+        p.cases_unit_load  = to_int(at(c, "cases_unit_load"));
+        p.pallet_id        = at(c, "pallet_id");
+
+        // Duplicate ID: last one wins, but keep a count so it is never silent.
+        auto existing = id_to_index.find(p.id);
+        if (existing != id_to_index.end()) {
+            ++result.duplicate_ids;
+            result.products[existing->second] = p;   // overwrite
+        } else {
+            id_to_index[p.id] = result.products.size();
+            result.products.push_back(p);
+        }
+    }
+
+    LOG_INFO("Loaded product master: " + std::to_string(result.rows_read)
+             + " rows, " + std::to_string(result.products.size()) + " unique IDs, "
+             + std::to_string(result.duplicate_ids) + " duplicates");
+
+    return result;
+}
+
+} // namespace ob

@@ -14,5 +14,7 @@ CMakeUserPresets.json
 .DS_Store
 Thumbs.db
 
-# Local test fixtures (not committed)
-tests/importer/Demand-1.json
+# Local test fixtures (not committed -- confidential customer data)
+# Currently: Demand-1.json, PlaceHolder-1.json, Customer2-Product-Data.csv
+tests/importer/*.json
+tests/importer/*.csv

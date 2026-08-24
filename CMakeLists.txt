@@ -24,6 +24,8 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(ob_core STATIC
   src/importer/importer.cpp
+  src/importer/product_importer.cpp
+  src/importer/placeholder_importer.cpp
   src/converter/converter.cpp
   src/validator/validator.cpp
   src/joiner/joiner.cpp
@@ -50,6 +52,8 @@ enable_testing()
 
 add_executable(ob_tests
   tests/importer/test_importer.cpp
+  tests/importer/test_product_importer.cpp
+  tests/importer/test_placeholder_importer.cpp
   tests/converter/test_converter.cpp
   tests/validator/test_validator.cpp
   tests/joiner/test_joiner.cpp
