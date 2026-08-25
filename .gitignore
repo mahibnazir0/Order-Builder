@@ -5,10 +5,16 @@ cmake-build-*/
 
 # IDE / editor files
 .vs/
-.vscode/
 *.user
 .idea/
 CMakeUserPresets.json
+
+# VS Code: the IntelliSense config is shared (it points at the compile
+# database, so it works on any machine); everything else here is local.
+.vscode/*
+!.vscode/c_cpp_properties.json
+.vscode/settings.json
+.vscode/*.log
 
 # OS cruft
 .DS_Store

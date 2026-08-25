@@ -1,0 +1,28 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Windows (MinGW g++)",
+
+            // Primary source of truth: the compile database CMake writes on
+            // every configure. It carries the real -I flags (include/ and
+            // third_party/) plus the warning flags, so IntelliSense sees
+            // exactly what the compiler sees.
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+
+            // Fallback for files the database does not list -- headers never
+            // appear in compile_commands.json, only translation units.
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/third_party"
+            ],
+
+            // MSYS2 MinGW g++ -- the compiler CMake actually configured with.
+            // Not MSVC: this project builds with GCC on this machine.
+            "compilerPath": "C:/msys64/mingw64/bin/g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-gcc-x64"
+        }
+    ]
+}
