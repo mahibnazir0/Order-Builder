@@ -24,9 +24,9 @@ order-builder/
 | Module    | Header                              | Owner (Milestone 1 stub) |
 |-----------|--------------------------------------|---------------------------|
 | Importer  | `include/importer/importer.hpp`     | product/placeholder: mahib, demand: dev2 |
-| Converter | `include/converter/converter.hpp`   | dev2 |
+| Converter | `include/converter/converter.hpp`   | Saif |
 | Validator | `include/validator/validator.hpp`   | mahib |
-| Joiner    | `include/joiner/joiner.hpp`         | dev2 |
+| Joiner    | `include/joiner/joiner.hpp`         | Saif  |
 | Reporter  | `include/reporter/reporter.hpp`     | mahib |
 
 ## Prerequisites before building
