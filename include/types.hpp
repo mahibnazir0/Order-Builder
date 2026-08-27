@@ -22,12 +22,10 @@ namespace ob {
 //
 // JoinResult (and JoinedLine, ProductIndex) now live in joiner.hpp --
 // include that header where they're needed.
-
-// A single validation failure surfaced by Validator.
-// TODO(mahib): confirm error fields (severity, source record, message, etc.).
-struct ValidationError {
-    std::string message;  // TODO(mahib)
-};
+//
+// ValidationIssue, ValidationReport and ValidationConfig (replacing the old
+// ValidationError) now live in validator.hpp -- include that header where
+// they're needed.
 
 // Summary of a single freight lane, produced by Reporter.
 // TODO(mahib): confirm summary fields (lane id, weight, cube, stops, etc.).
