@@ -13,8 +13,11 @@ TEST_CASE("product master loads with correct row and ID counts") {
 
     // Verified against the real file.
     CHECK(r.rows_read == 20201);
-    CHECK(r.products.size() == 20183);   // unique IDs (last-wins on dupes)
-    CHECK(r.duplicate_ids == 18);        // 20201 - 20183
+    // ALL rows are kept, including pallet-type variants — the Joiner chooses
+    // between them. 18 IDs appear twice (TLD/PTL/PGM/GMA variants of the same
+    // product, with different Cases_Unit_Load).
+    CHECK(r.products.size() == 20201);
+    CHECK(r.duplicate_ids == 18);
 }
 
 TEST_CASE("first record parses field-for-field") {
@@ -39,7 +42,15 @@ TEST_CASE("ID is kept as a string, not parsed to int") {
     }
 }
 
-TEST_CASE("blank UoM rows are loaded, not dropped (Tom fixes data Monday)") {
+TEST_CASE("pallet-type variants are preserved for the Joiner to choose") {
+    ProductLoadResult r = ProductImporter::load(PRODUCT_PATH);
+    // ID 105553001 exists as GMA (84 cases/unit load) and TLD (168).
+    int found = 0;
+    for (const auto& p : r.products) if (p.id == "105553001") ++found;
+    CHECK(found == 2);
+}
+
+TEST_CASE("blank UoM rows are loaded, not dropped (UoM comes from demand anyway)") {
     ProductLoadResult r = ProductImporter::load(PRODUCT_PATH);
     int blank_uom = 0;
     for (const auto& p : r.products) if (p.uom.empty()) ++blank_uom;
