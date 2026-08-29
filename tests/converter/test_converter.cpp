@@ -106,6 +106,34 @@ TEST_CASE("pallet-equivalents are never rounded") {
     CHECK(Converter::to_pallets(9.0, "CS", p) > 0.0);
 }
 
+TEST_CASE("negative and boundary quantities pass through as arithmetic") {
+    // Phase 3 asks for zero, negative, fractional and boundary coverage.
+    // A negative quantity is not this module's to reject: the Validator
+    // raises non_positive_qty as an ERROR. The Converter must not clamp it
+    // to zero, which would hide the fault from the lane total.
+    ProductRecord p = make_product(48, 6.768, "TLD");
+
+    CHECK(Converter::to_pallets(-96.0, "CS",  p) == doctest::Approx(-2.0));
+    CHECK(Converter::to_pallets(-6.0,  "PAL", p) == doctest::Approx(-6.0));
+    CHECK(Converter::to_pallets(-6.0,  "DIS", p) == doctest::Approx(-6.0));
+    CHECK(Converter::to_pallets(-96.0, "CS",  p) < 0.0);
+
+    // Zero quantity is legitimate arithmetic, not an error condition.
+    CHECK(Converter::to_pallets(0.0, "CS",  p) == doctest::Approx(0.0));
+    CHECK(Converter::to_pallets(0.0, "PAL", p) == doctest::Approx(0.0));
+
+    // Boundaries either side of exactly one unit load.
+    CHECK(Converter::to_pallets(47.0, "CS", p) < 1.0);
+    CHECK(Converter::to_pallets(48.0, "CS", p) == doctest::Approx(1.0));
+    CHECK(Converter::to_pallets(49.0, "CS", p) > 1.0);
+
+    // Weight follows the sign rather than taking an absolute value, and the
+    // wood pallet must not be added to a negative load as if it were cargo.
+    ProductRecord ptl = make_product(3, 315.0, "PTL");
+    CHECK(Converter::to_weight_lb(-1.0, ptl) == doctest::Approx(-1005.0));
+    CHECK(Converter::to_weight_lb(0.0,  ptl) == doctest::Approx(0.0));
+}
+
 TEST_CASE("Cases_Unit_Load of zero returns zero instead of dividing by zero") {
     // Real row: 106052500, a ROL product with Cases_Layer, Layers_Unit_Load
     // and Cases_Unit_Load all 0. Exactly one row in the master is like this.
