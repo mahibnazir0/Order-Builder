@@ -68,4 +68,7 @@ add_executable(ob_tests
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
 
-add_test(NAME ob_tests COMMAND ob_tests)
+# The data-dependent tests open their fixtures by paths relative to the repo
+# root (tests/importer/...), so run the binary from there rather than build/.
+add_test(NAME ob_tests COMMAND ob_tests
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
