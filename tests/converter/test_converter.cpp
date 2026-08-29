@@ -29,9 +29,12 @@ ProductRecord make_product(int cases_unit_load,
     return p;
 }
 
-const ProductRecord& find_product(const std::vector<ProductRecord>& products,
-                                  const std::string& id,
-                                  const std::string& pallet_id) {
+// Returns by value rather than by reference: GCC's -Wdangling-reference
+// (13.x, on by default under -Wall) rejects binding a const ref to the result,
+// and a ProductRecord copy costs nothing in a test.
+ProductRecord find_product(const std::vector<ProductRecord>& products,
+                           const std::string& id,
+                           const std::string& pallet_id) {
     auto it = std::find_if(products.begin(), products.end(),
         [&](const ProductRecord& p){ return p.id == id && p.pallet_id == pallet_id; });
     REQUIRE(it != products.end());
@@ -244,8 +247,8 @@ TEST_CASE("the two variants of an ambiguous product convert differently") {
     // many pallets depending on which variant is chosen.
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
 
-    const ProductRecord& gma = find_product(products.products, "105553001", "GMA");
-    const ProductRecord& tld = find_product(products.products, "105553001", "TLD");
+    const ProductRecord gma = find_product(products.products, "105553001", "GMA");
+    const ProductRecord tld = find_product(products.products, "105553001", "TLD");
 
     REQUIRE(gma.cases_unit_load == 84);
     REQUIRE(tld.cases_unit_load == 168);
@@ -260,4 +263,156 @@ TEST_CASE("the two variants of an ambiguous product convert differently") {
     // Neither variant is wood, so the choice does not change the weight.
     CHECK(Converter::to_weight_lb(as_gma, gma)
           == doctest::Approx(Converter::to_weight_lb(as_tld, tld)));
+}
+
+// ─── Partial-pallet rounding (M1 plan, Phase 3.2) ──────────────────────────
+
+TEST_CASE("rounding defaults to None, which is Tom's ruling") {
+    ProductRecord p = make_product(10, 9.0, "TLD");
+
+    // Adding the switch must not change what any existing caller gets.
+    CHECK(Converter::to_pallets(9.0, "CS", p) == doctest::Approx(0.9));
+    CHECK(Converter::to_pallets(9.0, "CS", p, PalletRounding::None)
+          == doctest::Approx(0.9));
+    CHECK(Converter::to_pallets(11.0, "CS", p) == doctest::Approx(1.1));
+}
+
+TEST_CASE("floor and ceil round partial unit loads when asked") {
+    ProductRecord p = make_product(10, 9.0, "TLD");
+
+    CHECK(Converter::to_pallets(9.0,  "CS", p, PalletRounding::Floor) == doctest::Approx(0.0));
+    CHECK(Converter::to_pallets(9.0,  "CS", p, PalletRounding::Ceil)  == doctest::Approx(1.0));
+    CHECK(Converter::to_pallets(11.0, "CS", p, PalletRounding::Floor) == doctest::Approx(1.0));
+    CHECK(Converter::to_pallets(11.0, "CS", p, PalletRounding::Ceil)  == doctest::Approx(2.0));
+
+    // An exact unit load is untouched by either mode.
+    CHECK(Converter::to_pallets(20.0, "CS", p, PalletRounding::Floor) == doctest::Approx(2.0));
+    CHECK(Converter::to_pallets(20.0, "CS", p, PalletRounding::Ceil)  == doctest::Approx(2.0));
+}
+
+TEST_CASE("rounding applies to PAL and DIS too, so a mode means one thing") {
+    ProductRecord p = make_product(1, 235.2, "PGM");
+
+    // TRANS is a whole number on every line in the real file, so this is a
+    // no-op there — but the mode must not silently skip these codes.
+    CHECK(Converter::to_pallets(6.0, "PAL", p, PalletRounding::Ceil)  == doctest::Approx(6.0));
+    CHECK(Converter::to_pallets(6.5, "PAL", p, PalletRounding::Floor) == doctest::Approx(6.0));
+    CHECK(Converter::to_pallets(6.5, "DIS", p, PalletRounding::Ceil)  == doctest::Approx(7.0));
+}
+
+TEST_CASE("rounding rounds toward minus infinity, not toward zero") {
+    // floor(-2.5) is -3, not -2. Truncation would quietly shrink a negative
+    // line instead of preserving it for the Validator to reject.
+    ProductRecord p = make_product(10, 9.0, "TLD");
+    CHECK(Converter::to_pallets(-25.0, "CS", p, PalletRounding::Floor) == doctest::Approx(-3.0));
+    CHECK(Converter::to_pallets(-25.0, "CS", p, PalletRounding::Ceil)  == doctest::Approx(-2.0));
+}
+
+TEST_CASE("a zero Cases_Unit_Load stays zero under every rounding mode") {
+    // Ceil must not turn the bad row into a phantom pallet.
+    ProductRecord bad = make_product(0, 21.7, "TLD");
+    CHECK(Converter::to_pallets(100.0, "CS", bad, PalletRounding::None)  == doctest::Approx(0.0));
+    CHECK(Converter::to_pallets(100.0, "CS", bad, PalletRounding::Floor) == doctest::Approx(0.0));
+    CHECK(Converter::to_pallets(100.0, "CS", bad, PalletRounding::Ceil)  == doctest::Approx(0.0));
+
+    // Same for an unrecognised UoM.
+    ProductRecord p = make_product(48, 6.768, "TLD");
+    CHECK(Converter::to_pallets(100.0, "EA", p, PalletRounding::Ceil) == doctest::Approx(0.0));
+}
+
+TEST_CASE("round_pallets can round a summed lane total") {
+    // Rounding each line and rounding the lane total are different numbers.
+    // 0.9 + 0.9 + 0.9 = 2.7 -> 3 as a lane, but 3 x ceil(0.9) = 3 by line and
+    // 3 x floor(0.9) = 0. The caller has to be able to choose.
+    CHECK(Converter::round_pallets(2.7, PalletRounding::None)  == doctest::Approx(2.7));
+    CHECK(Converter::round_pallets(2.7, PalletRounding::Floor) == doctest::Approx(2.0));
+    CHECK(Converter::round_pallets(2.7, PalletRounding::Ceil)  == doctest::Approx(3.0));
+}
+
+TEST_CASE("the default rounding mode leaves the whole-file total unchanged") {
+    // The guard that matters: adding the switch must not move the 152,911.2
+    // figure Tom checks against his own numbers.
+    DemandFile        demand   = Importer::load_demand(DEMAND_PATH);
+    ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
+    ProductIndex      index    = Joiner::build_index(products.products);
+    JoinResult        join     = Joiner::join(demand.str, index);
+
+    double defaulted = 0.0;
+    double explicit_none = 0.0;
+    double floored = 0.0;
+    double ceiled  = 0.0;
+
+    for (const auto& line : join.lines) {
+        if (line.product == nullptr) continue;
+        const double trans = line.str->trans;
+        const std::string& uom = line.str->unitofmeas;
+        defaulted     += Converter::to_pallets(trans, uom, *line.product);
+        explicit_none += Converter::to_pallets(trans, uom, *line.product, PalletRounding::None);
+        floored       += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Floor);
+        ceiled        += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Ceil);
+    }
+
+    CHECK(defaulted == doctest::Approx(152911.2).epsilon(1e-6));
+    CHECK(defaulted == doctest::Approx(explicit_none));
+
+    // Rounding per line really does move the total, which is why None is the
+    // default and why Tom's ruling matters.
+    CHECK(floored < defaulted);
+    CHECK(ceiled  > defaulted);
+}
+
+// ─── Inches to centimetres, once, on the way in ────────────────────────────
+
+TEST_CASE("to_cm converts a whole master row in one call") {
+    // Real row 100802205: 48 x 40 x 19.5 inches.
+    ProductRecord p;
+    p.length_in = 48.0;
+    p.width_in  = 40.0;
+    p.height_in = 19.5;
+
+    const DimensionsCm cm = Converter::to_cm(p);
+    CHECK(cm.length == doctest::Approx(121.92));
+    CHECK(cm.width  == doctest::Approx(101.6));
+    CHECK(cm.height == doctest::Approx(49.53));
+
+    // Each axis agrees with converting it individually — no axis is skipped
+    // or crossed over.
+    CHECK(cm.length == doctest::Approx(Converter::inches_to_cm(p.length_in)));
+    CHECK(cm.width  == doctest::Approx(Converter::inches_to_cm(p.width_in)));
+    CHECK(cm.height == doctest::Approx(Converter::inches_to_cm(p.height_in)));
+}
+
+TEST_CASE("to_cm round-trips back to the master's inches") {
+    ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
+    const ProductRecord p = find_product(products.products, "100802205", "PTL");
+
+    const DimensionsCm cm = Converter::to_cm(p);
+    CHECK(Converter::cm_to_inches(cm.length) == doctest::Approx(p.length_in));
+    CHECK(Converter::cm_to_inches(cm.width)  == doctest::Approx(p.width_in));
+    CHECK(Converter::cm_to_inches(cm.height) == doctest::Approx(p.height_in));
+}
+
+TEST_CASE("to_cm leaves a zero-dimension row at zero") {
+    // Real row 104105504 is 0 x 0 x 0 — a raw material, per Tom's ruling
+    // skip-and-warn. Conversion must not invent a dimension for it.
+    ProductRecord p;   // all dimensions default to 0.0
+
+    const DimensionsCm cm = Converter::to_cm(p);
+    CHECK(cm.length == doctest::Approx(0.0));
+    CHECK(cm.width  == doctest::Approx(0.0));
+    CHECK(cm.height == doctest::Approx(0.0));
+}
+
+TEST_CASE("to_cm works across every row in the real master") {
+    // The conversion is the same arithmetic for all 20,201 rows; this checks
+    // it holds on the real spread rather than on three hand-picked rows.
+    ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
+    REQUIRE(products.products.size() == 20201);
+
+    for (const auto& p : products.products) {
+        const DimensionsCm cm = Converter::to_cm(p);
+        REQUIRE(cm.length == doctest::Approx(p.length_in * 2.54));
+        REQUIRE(cm.width  == doctest::Approx(p.width_in  * 2.54));
+        REQUIRE(cm.height == doctest::Approx(p.height_in * 2.54));
+    }
 }
