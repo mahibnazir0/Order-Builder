@@ -1,76 +1,127 @@
-// Order Builder CLI entry point.
+// ============================================================================
+// main.cpp — Order Builder command-line entry point.
 //
-// Milestone 1: argument parsing + usage message only. No module is wired
-// up yet -- Importer/Converter/Validator/Joiner/Reporter are not called.
+// Usage:
+//   order_builder --product <csv> --demand <json> --placeholder <json>
+//                 [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
+//
+// Reads one planning day, validates it, and prints a summary. It does not
+// build loads or decide truck counts — that starts at Milestone 2.
+//
+// Exit codes:
+//   0  ran successfully, no validation errors
+//   1  ran successfully but validation found errors in the data
+//   2  could not run (missing argument, unreadable file)
+// ============================================================================
 
+#include "logger.hpp"
+#include "pipeline.hpp"
+
+#include <exception>
 #include <iostream>
 #include <string>
 
-#include "logger.hpp"
-
 namespace {
 
-void print_usage(const std::string& program_name) {
-    std::cout << "Usage: " << program_name << " [options]\n"
-              << "\n"
-              << "Options:\n"
-              << "  --product <path>      Path to the product master file\n"
-              << "  --demand <path>       Path to the demand file (STR/CTL/DNM)\n"
-              << "  --placeholder <path>  Path to the placeholder input file\n"
-              << "  --day <value>         Day to build the order for\n"
-              << "  --debug               Enable debug logging\n"
-              << "  --help                Show this message\n";
+void print_usage(std::ostream& out) {
+    out <<
+        "Order Builder - Milestone 1\n"
+        "\n"
+        "Usage:\n"
+        "  order_builder --product <csv> --demand <json> --placeholder <json>\n"
+        "                [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]\n"
+        "\n"
+        "Required:\n"
+        "  --product <path>      Product master CSV\n"
+        "  --demand <path>       Demand extract JSON (STR / CTL / DNM)\n"
+        "  --placeholder <path>  Placeholder JSON (trucks per lane)\n"
+        "\n"
+        "Optional:\n"
+        "  --day <date>          Planning day, shown in the report header\n"
+        "  --lanes N             Print only the N largest lanes (default: all)\n"
+        "  --debug               Verbose logging\n"
+        "  --help                Show this message\n"
+        "\n"
+        "Exit codes:\n"
+        "  0  success, no validation errors\n"
+        "  1  success, but validation found errors\n"
+        "  2  could not run\n";
 }
 
-}  // namespace
+// Returns the value following `flag`, or an empty string if it is absent.
+// Reports a missing value rather than reading past the end of argv.
+bool take_value(int argc, char** argv, int& i, const char* flag, std::string& out) {
+    if (i + 1 >= argc) {
+        std::cerr << "Error: " << flag << " needs a value\n";
+        return false;
+    }
+    out = argv[++i];
+    return true;
+}
+
+} // anonymous namespace
+
 
 int main(int argc, char** argv) {
-    std::string program_name = (argc > 0) ? argv[0] : "order_builder";
+    ob::PipelineInputs inputs;
+    int  max_lanes = 0;        // 0 = print every lane
+    bool debug     = false;
 
-    std::string product_path;
-    std::string demand_path;
-    std::string placeholder_path;
-    std::string day;
-    bool debug = false;
-
+    // ── Parse arguments ─────────────────────────────────────────────────────
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
 
-        auto next_value = [&](const std::string& flag) -> std::string {
-            if (i + 1 >= argc) {
-                std::cerr << "Missing value for " << flag << "\n";
-                return "";
-            }
-            return argv[++i];
-        };
-
-        if (arg == "--product") {
-            product_path = next_value(arg);
-        } else if (arg == "--demand") {
-            demand_path = next_value(arg);
-        } else if (arg == "--placeholder") {
-            placeholder_path = next_value(arg);
-        } else if (arg == "--day") {
-            day = next_value(arg);
+        if (arg == "--help" || arg == "-h") {
+            print_usage(std::cout);
+            return 0;
         } else if (arg == "--debug") {
             debug = true;
-        } else if (arg == "--help") {
-            print_usage(program_name);
-            return 0;
+        } else if (arg == "--product") {
+            if (!take_value(argc, argv, i, "--product", inputs.product_path)) return 2;
+        } else if (arg == "--demand") {
+            if (!take_value(argc, argv, i, "--demand", inputs.demand_path)) return 2;
+        } else if (arg == "--placeholder") {
+            if (!take_value(argc, argv, i, "--placeholder", inputs.placeholder_path)) return 2;
+        } else if (arg == "--day") {
+            if (!take_value(argc, argv, i, "--day", inputs.planning_day)) return 2;
+        } else if (arg == "--lanes") {
+            std::string value;
+            if (!take_value(argc, argv, i, "--lanes", value)) return 2;
+            try {
+                max_lanes = std::stoi(value);
+            } catch (const std::exception&) {
+                std::cerr << "Error: --lanes needs a number, got '" << value << "'\n";
+                return 2;
+            }
         } else {
-            std::cerr << "Unknown option: " << arg << "\n";
-            print_usage(program_name);
-            return 1;
+            std::cerr << "Error: unrecognised option '" << arg << "'\n\n";
+            print_usage(std::cerr);
+            return 2;
         }
+    }
+
+    // ── Check the required arguments are present ────────────────────────────
+    if (inputs.product_path.empty() || inputs.demand_path.empty()
+        || inputs.placeholder_path.empty()) {
+        std::cerr << "Error: --product, --demand and --placeholder are all required\n\n";
+        print_usage(std::cerr);
+        return 2;
     }
 
     ob::Logger::instance().set_debug(debug);
 
-    print_usage(program_name);
+    // ── Run ─────────────────────────────────────────────────────────────────
+    try {
+        const ob::PipelineResult result = ob::Pipeline::run(inputs);
 
-    LOG_INFO("Order Builder Milestone 1 skeleton -- no module logic wired up yet.");
-    LOG_DEBUG("product=" + product_path + " demand=" + demand_path +
-              " placeholder=" + placeholder_path + " day=" + day);
+        ob::Reporter::print_summary(result.summary, std::cout, max_lanes);
+        ob::Reporter::print_warnings(result.validation, std::cout);
 
-    return 0;
+        // A run that produced validation errors is reported, not hidden.
+        return (result.validation.errors > 0) ? 1 : 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "\nError: " << e.what() << "\n";
+        return 2;
+    }
 }

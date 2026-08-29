@@ -34,6 +34,7 @@ add_library(ob_core STATIC
   src/validator/validator.cpp
   src/joiner/joiner.cpp
   src/reporter/reporter.cpp
+  src/pipeline.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -62,6 +63,7 @@ add_executable(ob_tests
   tests/validator/test_validator.cpp
   tests/joiner/test_joiner.cpp
   tests/reporter/test_reporter.cpp
+  tests/test_end_to_end.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
