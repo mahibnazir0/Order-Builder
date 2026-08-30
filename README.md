@@ -25,7 +25,7 @@ external dependencies to install: doctest and nlohmann/json are single-header
 libraries vendored in `third_party/`.
 
 Warnings are errors. CMake applies `-Wall -Wextra -Wpedantic -Werror` on GCC and
-Clang, and `/W4 /WX /utf-8` on MSVC, so any warning fails the build.
+Clang, so any warning fails the build.
 
 Windows (MinGW g++):
 
@@ -39,13 +39,6 @@ Ubuntu (GCC):
 ```bash
 cmake -B build
 cmake --build build
-```
-
-MSVC, if you prefer Visual Studio:
-
-```powershell
-cmake -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Debug
 ```
 
 The build produces two executables in `build/`: `order_builder` (the CLI) and
@@ -138,7 +131,6 @@ order-builder/
   src/                  Implementations, grouped by module
   tests/                doctest unit tests, plus the end-to-end tests
   third_party/          Vendored single-header libraries
-  data/test/            Scratch directory for local sample data (empty)
 ```
 
 | Path | Contents |
