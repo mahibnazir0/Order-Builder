@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Emit build/compile_commands.json so editors (VS Code IntelliSense, clangd)
+# pick up the real include paths and flags instead of guessing.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
@@ -30,6 +34,7 @@ add_library(ob_core STATIC
   src/validator/validator.cpp
   src/joiner/joiner.cpp
   src/reporter/reporter.cpp
+  src/pipeline.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -58,8 +63,12 @@ add_executable(ob_tests
   tests/validator/test_validator.cpp
   tests/joiner/test_joiner.cpp
   tests/reporter/test_reporter.cpp
+  tests/test_end_to_end.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
 
-add_test(NAME ob_tests COMMAND ob_tests)
+# The data-dependent tests open their fixtures by paths relative to the repo
+# root (tests/importer/...), so run the binary from there rather than build/.
+add_test(NAME ob_tests COMMAND ob_tests
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

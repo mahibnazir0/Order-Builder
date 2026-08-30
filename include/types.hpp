@@ -26,11 +26,11 @@ namespace ob {
 // ValidationIssue, ValidationReport and ValidationConfig (replacing the old
 // ValidationError) now live in validator.hpp -- include that header where
 // they're needed.
-
-// Summary of a single freight lane, produced by Reporter.
-// TODO(mahib): confirm summary fields (lane id, weight, cube, stops, etc.).
-struct LaneSummary {
-    std::string lane_id;  // TODO(mahib)
-};
+//
+// LaneSummary (and DaySummary) now live in reporter.hpp -- include that
+// header where they're needed.
+//
+// Every scaffold struct has now moved to its own module header, so this file
+// declares nothing. It is kept as a signpost to where each type went.
 
 }  // namespace ob
