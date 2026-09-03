@@ -61,12 +61,29 @@ DaySummary Reporter::build(const JoinResult& join,
                            const std::vector<PlaceholderRecord>& placeholders,
                            const std::vector<double>& pallets_per_line,
                            const std::vector<double>& weight_per_line,
-                           const std::string& planning_day) {
+                           const std::string& planning_day,
+                           const ValidationReport& validation) {
     DaySummary day;
     day.planning_day = planning_day;
 
     const bool have_pallets = (pallets_per_line.size() == join.lines.size());
     const bool have_weight  = (weight_per_line.size()  == join.lines.size());
+
+    // A line the Validator rejected (Severity::Error) or ruled a raw material
+    // to skip ("zero_dimension") must not add to the pallet/weight totals —
+    // those figures are derived, unlike hash_total below, which is a control
+    // total against the source file and intentionally counts everything.
+    std::vector<bool> line_excluded(join.lines.size(), false);
+    for (const auto& issue : validation.issues) {
+        if (issue.line_index < 0
+            || static_cast<size_t>(issue.line_index) >= line_excluded.size()) {
+            continue;
+        }
+        if (issue.severity == ValidationIssue::Severity::Error
+            || issue.rule == "zero_dimension") {
+            line_excluded[static_cast<size_t>(issue.line_index)] = true;
+        }
+    }
 
     std::map<LaneKey, LaneSummary> lanes;
 
@@ -94,8 +111,8 @@ DaySummary Reporter::build(const JoinResult& join,
             ++day.unmatched_lines;
         }
 
-        if (have_pallets) lane.pallet_equiv += pallets_per_line[i];
-        if (have_weight)  lane.weight_lb    += weight_per_line[i];
+        if (have_pallets && !line_excluded[i]) lane.pallet_equiv += pallets_per_line[i];
+        if (have_weight  && !line_excluded[i]) lane.weight_lb    += weight_per_line[i];
     }
 
     // ── Placeholder side ────────────────────────────────────────────────────

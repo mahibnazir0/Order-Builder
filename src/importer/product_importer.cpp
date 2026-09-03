@@ -34,13 +34,26 @@ std::vector<std::string> split_csv(const std::string& line) {
 
 // Safe numeric parse: return fallback if the cell is blank or not a number,
 // rather than throwing. The Validator decides whether a 0 here is acceptable.
+//
+// std::stod/std::stoi stop at the first character they can't parse rather
+// than rejecting the whole string, so "9,500" would silently come back as 9
+// (a thousands separator, orders of magnitude off) instead of falling back.
+// Checking that the parse consumed the entire cell catches that.
 double to_double(const std::string& s, double fallback = 0.0) {
     if (s.empty()) return fallback;
-    try { return std::stod(s); } catch (...) { return fallback; }
+    try {
+        size_t consumed = 0;
+        const double v = std::stod(s, &consumed);
+        return (consumed == s.size()) ? v : fallback;
+    } catch (...) { return fallback; }
 }
 int to_int(const std::string& s, int fallback = 0) {
     if (s.empty()) return fallback;
-    try { return std::stoi(s); } catch (...) { return fallback; }
+    try {
+        size_t consumed = 0;
+        const int v = std::stoi(s, &consumed);
+        return (consumed == s.size()) ? v : fallback;
+    } catch (...) { return fallback; }
 }
 
 // Case-insensitive header match, so "UoM" / "uom" / "UOM" all resolve.

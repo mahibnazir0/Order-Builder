@@ -1,6 +1,6 @@
 #include "placeholder_importer.hpp"
 #include "logger.hpp"
-#include "json.hpp"
+#include "json_util.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -10,20 +10,6 @@ namespace ob {
 using json = nlohmann::json;
 
 namespace {
-
-// Same safe-access helper used by the demand reader: return the field, or a
-// default if it is missing, null, or the wrong type. Keeps one bad record from
-// killing the whole load; the Validator judges the data afterwards.
-template <typename T>
-T get_or(const json& j, const char* key, T fallback) {
-    auto it = j.find(key);
-    if (it == j.end() || it->is_null()) return fallback;
-    try {
-        return it->get<T>();
-    } catch (const json::exception&) {
-        return fallback;
-    }
-}
 
 PlaceholderRecord parse_placeholder(const json& j) {
     PlaceholderRecord p;

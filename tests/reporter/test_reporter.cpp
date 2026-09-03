@@ -146,6 +146,76 @@ TEST_CASE("pallet and weight columns are zero when no figures are supplied") {
     CHECK(d.lanes_total        == 371);
 }
 
+TEST_CASE("a line the Validator flags as an error is excluded from pallet and weight totals") {
+    Fixture f;
+    REQUIRE(f.pallets[0] > 0.0);   // the excluded line must actually contribute something
+
+    ValidationReport rep;
+    ValidationIssue issue;
+    issue.severity   = ValidationIssue::Severity::Error;
+    issue.rule       = "non_positive_qty";
+    issue.message    = "test";
+    issue.line_index = 0;
+    rep.issues.push_back(issue);
+    ++rep.errors;
+
+    DaySummary with_error = Reporter::build(f.join, f.placeholders.placeholders,
+                                            f.pallets, f.weights, "", rep);
+    DaySummary without_error = Reporter::build(f.join, f.placeholders.placeholders,
+                                               f.pallets, f.weights);
+
+    CHECK(with_error.total_pallet_equiv
+          == doctest::Approx(without_error.total_pallet_equiv - f.pallets[0]));
+    CHECK(with_error.total_weight_lb
+          == doctest::Approx(without_error.total_weight_lb - f.weights[0]));
+
+    // total_demand_lines and hash_total are integrity checks against the
+    // source file, not derived figures — the errored line still counts there.
+    CHECK(with_error.total_demand_lines == without_error.total_demand_lines);
+    CHECK(with_error.hash_total         == doctest::Approx(without_error.hash_total));
+}
+
+TEST_CASE("a zero_dimension warning also excludes its line, per Tom's skip-and-warn ruling") {
+    Fixture f;
+    REQUIRE(f.pallets[0] > 0.0);
+
+    ValidationReport rep;
+    ValidationIssue issue;
+    issue.severity   = ValidationIssue::Severity::Warning;
+    issue.rule       = "zero_dimension";
+    issue.message    = "test";
+    issue.line_index = 0;
+    rep.issues.push_back(issue);
+    ++rep.warnings;
+
+    DaySummary with_flag = Reporter::build(f.join, f.placeholders.placeholders,
+                                           f.pallets, f.weights, "", rep);
+    DaySummary without_flag = Reporter::build(f.join, f.placeholders.placeholders,
+                                              f.pallets, f.weights);
+
+    CHECK(with_flag.total_pallet_equiv
+          == doctest::Approx(without_flag.total_pallet_equiv - f.pallets[0]));
+}
+
+TEST_CASE("an ordinary warning does not exclude its line from the totals") {
+    Fixture f;
+    ValidationReport rep;
+    ValidationIssue issue;
+    issue.severity   = ValidationIssue::Severity::Warning;
+    issue.rule       = "ambiguous_pallet_type";
+    issue.message    = "test";
+    issue.line_index = 0;
+    rep.issues.push_back(issue);
+    ++rep.warnings;
+
+    DaySummary with_flag = Reporter::build(f.join, f.placeholders.placeholders,
+                                           f.pallets, f.weights, "", rep);
+    DaySummary without_flag = Reporter::build(f.join, f.placeholders.placeholders,
+                                              f.pallets, f.weights);
+
+    CHECK(with_flag.total_pallet_equiv == doctest::Approx(without_flag.total_pallet_equiv));
+}
+
 TEST_CASE("printed summary contains the key figures and the pallet-eq note") {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,

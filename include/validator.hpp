@@ -55,6 +55,7 @@ struct ValidationReport {
     int unmatched_product   = 0;
     int unknown_uom         = 0;
     int non_positive_qty    = 0;
+    int zero_unit_load      = 0;   // CS line whose product has Cases_Unit_Load == 0
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
     int ambiguous_pallet    = 0;   // variant chosen by preference, not by data

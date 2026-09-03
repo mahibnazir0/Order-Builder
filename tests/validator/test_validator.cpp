@@ -41,6 +41,7 @@ TEST_CASE("clean input produces no errors") {
     CHECK(r.unmatched_product == 0);
     CHECK(r.unknown_uom       == 0);
     CHECK(r.non_positive_qty  == 0);
+    CHECK(r.zero_unit_load    == 0);
     CHECK(r.zero_dimension    == 0);
     CHECK(r.blank_uom_product == 0);
 }
@@ -92,6 +93,64 @@ TEST_CASE("non-positive quantity is an error") {
     ValidationReport r = Validator::validate(j);
     CHECK(r.non_positive_qty == 1);
     CHECK(r.errors == 1);
+}
+
+TEST_CASE("a CS line whose product has Cases_Unit_Load 0 is an error") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.cases_unit_load = 0;
+    j.lines[0].product = &bad_product;
+
+    static STRRecord cs_line = *j.lines[0].str;
+    cs_line.unitofmeas = "CS";
+    j.lines[0].str = &cs_line;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.zero_unit_load == 1);
+    CHECK(r.errors >= 1);
+    CHECK(count_rule(r, "zero_unit_load") == 1);
+}
+
+TEST_CASE("Cases_Unit_Load of 0 is not flagged for a non-CS line") {
+    // Only CS lines divide by Cases_Unit_Load — PAL/DIS pass TRANS straight
+    // through, so a 0 there is irrelevant and must not be reported.
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.cases_unit_load = 0;
+    j.lines[0].product = &bad_product;
+
+    static STRRecord pal_line = *j.lines[0].str;
+    pal_line.unitofmeas = "PAL";
+    j.lines[0].str = &pal_line;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.zero_unit_load == 0);
+}
+
+TEST_CASE("large-line warning message rounds rather than truncates") {
+    Fixture f;
+    std::vector<double> pallets(f.join.lines.size(), 300.97);
+
+    ValidationConfig cfg;
+    cfg.pallet_warn_threshold = 300.0;
+
+    ValidationReport r = Validator::validate(f.join, pallets, cfg);
+    bool found = false;
+    for (const auto& issue : r.issues) {
+        if (issue.rule == "large_line") {
+            found = true;
+            // 300.97 is meaningfully over threshold; truncating to 300 would
+            // hide that.
+            CHECK(issue.message.find("301 pallets") != std::string::npos);
+        }
+    }
+    CHECK(found);
 }
 
 TEST_CASE("unmatched product is an error and the line survives") {

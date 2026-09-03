@@ -1,8 +1,10 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "product_importer.hpp"
-#include <stdexcept>
 #include <algorithm>
+#include <cstdio>
+#include <fstream>
+#include <stdexcept>
 
 using namespace ob;
 
@@ -68,6 +70,29 @@ TEST_CASE("the one bad record (zero dims + zero cases_unit_load) is present, not
         if (p.length_in == 0.0 && p.width_in == 0.0 && p.height_in == 0.0) ++zero_dim;
     }
     CHECK(zero_dim >= 1);   // reader keeps it; Validator will skip+warn later
+}
+
+TEST_CASE("a numeric cell with trailing garbage falls back instead of partially parsing") {
+    // std::stod/std::stoi stop at the first character they can't parse rather
+    // than rejecting the whole string, so "9500x" would silently parse as
+    // 9500.0 instead of being rejected. A literal comma (a thousands
+    // separator, e.g. "9,500") would demonstrate the same defect, but
+    // split_csv is not quote-aware, so an unquoted comma would just misalign
+    // the columns instead of exercising this code path — trailing letters
+    // isolate the same bug without that complication.
+    const std::string path = "tests/importer/_tmp_trailing_garbage.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,5,CS,9500x,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(r.products[0].weight_lb == doctest::Approx(0.0));
 }
 
 TEST_CASE("missing file throws, does not crash") {

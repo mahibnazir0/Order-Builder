@@ -5,6 +5,7 @@
 // Levels: DEBUG < INFO < WARN < ERROR. DEBUG output is suppressed unless
 // Logger::instance().set_debug(true) has been called.
 
+#include <atomic>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -24,12 +25,12 @@ public:
     Logger& operator=(const Logger&) = delete;
 
     void set_debug(bool enabled) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        debug_enabled_ = enabled;
+        debug_enabled_.store(enabled, std::memory_order_relaxed);
     }
 
     void log(LogLevel level, const std::string& message) {
-        if (level == LogLevel::kDebug && !debug_enabled_) {
+        if (level == LogLevel::kDebug
+            && !debug_enabled_.load(std::memory_order_relaxed)) {
             return;
         }
         std::lock_guard<std::mutex> lock(mutex_);
@@ -55,7 +56,7 @@ private:
     }
 
     std::mutex mutex_;
-    bool debug_enabled_ = false;
+    std::atomic<bool> debug_enabled_{false};
 };
 
 }  // namespace ob

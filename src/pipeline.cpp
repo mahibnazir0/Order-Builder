@@ -51,7 +51,8 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
                                      result.placeholders.placeholders,
                                      result.pallets_per_line,
                                      result.weight_per_line,
-                                     inputs.planning_day);
+                                     inputs.planning_day,
+                                     result.validation);
 
     return result;
 }
