@@ -103,6 +103,7 @@ DaySummary Reporter::build(const JoinResult& join,
         ++lane.demand_lines;
         ++day.total_demand_lines;
         day.hash_total += s.trans;   // every line counts, matched or not
+        if (line_excluded[i]) ++day.excluded_lines;
 
         if (jl.matched) {
             ++lane.matched_lines;
@@ -172,6 +173,10 @@ void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_l
     }
     out << "\n";
     out << "  Unmatched lines           " << grouped(day.unmatched_lines) << "\n";
+    // Printed even at zero: the reader should see that nothing was dropped,
+    // not have to infer it from an absent line.
+    out << "  Excluded from totals      " << grouped(day.excluded_lines)
+        << "  (validation errors)\n";
     out << "  Hash total (all demand)   " << grouped(day.hash_total) << " units\n";
     out << "  Total pallet-equivalents  " << grouped(day.total_pallet_equiv, 1) << "\n";
     out << "  Total weight              " << grouped(day.total_weight_lb) << " lb\n";

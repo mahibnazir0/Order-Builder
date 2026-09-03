@@ -89,7 +89,7 @@ ValidationReport Validator::validate(const JoinResult& join,
         if (s.unitofmeas == "CS" && p.cases_unit_load == 0) {
             ++rep.zero_unit_load;
             add(rep, ValidationIssue::Severity::Error, "zero_unit_load",
-                "Product's Cases_Unit_Load is 0 — cannot convert cases to pallets",
+                "Product's Cases_Unit_Load is 0, cannot convert cases to pallets",
                 s.matnr, idx);
         }
 
@@ -107,7 +107,7 @@ ValidationReport Validator::validate(const JoinResult& join,
         if (p.length_in == 0.0 || p.width_in == 0.0 || p.height_in == 0.0) {
             ++rep.zero_dimension;
             add(rep, ValidationIssue::Severity::Warning, "zero_dimension",
-                "Product has a zero dimension (raw material) — line skipped",
+                "Product has a zero dimension (raw material), line skipped",
                 s.matnr, idx);
         }
 
@@ -124,7 +124,7 @@ ValidationReport Validator::validate(const JoinResult& join,
             ++rep.over_pallet_threshold;
             add(rep, ValidationIssue::Severity::Warning, "large_line",
                 "Line resolves to " + std::to_string(std::llround(pallets_per_line[i]))
-                    + " pallets, above the review threshold — check the unit of measure",
+                    + " pallets, above the review threshold, check the unit of measure",
                 s.matnr, idx);
         }
     }

@@ -216,6 +216,38 @@ TEST_CASE("an ordinary warning does not exclude its line from the totals") {
     CHECK(with_flag.total_pallet_equiv == doctest::Approx(without_flag.total_pallet_equiv));
 }
 
+TEST_CASE("excluded_lines counts the lines dropped from the totals") {
+    Fixture f;
+
+    // Three distinct lines rejected as errors, one of them flagged twice:
+    // the counter is per line, not per issue.
+    ValidationReport rep;
+    for (int idx : {0, 1, 2, 2}) {
+        ValidationIssue issue;
+        issue.severity   = ValidationIssue::Severity::Error;
+        issue.rule       = "non_positive_qty";
+        issue.message    = "test";
+        issue.line_index = idx;
+        rep.issues.push_back(issue);
+        ++rep.errors;
+    }
+
+    DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
+                                   f.pallets, f.weights, "", rep);
+    CHECK(d.excluded_lines == 3);
+
+    // With no report nothing is excluded, and the summary still says so:
+    // the zero is printed, not implied by absence.
+    DaySummary clean = Reporter::build(f.join, f.placeholders.placeholders,
+                                       f.pallets, f.weights);
+    CHECK(clean.excluded_lines == 0);
+
+    std::ostringstream out;
+    Reporter::print_summary(clean, out, 5);
+    CHECK(out.str().find("Excluded from totals      0") != std::string::npos);
+    CHECK(out.str().find("(validation errors)")         != std::string::npos);
+}
+
 TEST_CASE("printed summary contains the key figures and the pallet-eq note") {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,

@@ -56,6 +56,11 @@ struct DaySummary {
     int matched_lines      = 0;
     int unmatched_lines    = 0;
 
+    // Lines whose figures were kept out of the pallet and weight totals
+    // because the Validator rejected them. Reported even when zero, so an
+    // exclusion is never silent.
+    int excluded_lines     = 0;
+
     double hash_total   = 0.0;   // sum of every TRANS — Tom's integrity check
     double total_pallet_equiv = 0.0;
     double total_weight_lb    = 0.0;
