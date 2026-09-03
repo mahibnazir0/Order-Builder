@@ -2,6 +2,7 @@
 #include "logger.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ob {
 
@@ -82,6 +83,16 @@ ValidationReport Validator::validate(const JoinResult& join,
 
         const ProductRecord& p = *jl.product;
 
+        // A CS line with no Cases_Unit_Load has no way to convert to pallets:
+        // the Converter returns 0.0 for it rather than dividing by zero, and
+        // that has to be surfaced here or the line silently reports as empty.
+        if (s.unitofmeas == "CS" && p.cases_unit_load == 0) {
+            ++rep.zero_unit_load;
+            add(rep, ValidationIssue::Severity::Error, "zero_unit_load",
+                "Product's Cases_Unit_Load is 0 — cannot convert cases to pallets",
+                s.matnr, idx);
+        }
+
         // Pallet-type variant was chosen by preference order, not by the data.
         if (jl.ambiguous) {
             ++rep.ambiguous_pallet;
@@ -112,7 +123,7 @@ ValidationReport Validator::validate(const JoinResult& join,
         if (have_pallets && pallets_per_line[i] > config.pallet_warn_threshold) {
             ++rep.over_pallet_threshold;
             add(rep, ValidationIssue::Severity::Warning, "large_line",
-                "Line resolves to " + std::to_string(static_cast<long>(pallets_per_line[i]))
+                "Line resolves to " + std::to_string(std::llround(pallets_per_line[i]))
                     + " pallets, above the review threshold — check the unit of measure",
                 s.matnr, idx);
         }

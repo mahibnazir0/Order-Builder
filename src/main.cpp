@@ -52,7 +52,7 @@ void print_usage(std::ostream& out) {
 // Reports a missing value rather than reading past the end of argv.
 bool take_value(int argc, char** argv, int& i, const char* flag, std::string& out) {
     if (i + 1 >= argc) {
-        std::cerr << "Error: " << flag << " needs a value\n";
+        LOG_ERROR(std::string(flag) + " needs a value");
         return false;
     }
     out = argv[++i];
@@ -90,11 +90,11 @@ int main(int argc, char** argv) {
             try {
                 max_lanes = std::stoi(value);
             } catch (const std::exception&) {
-                std::cerr << "Error: --lanes needs a number, got '" << value << "'\n";
+                LOG_ERROR("--lanes needs a number, got '" + value + "'");
                 return 2;
             }
         } else {
-            std::cerr << "Error: unrecognised option '" << arg << "'\n\n";
+            LOG_ERROR("unrecognised option '" + arg + "'");
             print_usage(std::cerr);
             return 2;
         }
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
     // ── Check the required arguments are present ────────────────────────────
     if (inputs.product_path.empty() || inputs.demand_path.empty()
         || inputs.placeholder_path.empty()) {
-        std::cerr << "Error: --product, --demand and --placeholder are all required\n\n";
+        LOG_ERROR("--product, --demand and --placeholder are all required");
         print_usage(std::cerr);
         return 2;
     }
@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
         return (result.validation.errors > 0) ? 1 : 0;
 
     } catch (const std::exception& e) {
-        std::cerr << "\nError: " << e.what() << "\n";
+        LOG_ERROR(e.what());
         return 2;
     }
 }

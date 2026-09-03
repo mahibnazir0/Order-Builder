@@ -78,11 +78,19 @@ public:
     // must be parallel to join.lines. They come from the Converter via the
     // caller, so the Reporter holds no conversion logic of its own. Pass empty
     // vectors and the pallet and weight columns report zero.
+    //
+    // validation is optional. When supplied, a line that carries a
+    // Severity::Error issue — or the "zero_dimension" raw-material warning,
+    // per Tom's "skip and warn" ruling — is left out of the pallet and weight
+    // totals: the Validator caught it, so it must not silently corrupt the
+    // summary. The line still counts toward total_demand_lines and hash_total,
+    // which are integrity checks against the source file, not derived figures.
     static DaySummary build(const JoinResult& join,
                             const std::vector<PlaceholderRecord>& placeholders,
                             const std::vector<double>& pallets_per_line = {},
                             const std::vector<double>& weight_per_line  = {},
-                            const std::string& planning_day = "");
+                            const std::string& planning_day = "",
+                            const ValidationReport& validation = {});
 
     // Print the top-line summary and the per-lane table.
     // max_lanes limits how many rows are printed; 0 means all of them.

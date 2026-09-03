@@ -61,6 +61,10 @@ public:
     // Assumed weight of a wood pallet. Documented assumption, not Tom's figure.
     static constexpr double kWoodPalletWeightLb = 60.0;
 
+    // Neither inches_to_cm/cm_to_inches nor to_cm is called by the M1
+    // pipeline — no stage needs a product's dimensions in centimetres yet.
+    // Kept (and tested) for Milestone 2 load building, where dimensions
+    // decide what fits on a truck; delete if that turns out not to need them.
     static double inches_to_cm(double inches);
     static double cm_to_inches(double cm);
 

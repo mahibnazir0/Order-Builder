@@ -1,6 +1,6 @@
 #include "importer.hpp"
 #include "logger.hpp"
-#include "json.hpp"
+#include "json_util.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -10,20 +10,6 @@ namespace ob {
 using json = nlohmann::json;
 
 namespace {
-
-// Safe field access: return j[key] as type T, or `fallback` if the key is
-// missing or null. Keeps a bad record from killing the whole load — the
-// Validator handles "is this record actually acceptable" later.
-template <typename T>
-T get_or(const json& j, const char* key, T fallback) {
-    auto it = j.find(key);
-    if (it == j.end() || it->is_null()) return fallback;
-    try {
-        return it->get<T>();
-    } catch (const json::exception&) {
-        return fallback;   // wrong type in the file — leave it to the Validator
-    }
-}
 
 STRRecord parse_str(const json& j) {
     STRRecord r;
