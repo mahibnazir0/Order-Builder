@@ -20,6 +20,7 @@
 // ============================================================================
 
 #include "joiner.hpp"
+#include "placeholder_types.hpp"
 #include <string>
 #include <vector>
 
@@ -42,6 +43,12 @@ struct ValidationIssue {
     std::string message;     // human-readable detail
     std::string matnr;       // material number, where applicable
     int         line_index = -1;  // position in the demand file, for traceability
+
+    // Position in placeholders[], for issues raised by validate_placeholders.
+    // -1 for every demand-line issue above; kept as a separate index space
+    // (rather than reusing line_index) so the two can never be confused when
+    // the Reporter decides what to exclude from which total.
+    int placeholder_index = -1;
 };
 
 struct ValidationReport {
@@ -56,10 +63,17 @@ struct ValidationReport {
     int unknown_uom         = 0;
     int non_positive_qty    = 0;
     int zero_unit_load      = 0;   // CS line whose product has Cases_Unit_Load == 0
+    int negative_unit_load  = 0;   // product's Cases_Unit_Load is negative
+    int invalid_weight      = 0;   // product's Weight is negative or non-finite (NaN/Inf)
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
+    int unrecognized_pallet_id = 0; // not one of Joiner's known pallet types
     int ambiguous_pallet    = 0;   // variant chosen by preference, not by data
     int over_pallet_threshold = 0; // the phantom-truck warning
+
+    // From validate_placeholders, not the demand join above.
+    int negative_load_count     = 0; // placeholder's NO_OF_LOADS is negative
+    int missing_lane_identifier = 0; // placeholder has a blank LOCFRNO or LOCTONO
 };
 
 class Validator {
@@ -73,6 +87,15 @@ public:
     static ValidationReport validate(const JoinResult& join,
                                      const std::vector<double>& pallets_per_line = {},
                                      const ValidationConfig& config = {});
+
+    // Checks the placeholder file's own fields, which validate() above never
+    // sees: a negative NO_OF_LOADS or a blank lane identifier would otherwise
+    // reach the truck-count totals with nothing having looked at it. Appends
+    // to `report` (usually the same report validate() produced) rather than
+    // returning a separate one, so the CLI's single error/warning count and
+    // print_warnings grouping cover placeholders too.
+    static void validate_placeholders(const std::vector<PlaceholderRecord>& placeholders,
+                                      ValidationReport& report);
 };
 
 } // namespace ob

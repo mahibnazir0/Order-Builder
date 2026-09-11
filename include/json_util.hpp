@@ -6,6 +6,7 @@
 #include "json.hpp"
 #include "logger.hpp"
 
+#include <stdexcept>
 #include <string>
 
 namespace ob {
@@ -26,6 +27,24 @@ T get_or(const nlohmann::json& j, const char* key, T fallback) {
                   "using fallback: " + e.what());
         return fallback;
     }
+}
+
+// A top-level block (STR, CTL, DNM, PHOLDER, ...) is optional: absent means
+// "no records of this kind." Returns nullptr for that case. But if the key
+// IS present, it must be an array — a present-but-wrong-shaped block (e.g.
+// STR given as a JSON object) is malformed input, not an empty one, and
+// `contains(key) && is_array()` would silently treat the two as the same
+// thing. `context` names the file/block in the thrown message.
+inline const nlohmann::json* get_optional_array(const nlohmann::json& j,
+                                                 const char* key,
+                                                 const char* context) {
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return nullptr;
+    if (!it->is_array()) {
+        throw std::runtime_error(std::string(context) + ": '" + key
+                                  + "' is present but is not an array");
+    }
+    return &(*it);
 }
 
 } // namespace ob

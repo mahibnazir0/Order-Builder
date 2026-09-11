@@ -34,6 +34,18 @@ struct PipelineInputs {
 // Everything the run produced. Held together so a caller (or a test) can
 // inspect any stage without re-running the earlier ones.
 struct PipelineResult {
+    PipelineResult() = default;
+
+    // `join` (via JoinedLine) holds raw pointers into `demand` and `products`.
+    // Copying this struct would duplicate those containers while the pointers
+    // kept referencing the original's memory — a use-after-free the moment
+    // the original is destroyed. Move-only sidesteps that instead of writing
+    // a copy that has to rebuild every pointer against the new containers.
+    PipelineResult(const PipelineResult&)            = delete;
+    PipelineResult& operator=(const PipelineResult&) = delete;
+    PipelineResult(PipelineResult&&)                 = default;
+    PipelineResult& operator=(PipelineResult&&)      = default;
+
     DemandFile             demand;
     ProductLoadResult      products;
     PlaceholderLoadResult  placeholders;

@@ -41,9 +41,12 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
 
     PlaceholderLoadResult result;
 
-    if (root.contains("PHOLDER") && root["PHOLDER"].is_array()) {
-        result.placeholders.reserve(root["PHOLDER"].size());
-        for (const auto& item : root["PHOLDER"]) {
+    // Present but the wrong shape (e.g. PHOLDER as an object) is malformed
+    // input and throws instead of being treated as an absent block — see
+    // get_optional_array.
+    if (const auto* pholder = get_optional_array(root, "PHOLDER", "Placeholder file")) {
+        result.placeholders.reserve(pholder->size());
+        for (const auto& item : *pholder) {
             PlaceholderRecord p = parse_placeholder(item);
             result.total_loads += p.no_of_loads;
             result.placeholders.push_back(p);

@@ -12,6 +12,7 @@
 
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 using namespace ob;
 
@@ -192,6 +193,41 @@ TEST_CASE("ACCEPTANCE: a missing input file fails cleanly, naming the file") {
         const std::string msg = e.what();
         CHECK(msg.find("does/not/exist.json") != std::string::npos);
     }
+}
+
+TEST_CASE("PipelineResult is move-only: a copy can never dangle-reference the original") {
+    // join (via JoinedLine) holds raw pointers into demand and products.
+    // Copying PipelineResult would duplicate those containers while the
+    // pointers kept referencing the original's memory — a use-after-free
+    // once the original goes out of scope. This must fail to compile, not
+    // fail at runtime under ASan.
+    static_assert(!std::is_copy_constructible<PipelineResult>::value,
+                  "PipelineResult must not be copy-constructible");
+    static_assert(!std::is_copy_assignable<PipelineResult>::value,
+                  "PipelineResult must not be copy-assignable");
+    static_assert(std::is_move_constructible<PipelineResult>::value,
+                  "PipelineResult must stay movable so Pipeline::run can return it");
+    CHECK(true);   // the assertions above are the actual test
+}
+
+TEST_CASE("ACCEPTANCE: a placeholder with a negative NO_OF_LOADS is flagged and excluded") {
+    PipelineResult r = Pipeline::run(real_inputs());
+    REQUIRE(!r.placeholders.placeholders.empty());
+    REQUIRE(r.placeholders.placeholders[0].no_of_loads > 0);
+
+    std::vector<PlaceholderRecord> placeholders = r.placeholders.placeholders;
+    const int original_loads = placeholders[0].no_of_loads;
+    placeholders[0].no_of_loads = -3;
+
+    ValidationReport rep = r.validation;   // clean report — nothing else flagged
+    Validator::validate_placeholders(placeholders, rep);
+    CHECK(rep.negative_load_count == 1);
+    CHECK(rep.errors >= 1);
+
+    DaySummary summary = Reporter::build(r.join, placeholders, r.pallets_per_line,
+                                         r.weight_per_line, "", rep);
+    CHECK(summary.excluded_placeholders == 1);
+    CHECK(summary.trucks_requested == r.summary.trucks_requested - original_loads);
 }
 
 TEST_CASE("ACCEPTANCE: pipeline stages agree with each other") {

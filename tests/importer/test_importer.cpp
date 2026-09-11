@@ -3,6 +3,8 @@
 // the header.
 #include "doctest.h"
 #include "importer.hpp"
+#include <cstdio>
+#include <fstream>
 #include <stdexcept>
 
 using namespace ob;
@@ -58,6 +60,51 @@ TEST_CASE("CTL and DNM blocks parse") {
 
 TEST_CASE("missing file throws, does not crash") {
     CHECK_THROWS_AS(Importer::load_demand("does/not/exist.json"), std::runtime_error);
+}
+
+TEST_CASE("STR present but the wrong JSON type throws, rather than loading zero lines") {
+    // A block given as an object instead of an array must not be treated the
+    // same as an absent block — that would silently produce zero demand
+    // lines with a successful exit.
+    const std::string path = "tests/importer/_tmp_str_wrong_type.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X","STR":{"MATNR":"1"}})";
+    }
+    CHECK_THROWS_AS(Importer::load_demand(path), std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("CTL and DNM present but the wrong JSON type also throw") {
+    const std::string ctlPath = "tests/importer/_tmp_ctl_wrong_type.json";
+    {
+        std::ofstream out(ctlPath);
+        out << R"({"REQUEST_ID":"X","CTL":"not-an-array"})";
+    }
+    CHECK_THROWS_AS(Importer::load_demand(ctlPath), std::runtime_error);
+    std::remove(ctlPath.c_str());
+
+    const std::string dnmPath = "tests/importer/_tmp_dnm_wrong_type.json";
+    {
+        std::ofstream out(dnmPath);
+        out << R"({"REQUEST_ID":"X","DNM":42})";
+    }
+    CHECK_THROWS_AS(Importer::load_demand(dnmPath), std::runtime_error);
+    std::remove(dnmPath.c_str());
+}
+
+TEST_CASE("STR genuinely absent still loads cleanly with zero demand lines") {
+    // An absent block is a different case from a malformed one: it is a
+    // legitimate empty result, not an error.
+    const std::string path = "tests/importer/_tmp_str_absent.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X"})";
+    }
+    DemandFile d = Importer::load_demand(path);
+    CHECK(d.str.empty());
+    CHECK(d.request_id == "X");
+    std::remove(path.c_str());
 }
 
 TEST_CASE("UNITOFMEAS only ever CS, DIS or PAL in this file") {
