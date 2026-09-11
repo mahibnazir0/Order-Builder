@@ -61,6 +61,10 @@ struct DaySummary {
     // exclusion is never silent.
     int excluded_lines     = 0;
 
+    // Same idea, for placeholders the Validator rejected (negative
+    // NO_OF_LOADS, missing lane identifier): kept out of trucks_requested.
+    int excluded_placeholders = 0;
+
     double hash_total   = 0.0;   // sum of every TRANS — Tom's integrity check
     double total_pallet_equiv = 0.0;
     double total_weight_lb    = 0.0;

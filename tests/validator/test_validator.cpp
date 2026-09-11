@@ -4,6 +4,7 @@
 #include "importer.hpp"
 #include "product_importer.hpp"
 #include <algorithm>
+#include <cmath>
 
 using namespace ob;
 
@@ -44,6 +45,7 @@ TEST_CASE("clean input produces no errors") {
     CHECK(r.zero_unit_load    == 0);
     CHECK(r.zero_dimension    == 0);
     CHECK(r.blank_uom_product == 0);
+    CHECK(r.unrecognized_pallet_id == 0);
 }
 
 TEST_CASE("ambiguous pallet-type matches are surfaced as warnings") {
@@ -131,6 +133,120 @@ TEST_CASE("Cases_Unit_Load of 0 is not flagged for a non-CS line") {
 
     ValidationReport r = Validator::validate(j);
     CHECK(r.zero_unit_load == 0);
+}
+
+TEST_CASE("a negative Cases_Unit_Load is an error, not a silently negative pallet count") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.cases_unit_load = -10;
+    j.lines[0].product = &bad_product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.negative_unit_load == 1);
+    CHECK(r.errors >= 1);
+    CHECK(count_rule(r, "negative_unit_load") == 1);
+}
+
+TEST_CASE("a non-finite product weight is an error, not a silently NaN total") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.weight_lb = std::nan("");
+    j.lines[0].product = &bad_product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.invalid_weight == 1);
+    CHECK(r.errors >= 1);
+    CHECK(count_rule(r, "invalid_weight") == 1);
+}
+
+TEST_CASE("a negative product weight is an error") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.weight_lb = -5.0;
+    j.lines[0].product = &bad_product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.invalid_weight == 1);
+}
+
+TEST_CASE("an unrecognized Pallet_ID is a warning, not silently 'no wood'") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.pallet_id = "XYZ";   // not TLD/PTL/PGM/GMA
+    j.lines[0].product = &bad_product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unrecognized_pallet_id == 1);
+    CHECK(count_rule(r, "unrecognized_pallet_id") == 1);
+    CHECK(r.errors == 0);   // a data-quality warning, never blocks the run
+}
+
+TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord bad_product = *j.lines[0].product;
+    bad_product.pallet_id = "";
+    j.lines[0].product = &bad_product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unrecognized_pallet_id == 1);
+}
+
+TEST_CASE("a placeholder with a negative NO_OF_LOADS is an error") {
+    std::vector<PlaceholderRecord> placeholders(1);
+    placeholders[0].locfrno    = "2023";
+    placeholders[0].loctono    = "2528";
+    placeholders[0].no_of_loads = -3;
+
+    ValidationReport r;
+    Validator::validate_placeholders(placeholders, r);
+
+    CHECK(r.negative_load_count == 1);
+    CHECK(r.errors == 1);
+    CHECK(count_rule(r, "negative_load_count") == 1);
+    REQUIRE(r.issues.size() == 1);
+    CHECK(r.issues[0].placeholder_index == 0);
+    CHECK(r.issues[0].line_index == -1);   // must never be read as a demand line
+}
+
+TEST_CASE("a placeholder with a blank lane identifier is an error") {
+    std::vector<PlaceholderRecord> placeholders(1);
+    placeholders[0].locfrno     = "";
+    placeholders[0].loctono     = "2528";
+    placeholders[0].no_of_loads = 2;
+
+    ValidationReport r;
+    Validator::validate_placeholders(placeholders, r);
+
+    CHECK(r.missing_lane_identifier == 1);
+    CHECK(count_rule(r, "missing_lane_identifier") == 1);
+}
+
+TEST_CASE("a well-formed placeholder produces no validation issues") {
+    std::vector<PlaceholderRecord> placeholders(1);
+    placeholders[0].locfrno     = "2023";
+    placeholders[0].loctono     = "2528";
+    placeholders[0].no_of_loads = 5;
+
+    ValidationReport r;
+    Validator::validate_placeholders(placeholders, r);
+
+    CHECK(r.errors == 0);
+    CHECK(r.issues.empty());
 }
 
 TEST_CASE("large-line warning message rounds rather than truncates") {

@@ -85,6 +85,20 @@ DaySummary Reporter::build(const JoinResult& join,
         }
     }
 
+    // Same idea for placeholders (negative NO_OF_LOADS, missing lane
+    // identifier): kept in placeholder_index, a separate index space from
+    // line_index above, so the two can never be cross-applied by accident.
+    std::vector<bool> placeholder_excluded(placeholders.size(), false);
+    for (const auto& issue : validation.issues) {
+        if (issue.placeholder_index < 0
+            || static_cast<size_t>(issue.placeholder_index) >= placeholder_excluded.size()) {
+            continue;
+        }
+        if (issue.severity == ValidationIssue::Severity::Error) {
+            placeholder_excluded[static_cast<size_t>(issue.placeholder_index)] = true;
+        }
+    }
+
     std::map<LaneKey, LaneSummary> lanes;
 
     // ── Demand side ─────────────────────────────────────────────────────────
@@ -117,13 +131,21 @@ DaySummary Reporter::build(const JoinResult& join,
     }
 
     // ── Placeholder side ────────────────────────────────────────────────────
-    for (const auto& p : placeholders) {
+    for (size_t i = 0; i < placeholders.size(); ++i) {
+        const PlaceholderRecord& p = placeholders[i];
         LaneKey key{p.locfrno, p.loctono, p.ship_cond};
         LaneSummary& lane = lanes[key];
         lane.locfrno   = p.locfrno;
         lane.loctono   = p.loctono;
         lane.ship_cond = p.ship_cond;
         lane.has_placeholder = true;
+
+        if (placeholder_excluded[i]) {
+            ++day.excluded_placeholders;
+            continue;   // the Validator rejected this record; keep it out of
+                        // the truck count rather than let a negative load
+                        // count (or a bogus blank-lane merge) corrupt it
+        }
         lane.trucks_requested += p.no_of_loads;
         day.trucks_requested  += p.no_of_loads;
     }
@@ -187,6 +209,8 @@ void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_l
     out << "    demand only             " << grouped(day.lanes_demand_only) << "\n";
     out << "    placeholder only        " << grouped(day.lanes_placeholder_only) << "\n";
     out << "  Trucks requested          " << grouped(day.trucks_requested) << "\n";
+    out << "  Excluded placeholders     " << grouped(day.excluded_placeholders)
+        << "  (validation errors)\n";
     out << "\n";
 
     // ── Per-lane table ──────────────────────────────────────────────────────

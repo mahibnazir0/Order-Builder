@@ -2,8 +2,10 @@
 // implementing translation unit only (see tests/importer/test_importer.cpp).
 #include "doctest.h"
 #include "placeholder_importer.hpp"
-#include <stdexcept>
 #include <algorithm>
+#include <cstdio>
+#include <fstream>
+#include <stdexcept>
 
 using namespace ob;
 
@@ -74,4 +76,26 @@ TEST_CASE("lane triplets are unique — no de-dup needed") {
 
 TEST_CASE("missing file throws, does not crash") {
     CHECK_THROWS_AS(PlaceholderImporter::load("does/not/exist.json"), std::runtime_error);
+}
+
+TEST_CASE("PHOLDER present but the wrong JSON type throws") {
+    const std::string path = "tests/importer/_tmp_pholder_wrong_type.json";
+    {
+        std::ofstream out(path);
+        out << R"({"PHOLDER":{"LOCFRNO":"2023"}})";
+    }
+    CHECK_THROWS_AS(PlaceholderImporter::load(path), std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
+    const std::string path = "tests/importer/_tmp_pholder_absent.json";
+    {
+        std::ofstream out(path);
+        out << R"({})";
+    }
+    PlaceholderLoadResult r = PlaceholderImporter::load(path);
+    CHECK(r.placeholders.empty());
+    CHECK(r.total_loads == 0);
+    std::remove(path.c_str());
 }

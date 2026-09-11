@@ -13,13 +13,15 @@ void add(ValidationReport& rep,
          const std::string& rule,
          const std::string& message,
          const std::string& matnr,
-         int index) {
+         int index,
+         int placeholder_index = -1) {
     ValidationIssue issue;
-    issue.severity   = sev;
-    issue.rule       = rule;
-    issue.message    = message;
-    issue.matnr      = matnr;
-    issue.line_index = index;
+    issue.severity          = sev;
+    issue.rule              = rule;
+    issue.message           = message;
+    issue.matnr             = matnr;
+    issue.line_index        = index;
+    issue.placeholder_index = placeholder_index;
     rep.issues.push_back(issue);
 
     if (sev == ValidationIssue::Severity::Error) ++rep.errors;
@@ -93,6 +95,22 @@ ValidationReport Validator::validate(const JoinResult& join,
                 s.matnr, idx);
         }
 
+        // A negative Cases_Unit_Load or a negative/non-finite Weight is bad
+        // master data that corrupts every downstream figure without raising
+        // anything on its own — a -10 divides trans into -10 pallets, and a
+        // NaN weight propagates into a NaN total. Both need to be caught here
+        // at the source rather than checking every place they get used.
+        if (p.cases_unit_load < 0) {
+            ++rep.negative_unit_load;
+            add(rep, ValidationIssue::Severity::Error, "negative_unit_load",
+                "Product's Cases_Unit_Load is negative", s.matnr, idx);
+        }
+        if (!std::isfinite(p.weight_lb) || p.weight_lb < 0.0) {
+            ++rep.invalid_weight;
+            add(rep, ValidationIssue::Severity::Error, "invalid_weight",
+                "Product's Weight is not a finite, non-negative number", s.matnr, idx);
+        }
+
         // Pallet-type variant was chosen by preference order, not by the data.
         if (jl.ambiguous) {
             ++rep.ambiguous_pallet;
@@ -117,6 +135,21 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product master row has no unit of measure", s.matnr, idx);
         }
 
+        // Converter::pallet_has_wood only recognises the same set the Joiner
+        // already treats as the known pallet types. Anything else (blank, a
+        // typo, a new type not yet added here) silently reads as "not wood"
+        // and understates weight by kWoodPalletWeightLb with nothing to flag
+        // it — checked against Joiner's list rather than a second literal set
+        // that could drift out of sync with it.
+        const auto& known_pallet_types = Joiner::default_pallet_preference();
+        if (std::find(known_pallet_types.begin(), known_pallet_types.end(), p.pallet_id)
+                == known_pallet_types.end()) {
+            ++rep.unrecognized_pallet_id;
+            add(rep, ValidationIssue::Severity::Warning, "unrecognized_pallet_id",
+                "Product's Pallet_ID '" + p.pallet_id + "' is not one of the known types",
+                s.matnr, idx);
+        }
+
         // ── Phantom-truck warning ───────────────────────────────────────────
         // See the header: no hard rule exists in the supplied data, so this is
         // a configurable threshold for human review, never an automatic reject.
@@ -134,6 +167,29 @@ ValidationReport Validator::validate(const JoinResult& join,
              + std::to_string(join.lines.size()) + " demand lines");
 
     return rep;
+}
+
+void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& placeholders,
+                                      ValidationReport& rep) {
+    for (size_t i = 0; i < placeholders.size(); ++i) {
+        const PlaceholderRecord& p = placeholders[i];
+        const int idx = static_cast<int>(i);
+
+        // Blank LOCFRNO/LOCTONO would collapse into a bogus empty-string lane
+        // key and silently merge with any other blank-keyed placeholder.
+        if (is_blank(p.locfrno) || is_blank(p.loctono)) {
+            ++rep.missing_lane_identifier;
+            add(rep, ValidationIssue::Severity::Error, "missing_lane_identifier",
+                "Placeholder is missing LOCFRNO or LOCTONO", "", -1, idx);
+        }
+
+        if (p.no_of_loads < 0) {
+            ++rep.negative_load_count;
+            add(rep, ValidationIssue::Severity::Error, "negative_load_count",
+                "Placeholder NO_OF_LOADS is negative for lane " + p.locfrno
+                    + "->" + p.loctono, "", -1, idx);
+        }
+    }
 }
 
 } // namespace ob

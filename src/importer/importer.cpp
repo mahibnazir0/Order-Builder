@@ -73,16 +73,18 @@ DemandFile Importer::load_demand(const std::string& json_path) {
     DemandFile demand;
     demand.request_id = get_or<std::string>(root, "REQUEST_ID", "");
 
-    // Each block is optional at the top level; absent block = empty vector.
-    if (root.contains("STR") && root["STR"].is_array()) {
-        demand.str.reserve(root["STR"].size());
-        for (const auto& item : root["STR"]) demand.str.push_back(parse_str(item));
+    // Each block is optional at the top level: absent means empty. Present
+    // but the wrong shape (e.g. STR as an object) is malformed input and
+    // throws instead — see get_optional_array.
+    if (const auto* str = get_optional_array(root, "STR", "Demand file")) {
+        demand.str.reserve(str->size());
+        for (const auto& item : *str) demand.str.push_back(parse_str(item));
     }
-    if (root.contains("CTL") && root["CTL"].is_array()) {
-        for (const auto& item : root["CTL"]) demand.ctl.push_back(parse_ctl(item));
+    if (const auto* ctl = get_optional_array(root, "CTL", "Demand file")) {
+        for (const auto& item : *ctl) demand.ctl.push_back(parse_ctl(item));
     }
-    if (root.contains("DNM") && root["DNM"].is_array()) {
-        for (const auto& item : root["DNM"]) demand.dnm.push_back(parse_dnm(item));
+    if (const auto* dnm = get_optional_array(root, "DNM", "Demand file")) {
+        for (const auto& item : *dnm) demand.dnm.push_back(parse_dnm(item));
     }
 
     LOG_INFO("Loaded demand: " + std::to_string(demand.str.size()) + " STR, "
