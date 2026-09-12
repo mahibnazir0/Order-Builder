@@ -25,3 +25,6 @@ Thumbs.db
 # Currently: Demand-1.json, PlaceHolder-1.json, Customer2-Product-Data.csv
 tests/importer/*.json
 tests/importer/*.csv
+
+CLAUDE.md
+.claude/
