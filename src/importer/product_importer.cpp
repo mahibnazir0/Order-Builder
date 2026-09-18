@@ -80,8 +80,16 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
     // changes in the source do not break the reader.
     std::vector<std::string> headers = split_csv(header_line);
     std::unordered_map<std::string, int> col;
+    col.reserve(headers.size());
     for (int i = 0; i < static_cast<int>(headers.size()); ++i) {
-        col[lower(headers[i])] = i;
+        // Match duplicate detection to lookup's case folding; the first column wins.
+        const auto insertion = col.emplace(lower(headers[i]), i);
+        if (!insertion.second) {
+            LOG_WARN("Duplicate product column '" + headers[i]
+                     + "' at column " + std::to_string(i + 1)
+                     + "; using first occurrence at column "
+                     + std::to_string(insertion.first->second + 1));
+        }
     }
 
     const char* required[] = {"id", "length", "width", "height", "strength",

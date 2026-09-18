@@ -28,3 +28,6 @@ tests/importer/*.csv
 
 CLAUDE.md
 .claude/
+
+# Confidential cross-day extracts, retaining client filenames
+tests/importer/crossDay/
