@@ -12,7 +12,7 @@
   ],
   "trailers": [
     { "trailerCode": "53FT_NA", "interiorLengthIn": 630, "interiorWidthIn": 100,
-      "stackHeightCeilingIn": 110, "weightLimitLb": 45000, "stackPositions": 30 }
+      "stackHeightCeilingIn": 108, "weightLimitLb": 45000, "stackPositions": 30 }
   ],
   "doNotMixReading": "Strict",
   "pass2AttemptCap": 4,
