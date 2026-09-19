@@ -36,6 +36,8 @@ add_library(ob_core STATIC
   src/reporter/reporter.cpp
   src/pipeline.cpp
   src/params/paramsLoader.cpp
+  src/segregation/segregation.cpp
+  src/stackRules/stackRules.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -66,6 +68,10 @@ add_executable(ob_tests
   tests/reporter/test_reporter.cpp
   tests/test_end_to_end.cpp
   tests/params/testParamsLoader.cpp
+  tests/segregation/testSegregation.cpp
+  tests/segregation/testCrossDaySegregation.cpp
+  tests/importer/testProductHeaders.cpp
+  tests/stackRules/testStackRules.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

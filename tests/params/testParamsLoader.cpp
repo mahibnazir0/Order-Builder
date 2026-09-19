@@ -64,7 +64,7 @@ json completeParams() {
             {"palletId":"GMA","addedWeightLb":0,"addedHeightIn":0,"footprintLengthIn":48,"footprintWidthIn":40}
         ],
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
-                      "stackHeightCeilingIn":110,"weightLimitLb":45000,"stackPositions":30}],
+                      "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":30}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"blankCriIsStackable":false
     })");
 }
@@ -87,7 +87,7 @@ void checkCompleteParams(const M2Params& params) {
     CHECK(trailer.trailerCode == "53FT_NA");
     CHECK(trailer.interiorLengthIn == 630);
     CHECK(trailer.interiorWidthIn == 100);
-    CHECK(trailer.stackHeightCeilingIn == 110);
+    CHECK(trailer.stackHeightCeilingIn == 108);
     CHECK(trailer.weightLimitLb == 45000);
     CHECK(trailer.stackPositions == 30);
     CHECK(params.doNotMixReading == SegregationReading::Strict);
