@@ -20,11 +20,11 @@ Figures measured from four client extracts: `20260818` (17 Aug), `20260902` (two
 | 2 | `segregation` | [x] **Done.** Merged to `main` (PR #12, rebuilt as `segregation-v2`). Verified across all four days. Clean both platforms, ASan and UBSan. |
 | 3 | `stackRules` | [x] **Done.** Merged to `main` (PR #13, rebuilt as `stackrules-v2`). Clean on the normal build and under ASan/UBSan. |
 | 4 | `bindingConstraint` | [x] **Done.** Merged to `main` (PR #14). Real data reproduces 384 cube-bound / 3 weight-bound. |
-| 5 | `stackBuilder` | [x] **Done** on `feature/m2-module-5-stackbuilder`, not yet merged. Method definitions are provisional pending Tom. Normal build clean; sanitizer run not done. |
-| 6 | `stackReporter` | [ ] Not started. No code on any branch. |
+| 5 | `stackBuilder` | [x] **Done.** Merged to `main` (PR #15). Method definitions are provisional pending Tom (section 8). |
+| 6 | `stackReporter` | [x] **Done** on `feature/m2-module-6-stackreporter`, not yet merged. Normal build clean; sanitizer run not done. |
 | 7 | pipeline integration | [ ] Not started. |
 
-Repo check, 22 September 2026: `main` contains modules 1 to 4. Module 5 is on its own
+Repo check, 22 September 2026: `main` contains modules 1 to 5. Module 6 is on its own
 branch, not yet merged.
 
 Suite: 213 cases / 181,810 assertions. M1 baselines unmoved throughout — 24,357 demand
@@ -307,7 +307,7 @@ estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 
 Non-stackable products must reach this module, not only Pass 2 — a single-high product
 consumes a floor position a stackable one would share.
 
-### Module 5 — `stackBuilder`, Pass 2 (tier 3, 5 days) — [x] done on branch
+### Module 5 — `stackBuilder`, Pass 2 (tier 3, 5 days) — [x] done, merged
 
 Generates candidate stack sets within a group and keeps the best. New build.
 
@@ -327,9 +327,8 @@ should mirror the T3 names** before writing them.
 - [x] Lines that cannot become a unit load, and lines with negative or non-finite quantity, are reported and left out
 - [x] Every pallet placed exactly once, no stack over the ceiling, and repeatable output, checked on the real 17 August data
 - [x] Whole day (387 groups, all five methods) completes well inside the 10 second budget; the whole real-data test takes about 3 s including loading
-- [ ] Merge to `main`
-- [ ] Tom to confirm the method definitions (see below)
-- [ ] Choose the attempt cap by measurement; the config default of 4 is unmeasured
+- [x] Merged to `main`
+- [ ] Waiting on Tom: method definitions and attempt cap (section 8)
 
 **The five methods are Order Builder's reading of T3's names, not T3's algorithms.** Each is the
 same greedy builder with a different base order and top order: Natural uses input order for
@@ -351,12 +350,24 @@ shipment. Height filter first; sort once by height before pairing, not per strat
 `reserve` the candidate vector; pass `UnitLoad` by `const&`. Record runtime on the real
 largest group as a test.
 
-### Module 6 — `stackReporter` (tier 4, 2 days) — [ ] not started
+### Module 6 — `stackReporter` (tier 4, 2 days) — [x] done on branch
 
 Prints groups and stacks so Tom can confirm boundaries without reading C++. Computes
 nothing. Presentation only, as M1's Reporter.
 
-Must print `defaultedKeys` from `params` (field exists, [x] in params; printing is [ ] not done) — that is what turns a misspelled config key
+**Module 6 checklist:**
+
+- [x] `StackReporter::build` and `print` in `stackReporter.hpp`; adds up figures from modules 2 to 5 and decides nothing
+- [x] Prints `defaultedKeys` and config warnings, and says `none` when there are none
+- [x] Header block: lanes, lanes split, groups, lines segregated, cube-bound and weight-bound counts, pallet-equivalents against floor positions after stacking, excluded lines and quantities
+- [x] Per-group table: lane, stream (normal, planner, or flagged), lines, pallets, weight, limit, winning method, floor use, and pallets riding at each stack height
+- [x] States plainly how many groups ship entirely single-high, as the document asked
+- [x] Shared number formatting moved out of the M1 reporter into `reportFormat.hpp`; M1 output unchanged
+- [x] Real data: 387 groups, 17 lanes split, 384 cube-bound, 3 weight-bound, 234 groups entirely single-high
+- [ ] Merge to `main`
+- [ ] Pipeline wiring (module 7)
+
+Must print `defaultedKeys` from `params` — that is what turns a misspelled config key
 into a visible line rather than a silent default.
 
 ### Module 7 — pipeline integration (tier 4, 2 days) — [ ] not started
@@ -425,3 +436,27 @@ stands and should be re-confirmed rather than reported as a slip later.
 - Pallet-equivalents are summed as fractions across a group, never rounded per line.
 - The blank `PLANNER_SNP` is an edge case, not an invariant: 1 line on 17 August, 0 in all
   three September files.
+
+---
+
+## 8. Waiting on Tom
+
+Everything here was skipped or built provisionally because it needs Tom's answer. None of it
+blocks the remaining work; each item has a working default, so the switch is a data or
+config change once he replies.
+
+| # | Question | Where it matters | What is in place now |
+|---|---|---|---|
+| 1 | Which do-not-mix reading: strict, or flagged-vs-normal? | Which grouping is shown | Both built; `Strict` is the config default |
+| 2 | Pallet-type footprint table | `params`, unit loads | 48x40 for every type, flagged |
+| 3 | The maximum-weight-above dataset | `stackRules` | Derived from the CRI table; a supplied value already wins over the derived one |
+| 4 | Weight limit and stack positions | `bindingConstraint` | 45,000 lb and 30 positions, provisional. The 384 / 3 split rests on them |
+| 5 | Do the five T3 method names match what Order Builder should build, and how are they defined? | `stackBuilder` | Order Builder's own reading of each name |
+| 6 | Pass 2 attempt cap | `stackBuilder` | Config default of 4, unmeasured |
+| 7 | Blank-CRI ruling: may a load with no strength rating carry weight? | `stackRules` | Not stackable; `blankCriIsStackable` skips the CRI weight check if set true |
+| 8 | The 33 products that fail their own CRI check | `stackRules` | Warn and continue. One is demanded on 17 August |
+| 9 | Pallet deck heights (5.5 in for PTL and PGM, 0 for TLD and GMA) | Unit-load height | Assumed. Tom confirmed the 60 lb weight only |
+| 10 | Config ceiling: `orderBuilderParams.json` says 110 in, Tom confirmed 108 | `stackBuilder` results | Left at 110; a one-line config change, awaiting agreement |
+| 11 | Large-line threshold (300 to about 3,000 pallets) and the sampling algorithm | Scope, not estimated | Not built |
+| 12 | Whether the T3/P3 API arriving early changes M2's scope | Scope decision | M2 stays self-contained |
+| 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Fractions, per the standing ruling; figures underestimate floor use in small groups |

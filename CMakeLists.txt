@@ -40,6 +40,7 @@ add_library(ob_core STATIC
   src/stackRules/stackRules.cpp
   src/bindingConstraint/bindingConstraint.cpp
   src/stackBuilder/stackBuilder.cpp
+  src/stackReporter/stackReporter.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -75,6 +76,7 @@ add_executable(ob_tests
   tests/stackRules/testStackRules.cpp
   tests/bindingConstraint/testBindingConstraint.cpp
   tests/stackBuilder/testStackBuilder.cpp
+  tests/stackReporter/testStackReporter.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
