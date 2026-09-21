@@ -7,11 +7,19 @@
 //
 // Order of operations:
 //   read three files -> join -> convert -> validate -> summarise
+//   and, when a params file is given:
+//   -> segregate -> pass 1 (binding constraint) -> pass 2 (stacks) -> stack report
+// Conversion precedes validation because the large-line check needs pallet figures.
 // ============================================================================
 
 #include "demand_types.hpp"
+#include "bindingConstraint.hpp"
 #include "joiner.hpp"
+#include "paramsTypes.hpp"
 #include "placeholder_types.hpp"
+#include "segregationTypes.hpp"
+#include "stackBuilder.hpp"
+#include "stackReporter.hpp"
 #include "product_importer.hpp"
 #include "placeholder_importer.hpp"
 #include "reporter.hpp"
@@ -29,6 +37,11 @@ struct PipelineInputs {
     std::string planning_day;      // optional label for the report header
 
     ValidationConfig validation;   // thresholds, allowed UoM codes
+
+    // Milestone 2 runs only when this is set; leave it empty for the M1 summary alone.
+    std::string paramsPath;
+    // Trailer to plan against, by params trailerCode; empty picks the first one listed.
+    std::string trailerCode;
 };
 
 // Everything the run produced. Held together so a caller (or a test) can
@@ -56,6 +69,20 @@ struct PipelineResult {
 
     std::vector<double> pallets_per_line;   // parallel to join.lines
     std::vector<double> weight_per_line;    // parallel to join.lines
+
+    // Milestone 2. Empty unless PipelineInputs::paramsPath was set.
+    bool ranMilestone2 = false;
+    M2Params params;
+    // Pallet types in the demand that the params file has no spec for.
+    std::vector<std::string> missingPalletIds;
+    // pallets_per_line and weight_per_line with validator-excluded lines zeroed, so
+    // segregation's downstream passes see the same lines the M1 totals do.
+    std::vector<double> palletsForStacking;
+    std::vector<double> weightForStacking;
+    SegregationResult segregation;
+    BindingResult binding;
+    StackingResult stacking;
+    StackReport stackReport;
 };
 
 class Pipeline {

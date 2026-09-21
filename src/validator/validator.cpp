@@ -192,4 +192,15 @@ void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& plac
     }
 }
 
+std::vector<bool> Validator::excludedLineFlags(const ValidationReport& report, size_t lineCount) {
+    std::vector<bool> excluded(lineCount, false);
+    for (const auto& issue : report.issues) {
+        if (issue.line_index < 0 || static_cast<size_t>(issue.line_index) >= lineCount) continue;
+        if (issue.severity == ValidationIssue::Severity::Error || issue.rule == "zero_dimension") {
+            excluded[static_cast<size_t>(issue.line_index)] = true;
+        }
+    }
+    return excluded;
+}
+
 } // namespace ob

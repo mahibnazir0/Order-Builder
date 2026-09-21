@@ -34,17 +34,8 @@ DaySummary Reporter::build(const JoinResult& join,
     // to skip ("zero_dimension") must not add to the pallet/weight totals —
     // those figures are derived, unlike hash_total below, which is a control
     // total against the source file and intentionally counts everything.
-    std::vector<bool> line_excluded(join.lines.size(), false);
-    for (const auto& issue : validation.issues) {
-        if (issue.line_index < 0
-            || static_cast<size_t>(issue.line_index) >= line_excluded.size()) {
-            continue;
-        }
-        if (issue.severity == ValidationIssue::Severity::Error
-            || issue.rule == "zero_dimension") {
-            line_excluded[static_cast<size_t>(issue.line_index)] = true;
-        }
-    }
+    const std::vector<bool> line_excluded =
+        Validator::excludedLineFlags(validation, join.lines.size());
 
     // Same idea for placeholders (negative NO_OF_LOADS, missing lane
     // identifier): kept in placeholder_index, a separate index space from

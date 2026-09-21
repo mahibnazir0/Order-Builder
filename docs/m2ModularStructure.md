@@ -21,10 +21,10 @@ Figures measured from four client extracts: `20260818` (17 Aug), `20260902` (two
 | 3 | `stackRules` | [x] **Done.** Merged to `main` (PR #13, rebuilt as `stackrules-v2`). Clean on the normal build and under ASan/UBSan. |
 | 4 | `bindingConstraint` | [x] **Done.** Merged to `main` (PR #14). Real data reproduces 384 cube-bound / 3 weight-bound. |
 | 5 | `stackBuilder` | [x] **Done.** Merged to `main` (PR #15). Method definitions are provisional pending Tom (section 8). |
-| 6 | `stackReporter` | [x] **Done** on `feature/m2-module-6-stackreporter`, not yet merged. Normal build clean; sanitizer run not done. |
-| 7 | pipeline integration | [ ] Not started. |
+| 6 | `stackReporter` | [x] **Done.** Merged to `main` (PR #16). |
+| 7 | pipeline integration | [x] **Done** on `feature/m2-module-7-pipeline-integration`, not yet merged. Normal build clean; sanitizer run not done. |
 
-Repo check, 22 September 2026: `main` contains modules 1 to 5. Module 6 is on its own
+Repo check, 22 September 2026: `main` contains modules 1 to 6. Module 7 is on its own
 branch, not yet merged.
 
 Suite: 213 cases / 181,810 assertions. M1 baselines unmoved throughout — 24,357 demand
@@ -350,7 +350,7 @@ shipment. Height filter first; sort once by height before pairing, not per strat
 `reserve` the candidate vector; pass `UnitLoad` by `const&`. Record runtime on the real
 largest group as a test.
 
-### Module 6 — `stackReporter` (tier 4, 2 days) — [x] done on branch
+### Module 6 — `stackReporter` (tier 4, 2 days) — [x] done, merged
 
 Prints groups and stacks so Tom can confirm boundaries without reading C++. Computes
 nothing. Presentation only, as M1's Reporter.
@@ -364,17 +364,30 @@ nothing. Presentation only, as M1's Reporter.
 - [x] States plainly how many groups ship entirely single-high, as the document asked
 - [x] Shared number formatting moved out of the M1 reporter into `reportFormat.hpp`; M1 output unchanged
 - [x] Real data: 387 groups, 17 lanes split, 384 cube-bound, 3 weight-bound, 234 groups entirely single-high
-- [ ] Merge to `main`
-- [ ] Pipeline wiring (module 7)
+- [x] Merged to `main`
+- [x] Pipeline wiring (module 7)
 
 Must print `defaultedKeys` from `params` — that is what turns a misspelled config key
 into a visible line rather than a silent default.
 
-### Module 7 — pipeline integration (tier 4, 2 days) — [ ] not started
+### Module 7 — pipeline integration (tier 4, 2 days) — [x] done on branch
 
 ```
 import -> join -> convert -> validate -> segregate -> pass1 -> pass2 -> report
 ```
+
+**Module 7 checklist:**
+
+- [x] `Pipeline::run` runs the M2 stages after the M1 stages, in the order above, when `PipelineInputs::paramsPath` is set; without it the run is exactly M1
+- [x] `PipelineResult` carries the params, segregation, binding, stacking and stack report, and is still move-only
+- [x] `main()` only parses arguments and prints: new flags `--params`, `--trailer`, `--groups`. Still one `main`, three CMake targets
+- [x] Trailer chosen by `trailerCode`, defaulting to the first listed; an unknown code or a params file with no trailer stops the run with exit code 2
+- [x] Lines the validator excluded (errors and the zero-dimension ruling) carry zero pallets into pass 1 and pass 2, so M2 totals agree with M1's. The rule lives in one shared function, `Validator::excludedLineFlags`, which the M1 reporter now uses too
+- [x] Demand pallet types with no params spec are logged as warnings
+- [x] Real data end to end through the CLI: 387 groups, 17 lanes split, 384 cube-bound and 3 weight-bound
+- [x] README documents the new flags
+- [ ] Merge to `main`
+- [ ] Exit code for M2 problems (see section 8)
 
 Conversion still precedes validation because the large-line check needs pallet figures.
 **Do not reorder.** `main()` parses arguments only. `PipelineResult` stays move-only.
@@ -460,3 +473,6 @@ config change once he replies.
 | 11 | Large-line threshold (300 to about 3,000 pallets) and the sampling algorithm | Scope, not estimated | Not built |
 | 12 | Whether the T3/P3 API arriving early changes M2's scope | Scope decision | M2 stays self-contained |
 | 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Fractions, per the standing ruling; figures underestimate floor use in small groups |
+| 14 | Which trailer does a lane use? Placeholder lanes carry an equipment size (`53F` or blank) that the params trailer codes (`53FT_NA`) do not match | Pipeline integration | The first trailer in the params file, or one chosen with `--trailer`, applied to every group |
+| 15 | Should the run exit non-zero when M2 finds problems (pallet types with no spec, lines with no unit load)? | Pipeline integration | They are logged and counted in the report; the exit code still reflects validation errors only |
+| 16 | Should M2 groups feed the truck counts (placeholder loads per lane)? | Beyond M2 | No. The report shows floor positions per group, and truck counts are not decided |

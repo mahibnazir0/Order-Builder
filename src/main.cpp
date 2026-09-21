@@ -3,10 +3,12 @@
 //
 // Usage:
 //   order_builder --product <csv> --demand <json> --placeholder <json>
+//                 [--params <json>] [--trailer <code>] [--groups N]
 //                 [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
 //
-// Reads one planning day, validates it, and prints a summary. It does not
-// build loads or decide truck counts — that starts at Milestone 2.
+// Reads one planning day, validates it, and prints a summary. With --params it
+// also groups the demand and reports the stacks (Milestone 2). It does not
+// decide truck counts.
 //
 // Exit codes:
 //   0  ran successfully, no validation errors
@@ -17,6 +19,7 @@
 #include "logger.hpp"
 #include "pipeline.hpp"
 
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <string>
@@ -25,10 +28,11 @@ namespace {
 
 void print_usage(std::ostream& out) {
     out <<
-        "Order Builder - Milestone 1\n"
+        "Order Builder - Milestones 1 and 2\n"
         "\n"
         "Usage:\n"
         "  order_builder --product <csv> --demand <json> --placeholder <json>\n"
+        "                [--params <json>] [--trailer <code>] [--groups N]\n"
         "                [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]\n"
         "\n"
         "Required:\n"
@@ -37,6 +41,9 @@ void print_usage(std::ostream& out) {
         "  --placeholder <path>  Placeholder JSON (trucks per lane)\n"
         "\n"
         "Optional:\n"
+        "  --params <path>       Params JSON; turns on the Milestone 2 groups and stacks report\n"
+        "  --trailer <code>      Trailer code from the params file (default: the first listed)\n"
+        "  --groups N            Print only the N largest groups (default: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
         "  --lanes N             Print only the N largest lanes (default: all)\n"
         "  --debug               Verbose logging\n"
@@ -65,6 +72,7 @@ bool take_value(int argc, char** argv, int& i, const char* flag, std::string& ou
 int main(int argc, char** argv) {
     ob::PipelineInputs inputs;
     int  max_lanes = 0;        // 0 = print every lane
+    int  max_groups = 0;       // 0 = print every group
     bool debug     = false;
 
     // ── Parse arguments ─────────────────────────────────────────────────────
@@ -82,6 +90,19 @@ int main(int argc, char** argv) {
             if (!take_value(argc, argv, i, "--demand", inputs.demand_path)) return 2;
         } else if (arg == "--placeholder") {
             if (!take_value(argc, argv, i, "--placeholder", inputs.placeholder_path)) return 2;
+        } else if (arg == "--params") {
+            if (!take_value(argc, argv, i, "--params", inputs.paramsPath)) return 2;
+        } else if (arg == "--trailer") {
+            if (!take_value(argc, argv, i, "--trailer", inputs.trailerCode)) return 2;
+        } else if (arg == "--groups") {
+            std::string value;
+            if (!take_value(argc, argv, i, "--groups", value)) return 2;
+            try {
+                max_groups = std::stoi(value);
+            } catch (const std::exception&) {
+                LOG_ERROR("--groups needs a number, got '" + value + "'");
+                return 2;
+            }
         } else if (arg == "--day") {
             if (!take_value(argc, argv, i, "--day", inputs.planning_day)) return 2;
         } else if (arg == "--lanes") {
@@ -116,6 +137,10 @@ int main(int argc, char** argv) {
 
         ob::Reporter::print_summary(result.summary, std::cout, max_lanes);
         ob::Reporter::print_warnings(result.validation, std::cout);
+        if (result.ranMilestone2) {
+            ob::StackReporter::print(result.stackReport, std::cout,
+                                     static_cast<std::size_t>(std::max(max_groups, 0)));
+        }
 
         // A run that produced validation errors is reported, not hidden.
         return (result.validation.errors > 0) ? 1 : 0;
