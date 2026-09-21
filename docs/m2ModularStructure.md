@@ -19,12 +19,12 @@ Figures measured from four client extracts: `20260818` (17 Aug), `20260902` (two
 | 1 | `params` | [x] **Done.** Merged to `main`. 3 rounds, 2 independent reviews. Clean both platforms, ASan and UBSan. |
 | 2 | `segregation` | [x] **Done.** Merged to `main` (PR #12, rebuilt as `segregation-v2`). Verified across all four days. Clean both platforms, ASan and UBSan. |
 | 3 | `stackRules` | [x] **Done.** Merged to `main` (PR #13, rebuilt as `stackrules-v2`). Clean on the normal build and under ASan/UBSan. |
-| 4 | `bindingConstraint` | [x] **Done** on `feature/m2-module-4-bindingconstraint`, not yet merged. Real data reproduces 384 cube-bound / 3 weight-bound. Normal build clean; sanitizer run not done. |
-| 5 | `stackBuilder` | [ ] Not started. No code on any branch. |
+| 4 | `bindingConstraint` | [x] **Done.** Merged to `main` (PR #14). Real data reproduces 384 cube-bound / 3 weight-bound. |
+| 5 | `stackBuilder` | [x] **Done** on `feature/m2-module-5-stackbuilder`, not yet merged. Method definitions are provisional pending Tom. Normal build clean; sanitizer run not done. |
 | 6 | `stackReporter` | [ ] Not started. No code on any branch. |
 | 7 | pipeline integration | [ ] Not started. |
 
-Repo check, 22 September 2026: `main` contains modules 1 to 3. Module 4 is on its own
+Repo check, 22 September 2026: `main` contains modules 1 to 4. Module 5 is on its own
 branch, not yet merged.
 
 Suite: 213 cases / 181,810 assertions. M1 baselines unmoved throughout — 24,357 demand
@@ -279,7 +279,7 @@ blank strength row; the 33 products failing their own CRI check — only 1 is de
 17 August; zero, negative, NaN and Inf for height, weight, layers, cases per layer and
 cases per unit load; `Layers_Unit_Load` of 0 and 1; a unit load taller than 108 alone.
 
-### Module 4 — `bindingConstraint`, Pass 1 (tier 2, 2 days) — [x] done on branch
+### Module 4 — `bindingConstraint`, Pass 1 (tier 2, 2 days) — [x] done, merged
 
 Decides per group whether cube or weight binds, before any stack exists.
 
@@ -301,13 +301,13 @@ estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 
 - [x] Negative and non-finite line figures are excluded and counted, not summed
 - [x] Bad trailer spec (weight limit or positions not positive), mismatched vectors and out-of-range indices throw `std::invalid_argument`
 - [x] Real data, `Strict`: 387 groups, 384 cube-bound, 3 weight-bound
-- [ ] Merge to `main`
+- [x] Merged to `main`
 - [ ] Read the trailer from params by code once more than one trailer exists (the caller passes one `TrailerSpec` today)
 
 Non-stackable products must reach this module, not only Pass 2 — a single-high product
 consumes a floor position a stackable one would share.
 
-### Module 5 — `stackBuilder`, Pass 2 (tier 3, 5 days) — [ ] not started
+### Module 5 — `stackBuilder`, Pass 2 (tier 3, 5 days) — [x] done on branch
 
 Generates candidate stack sets within a group and keeps the best. New build.
 
@@ -316,6 +316,31 @@ ideas: my four strategies, Tom's Pass 2 note ("horses with jockeys", equal-weigh
 maximised weight difference), and Truck Builder's five documented methods — Natural,
 Target, Tall & Heavy, Base & Top, Try Hard. **Ask whether Order Builder's strategies
 should mirror the T3 names** before writing them.
+
+**Module 5 checklist:**
+
+- [x] `buildStacks` in `stackBuilder.hpp`: one `GroupStacking` per group, in group order, with the best `StackSet` and every method's floor positions
+- [x] Five methods named after T3's: Natural, Target, Tall & Heavy, Base & Top, Try Hard
+- [x] Stacks of any depth; every level is checked with `canStack`, counting all weight and height above it. No rule is reimplemented
+- [x] Attempt cap from `pass2AttemptCap` bounds Try Hard; a cap of 0 skips it
+- [x] Fewest floor positions wins; ties go to the lower heaviest stack when the group is weight-bound
+- [x] Lines that cannot become a unit load, and lines with negative or non-finite quantity, are reported and left out
+- [x] Every pallet placed exactly once, no stack over the ceiling, and repeatable output, checked on the real 17 August data
+- [x] Whole day (387 groups, all five methods) completes well inside the 10 second budget; the whole real-data test takes about 3 s including loading
+- [ ] Merge to `main`
+- [ ] Tom to confirm the method definitions (see below)
+- [ ] Choose the attempt cap by measurement; the config default of 4 is unmeasured
+
+**The five methods are Order Builder's reading of T3's names, not T3's algorithms.** Each is the
+same greedy builder with a different base order and top order: Natural uses input order for
+both; Target puts the tallest load that fits on top; Tall & Heavy takes the heaviest, tallest
+bases and the shortest tops; Base & Top takes the highest crush rating as base and the lightest
+as top; Try Hard reruns Base & Top from rotated starting bases up to the attempt cap.
+
+**Quantities are pallet-equivalents, so stacking is fractional.** A line of 4 short pallets can
+report 4/3 floor positions when a real trailer would need 2. This follows the standing rule that
+fractions are summed and never rounded, so the figures are estimates, and they understate
+floor use when a group has few pallets per product.
 
 Given Finding A, expect most groups to return mostly singles. A group of tall products
 produces one valid set with no pairs. That is correct, not a failure, and the reporter
