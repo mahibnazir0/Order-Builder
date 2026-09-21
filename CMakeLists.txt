@@ -39,6 +39,7 @@ add_library(ob_core STATIC
   src/segregation/segregation.cpp
   src/stackRules/stackRules.cpp
   src/bindingConstraint/bindingConstraint.cpp
+  src/stackBuilder/stackBuilder.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -73,6 +74,7 @@ add_executable(ob_tests
   tests/importer/testProductHeaders.cpp
   tests/stackRules/testStackRules.cpp
   tests/bindingConstraint/testBindingConstraint.cpp
+  tests/stackBuilder/testStackBuilder.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
