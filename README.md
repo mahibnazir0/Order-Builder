@@ -49,6 +49,7 @@ every module implementation.
 
 ```
 order_builder --product <csv> --demand <json> --placeholder <json>
+              [--params <json>] [--trailer <code>] [--groups N]
               [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
 ```
 
@@ -57,6 +58,9 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--product <path>` | yes | Product master CSV |
 | `--demand <path>` | yes | Demand extract JSON (STR / CTL / DNM blocks) |
 | `--placeholder <path>` | yes | Placeholder JSON (trucks requested per lane) |
+| `--params <path>` | no | Params JSON (for example `config/orderBuilderParams.json`). Turns on the Milestone 2 report: segregation groups, cube/weight limit per group, and stacks |
+| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the first one listed |
+| `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
 | `--debug` | no | Verbose logging |

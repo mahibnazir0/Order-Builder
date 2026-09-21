@@ -77,6 +77,7 @@ add_executable(ob_tests
   tests/bindingConstraint/testBindingConstraint.cpp
   tests/stackBuilder/testStackBuilder.cpp
   tests/stackReporter/testStackReporter.cpp
+  tests/testPipelineMilestone2.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

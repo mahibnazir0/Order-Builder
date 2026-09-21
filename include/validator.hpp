@@ -96,6 +96,11 @@ public:
     // print_warnings grouping cover placeholders too.
     static void validate_placeholders(const std::vector<PlaceholderRecord>& placeholders,
                                       ValidationReport& report);
+
+    // Which demand lines must be kept out of derived totals: any line carrying an
+    // Error, or Tom's "skip and warn" zero_dimension ruling. Parallel to the joined
+    // lines; issues pointing outside [0, lineCount) are ignored.
+    static std::vector<bool> excludedLineFlags(const ValidationReport& report, size_t lineCount);
 };
 
 } // namespace ob
