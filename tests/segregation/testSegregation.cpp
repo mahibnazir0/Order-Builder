@@ -148,7 +148,8 @@ TEST_CASE("segregation: a copied result is independent of the original") {
 TEST_CASE("segregation: real demand partitions every line into a group") {
     const DemandFile file = Importer::load_demand("tests/importer/Demand-1.json");
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
-    const auto join = Joiner::join(file.str, Joiner::build_index(products.products));
+    const ProductIndex index = Joiner::build_index(products.products);
+    const auto join = Joiner::join(file.str, index);
     const auto strict = segregate(join.lines, file.dnm, SegregationReading::Strict);
     const auto flagged = segregate(join.lines, file.dnm, SegregationReading::FlaggedVsNormal);
 
