@@ -38,6 +38,7 @@ add_library(ob_core STATIC
   src/params/paramsLoader.cpp
   src/segregation/segregation.cpp
   src/stackRules/stackRules.cpp
+  src/bindingConstraint/bindingConstraint.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -71,6 +72,7 @@ add_executable(ob_tests
   tests/segregation/testSegregation.cpp
   tests/importer/testProductHeaders.cpp
   tests/stackRules/testStackRules.cpp
+  tests/bindingConstraint/testBindingConstraint.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

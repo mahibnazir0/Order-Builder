@@ -17,15 +17,15 @@ Figures measured from four client extracts: `20260818` (17 Aug), `20260902` (two
 | # | Module | State |
 |---|---|---|
 | 1 | `params` | [x] **Done.** Merged to `main`. 3 rounds, 2 independent reviews. Clean both platforms, ASan and UBSan. |
-| 2 | `segregation` | [x] **Done.** On `origin/feature/m2-module-2-segregation`, not yet merged to `main`. Verified across all four days. Clean both platforms, ASan and UBSan. |
-| 3 | `stackRules` | [x] **Implemented** on `origin/feature/m2-module-3-stackrules` (commit `8e5bb2b`), not yet merged to `main`. Code and tests are present; build and sanitizer runs not re-checked. |
-| 4 | `bindingConstraint` | [ ] Not started. No code on any branch. |
+| 2 | `segregation` | [x] **Done.** Merged to `main` (PR #12, rebuilt as `segregation-v2`). Verified across all four days. Clean both platforms, ASan and UBSan. |
+| 3 | `stackRules` | [x] **Done.** Merged to `main` (PR #13, rebuilt as `stackrules-v2`). Clean on the normal build and under ASan/UBSan. |
+| 4 | `bindingConstraint` | [x] **Done** on `feature/m2-module-4-bindingconstraint`, not yet merged. Real data reproduces 384 cube-bound / 3 weight-bound. Normal build clean; sanitizer run not done. |
 | 5 | `stackBuilder` | [ ] Not started. No code on any branch. |
 | 6 | `stackReporter` | [ ] Not started. No code on any branch. |
 | 7 | pipeline integration | [ ] Not started. |
 
-Repo check, 22 September 2026: `main` contains only module 1. Modules 2 and 3 exist as
-unmerged remote branches (module 3 is stacked on module 2).
+Repo check, 22 September 2026: `main` contains modules 1 to 3. Module 4 is on its own
+branch, not yet merged.
 
 Suite: 213 cases / 181,810 assertions. M1 baselines unmoved throughout — 24,357 demand
 lines, hash total 8,708,934, 152,911.2 pallet-equivalents, 103,005,833 lb.
@@ -219,7 +219,7 @@ and counts, not individual products' CRI or weight.**
 Modules 1 and 2 are built; their specifications are in the code and tests. What follows
 is the remaining work.
 
-### Module 3 — `stackRules` (tier 1, 3 days) — [x] implemented on branch
+### Module 3 — `stackRules` (tier 1, 3 days) — [x] done, merged
 
 **Owns** the predicates deciding whether one unit load may sit on another.
 **Never** throws, logs, allocates or chooses. Pure functions, like M1's Converter. All
@@ -269,8 +269,9 @@ in the joined demand that has no spec in the config.
 - [x] Check order: height, blank CRI, CRI weight
 - [x] Supplied weight-above preferred over derived
 - [x] Pallet-id completeness check (`missingPalletIds`, exact ids, all reported together)
-- [x] Whole-rules regression on four real days, plus 110 in sensitivity test
-- [ ] Merge to `main`
+- [x] Whole-rules regression on the 17 August data: 65,295 and 43,021 of 2,016,400 pairs (other days and the 110 in sensitivity check not covered)
+- [x] Blank-CRI base honours `blankCriIsStackable` (skips the CRI weight check when true)
+- [x] Merged to `main`
 
 **Tests.** Assert the measured distribution as a whole-rules regression: 65,295 of
 2,016,400 pairs pass height, 43,021 pass both. Adversarial: CRI 0, 11, negative; the
@@ -278,7 +279,7 @@ blank strength row; the 33 products failing their own CRI check — only 1 is de
 17 August; zero, negative, NaN and Inf for height, weight, layers, cases per layer and
 cases per unit load; `Layers_Unit_Load` of 0 and 1; a unit load taller than 108 alone.
 
-### Module 4 — `bindingConstraint`, Pass 1 (tier 2, 2 days) — [ ] not started
+### Module 4 — `bindingConstraint`, Pass 1 (tier 2, 2 days) — [x] done on branch
 
 Decides per group whether cube or weight binds, before any stack exists.
 
@@ -291,6 +292,17 @@ binding        = trucksIfWeight > trucksIfCube ? Weight : Cube
 Crude is fine: the output is one of two labels, not a truck count. Measured on 17 August
 under `Strict`: **384 cube-bound, 3 weight-bound** — not close, which is the evidence the
 estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 positions.
+
+**Module 4 checklist:**
+
+- [x] `assessBinding` in `bindingConstraint.hpp`: one `GroupBinding` per group, in group order
+- [x] Cube vs weight rule as above; an exact tie counts as cube-bound
+- [x] Every line counted, stackable or not
+- [x] Negative and non-finite line figures are excluded and counted, not summed
+- [x] Bad trailer spec (weight limit or positions not positive), mismatched vectors and out-of-range indices throw `std::invalid_argument`
+- [x] Real data, `Strict`: 387 groups, 384 cube-bound, 3 weight-bound
+- [ ] Merge to `main`
+- [ ] Read the trailer from params by code once more than one trailer exists (the caller passes one `TrailerSpec` today)
 
 Non-stackable products must reach this module, not only Pass 2 — a single-high product
 consumes a floor position a stackable one would share.
