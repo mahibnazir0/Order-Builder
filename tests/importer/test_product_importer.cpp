@@ -2,6 +2,7 @@
 #include "doctest.h"
 #include "product_importer.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <stdexcept>
@@ -92,7 +93,119 @@ TEST_CASE("a numeric cell with trailing garbage falls back instead of partially 
     std::remove(path.c_str());
 
     REQUIRE(r.products.size() == 1);
-    CHECK(r.products[0].weight_lb == doctest::Approx(0.0));
+    CHECK(std::isnan(r.products[0].weight_lb));
+}
+
+TEST_CASE("a blank Weight cell loads as NaN, not 0") {
+    const std::string path = "tests/importer/_tmp_blank_weight.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,5,CS,,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(std::isnan(r.products[0].weight_lb));
+}
+
+TEST_CASE("a Height cell with trailing garbage loads as NaN, not 0") {
+    const std::string path = "tests/importer/_tmp_garbage_height.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10x,5,CS,9500,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(std::isnan(r.products[0].height_in));
+}
+
+TEST_CASE("a nan Height cell loads as NaN, leaving the Validator to reject it") {
+    const std::string path = "tests/importer/_tmp_nan_height.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,nan,5,CS,9500,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(std::isnan(r.products[0].height_in));
+}
+
+TEST_CASE("a non-numeric Strength loads as the unreadable sentinel, not blank CRI 0") {
+    const std::string path = "tests/importer/_tmp_strength_text.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,7a,CS,9500,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(r.products[0].strength == kUnreadableStrength);
+}
+
+TEST_CASE("a non-numeric Layers_Unit_Load loads as 0, which invalid_layer_data rejects") {
+    const std::string path = "tests/importer/_tmp_layers_text.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,5,CS,9500,4,two,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(r.products[0].layers_unit_load == 0);
+}
+
+TEST_CASE("a fractional Strength loads as the unreadable sentinel") {
+    const std::string path = "tests/importer/_tmp_strength_fraction.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,7.5,CS,9500,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(r.products[0].strength == kUnreadableStrength);
+}
+
+TEST_CASE("a blank Strength still loads as 0") {
+    const std::string path = "tests/importer/_tmp_strength_blank.csv";
+    {
+        std::ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+        out << "T1,Test,10,10,10,,CS,9500,4,2,8,TLD\n";
+    }
+
+    ProductLoadResult r = ProductImporter::load(path);
+    std::remove(path.c_str());
+
+    REQUIRE(r.products.size() == 1);
+    CHECK(r.products[0].strength == 0);
 }
 
 TEST_CASE("missing file throws, does not crash") {

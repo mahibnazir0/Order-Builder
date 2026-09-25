@@ -93,6 +93,34 @@ TEST_CASE("CTL and DNM present but the wrong JSON type also throw") {
     std::remove(dnmPath.c_str());
 }
 
+TEST_CASE("a DNM PLANNER_SNP of the wrong JSON type loads as blank") {
+    const std::string path = "tests/importer/_tmp_dnm_planner_wrong_type.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X","DNM":[{"PLANNER_SNP":20,"LOCFRNO":"2027"}]})";
+    }
+    const DemandFile demand = Importer::load_demand(path);
+    std::remove(path.c_str());
+
+    REQUIRE(demand.dnm.size() == 1);
+    CHECK(demand.dnm[0].planner_snp.empty());
+    CHECK(demand.dnm[0].locfrno == "2027");
+}
+
+TEST_CASE("an STR PLANNER_SNP of the wrong JSON type loads as blank") {
+    const std::string path = "tests/importer/_tmp_str_planner_wrong_type.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X","STR":[{"PLANNER_SNP":20,"LOCFRNO":"2027"}]})";
+    }
+    const DemandFile demand = Importer::load_demand(path);
+    std::remove(path.c_str());
+
+    REQUIRE(demand.str.size() == 1);
+    CHECK(demand.str[0].planner_snp.empty());
+    CHECK(demand.str[0].locfrno == "2027");
+}
+
 TEST_CASE("STR genuinely absent still loads cleanly with zero demand lines") {
     // An absent block is a different case from a malformed one: it is a
     // legitimate empty result, not an error.
@@ -113,4 +141,40 @@ TEST_CASE("UNITOFMEAS only ever CS, DIS or PAL in this file") {
         bool ok = (r.unitofmeas == "CS" || r.unitofmeas == "DIS" || r.unitofmeas == "PAL");
         REQUIRE(ok);
     }
+}
+
+TEST_CASE("a TRANS too large for a double is rejected at load, not passed on as infinity") {
+    // nlohmann refuses a number that overflows a double (here 1e999), so an infinite quantity
+    // cannot arrive through this file. The Validator's finite-quantity check covers any other route.
+    const std::string path = "tests/importer/_tmp_trans_overflow.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X","STR":[{"LOCFRNO":"1","LOCTONO":"2","MATNR":"M1",)"
+            << R"("DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1e999,"UNITOFMEAS":"CS"}]})";
+    }
+    CHECK_THROWS_WITH_AS(Importer::load_demand(path), doctest::Contains("number overflow"),
+                         std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("a demand file whose root is an array throws instead of loading as empty") {
+    const std::string path = "tests/importer/_tmp_root_array.json";
+    {
+        std::ofstream out(path);
+        out << R"([{"STR":[]}])";
+    }
+    CHECK_THROWS_WITH_AS(Importer::load_demand(path), doctest::Contains("root must be a JSON object"),
+                         std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("a demand file whose root is a string throws instead of loading as empty") {
+    const std::string path = "tests/importer/_tmp_root_string.json";
+    {
+        std::ofstream out(path);
+        out << R"("STR")";
+    }
+    CHECK_THROWS_WITH_AS(Importer::load_demand(path), doctest::Contains("root must be a JSON object"),
+                         std::runtime_error);
+    std::remove(path.c_str());
 }

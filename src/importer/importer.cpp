@@ -66,8 +66,15 @@ DemandFile Importer::load_demand(const std::string& json_path) {
     json root;
     try {
         in >> root;
-    } catch (const json::parse_error& e) {
+    } catch (const json::exception& e) {
+        // parse_error for bad syntax, out_of_range for a number too large for a double.
         throw std::runtime_error("Demand file is not valid JSON: " + std::string(e.what()));
+    }
+
+    // find() on an array or scalar root returns end(), so get_optional_array would
+    // read every block as absent and the file would load as empty.
+    if (!root.is_object()) {
+        throw std::runtime_error("Demand file: root must be a JSON object");
     }
 
     DemandFile demand;

@@ -108,6 +108,6 @@ TEST_CASE("bindingConstraint: real demand under strict segregation is almost all
                                       params.trailers[0]);
     CHECK(result.groups.size() == 387);
     CHECK(result.excludedInvalidLines == 0);
-    CHECK(result.cubeBoundGroups == 384);
-    CHECK(result.weightBoundGroups == 3);
+    CHECK(result.cubeBoundGroups == 383);
+    CHECK(result.weightBoundGroups == 4);
 }

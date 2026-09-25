@@ -141,6 +141,14 @@ TEST_CASE("stackRules: strength outside 0..10 fails construction and blank is ke
     CHECK(buildUnitLoad(matchedLine(blank), testParams()).cri == 0);
 }
 
+TEST_CASE("a product with an unreadable Strength builds as InvalidData, not BlankCri") {
+    M2Params params = testParams();
+    params.blankCriIsStackable = true;
+    ProductRecord record = product();
+    record.strength = kUnreadableStrength;
+    CHECK(buildUnitLoad(matchedLine(record), params).error == UnitLoadError::InvalidData);
+}
+
 TEST_CASE("stackRules: a pallet spec with a bad footprint fails construction") {
     M2Params params = testParams();
     params.pallets[0].footprintLengthIn = kNaN;

@@ -245,6 +245,11 @@ M2Params parseParams(const json& root) {
         params.pass2AttemptCap = readInteger(
             root["pass2AttemptCap"], "pass2AttemptCap", 0);
     }
+    if (!root.contains("maxStackHeight")) {
+        params.defaultedKeys.push_back("maxStackHeight");
+    } else {
+        params.maxStackHeight = readInteger(root["maxStackHeight"], "maxStackHeight", 1);
+    }
     if (!root.contains("blankCriIsStackable")) {
         params.defaultedKeys.push_back("blankCriIsStackable");
     } else {

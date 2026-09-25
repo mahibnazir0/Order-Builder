@@ -95,7 +95,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     result.validation = Validator::validate(result.join,
                                             result.pallets_per_line,
                                             inputs.validation);
-    Validator::validate_placeholders(result.placeholders.placeholders, result.validation);
+    Validator::validate_placeholders(result.placeholders.placeholders, result.validation,
+                                     inputs.validation);
+    Validator::validate_do_not_mix(result.demand.dnm, result.demand.str, result.validation);
 
     // ── 5. Summarise ────────────────────────────────────────────────────────
     result.summary = Reporter::build(result.join,

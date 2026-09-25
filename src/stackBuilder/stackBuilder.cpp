@@ -40,10 +40,12 @@ Order sortedOrder(std::size_t count, Less less) {
     return order;
 }
 
-// `top` may join the chain only if every load already in it can still carry what would
-// sit above it. Each level is checked with canStack against a copy of that load that
-// already counts the height and weight of everything stacked over it.
+// `top` may join the chain only if the customer's stack-height cap allows it and every
+// load already in it can still carry what would sit above it. Each level is checked with
+// canStack against a copy of that load that already counts the height and weight of
+// everything stacked over it.
 bool canExtendChain(const Context& context, const Order& chain, const UnitLoad& top) {
+    if (chain.size() >= static_cast<std::size_t>(context.params.maxStackHeight)) return false;
     double heightAboveIn = 0.0;
     double weightAboveLb = 0.0;
     for (std::size_t level = chain.size(); level-- > 0;) {

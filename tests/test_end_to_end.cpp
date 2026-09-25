@@ -65,6 +65,8 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed") {
     // Clean input: no errors, and the only warnings are the ambiguous variants
     CHECK(r.validation.errors           == 0);
     CHECK(r.validation.ambiguous_pallet == 144);
+    CHECK(r.validation.unknown_ship_cond == 0);   // every TL/TF in demand and placeholders
+    CHECK(r.validation.missing_ship_cond == 0);
 }
 
 TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks") {

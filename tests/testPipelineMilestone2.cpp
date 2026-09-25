@@ -62,8 +62,8 @@ TEST_CASE("pipeline: with a params file every stage runs on the real day") {
     CHECK(result.segregation.groups.size() == 387);
     CHECK(result.segregation.lanesSplit == 17);
     CHECK(result.binding.groups.size() == 387);
-    CHECK(result.binding.cubeBoundGroups == 384);
-    CHECK(result.binding.weightBoundGroups == 3);
+    CHECK(result.binding.cubeBoundGroups == 383);
+    CHECK(result.binding.weightBoundGroups == 4);
     CHECK(result.stacking.groups.size() == 387);
     CHECK(result.stackReport.groups == 387);
 }
