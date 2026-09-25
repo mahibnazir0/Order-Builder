@@ -6,6 +6,9 @@
 #include "json.hpp"
 #include "logger.hpp"
 
+#include <cmath>
+#include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -27,6 +30,35 @@ T get_or(const nlohmann::json& j, const char* key, T fallback) {
                   "using fallback: " + e.what());
         return fallback;
     }
+}
+
+// Integer field access with the same fallback discipline as get_or<int>, but
+// strict about the value: get<int> would static_cast 2.9 to 2, true to 1 and
+// 4294967297 to 1, turning a malformed count into a plausible one the
+// Validator can't catch. Only an integer, or a float with no fractional part,
+// that fits in int is accepted; anything else returns `fallback`.
+inline int getIntegerOr(const nlohmann::json& j, const char* key, int fallback) {
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return fallback;
+
+    constexpr int intMin = std::numeric_limits<int>::min();
+    constexpr int intMax = std::numeric_limits<int>::max();
+    if (it->is_number_unsigned()) {
+        const auto value = it->get<std::uint64_t>();
+        if (value <= static_cast<std::uint64_t>(intMax)) return static_cast<int>(value);
+    } else if (it->is_number_integer()) {
+        const auto value = it->get<std::int64_t>();
+        if (value >= intMin && value <= intMax) return static_cast<int>(value);
+    } else if (it->is_number_float()) {
+        const double value = it->get<double>();
+        if (std::isfinite(value) && std::trunc(value) == value
+            && value >= intMin && value <= intMax) {
+            return static_cast<int>(value);
+        }
+    }
+    LOG_DEBUG(std::string("Field '") + key + "' is not an integer in int range, "
+              "using fallback: " + it->dump());
+    return fallback;
 }
 
 // A top-level block (STR, CTL, DNM, PHOLDER, ...) is optional: absent means

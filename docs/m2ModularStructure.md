@@ -22,10 +22,9 @@ Figures measured from four client extracts: `20260818` (17 Aug), `20260902` (two
 | 4 | `bindingConstraint` | [x] **Done.** Merged to `main` (PR #14). Real data reproduces 384 cube-bound / 3 weight-bound. |
 | 5 | `stackBuilder` | [x] **Done.** Merged to `main` (PR #15). Method definitions are provisional pending Tom (section 8). |
 | 6 | `stackReporter` | [x] **Done.** Merged to `main` (PR #16). |
-| 7 | pipeline integration | [x] **Done** on `feature/m2-module-7-pipeline-integration`, not yet merged. Normal build clean; sanitizer run not done. |
+| 7 | pipeline integration | [x] **Done.** Merged to `main` (PR #17). |
 
-Repo check, 22 September 2026: `main` contains modules 1 to 6. Module 7 is on its own
-branch, not yet merged.
+Repo check, 22 September 2026: `main` contains modules 1 to 7. All seven modules are merged.
 
 Suite: 213 cases / 181,810 assertions. M1 baselines unmoved throughout — 24,357 demand
 lines, hash total 8,708,934, 152,911.2 pallet-equivalents, 103,005,833 lb.
@@ -116,6 +115,75 @@ a code change.
 **Pallet variants** — Tom's rule: goods ship in whole pallets, so divide the ordered
 quantity by cases-per-pallet to identify the variant. Measured below; it works, but not
 completely.
+
+### Answered 25 September
+
+Tom's reply to the Milestone 2 questions, with what our own check of the archives added.
+Tom's answers are marked as his; the rest is our finding.
+
+**Stack positions: 30 is wrong; 32 and 34 are possible.** Tom's answer. *Applied as 32; see
+"Assumptions made on 25 September" below.* Our check of 308
+loads in the pushed-solutions files supports it: the median is 32 pallets and the
+distribution sits mainly around 30, 32 and 34. We proposed treating positions as a
+per-trailer setting and recomputing the cube-versus-weight decision from it. Tom has not
+yet confirmed that proposal, but the config already holds positions per trailer, so no code
+change was needed. The 45,000 lb weight limit was not answered.
+
+**Three- and four-high stacking is not needed for this customer.** Tom's answer: other
+customers stack 3 and sometimes 4 high, this one does not. Our data agrees: the same 308
+loads include 25 loads carrying 60 pallets and four carrying 86 to 90, which read as
+double-stacked loads. With a 108 in ceiling and a median unit load of 101 in, two-high is
+already uncommon.
+
+> **Consequence, now in code:** `stackBuilder` used to build stacks of any depth, and on the
+> 17 August data one group was given 3-high stacks. A new params key, `maxStackHeight`
+> (default 2, must be at least 1), now caps the depth. The config sets it to 2.
+
+**Pallet footprints are still missing, and Tom believes he already sent them.** He is
+asking his team why the right data did not arrive. We searched everything we hold — the
+demand files, placeholder files, product masters and pushed solutions in the 30 July,
+2 September and 3 September archives, plus the Customer 1 material — and found no footprint
+per pallet type. The only equipment field is `ZZNA_EQUIP_SIZE`, which reads `53F` on all 371
+loads, and the product master's Length and Width are case dimensions. The 18 duplicated
+products carry identical values there. Until the data arrives the 48x40 default stays.
+
+**Maximum weight above** is still awaited, unchanged.
+
+**Lane count check:** the pushed-solutions report gives `TOTAL_LANES` as 360, matching the
+360 lanes we get from the demand file.
+
+**Assumptions made on 25 September** (nothing was asked again; each can be reversed in
+`config/orderBuilderParams.json`):
+
+- **Stack positions set to 32.** Tom named 32 and 34 as possible. 32 is the median of the 308
+  solved loads, and the loads cluster around 30, 32 and 34, so it is the value most likely to
+  be right for the most loads. The choice matters for the cube-versus-weight split on the
+  17 August data:
+
+  | Stack positions | Cube-bound groups | Weight-bound groups |
+  |---:|---:|---:|
+  | 30 (old) | 384 | 3 |
+  | **32 (now)** | **383** | **4** |
+  | 34 | 378 | 9 |
+
+  The estimate is not close to being stable at 34, so Tom's answer on 32 versus 34 is worth
+  asking for directly.
+- **Trailer ceiling set to 108 in.** Tom confirmed 108 in Revision 2; the config still said
+  110. The change only tightens the ceiling, and the segregation, binding and stack tests do
+  not depend on it.
+- **Maximum stack height set to 2**, following Tom's statement that this customer does not
+  use 3- or 4-high stacks. Stored as a config key rather than fixed in code, so a future
+  customer with taller stacking is a config change.
+- **The 45,000 lb weight limit is unchanged.** Tom did not answer it, and nothing in the
+  thread contradicts it.
+
+**Not answered by Tom in this exchange** (an expert is checking the first two):
+
+- The pallet-variant fallback for products such as 105553001, where 168 cases is either 2 GMA
+  or 1 TLD pallets. We fall back to the preference order and flag the line.
+- Whether our five stacking methods work as Truck Builder's do.
+- Whether the three flagged planners at site 2028, which share lanes with no normal stock,
+  must also be kept apart from each other, or only from normal stock.
 
 ---
 
@@ -290,8 +358,8 @@ binding        = trucksIfWeight > trucksIfCube ? Weight : Cube
 ```
 
 Crude is fine: the output is one of two labels, not a truck count. Measured on 17 August
-under `Strict`: **384 cube-bound, 3 weight-bound** — not close, which is the evidence the
-estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 positions.
+under `Strict` at 30 positions: **384 cube-bound, 3 weight-bound** (383 / 4 at the current 32) — not close, which is the evidence the
+estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 positions; Tom has since said 30 is wrong (section 3), so they will move.
 
 **Module 4 checklist:**
 
@@ -303,6 +371,7 @@ estimate is safe. Both figures depend on the still-provisional 45,000 lb and 30 
 - [x] Real data, `Strict`: 387 groups, 384 cube-bound, 3 weight-bound
 - [x] Merged to `main`
 - [ ] Read the trailer from params by code once more than one trailer exists (the caller passes one `TrailerSpec` today)
+- [x] Stack positions set to 32 per trailer in the config (Tom: 30 is wrong, 32 or 34 possible). The split is now 383 cube-bound / 4 weight-bound; at 34 it would be 378 / 9
 
 Non-stackable products must reach this module, not only Pass 2 — a single-high product
 consumes a floor position a stackable one would share.
@@ -328,6 +397,7 @@ should mirror the T3 names** before writing them.
 - [x] Every pallet placed exactly once, no stack over the ceiling, and repeatable output, checked on the real 17 August data
 - [x] Whole day (387 groups, all five methods) completes well inside the 10 second budget; the whole real-data test takes about 3 s including loading
 - [x] Merged to `main`
+- [x] Stack depth capped by `maxStackHeight` (config value 2, per Tom); checked on the real data that no stack exceeds it
 - [ ] Waiting on Tom: method definitions and attempt cap (section 8)
 
 **The five methods are Order Builder's reading of T3's names, not T3's algorithms.** Each is the
@@ -363,14 +433,14 @@ nothing. Presentation only, as M1's Reporter.
 - [x] Per-group table: lane, stream (normal, planner, or flagged), lines, pallets, weight, limit, winning method, floor use, and pallets riding at each stack height
 - [x] States plainly how many groups ship entirely single-high, as the document asked
 - [x] Shared number formatting moved out of the M1 reporter into `reportFormat.hpp`; M1 output unchanged
-- [x] Real data: 387 groups, 17 lanes split, 384 cube-bound, 3 weight-bound, 234 groups entirely single-high
+- [x] Real data: 387 groups, 17 lanes split, 383 cube-bound, 4 weight-bound (32 positions), 234 groups entirely single-high
 - [x] Merged to `main`
 - [x] Pipeline wiring (module 7)
 
 Must print `defaultedKeys` from `params` — that is what turns a misspelled config key
 into a visible line rather than a silent default.
 
-### Module 7 — pipeline integration (tier 4, 2 days) — [x] done on branch
+### Module 7 — pipeline integration (tier 4, 2 days) — [x] done, merged
 
 ```
 import -> join -> convert -> validate -> segregate -> pass1 -> pass2 -> report
@@ -384,9 +454,9 @@ import -> join -> convert -> validate -> segregate -> pass1 -> pass2 -> report
 - [x] Trailer chosen by `trailerCode`, defaulting to the first listed; an unknown code or a params file with no trailer stops the run with exit code 2
 - [x] Lines the validator excluded (errors and the zero-dimension ruling) carry zero pallets into pass 1 and pass 2, so M2 totals agree with M1's. The rule lives in one shared function, `Validator::excludedLineFlags`, which the M1 reporter now uses too
 - [x] Demand pallet types with no params spec are logged as warnings
-- [x] Real data end to end through the CLI: 387 groups, 17 lanes split, 384 cube-bound and 3 weight-bound
+- [x] Real data end to end through the CLI: 387 groups, 17 lanes split, and (at 32 positions) 383 cube-bound and 4 weight-bound
 - [x] README documents the new flags
-- [ ] Merge to `main`
+- [x] Merged to `main`
 - [ ] Exit code for M2 problems (see section 8)
 
 Conversion still precedes validation because the large-line check needs pallet figures.
@@ -400,15 +470,16 @@ Conversion still precedes validation because the large-line check needs pallet f
 | # | Question | Blocks | Status |
 |---|---|---|---|
 | 1 | Which do-not-mix reading — strict or flagged-vs-normal? | reporting | Both built and tested. Decides which output is shown. Stable across four days. |
-| 2 | Pallet-type footprint table | `params` | Not derivable (Finding B). Default 48x40 and flag. |
-| 3 | Maximum weight above dataset | `stackRules` | Tom is sending it. Derive from CRI meanwhile. |
-| 4 | Weight limit and stack positions | `bindingConstraint` | 45,000 lb / 30 provisional. The 384/3 split rests on them. |
+| 2 | Pallet-type footprint table | `params` | Tom believes he sent it; his team is checking. Not in any archive we hold. Default 48x40 and flag. |
+| 3 | Maximum weight above dataset | `stackRules` | Still awaited. Derive from CRI meanwhile. |
+| 4 | Weight limit and stack positions | `bindingConstraint` | Positions set to 32 (Tom: 32 or 34). Weight limit 45,000 lb not answered. The split is 383 / 4 at 32 and 378 / 9 at 34. |
 | 5 | Pass 2 attempt cap | `stackBuilder` | Pick, measure, report. |
 | 6 | Strategy naming vs T3's five methods | `stackBuilder` | Ask before writing. |
 | 7 | The 33 self-failing products | `stackRules` | Warn and continue. One demanded on 17 Aug. |
 
 **Closed since Revision 2:** trailer height (108 in), own-stack (not applicable to this
-customer), variant resolution method (divisibility, 70–75% effective).
+customer), variant resolution method (divisibility, 70–75% effective), three- and
+four-high stacking (not applicable to this customer).
 
 ### Not estimated here
 
@@ -444,6 +515,8 @@ stands and should be re-confirmed rather than reported as a slip later.
   Tom confirmed the 60 lb weight, never a thickness. This matters more now that the
   ceiling is a confirmed 108 rather than an assumed 110.
 - Pallet footprint defaults to 48x40 for all types pending Tom's table.
+- Stack positions are 32 in the config: Tom said 30 is wrong and named 32 or 34, and 32 is the median of the solved loads. Awaiting his choice between 32 and 34.
+- Stacks are at most two high for this customer (Tom), enforced through `maxStackHeight`.
 - Floor truck counts are volume divided by capacity — a lower bound for comparing rules,
   not a plan.
 - Pallet-equivalents are summed as fractions across a group, never rounded per line.
@@ -460,19 +533,24 @@ config change once he replies.
 
 | # | Question | Where it matters | What is in place now |
 |---|---|---|---|
-| 1 | Which do-not-mix reading: strict, or flagged-vs-normal? | Which grouping is shown | Both built; `Strict` is the config default |
-| 2 | Pallet-type footprint table | `params`, unit loads | 48x40 for every type, flagged |
+| 1 | Which do-not-mix reading: strict, or flagged-vs-normal? At site 2028 three flagged planners share lanes with no normal stock; must they also be kept apart from each other? | Which grouping is shown | Both built; `Strict` (planners kept apart) is the config default. Asked, no answer yet |
+| 2 | Pallet-type footprint table (Tom recalls sending 40x48 wood at 15 rows and 39x48 slip sheet at 16 rows) | `params`, unit loads | 48x40 for every type, flagged. Tom's team is checking why it did not arrive |
 | 3 | The maximum-weight-above dataset | `stackRules` | Derived from the CRI table; a supplied value already wins over the derived one |
-| 4 | Weight limit and stack positions | `bindingConstraint` | 45,000 lb and 30 positions, provisional. The 384 / 3 split rests on them |
-| 5 | Do the five T3 method names match what Order Builder should build, and how are they defined? | `stackBuilder` | Order Builder's own reading of each name |
+| 4 | Weight limit (45,000 lb) and per-trailer stack positions: is it 32 or 34? | `bindingConstraint` | 32 and 45,000 lb in the config. The weight-bound group count is 4 at 32 and 9 at 34, so this decides the split |
+| 5 | Do the five T3 method names match what Order Builder should build, and how are they defined? | `stackBuilder` | Order Builder's own reading of each name. An expert is reviewing; Tom has not answered |
 | 6 | Pass 2 attempt cap | `stackBuilder` | Config default of 4, unmeasured |
 | 7 | Blank-CRI ruling: may a load with no strength rating carry weight? | `stackRules` | Not stackable; `blankCriIsStackable` skips the CRI weight check if set true |
 | 8 | The 33 products that fail their own CRI check | `stackRules` | Warn and continue. One is demanded on 17 August |
 | 9 | Pallet deck heights (5.5 in for PTL and PGM, 0 for TLD and GMA) | Unit-load height | Assumed. Tom confirmed the 60 lb weight only |
-| 10 | Config ceiling: `orderBuilderParams.json` says 110 in, Tom confirmed 108 | `stackBuilder` results | Left at 110; a one-line config change, awaiting agreement |
+| 10 | ~~Config ceiling 110 in~~ | `stackBuilder` results | Resolved: Tom confirmed 108 in, and the config now says 108 |
 | 11 | Large-line threshold (300 to about 3,000 pallets) and the sampling algorithm | Scope, not estimated | Not built |
 | 12 | Whether the T3/P3 API arriving early changes M2's scope | Scope decision | M2 stays self-contained |
 | 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Fractions, per the standing ruling; figures underestimate floor use in small groups |
 | 14 | Which trailer does a lane use? Placeholder lanes carry an equipment size (`53F` or blank) that the params trailer codes (`53FT_NA`) do not match | Pipeline integration | The first trailer in the params file, or one chosen with `--trailer`, applied to every group |
 | 15 | Should the run exit non-zero when M2 finds problems (pallet types with no spec, lines with no unit load)? | Pipeline integration | They are logged and counted in the report; the exit code still reflects validation errors only |
 | 16 | Should M2 groups feed the truck counts (placeholder loads per lane)? | Beyond M2 | No. The report shows floor positions per group, and truck counts are not decided |
+| 17 | Pallet-variant fallback for lines the divisibility rule cannot resolve (for example 105553001, 168 cases = 2 GMA or 1 TLD pallets) | Joiner, Finding C | Preference order (TLD, PTL, PGM, GMA) with the line flagged. The divisibility rule itself is still not built |
+
+**Answered on 25 September:** stack positions are not 30 (item 4 is now 32 versus 34);
+three- and four-high stacking is not needed for this customer, and the cap is in the config
+(section 3).

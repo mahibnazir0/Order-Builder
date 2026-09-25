@@ -22,6 +22,7 @@ M2Params testParams() {
     params.cri.safeLimitLb = {0, 5, 299, 549, 799, 1149, 1499, 1849, 2199, 3099, 3599};
     params.pallets = {{"TLD", 0.0, 0.0, 48.0, 40.0}};
     params.pass2AttemptCap = 4;
+    params.maxStackHeight = 3;
     return params;
 }
 
@@ -99,6 +100,17 @@ TEST_CASE("stackBuilder: a short load stacks on itself up to the ceiling") {
     CHECK(result.groups[0].best.floorPositions == doctest::Approx(4.0 / 3.0));
     REQUIRE(result.groups[0].best.stacks.size() >= 1);
     CHECK(result.groups[0].best.stacks[0].lineIndices.size() == 3);
+}
+
+TEST_CASE("stackBuilder: stacks never exceed the configured maximum height") {
+    M2Params params = testParams();
+    Scenario scenario({product("A", 30, 100, 9)}, {4});
+    params.maxStackHeight = 2;
+    const auto twoHigh = scenario.build(params);
+    CHECK(twoHigh.groups[0].best.floorPositions == doctest::Approx(2.0));
+    for (const auto& stack : twoHigh.groups[0].best.stacks) CHECK(stack.lineIndices.size() <= 2);
+    params.maxStackHeight = 1;
+    CHECK(scenario.build(params).groups[0].best.floorPositions == doctest::Approx(4.0));
 }
 
 TEST_CASE("stackBuilder: stacks use only as many pallets as the scarcer line has") {
@@ -239,6 +251,7 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
         double stacked = 0.0;
         for (const auto& stack : best.stacks) {
             stacked += stack.quantity * static_cast<double>(stack.lineIndices.size());
+            CHECK(stack.lineIndices.size() <= static_cast<std::size_t>(params.maxStackHeight));
             double heightIn = 0.0;
             for (const std::size_t member : stack.lineIndices) {
                 const auto load = buildUnitLoad(run.join.lines[member], params);

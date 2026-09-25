@@ -36,6 +36,8 @@ struct M2Params {
     std::vector<TrailerSpec> trailers;
     SegregationReading doNotMixReading = SegregationReading::Strict;
     int pass2AttemptCap = 4;
+    // Most pallets in one stack. Tom: this customer never goes above two high.
+    int maxStackHeight = 2;
     bool blankCriIsStackable = false;
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> warnings;

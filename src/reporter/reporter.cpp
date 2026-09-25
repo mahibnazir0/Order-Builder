@@ -3,6 +3,7 @@
 #include "reportFormat.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <map>
 #include <ostream>
@@ -68,7 +69,11 @@ DaySummary Reporter::build(const JoinResult& join,
 
         ++lane.demand_lines;
         ++day.total_demand_lines;
-        day.hash_total += s.trans;   // every line counts, matched or not
+        // Every line counts, matched or not, unless its TRANS is out of range in either
+        // direction: two lines of 1e308 (or -1e308) would turn the integrity check into inf.
+        if (std::isfinite(s.trans) && std::fabs(s.trans) <= kMaxDemandQuantity) {
+            day.hash_total += s.trans;
+        }
         if (line_excluded[i]) ++day.excluded_lines;
 
         if (jl.matched) {

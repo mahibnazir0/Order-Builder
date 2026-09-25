@@ -4,6 +4,8 @@
 #include "importer.hpp"
 #include "product_importer.hpp"
 #include "placeholder_importer.hpp"
+#include <cmath>
+#include "converter.hpp"
 
 #include <sstream>
 #include <algorithm>
@@ -134,6 +136,109 @@ TEST_CASE("hash total counts every line, matched or not") {
     // Unmatched lines still contribute to the integrity check.
     CHECK(d.hash_total == doctest::Approx(8708934.0));
     CHECK(d.unmatched_lines == 1);
+}
+
+TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and hash_total finite") {
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE(demand.str.size() >= 2);
+
+    ProductRecord product;
+    product.id = "T1";
+    product.weight_lb = 10.0;
+    product.cases_unit_load = 1;
+    product.cases_layer = 1;
+    product.layers_unit_load = 1;
+    product.length_in = product.width_in = product.height_in = 10.0;
+    product.strength = 5;
+    product.pallet_id = "TLD";
+
+    std::vector<STRRecord> hugeLines{demand.str[0], demand.str[1]};
+    for (STRRecord& line : hugeLines) {
+        line.matnr = product.id;
+        line.unitofmeas = "CS";
+        line.trans = 1e308;
+    }
+
+    JoinResult join;
+    std::vector<double> pallets;
+    std::vector<double> weights;
+    for (const STRRecord& line : hugeLines) {
+        join.lines.push_back(JoinedLine{&line, &product, true, false});
+        const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
+        pallets.push_back(linePallets);
+        weights.push_back(Converter::to_weight_lb(linePallets, product));
+    }
+
+    const ValidationReport rep = Validator::validate(join);
+    REQUIRE(rep.excessive_quantity == 2);
+
+    const DaySummary d = Reporter::build(join, {}, pallets, weights, "", rep);
+    CHECK(std::isfinite(d.total_weight_lb));
+    CHECK(std::isfinite(d.total_pallet_equiv));
+    CHECK(std::isfinite(d.hash_total));
+    CHECK(d.excluded_lines == 2);
+}
+
+TEST_CASE("two TRANS = -1e308 lines leave hash_total finite") {
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE(demand.str.size() >= 2);
+
+    ProductRecord product;
+    product.id = "T1";
+    product.weight_lb = 10.0;
+    product.cases_unit_load = 1;
+    product.cases_layer = 1;
+    product.layers_unit_load = 1;
+    product.length_in = product.width_in = product.height_in = 10.0;
+    product.strength = 5;
+    product.pallet_id = "TLD";
+
+    std::vector<STRRecord> hugeNegativeLines{demand.str[0], demand.str[1]};
+    JoinResult join;
+    for (STRRecord& line : hugeNegativeLines) {
+        line.matnr = product.id;
+        line.unitofmeas = "CS";
+        line.trans = -1e308;
+        join.lines.push_back(JoinedLine{&line, &product, true, false});
+    }
+
+    const ValidationReport rep = Validator::validate(join);
+    REQUIRE(rep.non_positive_qty == 2);
+
+    const DaySummary d = Reporter::build(join, {}, {}, {}, "", rep);
+    CHECK(std::isfinite(d.hash_total));
+    CHECK(d.excluded_lines == 2);
+}
+
+TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite") {
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+
+    ProductRecord product;
+    product.id = "T1";
+    product.weight_lb = 1e306;
+    product.cases_unit_load = 1000;
+    product.cases_layer = 1;
+    product.layers_unit_load = 1;
+    product.length_in = product.width_in = product.height_in = 10.0;
+    product.strength = 5;
+    product.pallet_id = "TLD";
+
+    STRRecord line = demand.str[0];
+    line.matnr = product.id;
+    line.unitofmeas = "PAL";
+    line.trans = 1000;
+
+    JoinResult join;
+    join.lines.push_back(JoinedLine{&line, &product, true, false});
+    const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
+    const std::vector<double> pallets{linePallets};
+    const std::vector<double> weights{Converter::to_weight_lb(linePallets, product)};
+    REQUIRE_FALSE(std::isfinite(weights[0]));
+
+    const ValidationReport rep = Validator::validate(join);
+    const DaySummary d = Reporter::build(join, {}, pallets, weights, "", rep);
+    CHECK(std::isfinite(d.total_weight_lb));
 }
 
 TEST_CASE("pallet and weight columns are zero when no figures are supplied") {
@@ -303,4 +408,34 @@ TEST_CASE("clean validation prints a clear all-good message") {
     std::ostringstream out;
     Reporter::print_warnings(rep, out);
     CHECK(out.str().find("Nothing flagged") != std::string::npos);
+}
+
+TEST_CASE("placeholders of 2,000,000,000 loads are excluded, so the truck total cannot overflow") {
+    std::vector<PlaceholderRecord> placeholders(2);
+    for (auto& p : placeholders) {
+        p.locfrno     = "2023";
+        p.loctono     = "2528";
+        p.ship_cond   = "TL";
+        p.no_of_loads = 2000000000;
+    }
+    ValidationReport report;
+    Validator::validate_placeholders(placeholders, report);
+    CHECK(report.excessive_load_count == 2);
+
+    DaySummary d = Reporter::build(JoinResult{}, placeholders, {}, {}, "", report);
+    CHECK(d.excluded_placeholders == 2);
+    CHECK(d.trucks_requested == 0);
+}
+
+TEST_CASE("placeholders at the maximum load count on one lane add up in the lane and day totals") {
+    std::vector<PlaceholderRecord> placeholders(3);
+    for (auto& p : placeholders) {
+        p.locfrno     = "2023";
+        p.loctono     = "2528";
+        p.ship_cond   = "TL";
+        p.no_of_loads = kMaxLoadsPerPlaceholder;
+    }
+    DaySummary d = Reporter::build(JoinResult{}, placeholders);
+    CHECK(d.trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
+    CHECK(d.lanes[0].trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
 }

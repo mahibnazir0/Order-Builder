@@ -159,7 +159,7 @@ TEST_CASE("stackReporter: real demand report states the segregation and binding 
     const std::string text = out.str();
     CHECK(contains(text, "Groups                    387"));
     CHECK(contains(text, "split into groups       17"));
-    CHECK(contains(text, "Cube-bound groups         384"));
-    CHECK(contains(text, "Weight-bound groups       3"));
+    CHECK(contains(text, "Cube-bound groups         383"));
+    CHECK(contains(text, "Weight-bound groups       4"));
     CHECK(contains(text, "top 10 of 387"));
 }
