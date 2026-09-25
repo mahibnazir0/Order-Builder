@@ -2,6 +2,7 @@
 // implementing translation unit only (see tests/importer/test_importer.cpp).
 #include "doctest.h"
 #include "placeholder_importer.hpp"
+#include "validator.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -97,5 +98,130 @@ TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
     PlaceholderLoadResult r = PlaceholderImporter::load(path);
     CHECK(r.placeholders.empty());
     CHECK(r.total_loads == 0);
+    std::remove(path.c_str());
+}
+
+namespace {
+
+// Loads a one-entry placeholder file whose entry is the given JSON object text.
+PlaceholderLoadResult loadOnePlaceholder(const std::string& entryJson) {
+    const std::string path = "tests/importer/_tmp_pholder_entry.json";
+    {
+        std::ofstream out(path);
+        out << R"({"PHOLDER":[)" << entryJson << "]}";
+    }
+    PlaceholderLoadResult result = PlaceholderImporter::load(path);
+    std::remove(path.c_str());
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("a NO_OF_LOADS of the wrong type loads as the unreadable sentinel, not 0") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":"three"})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+}
+
+TEST_CASE("an absent NO_OF_LOADS loads as the unreadable sentinel, not 0") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2"})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+}
+
+TEST_CASE("a null NO_OF_LOADS loads as the unreadable sentinel, not 0") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":null})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+}
+
+TEST_CASE("an explicit NO_OF_LOADS of 0 stays 0") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":0})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == 0);
+}
+
+TEST_CASE("the unreadable sentinel is left out of total_loads") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":"three"})");
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a NO_OF_LOADS above the maximum is left out of total_loads") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
+                                      + std::to_string(kMaxLoadsPerPlaceholder + 1) + "}");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a NO_OF_LOADS of exactly the maximum is still counted in total_loads") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
+                                      + std::to_string(kMaxLoadsPerPlaceholder) + "}");
+    CHECK(r.total_loads == kMaxLoadsPerPlaceholder);
+}
+
+TEST_CASE("a fractional NO_OF_LOADS loads as the unreadable sentinel, not a truncated count") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":2.9})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a boolean NO_OF_LOADS loads as the unreadable sentinel, not a truncated count") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":true})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a NO_OF_LOADS above int range loads as the unreadable sentinel, not a truncated count") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":4294967297})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a NO_OF_LOADS float above int range loads as the unreadable sentinel, not a truncated count") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":1e10})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == -1);
+    CHECK(r.total_loads == 0);
+}
+
+TEST_CASE("a whole-number float NO_OF_LOADS loads as that count") {
+    const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":3.0})");
+    REQUIRE(r.placeholders.size() == 1);
+    CHECK(r.placeholders[0].no_of_loads == 3);
+}
+
+TEST_CASE("a NO_OF_LOADS too large for a double is rejected at load as a runtime_error") {
+    const std::string path = "tests/importer/_tmp_pholder_overflow.json";
+    {
+        std::ofstream out(path);
+        out << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":1e999}]})";
+    }
+    CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path), doctest::Contains("number overflow"),
+                         std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("a placeholder file whose root is an array throws instead of loading as empty") {
+    const std::string path = "tests/importer/_tmp_ph_root_array.json";
+    {
+        std::ofstream out(path);
+        out << R"([{"PHOLDER":[]}])";
+    }
+    CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
+                         doctest::Contains("root must be a JSON object"), std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("a placeholder file whose root is a number throws instead of loading as empty") {
+    const std::string path = "tests/importer/_tmp_ph_root_number.json";
+    {
+        std::ofstream out(path);
+        out << "42";
+    }
+    CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
+                         doctest::Contains("root must be a JSON object"), std::runtime_error);
     std::remove(path.c_str());
 }

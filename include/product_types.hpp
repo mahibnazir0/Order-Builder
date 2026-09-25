@@ -15,6 +15,10 @@
 
 namespace ob {
 
+// Strength as read from a non-blank cell that doesn't parse. Never a valid CRI, so an
+// unreadable cell can't pass as a blank one (0).
+constexpr int kUnreadableStrength = -1;
+
 struct ProductRecord {
     std::string id;                 // join key (matches STR.MATNR) — string
     std::string description;

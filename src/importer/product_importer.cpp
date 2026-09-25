@@ -2,6 +2,7 @@
 #include "logger.hpp"
 
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -33,7 +34,9 @@ std::vector<std::string> split_csv(const std::string& line) {
 }
 
 // Safe numeric parse: return fallback if the cell is blank or not a number,
-// rather than throwing. The Validator decides whether a 0 here is acceptable.
+// rather than throwing. Weight and the dimensions pass a NaN fallback so the
+// Validator can't mistake an unreadable cell for a real 0 (a 0 weight passes
+// invalid_weight; a 0 dimension reads as a raw-material zero_dimension).
 //
 // std::stod/std::stoi stop at the first character they can't parse rather
 // than rejecting the whole string, so "9,500" would silently come back as 9
@@ -80,8 +83,15 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
     // changes in the source do not break the reader.
     std::vector<std::string> headers = split_csv(header_line);
     std::unordered_map<std::string, int> col;
+    col.reserve(headers.size());
     for (int i = 0; i < static_cast<int>(headers.size()); ++i) {
-        col[lower(headers[i])] = i;
+        // The 3 Sep extract carries both "Strength" and "strength"; the first wins.
+        const auto insertion = col.emplace(lower(headers[i]), i);
+        if (!insertion.second) {
+            LOG_WARN("Duplicate product column '" + headers[i] + "' at column "
+                     + std::to_string(i + 1) + "; using first occurrence at column "
+                     + std::to_string(insertion.first->second + 1));
+        }
     }
 
     const char* required[] = {"id", "length", "width", "height", "strength",
@@ -102,6 +112,7 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
     ProductLoadResult result;
     std::unordered_map<std::string, size_t> id_to_index; // for duplicate detection
 
+    constexpr double unreadableMeasurement = std::numeric_limits<double>::quiet_NaN();
     std::string line;
     while (std::getline(in, line)) {
         if (trim(line).empty()) continue;
@@ -111,12 +122,13 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
         ProductRecord p;
         p.id               = at(c, "id");
         p.description      = at(c, "description");
-        p.length_in        = to_double(at(c, "length"));
-        p.width_in         = to_double(at(c, "width"));
-        p.height_in        = to_double(at(c, "height"));
-        p.strength         = to_int(at(c, "strength"));
+        p.length_in        = to_double(at(c, "length"), unreadableMeasurement);
+        p.width_in         = to_double(at(c, "width"), unreadableMeasurement);
+        p.height_in        = to_double(at(c, "height"), unreadableMeasurement);
+        const std::string strengthCell = at(c, "strength");
+        p.strength         = strengthCell.empty() ? 0 : to_int(strengthCell, kUnreadableStrength);
         p.uom              = at(c, "uom");
-        p.weight_lb        = to_double(at(c, "weight"));
+        p.weight_lb        = to_double(at(c, "weight"), unreadableMeasurement);
         p.cases_layer      = to_int(at(c, "cases_layer"));
         p.layers_unit_load = to_int(at(c, "layers_unit_load"));
         p.cases_unit_load  = to_int(at(c, "cases_unit_load"));

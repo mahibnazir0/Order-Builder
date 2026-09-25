@@ -1,7 +1,9 @@
 #include "reporter.hpp"
 #include "logger.hpp"
+#include "reportFormat.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <map>
 #include <ostream>
@@ -14,46 +16,6 @@ namespace {
 // Lanes are keyed by the triplet the planner thinks in: origin, destination,
 // ship condition. std::map keeps a stable order before we sort for display.
 using LaneKey = std::tuple<std::string, std::string, std::string>;
-
-std::string fixed(double v, int places) {
-    std::ostringstream os;
-    os << std::fixed << std::setprecision(places) << v;
-    return os.str();
-}
-
-// Thousands separators, done manually so no locale needs installing.
-std::string grouped(double v, int places = 0) {
-    std::string s = fixed(v, places);
-    std::string intpart = s;
-    std::string frac;
-    const auto dot = s.find('.');
-    if (dot != std::string::npos) {
-        intpart = s.substr(0, dot);
-        frac    = s.substr(dot);
-    }
-    bool neg = !intpart.empty() && intpart[0] == '-';
-    if (neg) intpart.erase(0, 1);
-
-    std::string out;
-    int count = 0;
-    for (auto it = intpart.rbegin(); it != intpart.rend(); ++it) {
-        if (count && count % 3 == 0) out.push_back(',');
-        out.push_back(*it);
-        ++count;
-    }
-    std::reverse(out.begin(), out.end());
-    if (neg) out.insert(out.begin(), '-');
-    return out + frac;
-}
-
-void pad_left(std::ostream& out, const std::string& s, size_t width) {
-    if (s.size() < width) out << std::string(width - s.size(), ' ');
-    out << s;
-}
-void pad_right(std::ostream& out, const std::string& s, size_t width) {
-    out << s;
-    if (s.size() < width) out << std::string(width - s.size(), ' ');
-}
 
 } // anonymous namespace
 
@@ -73,17 +35,8 @@ DaySummary Reporter::build(const JoinResult& join,
     // to skip ("zero_dimension") must not add to the pallet/weight totals —
     // those figures are derived, unlike hash_total below, which is a control
     // total against the source file and intentionally counts everything.
-    std::vector<bool> line_excluded(join.lines.size(), false);
-    for (const auto& issue : validation.issues) {
-        if (issue.line_index < 0
-            || static_cast<size_t>(issue.line_index) >= line_excluded.size()) {
-            continue;
-        }
-        if (issue.severity == ValidationIssue::Severity::Error
-            || issue.rule == "zero_dimension") {
-            line_excluded[static_cast<size_t>(issue.line_index)] = true;
-        }
-    }
+    const std::vector<bool> line_excluded =
+        Validator::excludedLineFlags(validation, join.lines.size());
 
     // Same idea for placeholders (negative NO_OF_LOADS, missing lane
     // identifier): kept in placeholder_index, a separate index space from
@@ -116,7 +69,11 @@ DaySummary Reporter::build(const JoinResult& join,
 
         ++lane.demand_lines;
         ++day.total_demand_lines;
-        day.hash_total += s.trans;   // every line counts, matched or not
+        // Every line counts, matched or not, unless its TRANS is out of range in either
+        // direction: two lines of 1e308 (or -1e308) would turn the integrity check into inf.
+        if (std::isfinite(s.trans) && std::fabs(s.trans) <= kMaxDemandQuantity) {
+            day.hash_total += s.trans;
+        }
         if (line_excluded[i]) ++day.excluded_lines;
 
         if (jl.matched) {

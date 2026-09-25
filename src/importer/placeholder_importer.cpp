@@ -1,6 +1,7 @@
 #include "placeholder_importer.hpp"
 #include "logger.hpp"
 #include "json_util.hpp"
+#include "validator.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -19,7 +20,7 @@ PlaceholderRecord parse_placeholder(const json& j) {
     p.datfr_ta        = get_or<std::string>(j, "DATFR_TA", "");
     p.datto_ta        = get_or<std::string>(j, "DATTO_TA", "");
     p.zzna_equip_size = get_or<std::string>(j, "ZZNA_EQUIP_SIZE", "");
-    p.no_of_loads     = get_or<int>(j, "NO_OF_LOADS", 0);
+    p.no_of_loads     = getIntegerOr(j, "NO_OF_LOADS", kUnreadableLoadCount);
     p.ebeln           = get_or<std::string>(j, "EBELN", "");
     return p;
 }
@@ -35,8 +36,15 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
     json root;
     try {
         in >> root;
-    } catch (const json::parse_error& e) {
+    } catch (const json::exception& e) {
+        // parse_error for bad syntax, out_of_range for a number too large for a double.
         throw std::runtime_error("Placeholder file is not valid JSON: " + std::string(e.what()));
+    }
+
+    // find() on an array or scalar root returns end(), so get_optional_array would
+    // read PHOLDER as absent and the file would load as zero trucks.
+    if (!root.is_object()) {
+        throw std::runtime_error("Placeholder file: root must be a JSON object");
     }
 
     PlaceholderLoadResult result;
@@ -48,7 +56,9 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
         result.placeholders.reserve(pholder->size());
         for (const auto& item : *pholder) {
             PlaceholderRecord p = parse_placeholder(item);
-            result.total_loads += p.no_of_loads;
+            if (p.no_of_loads >= 0 && p.no_of_loads <= kMaxLoadsPerPlaceholder) {
+                result.total_loads += p.no_of_loads;
+            }
             result.placeholders.push_back(p);
         }
     }

@@ -18,6 +18,10 @@
 
 namespace ob {
 
+// NO_OF_LOADS as read when the field is missing, null or the wrong type. Never a valid
+// count, so the Validator's negative_load_count rule catches it instead of a 0 passing.
+constexpr int kUnreadableLoadCount = -1;
+
 struct PlaceholderRecord {
     std::string locfrno;          // origin location        "2023"
     std::string loctono;          // destination            "2528"
@@ -32,7 +36,9 @@ struct PlaceholderRecord {
 // Result of reading the placeholder file.
 struct PlaceholderLoadResult {
     std::vector<PlaceholderRecord> placeholders;
-    int total_loads = 0;   // sum of no_of_loads — 372 in the supplied file
+    // Sum of in-range no_of_loads only (0..kMaxLoadsPerPlaceholder), matching the
+    // placeholders the Reporter counts — 372 in the supplied file.
+    long long total_loads = 0;
 };
 
 } // namespace ob

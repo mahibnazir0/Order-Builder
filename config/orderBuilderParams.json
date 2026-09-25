@@ -1,0 +1,21 @@
+{
+  "criSafeLimitLb": [5, 299, 549, 799, 1149, 1499, 1849, 2199, 3099, 3599],
+  "pallets": [
+    { "palletId": "PTL", "addedWeightLb": 60, "addedHeightIn": 5.5,
+      "footprintLengthIn": 48, "footprintWidthIn": 40 },
+    { "palletId": "PGM", "addedWeightLb": 60, "addedHeightIn": 5.5,
+      "footprintLengthIn": 48, "footprintWidthIn": 40 },
+    { "palletId": "TLD", "addedWeightLb": 0, "addedHeightIn": 0,
+      "footprintLengthIn": 48, "footprintWidthIn": 40 },
+    { "palletId": "GMA", "addedWeightLb": 0, "addedHeightIn": 0,
+      "footprintLengthIn": 48, "footprintWidthIn": 40 }
+  ],
+  "trailers": [
+    { "trailerCode": "53FT_NA", "interiorLengthIn": 630, "interiorWidthIn": 100,
+      "stackHeightCeilingIn": 108, "weightLimitLb": 45000, "stackPositions": 32 }
+  ],
+  "doNotMixReading": "Strict",
+  "pass2AttemptCap": 4,
+  "maxStackHeight": 2,
+  "blankCriIsStackable": false
+}

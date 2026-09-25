@@ -35,6 +35,12 @@ add_library(ob_core STATIC
   src/joiner/joiner.cpp
   src/reporter/reporter.cpp
   src/pipeline.cpp
+  src/params/paramsLoader.cpp
+  src/segregation/segregation.cpp
+  src/stackRules/stackRules.cpp
+  src/bindingConstraint/bindingConstraint.cpp
+  src/stackBuilder/stackBuilder.cpp
+  src/stackReporter/stackReporter.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -64,6 +70,14 @@ add_executable(ob_tests
   tests/joiner/test_joiner.cpp
   tests/reporter/test_reporter.cpp
   tests/test_end_to_end.cpp
+  tests/params/testParamsLoader.cpp
+  tests/segregation/testSegregation.cpp
+  tests/importer/testProductHeaders.cpp
+  tests/stackRules/testStackRules.cpp
+  tests/bindingConstraint/testBindingConstraint.cpp
+  tests/stackBuilder/testStackBuilder.cpp
+  tests/stackReporter/testStackReporter.cpp
+  tests/testPipelineMilestone2.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

@@ -42,7 +42,7 @@ struct LaneSummary {
     int    matched_lines    = 0;
     double pallet_equiv     = 0.0;   // summed pallet fractions — see header
     double weight_lb        = 0.0;
-    int    trucks_requested = 0;     // from the placeholder file
+    long long trucks_requested = 0;  // from the placeholder file
 
     bool has_demand      = false;
     bool has_placeholder = false;
@@ -74,7 +74,7 @@ struct DaySummary {
     int lanes_with_placeholder = 0;
     int lanes_demand_only    = 0;
     int lanes_placeholder_only = 0;
-    int trucks_requested     = 0;
+    long long trucks_requested = 0;
 
     std::vector<LaneSummary> lanes;   // sorted by pallet_equiv, largest first
 };
