@@ -1,11 +1,14 @@
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "importer.hpp"
 #include "paramsLoader.hpp"
 #include "product_importer.hpp"
 #include "stackRules.hpp"
 
 #include <cmath>
+#include <iostream>
 #include <limits>
+#include <map>
 #include <unordered_set>
 
 using namespace ob;
@@ -280,4 +283,64 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
     CHECK(pairs == 2016400);
     CHECK(passHeight == 65295);
     CHECK(passBoth == 43021);
+}
+
+namespace {
+
+struct PairPassCounts {
+    std::size_t sampledProducts = 0;
+    std::size_t pairs = 0;
+    std::size_t passHeight = 0;
+    std::size_t passBoth = 0;
+};
+
+// Every Nth distinct demanded product in ID order, then every ordered pair within it.
+// Sorting by ID keeps the sample independent of demand line order.
+PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2Params& params,
+                                 std::size_t everyNth) {
+    std::map<std::string, const JoinedLine*> firstLineByProduct;
+    for (const auto& line : lines) {
+        if (line.product != nullptr) firstLineByProduct.emplace(line.product->id, &line);
+    }
+    std::vector<UnitLoad> loads;
+    std::size_t position = 0;
+    for (const auto& entry : firstLineByProduct) {
+        if (position++ % everyNth == 0) loads.push_back(buildUnitLoad(*entry.second, params));
+    }
+    PairPassCounts counts;
+    counts.sampledProducts = loads.size();
+    for (const auto& base : loads) {
+        for (const auto& top : loads) {
+            ++counts.pairs;
+            const auto result = canStack(base, top, params, kCeilingIn);
+            if (result.reason != Reason::HeightCeiling) ++counts.passHeight;
+            if (result.isFeasible) ++counts.passBoth;
+        }
+    }
+    return counts;
+}
+
+} // namespace
+
+TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling") {
+    constexpr std::size_t everyNth = 10;
+    // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
+    const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
+    const crossDayTests::PerDay<std::size_t> passHeight{484, 625, 484, 841};
+    const crossDayTests::PerDay<std::size_t> passBoth{308, 408, 334, 531};
+    for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
+        CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
+        const auto& run = crossDayTests::pipelineRuns()[dayIndex];
+        REQUIRE_FALSE(run.params.trailers.empty());
+        REQUIRE(run.params.trailers.front().stackHeightCeilingIn == kCeilingIn);
+        const PairPassCounts counts = sampledPairCounts(run.join.lines, run.params, everyNth);
+        CHECK(counts.sampledProducts == sampledProducts[dayIndex]);
+        CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
+        CHECK(counts.passHeight == passHeight[dayIndex]);
+        CHECK(counts.passBoth == passBoth[dayIndex]);
+        std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
+                  << " stackRules sample (every " << everyNth << "th product by ID): products="
+                  << counts.sampledProducts << " pairs=" << counts.pairs
+                  << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';
+    }
 }

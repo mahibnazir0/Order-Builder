@@ -72,15 +72,24 @@ add_executable(ob_tests
   tests/test_end_to_end.cpp
   tests/params/testParamsLoader.cpp
   tests/segregation/testSegregation.cpp
+  tests/segregation/testCrossDaySegregation.cpp
   tests/importer/testProductHeaders.cpp
   tests/stackRules/testStackRules.cpp
   tests/bindingConstraint/testBindingConstraint.cpp
   tests/stackBuilder/testStackBuilder.cpp
   tests/stackReporter/testStackReporter.cpp
   tests/testPipelineMilestone2.cpp
+  tests/testCrossDayPipeline.cpp
+  tests/testPipelineDeterminism.cpp
+  tests/testMilestone2Guarantees.cpp
+  tests/cli/testCli.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
+
+# The CLI tests run the real executable, so it must be built first and found by path.
+add_dependencies(ob_tests order_builder)
+target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_builder>")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
