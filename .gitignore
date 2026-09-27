@@ -25,6 +25,13 @@ Thumbs.db
 # Currently: Demand-1.json, PlaceHolder-1.json, Customer2-Product-Data.csv
 tests/importer/*.json
 tests/importer/*.csv
+# September extracts keep the client's directory layout, so they are nested
+# and the flat patterns above do not reach them.
+tests/importer/crossDay/
+
+# CLI output captured from real extracts: full per-lane client data.
+/m2_run_*.txt
+/run_*.txt
 
 CLAUDE.md
 .claude/
