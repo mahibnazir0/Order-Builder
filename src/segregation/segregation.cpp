@@ -2,6 +2,7 @@
 
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 
@@ -17,9 +18,14 @@ bool GroupKey::operator<(const GroupKey& other) const {
 
 SegregationResult segregate(const std::vector<JoinedLine>& lines,
                             const std::vector<DoNotMixPair>& doNotMixPairs,
-                            SegregationReading reading) {
+                            SegregationReading reading,
+                            const std::vector<bool>& excludedLines) {
     using PlannerSite = std::pair<std::string, std::string>;
     using LaneKey = std::tuple<std::string, std::string, std::string>;
+
+    if (excludedLines.size() != lines.size()) {
+        throw std::invalid_argument("segregate: excludedLines must be parallel to lines");
+    }
 
     SegregationResult result;
     result.doNotMixPairsLoaded = doNotMixPairs.size();
@@ -35,6 +41,10 @@ SegregationResult segregate(const std::vector<JoinedLine>& lines,
     std::map<LaneKey, std::size_t> groupsPerLane;
 
     for (std::size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+        if (excludedLines[lineIndex]) {
+            ++result.linesExcluded;
+            continue;
+        }
         const STRRecord& demand = *lines[lineIndex].str;
         PlannerSite plannerSite{demand.planner_snp, demand.locfrno};
         const bool isFlagged = flaggedPlannerSites.count(plannerSite) != 0;

@@ -32,12 +32,16 @@ std::size_t totalGroupedLines(const SegregationResult& result) {
     return total;
 }
 
+std::vector<bool> includeAll(std::size_t lineCount) {
+    return std::vector<bool>(lineCount, false);
+}
+
 const DoNotMixPair pairS1At2027{"S1", "2027"};
 
 } // namespace
 
 TEST_CASE("segregation: empty demand gives an empty result") {
-    const auto result = segregate({}, {pairS1At2027}, SegregationReading::Strict);
+    const auto result = segregate({}, {pairS1At2027}, SegregationReading::Strict, {});
     CHECK(result.groups.empty());
     CHECK(result.linesIn == 0);
     CHECK(result.doNotMixPairsLoaded == 1);
@@ -48,7 +52,8 @@ TEST_CASE("segregation: without pairs each lane is one group") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2500", "S2"),
                                         demandLine("2027", "2600", "S1")};
-    const auto result = segregate(joinedLines(demand), {}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.groups.size() == 2);
     CHECK(result.lanesIn == 2);
     CHECK(result.lanesSplit == 0);
@@ -59,7 +64,8 @@ TEST_CASE("segregation: without pairs each lane is one group") {
 TEST_CASE("segregation: ship condition is part of the lane") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1", "TL"),
                                         demandLine("2027", "2500", "S1", "TF")};
-    const auto result = segregate(joinedLines(demand), {}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.lanesIn == 2);
     CHECK(result.groups.size() == 2);
 }
@@ -69,7 +75,8 @@ TEST_CASE("segregation: strict keeps each flagged planner apart from normal stoc
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2500", "S2"),
                                         demandLine("2027", "2500", "S9")};
-    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     REQUIRE(result.groups.size() == 3);
     CHECK(result.lanesIn == 1);
     CHECK(result.lanesSplit == 1);
@@ -86,7 +93,8 @@ TEST_CASE("segregation: flagged-vs-normal puts every flagged planner in one grou
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2500", "S2"),
                                         demandLine("2027", "2500", "S9")};
-    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::FlaggedVsNormal);
+    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::FlaggedVsNormal,
+                                  includeAll(demand.size()));
     REQUIRE(result.groups.size() == 2);
     CHECK_FALSE(result.groups[0].key.isSegregated);
     CHECK(result.groups[1].key.isSegregated);
@@ -96,7 +104,8 @@ TEST_CASE("segregation: flagged-vs-normal puts every flagged planner in one grou
 
 TEST_CASE("segregation: a pair only flags its planner at its own origin") {
     const std::vector<STRRecord> demand{demandLine("2028", "2500", "S1")};
-    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.linesSegregated == 0);
     CHECK(result.doNotMixPairsWithDemand == 0);
     CHECK_FALSE(result.groups[0].key.isSegregated);
@@ -104,7 +113,8 @@ TEST_CASE("segregation: a pair only flags its planner at its own origin") {
 
 TEST_CASE("segregation: a blank-planner pair never flags a blank-planner line") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "")};
-    const auto result = segregate(joinedLines(demand), {{"", "2027"}}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {{"", "2027"}}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.linesSegregated == 0);
     CHECK_FALSE(result.groups[0].key.isSegregated);
 }
@@ -112,7 +122,8 @@ TEST_CASE("segregation: a blank-planner pair never flags a blank-planner line") 
 TEST_CASE("segregation: a planner named like the normal group cannot merge into it") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2500", "S9")};
-    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.groups.size() == 2);
 }
 
@@ -121,7 +132,8 @@ TEST_CASE("segregation: pairs with demand counts distinct matches, not lines") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2600", "S1"),
                                         demandLine("2027", "2500", "S2")};
-    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), pairs, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(result.doNotMixPairsLoaded == 3);
     CHECK(result.doNotMixPairsWithDemand == 2);
     CHECK(result.linesSegregated == 3);
@@ -131,14 +143,16 @@ TEST_CASE("segregation: every line lands in exactly one group in input order") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
                                         demandLine("2027", "2500", "S9"),
                                         demandLine("2027", "2500", "S1")};
-    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict);
+    const auto result = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict,
+                                  includeAll(demand.size()));
     CHECK(totalGroupedLines(result) == demand.size());
     CHECK(result.groups[1].lineIndices == std::vector<std::size_t>{0, 2});
 }
 
 TEST_CASE("segregation: a copied result is independent of the original") {
     const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1")};
-    auto original = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict);
+    auto original = segregate(joinedLines(demand), {pairS1At2027}, SegregationReading::Strict,
+                              includeAll(demand.size()));
     const auto copy = original;
     original.groups.clear();
     REQUIRE(copy.groups.size() == 1);
@@ -150,8 +164,10 @@ TEST_CASE("segregation: real demand partitions every line into a group") {
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
     const ProductIndex index = Joiner::build_index(products.products);
     const auto join = Joiner::join(file.str, index);
-    const auto strict = segregate(join.lines, file.dnm, SegregationReading::Strict);
-    const auto flagged = segregate(join.lines, file.dnm, SegregationReading::FlaggedVsNormal);
+    const auto strict = segregate(join.lines, file.dnm, SegregationReading::Strict,
+                                  includeAll(join.lines.size()));
+    const auto flagged = segregate(join.lines, file.dnm, SegregationReading::FlaggedVsNormal,
+                                   includeAll(join.lines.size()));
 
     CHECK(strict.linesIn == file.str.size());
     CHECK(totalGroupedLines(strict) == file.str.size());

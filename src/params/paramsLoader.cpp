@@ -244,11 +244,21 @@ M2Params parseParams(const json& root) {
     } else {
         params.pass2AttemptCap = readInteger(
             root["pass2AttemptCap"], "pass2AttemptCap", 0);
+        if (params.pass2AttemptCap > kMaxPass2Attempts) {
+            throw std::runtime_error("params: pass2AttemptCap must be an integer between 0 and "
+                + std::to_string(kMaxPass2Attempts) + ", got "
+                + std::to_string(params.pass2AttemptCap));
+        }
     }
     if (!root.contains("maxStackHeight")) {
         params.defaultedKeys.push_back("maxStackHeight");
     } else {
         params.maxStackHeight = readInteger(root["maxStackHeight"], "maxStackHeight", 1);
+        if (params.maxStackHeight > kMaxStackHeight) {
+            throw std::runtime_error("params: maxStackHeight must be an integer between 1 and "
+                + std::to_string(kMaxStackHeight) + ", got "
+                + std::to_string(params.maxStackHeight));
+        }
     }
     if (!root.contains("blankCriIsStackable")) {
         params.defaultedKeys.push_back("blankCriIsStackable");

@@ -50,7 +50,8 @@ std::map<PlannerSite, std::size_t> flaggedLinesByPair(const PipelineResult& run)
 void checkDay(std::size_t dayIndex, SegregationReading reading) {
     const bool strict = reading == SegregationReading::Strict;
     const auto& run = pipelineRuns()[dayIndex];
-    const auto result = segregate(run.join.lines, run.demand.dnm, reading);
+    const auto result = segregate(run.join.lines, run.demand.dnm, reading,
+                                  std::vector<bool>(run.join.lines.size(), false));
     const auto pairs = doNotMixPairs(run.demand);
     CAPTURE(dayFiles()[dayIndex].label);
     CAPTURE(strict);
@@ -173,7 +174,8 @@ TEST_CASE("segregation: cross-day site 2028 has no unsegregated demand on any da
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
-        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                      std::vector<bool>(run.join.lines.size(), false));
         std::size_t siteLines = 0;
         std::size_t unsegregatedSiteLines = 0;
         for (const auto& group : result.groups) {
@@ -193,7 +195,8 @@ TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despi
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
-        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                      std::vector<bool>(run.join.lines.size(), false));
         distinctLaneCounts.insert(result.lanesIn);
         CHECK(result.lanesIn == expectedM2::lanesWithDemand[dayIndex]);
         CHECK(result.lanesSplit == expectedM2::strictLanesSplit);
@@ -206,7 +209,8 @@ TEST_CASE("segregation: a blank PLANNER_SNP line stays in its lane's normal grou
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
-        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+        const auto result = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                      std::vector<bool>(run.join.lines.size(), false));
         std::size_t blankPlannerLines = 0;
         std::size_t blankPlannerLinesSegregated = 0;
         for (const auto& group : result.groups) {

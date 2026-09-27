@@ -43,7 +43,8 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.palletsForStacking = zeroExcluded(result.pallets_per_line, excluded);
     result.weightForStacking = zeroExcluded(result.weight_per_line, excluded);
 
-    result.segregation = segregate(result.join.lines, result.demand.dnm, result.params.doNotMixReading);
+    result.segregation = segregate(result.join.lines, result.demand.dnm,
+                                   result.params.doNotMixReading, excluded);
     result.binding = assessBinding(result.segregation, result.palletsForStacking,
                                    result.weightForStacking, trailer);
     result.stacking = buildStacks(result.segregation, result.join.lines, result.palletsForStacking,

@@ -475,6 +475,40 @@ TEST_CASE("a Strength of 0 and of 10 raise no invalid_strength") {
     }
 }
 
+TEST_CASE("a product with a blank UoM raises blank_uom_product") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    j.lines.resize(1);
+    j.lines[0].ambiguous = false;
+
+    ProductRecord blankUomProduct = *j.lines[0].product;
+    blankUomProduct.uom = "";
+    const ValidationReport rep = validateWithFirstProduct(j, blankUomProduct);
+
+    CHECK(rep.blank_uom_product == 1);
+    CHECK(rep.warnings == 1);
+    CHECK(rep.errors == 0);
+    CHECK(Validator::excludedLineFlags(rep, 1) == std::vector<bool>{false});
+}
+
+TEST_CASE("a whitespace-only product UoM also raises blank_uom_product") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    j.lines.resize(1);
+    j.lines[0].ambiguous = false;
+
+    ProductRecord blankUomProduct = *j.lines[0].product;
+    blankUomProduct.uom = "   ";
+    const ValidationReport rep = validateWithFirstProduct(j, blankUomProduct);
+
+    CHECK(rep.blank_uom_product == 1);
+    CHECK(rep.warnings == 1);
+    CHECK(rep.errors == 0);
+    CHECK(Validator::excludedLineFlags(rep, 1) == std::vector<bool>{false});
+}
+
 namespace {
 
 ValidationReport validateWithFirstQuantity(JoinResult& j, double trans) {

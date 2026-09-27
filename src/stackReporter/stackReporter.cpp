@@ -50,6 +50,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.linesSegregated = segregation.linesSegregated;
     report.cubeBoundGroups = binding.cubeBoundGroups;
     report.weightBoundGroups = binding.weightBoundGroups;
+    report.linesExcludedByValidator = segregation.linesExcluded;
     report.excludedLines = stacking.excludedLines.size();
     report.excludedInvalidQuantityLines = stacking.excludedInvalidQuantityLines;
     report.defaultedKeys = params.defaultedKeys;
@@ -108,6 +109,9 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
     out << "  Weight-bound groups       " << grouped(static_cast<double>(report.weightBoundGroups)) << "\n";
     out << "  Pallet-equivalents        " << grouped(report.totalPallets, 1) << "\n";
     out << "  Floor positions after stacking  " << grouped(report.totalFloorPositions, 1) << "\n";
+    out << "  Excluded lines            "
+        << grouped(static_cast<double>(report.linesExcludedByValidator))
+        << "  (rejected by the validator)\n";
     out << "  Excluded lines            " << grouped(static_cast<double>(report.excludedLines))
         << "  (no unit load)\n";
     out << "  Excluded quantities       "
