@@ -42,6 +42,8 @@ SegregationResult segregate(const std::vector<JoinedLine>& lines,
 
     for (std::size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         if (excludedLines[lineIndex]) {
+            // Only usable demand contributes to segregation figures: a do-not-mix pair
+            // whose only line is rejected correctly reports as having no demand.
             ++result.linesExcluded;
             continue;
         }

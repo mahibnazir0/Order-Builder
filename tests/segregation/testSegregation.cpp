@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <set>
+#include <stdexcept>
 
 using namespace ob;
 
@@ -46,6 +47,16 @@ TEST_CASE("segregation: empty demand gives an empty result") {
     CHECK(result.linesIn == 0);
     CHECK(result.doNotMixPairsLoaded == 1);
     CHECK(result.doNotMixPairsWithDemand == 0);
+}
+
+TEST_CASE("segregation: a mismatched exclusion mask is rejected") {
+    const std::vector<STRRecord> demand{demandLine("2027", "2500", "S1"),
+                                        demandLine("2027", "2600", "S2")};
+    const std::vector<JoinedLine> lines = joinedLines(demand);
+    CHECK_THROWS_AS(segregate(lines, {}, SegregationReading::Strict,
+                              std::vector<bool>(1, false)), std::invalid_argument);
+    CHECK_THROWS_AS(segregate(lines, {}, SegregationReading::Strict,
+                              std::vector<bool>(3, false)), std::invalid_argument);
 }
 
 TEST_CASE("segregation: without pairs each lane is one group") {

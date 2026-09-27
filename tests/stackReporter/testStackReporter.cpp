@@ -74,10 +74,12 @@ TEST_CASE("stackReporter: defaulted config keys are printed, and none is stated 
 TEST_CASE("stackReporter: validator exclusions are counted and printed") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.segregation.linesExcluded = 2;
+    inputs.stacking.excludedLines = std::vector<ExcludedLine>(5);
     const StackReport report = StackReporter::build(
         inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
     CHECK(report.linesExcludedByValidator == 2);
-    CHECK(contains(printed(inputs), "Excluded lines            2  (rejected by the validator)"));
+    CHECK(contains(printed(inputs), "Lines rejected            2  (validation errors)"));
+    CHECK(contains(printed(inputs), "Excluded lines            5  (no unit load)"));
 }
 
 TEST_CASE("stackReporter: config warnings are printed") {
