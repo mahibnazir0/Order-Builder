@@ -59,6 +59,7 @@ TEST_CASE("pipeline: with a params file every stage runs on the real day") {
     REQUIRE(result.ranMilestone2);
     CHECK(result.missingPalletIds.empty());
     CHECK(result.segregation.linesIn == 24357);
+    CHECK(result.segregation.linesExcluded == 0);
     CHECK(result.segregation.groups.size() == 387);
     CHECK(result.segregation.lanesSplit == 17);
     CHECK(result.binding.groups.size() == 387);
@@ -101,6 +102,77 @@ TEST_CASE("pipeline: a line the validator excluded carries no pallets into stack
     CHECK(result.palletsForStacking[1] == 0.0);
     CHECK(result.weightForStacking[1] == 0.0);
     CHECK(result.binding.groups[0].totalPallets == doctest::Approx(2.0));
+}
+
+TEST_CASE("pipeline: a line the validator rejected forms no segregation group") {
+    const std::string productPath = "tests/importer/_tmp_m2_rejected_group_products.csv";
+    const std::string demandPath = "tests/importer/_tmp_m2_rejected_group_demand.json";
+    const std::string placeholderPath = "tests/importer/_tmp_m2_rejected_group_placeholder.json";
+    {
+        std::ofstream products(productPath);
+        products << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+                    "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+                 << "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD\n";
+        std::ofstream demand(demandPath);
+        demand << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
+               << R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"},)"
+               << R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"},)"
+               << R"({"LOCFRNO":"","LOCTONO":"3","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"}]})";
+        std::ofstream placeholder(placeholderPath);
+        placeholder << R"({"PHOLDER":[]})";
+    }
+    PipelineInputs inputs;
+    inputs.product_path = productPath;
+    inputs.demand_path = demandPath;
+    inputs.placeholder_path = placeholderPath;
+    inputs.paramsPath = "config/orderBuilderParams.json";
+    const PipelineResult result = Pipeline::run(inputs);
+    std::remove(productPath.c_str());
+    std::remove(demandPath.c_str());
+    std::remove(placeholderPath.c_str());
+
+    CHECK(result.validation.missing_fields == 1);
+    CHECK(result.segregation.groups.size() == 1);
+    CHECK(result.segregation.lanesIn == 1);
+    CHECK(result.segregation.linesExcluded == 1);
+    CHECK(result.stackReport.linesExcludedByValidator == 1);
+    for (const auto& row : result.stackReport.rows) {
+        CHECK(row.lane.rfind(" ->", 0) != 0);
+    }
+}
+
+TEST_CASE("pipeline: rejected lines from different lanes do not merge into one group") {
+    const std::string productPath = "tests/importer/_tmp_m2_rejected_lanes_products.csv";
+    const std::string demandPath = "tests/importer/_tmp_m2_rejected_lanes_demand.json";
+    const std::string placeholderPath = "tests/importer/_tmp_m2_rejected_lanes_placeholder.json";
+    {
+        std::ofstream products(productPath);
+        products << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+                    "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+                 << "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD\n";
+        std::ofstream demand(demandPath);
+        demand << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
+               << R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"},)"
+               << R"({"LOCFRNO":"3","LOCTONO":"4","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"},)"
+               << R"({"LOCFRNO":"","LOCTONO":"8","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"},)"
+               << R"({"LOCFRNO":"","LOCTONO":"9","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":8.0,"UNITOFMEAS":"CS"}]})";
+        std::ofstream placeholder(placeholderPath);
+        placeholder << R"({"PHOLDER":[]})";
+    }
+    PipelineInputs inputs;
+    inputs.product_path = productPath;
+    inputs.demand_path = demandPath;
+    inputs.placeholder_path = placeholderPath;
+    inputs.paramsPath = "config/orderBuilderParams.json";
+    const PipelineResult result = Pipeline::run(inputs);
+    std::remove(productPath.c_str());
+    std::remove(demandPath.c_str());
+    std::remove(placeholderPath.c_str());
+
+    CHECK(result.validation.missing_fields == 2);
+    CHECK(result.segregation.groups.size() == 2);
+    CHECK(result.segregation.lanesIn == 2);
+    CHECK(result.segregation.linesExcluded == 2);
 }
 
 TEST_CASE("pipeline: the trailer can be chosen by code") {

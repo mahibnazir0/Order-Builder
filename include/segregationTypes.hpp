@@ -36,7 +36,9 @@ struct SegregatedGroup {
 
 struct SegregationResult {
     std::vector<SegregatedGroup> groups;
+    // linesIn counts grouped lines; linesExcluded is exactly the validator-excluded set.
     std::size_t linesIn = 0;
+    std::size_t linesExcluded = 0;
     std::size_t linesSegregated = 0;
     std::size_t lanesIn = 0;
     std::size_t lanesSplit = 0;

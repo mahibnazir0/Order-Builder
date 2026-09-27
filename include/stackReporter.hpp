@@ -43,6 +43,7 @@ struct StackReport {
     std::size_t groupsAllSingleHigh = 0;
     double totalPallets = 0.0;
     double totalFloorPositions = 0.0;
+    std::size_t linesExcludedByValidator = 0;
     std::size_t excludedLines = 0;
     std::size_t excludedInvalidQuantityLines = 0;
     std::vector<std::string> defaultedKeys;

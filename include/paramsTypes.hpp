@@ -8,6 +8,14 @@ namespace ob {
 
 enum class SegregationReading { Strict, FlaggedVsNormal };
 
+// Upper bound for pass2AttemptCap. Try Hard re-runs the whole greedy build once per
+// attempt per group. The shipped config uses 4; 64 is generous while bounding runtime.
+constexpr int kMaxPass2Attempts = 64;
+
+// Upper bound for maxStackHeight. This customer never exceeds two high; 16 leaves
+// ample room for future rules while preventing an unbounded value from the params file.
+constexpr int kMaxStackHeight = 16;
+
 struct CriTable {
     // Index 0 is unused so callers can index by CRI 1..10 directly.
     std::array<double, 11> safeLimitLb{};

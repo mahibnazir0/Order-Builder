@@ -234,7 +234,8 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
     const PipelineResult run = Pipeline::run(inputs);
     const M2Params params = loadParams("config/orderBuilderParams.json");
     const TrailerSpec& trailerSpec = params.trailers[0];
-    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                       std::vector<bool>(run.join.lines.size(), false));
     const auto binding = assessBinding(segregation, run.pallets_per_line, run.weight_per_line, trailerSpec);
 
     const auto started = std::chrono::steady_clock::now();

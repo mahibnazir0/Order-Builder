@@ -103,7 +103,8 @@ TEST_CASE("bindingConstraint: real demand under strict segregation is almost all
     const M2Params params = loadParams("config/orderBuilderParams.json");
     REQUIRE(params.trailers.size() == 1);
 
-    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                       std::vector<bool>(run.join.lines.size(), false));
     const auto result = assessBinding(segregation, run.pallets_per_line, run.weight_per_line,
                                       params.trailers[0]);
     CHECK(result.groups.size() == 387);

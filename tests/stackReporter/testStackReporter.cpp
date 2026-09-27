@@ -71,6 +71,15 @@ TEST_CASE("stackReporter: defaulted config keys are printed, and none is stated 
     CHECK(contains(printed(inputs), "pass2AttemptCap, doNotMixReading"));
 }
 
+TEST_CASE("stackReporter: validator exclusions are counted and printed") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    inputs.segregation.linesExcluded = 2;
+    const StackReport report = StackReporter::build(
+        inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
+    CHECK(report.linesExcludedByValidator == 2);
+    CHECK(contains(printed(inputs), "Excluded lines            2  (rejected by the validator)"));
+}
+
 TEST_CASE("stackReporter: config warnings are printed") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.params.warnings = {"footprint defaulted to 48x40"};
@@ -148,7 +157,8 @@ TEST_CASE("stackReporter: real demand report states the segregation and binding 
     pipelineInputs.placeholder_path = "tests/importer/PlaceHolder-1.json";
     const PipelineResult run = Pipeline::run(pipelineInputs);
     const M2Params params = loadParams("config/orderBuilderParams.json");
-    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict);
+    const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
+                                       std::vector<bool>(run.join.lines.size(), false));
     const auto binding = assessBinding(segregation, run.pallets_per_line, run.weight_per_line,
                                        params.trailers[0]);
     const auto stacking = buildStacks(segregation, run.join.lines, run.pallets_per_line, binding,

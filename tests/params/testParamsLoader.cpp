@@ -288,15 +288,24 @@ TEST_CASE("params attempt cap requires a non-negative integer within int range")
     const std::vector<json> invalidValues{-1, 0.5, true, "4", nullptr,
         std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
         std::numeric_limits<unsigned long long>::max(), std::numeric_limits<long long>::min(),
+        std::numeric_limits<int>::max(),
         static_cast<long long>(std::numeric_limits<int>::max()) + 1};
     for (const auto& value : invalidValues) {
         root["pass2AttemptCap"] = value;
         CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pass2AttemptCap"), std::runtime_error);
     }
-    for (const json& value : std::vector<json>{0.0, 1, 4.0, std::numeric_limits<int>::max()}) {
+    for (const json& value : std::vector<json>{0.0, 1, 4.0}) {
         root["pass2AttemptCap"] = value;
         CHECK(parseParams(root).pass2AttemptCap == value.get<int>());
     }
+}
+
+TEST_CASE("params attempt cap rejects a value above the maximum") {
+    auto root = completeParams();
+    root["pass2AttemptCap"] = kMaxPass2Attempts + 1;
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pass2AttemptCap"), std::runtime_error);
+    root["pass2AttemptCap"] = kMaxPass2Attempts;
+    CHECK(parseParams(root).pass2AttemptCap == kMaxPass2Attempts);
 }
 
 TEST_CASE("params max stack height requires a positive integer and defaults to two when absent") {
@@ -318,6 +327,14 @@ TEST_CASE("params max stack height requires a positive integer and defaults to t
         CHECK(params.maxStackHeight == value.get<int>());
         CHECK(params.defaultedKeys.empty());
     }
+}
+
+TEST_CASE("params max stack height rejects a value above the maximum") {
+    auto root = completeParams();
+    root["maxStackHeight"] = kMaxStackHeight + 1;
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("maxStackHeight"), std::runtime_error);
+    root["maxStackHeight"] = kMaxStackHeight;
+    CHECK(parseParams(root).maxStackHeight == kMaxStackHeight);
 }
 
 TEST_CASE("params present blocks must be non-empty arrays") {
