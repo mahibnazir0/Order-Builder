@@ -1,4 +1,5 @@
 #include "paramsLoader.hpp"
+#include "inputFile.hpp"
 
 #include <algorithm>
 #include <array>
@@ -274,7 +275,7 @@ M2Params parseParams(const json& root) {
 M2Params loadParams(const std::string& path) {
     const std::string pathText = printablePath(path);
     std::ifstream input(path, std::ios::binary);
-    if (!input) {
+    if (!isRegularFile(path) || !input) {
         throw std::runtime_error("params: cannot open file: " + pathText);
     }
     // istream::read turns a streambuf read error into badbit; reading through

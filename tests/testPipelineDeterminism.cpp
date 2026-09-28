@@ -101,7 +101,7 @@ std::string printedReports(const PipelineResult& run) {
 
 } // namespace
 
-TEST_CASE("pipeline: two runs on the same input give identical groups, stacks and reports") {
+TEST_CASE("pipeline: two runs on the same input give identical groups, stacks and reports" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     const PipelineResult& first = pipelineRuns()[0];
     const PipelineResult second = Pipeline::run(dayInputs(0, kStrictParamsPath));
     REQUIRE(second.ranMilestone2);

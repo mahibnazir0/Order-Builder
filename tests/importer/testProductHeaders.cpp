@@ -59,7 +59,7 @@ struct SyntheticProductFile {
 
 } // namespace
 
-TEST_CASE("product headers: only the 03 Sep master warns of a duplicate column") {
+TEST_CASE("product headers: only the 03 Sep master warns of a duplicate column" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         const DayFiles& day = dayFiles()[dayIndex];
         CAPTURE(day.label);
@@ -74,7 +74,7 @@ TEST_CASE("product headers: only the 03 Sep master warns of a duplicate column")
     }
 }
 
-TEST_CASE("product headers: every master yields its row and unique ID counts, duplicate or not") {
+TEST_CASE("product headers: every master yields its row and unique ID counts, duplicate or not" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         const DayFiles& day = dayFiles()[dayIndex];
         CAPTURE(day.label);
@@ -114,7 +114,7 @@ TEST_CASE("product headers: synthetic duplicate columns keep the first occurrenc
 
 // August ships "PlaceHolder-1.json", September "Placeholder-N.json", both inside a
 // "PlaceHolder" directory. A case-sensitive filesystem only opens the exact name.
-TEST_CASE("placeholders: each day loads by the exact filename the client shipped") {
+TEST_CASE("placeholders: each day loads by the exact filename the client shipped" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         const DayFiles& day = dayFiles()[dayIndex];
         CAPTURE(day.label);

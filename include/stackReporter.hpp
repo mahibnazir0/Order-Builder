@@ -45,6 +45,7 @@ struct StackReport {
     double totalFloorPositions = 0.0;
     std::size_t linesExcludedByValidator = 0;
     std::size_t excludedLines = 0;
+    std::size_t overHeightLines = 0;
     std::size_t excludedInvalidQuantityLines = 0;
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> paramWarnings;

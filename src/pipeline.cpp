@@ -29,6 +29,24 @@ std::vector<double> zeroExcluded(const std::vector<double>& figures, const std::
     return kept;
 }
 
+// M1 weights use the Converter's fixed wood-pallet weight so the published M1 totals stay
+// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the configured
+// pallet spec, or binding and reporting disagree with the stacks. A line with no buildable
+// unit load keeps its M1 weight: it still occupies the trailer, and that is the only
+// estimate there is for it.
+std::vector<double> configuredWeightPerLine(const std::vector<JoinedLine>& lines,
+                                            const std::vector<double>& palletsForStacking,
+                                            const std::vector<double>& m1WeightForStacking,
+                                            const M2Params& params) {
+    std::vector<double> weights = m1WeightForStacking;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (palletsForStacking[i] == 0.0) continue;
+        const UnitLoad load = buildUnitLoad(lines[i], params);
+        if (load.error == UnitLoadError::None) weights[i] = palletsForStacking[i] * load.weightLb;
+    }
+    return weights;
+}
+
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
     const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
@@ -41,7 +59,9 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     const std::vector<bool> excluded =
         Validator::excludedLineFlags(result.validation, result.join.lines.size());
     result.palletsForStacking = zeroExcluded(result.pallets_per_line, excluded);
-    result.weightForStacking = zeroExcluded(result.weight_per_line, excluded);
+    result.weightForStacking = configuredWeightPerLine(
+        result.join.lines, result.palletsForStacking,
+        zeroExcluded(result.weight_per_line, excluded), result.params);
 
     result.segregation = segregate(result.join.lines, result.demand.dnm,
                                    result.params.doNotMixReading, excluded);
@@ -49,6 +69,10 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
                                    result.weightForStacking, trailer);
     result.stacking = buildStacks(result.segregation, result.join.lines, result.palletsForStacking,
                                   result.binding, result.params, trailer);
+    if (!result.stacking.overHeightLines.empty()) {
+        LOG_WARN(std::to_string(result.stacking.overHeightLines.size())
+                 + " line(s) have a single pallet taller than the trailer ceiling and were not stacked");
+    }
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
     result.ranMilestone2 = true;

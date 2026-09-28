@@ -1,4 +1,5 @@
 #include "placeholder_importer.hpp"
+#include "inputFile.hpp"
 #include "logger.hpp"
 #include "json_util.hpp"
 #include "validator.hpp"
@@ -29,7 +30,7 @@ PlaceholderRecord parse_placeholder(const json& j) {
 
 PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
     std::ifstream in(json_path);
-    if (!in) {
+    if (!isRegularFile(json_path) || !in) {
         throw std::runtime_error("Cannot open placeholder file: " + json_path);
     }
 

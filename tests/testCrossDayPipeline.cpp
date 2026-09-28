@@ -27,7 +27,7 @@ std::string oneDecimal(double value) {
 
 } // namespace
 
-TEST_CASE("pipeline: cross-day Milestone 1 figures for all four extracts") {
+TEST_CASE("pipeline: cross-day Milestone 1 figures for all four extracts" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -56,7 +56,7 @@ TEST_CASE("pipeline: cross-day Milestone 1 figures for all four extracts") {
     }
 }
 
-TEST_CASE("pipeline: cross-day Milestone 2 groups, binding split and single-high groups") {
+TEST_CASE("pipeline: cross-day Milestone 2 groups, binding split and single-high groups" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -80,7 +80,7 @@ TEST_CASE("pipeline: cross-day Milestone 2 groups, binding split and single-high
 
 // A change to stackPositions moves groups between cube- and weight-bound. If this test
 // fails on the first REQUIRE, re-measure the split rather than treat it as a defect.
-TEST_CASE("pipeline: cross-day cube/weight split at the configured stackPositions") {
+TEST_CASE("pipeline: cross-day cube/weight split at the configured stackPositions" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -93,7 +93,7 @@ TEST_CASE("pipeline: cross-day cube/weight split at the configured stackPosition
     }
 }
 
-TEST_CASE("pipeline: cross-day FlaggedVsNormal from the params file regroups but flags the same lines") {
+TEST_CASE("pipeline: cross-day FlaggedVsNormal from the params file regroups but flags the same lines" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& flaggedVsNormal = flaggedVsNormalRuns()[dayIndex];

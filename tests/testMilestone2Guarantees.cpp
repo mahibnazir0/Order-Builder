@@ -147,7 +147,7 @@ void checkPalletsConserved(const PipelineResult& run, std::size_t dayIndex) {
 
 } // namespace
 
-TEST_CASE("guarantee: under Strict no group holds two flagged planners or mixes flagged with normal") {
+TEST_CASE("guarantee: under Strict no group holds two flagged planners or mixes flagged with normal" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -174,7 +174,7 @@ TEST_CASE("guarantee: under Strict no group holds two flagged planners or mixes 
     }
 }
 
-TEST_CASE("guarantee: under FlaggedVsNormal flagged lines never share a group with normal stock") {
+TEST_CASE("guarantee: under FlaggedVsNormal flagged lines never share a group with normal stock" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = flaggedVsNormalRuns()[dayIndex];
@@ -194,7 +194,7 @@ TEST_CASE("guarantee: under FlaggedVsNormal flagged lines never share a group wi
     }
 }
 
-TEST_CASE("guarantee: every built stack fits the 108 in ceiling and its carriers' CRI limits") {
+TEST_CASE("guarantee: every built stack fits the 108 in ceiling and its carriers' CRI limits" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         std::cout << "Cross-day " << dayFiles()[dayIndex].label << " Strict stacks:\n";
@@ -204,7 +204,7 @@ TEST_CASE("guarantee: every built stack fits the 108 in ceiling and its carriers
     }
 }
 
-TEST_CASE("guarantee: pallet-equivalents are conserved from demand through groups to stacks") {
+TEST_CASE("guarantee: pallet-equivalents are conserved from demand through groups to stacks" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         std::cout << "Cross-day " << dayFiles()[dayIndex].label << " Strict pallets:\n";

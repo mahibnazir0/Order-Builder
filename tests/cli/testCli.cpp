@@ -262,6 +262,17 @@ TEST_CASE("cli: the synthetic inputs alone run clean, so the bad-input cases iso
     CHECK_FALSE(contains(run.output, "[ERROR]"));
 }
 
+TEST_CASE("cli: a pallet taller than the trailer ceiling exits 1 and is reported") {
+    const SyntheticInputs inputs;
+    const std::string tallProduct = inputs.write("tallProducts.csv",
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "GOOD,Tall,10,10,120,5,CS,2,1,1,1,PTL\n");
+    const CliRun run = runCli(inputs.arguments(tallProduct, inputs.demand, inputs.placeholder, kParams));
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "Over-height lines         1"));
+}
+
 TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming the problem") {
     const SyntheticInputs inputs;
     const std::string missing = (inputs.directory / "doesNotExist.json").string();
@@ -335,7 +346,7 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params",
                                           "--trailer", "--groups", "--day", "--lanes", "--debug",
-                                          "0  success", "1  success, but validation found errors",
+                                          "0  success", "1  success, but validation found errors, or a pallet exceeds the trailer ceiling",
                                           "2  could not run"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
