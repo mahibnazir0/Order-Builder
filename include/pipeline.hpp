@@ -75,8 +75,10 @@ struct PipelineResult {
     M2Params params;
     // Pallet types in the demand that the params file has no spec for.
     std::vector<std::string> missingPalletIds;
-    // pallets_per_line and weight_per_line with validator-excluded lines zeroed, so
-    // segregation's downstream passes see the same lines the M1 totals do.
+    // pallets_per_line with validator-excluded lines zeroed, so segregation's downstream
+    // passes see the same lines the M1 totals do. weightForStacking is zeroed the same way,
+    // but weighs each pallet with the params pallet spec, as the stacks do, rather than
+    // the fixed pallet weight behind weight_per_line.
     std::vector<double> palletsForStacking;
     std::vector<double> weightForStacking;
     SegregationResult segregation;

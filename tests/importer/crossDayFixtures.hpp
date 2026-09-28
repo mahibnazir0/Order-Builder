@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -50,6 +51,25 @@ inline const PerDay<DayFiles>& dayFiles() {
          "tests/importer/crossDay/20260903/PlaceHolder", "Placeholder-1.json"},
     }};
     return files;
+}
+
+// The extracts are confidential and gitignored, so a fresh clone has none of the
+// September days. Tests that need all four are skipped rather than failed there;
+// the notice keeps the skip visible instead of reading as a pass.
+inline bool allExtractsPresent() {
+    static const bool present = [] {
+        for (const DayFiles& day : dayFiles()) {
+            for (const std::string& path : {day.productPath, day.demandPath, day.placeholderPath()}) {
+                if (!std::filesystem::is_regular_file(path)) {
+                    std::cerr << "[crossDay] " << path
+                              << " not found: cross-day tests are skipped\n";
+                    return false;
+                }
+            }
+        }
+        return true;
+    }();
+    return present;
 }
 
 // Milestone 1, measured through the CLI on 26 Sep 2026.

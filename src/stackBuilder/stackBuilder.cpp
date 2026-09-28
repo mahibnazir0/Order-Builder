@@ -215,6 +215,10 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.excludedLines.push_back({lineIndex, load.error});
                 continue;
             }
+            if (load.heightIn > trailer.stackHeightCeilingIn) {
+                result.overHeightLines.push_back(lineIndex);
+                continue;
+            }
             items.push_back(Item{lineIndex, std::move(load), quantity});
         }
 

@@ -1,4 +1,5 @@
 #include "product_importer.hpp"
+#include "inputFile.hpp"
 #include "logger.hpp"
 
 #include <fstream>
@@ -70,7 +71,7 @@ std::string lower(std::string s) {
 
 ProductLoadResult ProductImporter::load(const std::string& csv_path) {
     std::ifstream in(csv_path);
-    if (!in) {
+    if (!isRegularFile(csv_path) || !in) {
         throw std::runtime_error("Cannot open product file: " + csv_path);
     }
 

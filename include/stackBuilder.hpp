@@ -48,13 +48,17 @@ struct StackingResult {
     std::vector<GroupStacking> groups;     // parallel to SegregationResult::groups
     // Lines that could not become a unit load; they are left out of stacking and reported.
     std::vector<ExcludedLine> excludedLines;
+    // Lines whose single unit load is taller than the trailer's stack-height ceiling. They
+    // cannot ship on this trailer even single-high, so they are left out of stacking.
+    std::vector<std::size_t> overHeightLines;
     // Lines with a negative or non-finite pallet quantity. A quantity of exactly 0 is skipped quietly.
     std::size_t excludedInvalidQuantityLines = 0;
 };
 
 // Pass 2: within each group, builds stack sets with every method and keeps the one that
 // uses the fewest floor positions. Ties go to the lower heaviest stack when the group is
-// weight-bound, otherwise to the method tried first. Stack rules come only from canStack.
+// weight-bound, otherwise to the method tried first. Stack rules come only from canStack,
+// which checks pairs; a lone load over the ceiling is caught here, before any stack exists.
 // Throws std::invalid_argument for a caller bug: a non-positive ceiling, or vectors that do
 // not line up with the groups and lines.
 StackingResult buildStacks(const SegregationResult& segregation,

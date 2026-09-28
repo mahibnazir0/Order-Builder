@@ -5,6 +5,7 @@
 #include "stackBuilder.hpp"
 #include "stackRules.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -203,6 +204,39 @@ TEST_CASE("stackBuilder: lines that cannot become a unit load are reported, not 
     REQUIRE(result.excludedLines.size() == 2);
     CHECK(result.excludedLines[0].error == UnitLoadError::InvalidData);
     CHECK(result.excludedLines[1].error == UnitLoadError::MissingPalletSpec);
+}
+
+TEST_CASE("stackBuilder: a single load taller than the ceiling is reported, not stacked") {
+    Scenario scenario({product("TALL", 120, 10, 9), product("A", 60, 10, 9)}, {2, 1});
+    for (const int maxStackHeight : {3, 1}) {
+        CAPTURE(maxStackHeight);
+        M2Params params = testParams();
+        params.maxStackHeight = maxStackHeight;
+        const auto result = scenario.build(params);
+        CHECK(result.overHeightLines == std::vector<std::size_t>{0});
+        CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
+        for (const auto& stack : result.groups[0].best.stacks) {
+            CHECK(std::find(stack.lineIndices.begin(), stack.lineIndices.end(), 0u)
+                  == stack.lineIndices.end());
+        }
+    }
+}
+
+TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height") {
+    M2Params params = testParams();
+    params.pallets.push_back({"PTL", 60.0, 5.5, 48.0, 40.0});
+    Scenario scenario({product("DECKED", 105, 10, 9)}, {1});
+    scenario.products[0].pallet_id = "PTL";
+    const auto result = scenario.build(params);
+    CHECK(result.overHeightLines == std::vector<std::size_t>{0});
+    CHECK(result.groups[0].best.stacks.empty());
+}
+
+TEST_CASE("stackBuilder: a single load exactly at the ceiling ships single-high") {
+    Scenario scenario({product("EXACT", 108, 10, 9)}, {1});
+    const auto result = scenario.build();
+    CHECK(result.overHeightLines.empty());
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
 }
 
 TEST_CASE("stackBuilder: caller bugs are rejected") {

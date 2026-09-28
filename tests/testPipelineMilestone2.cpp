@@ -27,6 +27,41 @@ ValidationIssue issue(ValidationIssue::Severity severity, const std::string& rul
     return validationIssue;
 }
 
+// Runs the pipeline on one product row and one demand line, written to scratch files.
+PipelineResult runOneLine(const std::string& name, const std::string& productRow,
+                          const std::string& demandLine, const std::string& paramsJson) {
+    const std::string productPath = "tests/importer/_tmp_" + name + "_products.csv";
+    const std::string demandPath = "tests/importer/_tmp_" + name + "_demand.json";
+    const std::string placeholderPath = "tests/importer/_tmp_" + name + "_placeholder.json";
+    const std::string paramsPath = "tests/importer/_tmp_" + name + "_params.json";
+    std::ofstream(productPath) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+                                  "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+                               << productRow << "\n";
+    std::ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)" << demandLine << "]}";
+    std::ofstream(placeholderPath) << R"({"PHOLDER":[]})";
+    std::ofstream(paramsPath) << paramsJson;
+    PipelineInputs inputs;
+    inputs.product_path = productPath;
+    inputs.demand_path = demandPath;
+    inputs.placeholder_path = placeholderPath;
+    inputs.paramsPath = paramsPath;
+    PipelineResult result = Pipeline::run(inputs);
+    for (const auto& path : {productPath, demandPath, placeholderPath, paramsPath}) std::remove(path.c_str());
+    return result;
+}
+
+std::string paramsWithPtlWeight(int ptlAddedWeightLb) {
+    return R"({"criSafeLimitLb":[5,299,549,799,1149,1499,1849,2199,3099,3599],"pallets":[)"
+           R"({"palletId":"PTL","addedWeightLb":)" + std::to_string(ptlAddedWeightLb)
+         + R"(,"addedHeightIn":5.5,"footprintLengthIn":48,"footprintWidthIn":40}],)"
+           R"("trailers":[{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,)"
+           R"("stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32}],)"
+           R"("doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false})";
+}
+
+const std::string kOnePalletLine =
+    R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1.0,"UNITOFMEAS":"PAL"})";
+
 } // namespace
 
 TEST_CASE("validator: lines with errors or the zero-dimension ruling are flagged as excluded") {
@@ -195,4 +230,33 @@ TEST_CASE("pipeline: the printed Milestone 2 report matches the run") {
     StackReporter::print(result.stackReport, out, 5);
     CHECK(out.str().find("Groups                    387") != std::string::npos);
     CHECK(out.str().find("top 5 of 387") != std::string::npos);
+}
+
+TEST_CASE("pipeline: M2 weighs pallets with the configured pallet weight, M1 keeps its own") {
+    const PipelineResult result = runOneLine("m2_pallet_weight", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(100));
+    REQUIRE(result.ranMilestone2);
+    CHECK(result.weight_per_line[0] == doctest::Approx(1390.0));
+    CHECK(result.weightForStacking[0] == doctest::Approx(1430.0));
+    REQUIRE(result.binding.groups.size() == 1);
+    CHECK(result.binding.groups[0].totalWeightLb == doctest::Approx(1430.0));
+    CHECK(result.binding.groups[0].binding == BindingConstraint::Weight);
+    REQUIRE(result.stackReport.rows.size() == 1);
+    CHECK(result.stackReport.rows[0].weightLb == doctest::Approx(1430.0));
+    CHECK(result.stackReport.rows[0].binding == BindingConstraint::Weight);
+}
+
+TEST_CASE("pipeline: at the shipped 60 lb pallet weight the same line stays cube-bound") {
+    const PipelineResult result = runOneLine("m2_pallet_weight_default", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(60));
+    CHECK(result.weightForStacking[0] == doctest::Approx(result.weight_per_line[0]));
+    CHECK(result.binding.groups[0].binding == BindingConstraint::Cube);
+}
+
+TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and uses no floor") {
+    const PipelineResult result = runOneLine("m2_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(60));
+    CHECK(result.stacking.overHeightLines == std::vector<std::size_t>{0});
+    CHECK(result.stackReport.overHeightLines == 1);
+    CHECK(result.stackReport.totalFloorPositions == 0.0);
 }

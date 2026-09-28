@@ -121,17 +121,17 @@ void checkDay(std::size_t dayIndex, SegregationReading reading) {
 
 } // namespace
 
-TEST_CASE("segregation: cross-day 17 Aug Strict") { checkDay(0, SegregationReading::Strict); }
-TEST_CASE("segregation: cross-day 17 Aug FlaggedVsNormal") { checkDay(0, SegregationReading::FlaggedVsNormal); }
-TEST_CASE("segregation: cross-day 02 Sep first Strict") { checkDay(1, SegregationReading::Strict); }
-TEST_CASE("segregation: cross-day 02 Sep first FlaggedVsNormal") { checkDay(1, SegregationReading::FlaggedVsNormal); }
-TEST_CASE("segregation: cross-day 02 Sep second Strict") { checkDay(2, SegregationReading::Strict); }
-TEST_CASE("segregation: cross-day 02 Sep second FlaggedVsNormal") { checkDay(2, SegregationReading::FlaggedVsNormal); }
-TEST_CASE("segregation: cross-day 03 Sep Strict") { checkDay(3, SegregationReading::Strict); }
-TEST_CASE("segregation: cross-day 03 Sep FlaggedVsNormal") { checkDay(3, SegregationReading::FlaggedVsNormal); }
+TEST_CASE("segregation: cross-day 17 Aug Strict" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(0, SegregationReading::Strict); }
+TEST_CASE("segregation: cross-day 17 Aug FlaggedVsNormal" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(0, SegregationReading::FlaggedVsNormal); }
+TEST_CASE("segregation: cross-day 02 Sep first Strict" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(1, SegregationReading::Strict); }
+TEST_CASE("segregation: cross-day 02 Sep first FlaggedVsNormal" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(1, SegregationReading::FlaggedVsNormal); }
+TEST_CASE("segregation: cross-day 02 Sep second Strict" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(2, SegregationReading::Strict); }
+TEST_CASE("segregation: cross-day 02 Sep second FlaggedVsNormal" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(2, SegregationReading::FlaggedVsNormal); }
+TEST_CASE("segregation: cross-day 03 Sep Strict" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(3, SegregationReading::Strict); }
+TEST_CASE("segregation: cross-day 03 Sep FlaggedVsNormal" * doctest::skip(!crossDayTests::allExtractsPresent())) { checkDay(3, SegregationReading::FlaggedVsNormal); }
 
 // Why the synthetic segregation fixtures exist: 18 of the 22 pairs never see demand.
-TEST_CASE("segregation: cross-day the same 4 of 22 do-not-mix pairs have demand every day") {
+TEST_CASE("segregation: cross-day the same 4 of 22 do-not-mix pairs have demand every day" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     std::set<PlannerSite> expected;
     for (const auto& active : activePairs) expected.insert(active.plannerAtSite);
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
@@ -146,7 +146,7 @@ TEST_CASE("segregation: cross-day the same 4 of 22 do-not-mix pairs have demand 
     }
 }
 
-TEST_CASE("segregation: cross-day flagged lines per pair sum to each day's segregated total") {
+TEST_CASE("segregation: cross-day flagged lines per pair sum to each day's segregated total" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -170,7 +170,7 @@ TEST_CASE("segregation: cross-day flagged lines per pair sum to each day's segre
 
 // Why Strict versus FlaggedVsNormal is a real question: at 2028 there is no normal stock
 // for segregated product to be kept apart from, only other flagged planners.
-TEST_CASE("segregation: cross-day site 2028 has no unsegregated demand on any day") {
+TEST_CASE("segregation: cross-day site 2028 has no unsegregated demand on any day" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];
@@ -190,7 +190,7 @@ TEST_CASE("segregation: cross-day site 2028 has no unsegregated demand on any da
     }
 }
 
-TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despite different lane counts") {
+TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despite different lane counts" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     std::set<std::size_t> distinctLaneCounts;
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
@@ -205,7 +205,7 @@ TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despi
 }
 
 // A one-off in the 17 Aug extract, not an invariant: the September days have none.
-TEST_CASE("segregation: a blank PLANNER_SNP line stays in its lane's normal group") {
+TEST_CASE("segregation: a blank PLANNER_SNP line stays in its lane's normal group" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const auto& run = pipelineRuns()[dayIndex];

@@ -322,7 +322,7 @@ PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2P
 
 } // namespace
 
-TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling") {
+TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     constexpr std::size_t everyNth = 10;
     // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
     const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};

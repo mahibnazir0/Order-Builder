@@ -82,6 +82,14 @@ TEST_CASE("stackReporter: validator exclusions are counted and printed") {
     CHECK(contains(printed(inputs), "Excluded lines            5  (no unit load)"));
 }
 
+TEST_CASE("stackReporter: over-height lines are counted and printed") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    inputs.stacking.overHeightLines = {3, 7};
+    CHECK(StackReporter::build(inputs.segregation, inputs.binding, inputs.stacking, inputs.params)
+              .overHeightLines == 2);
+    CHECK(contains(printed(inputs), "Over-height lines         2  (one pallet exceeds the trailer ceiling)"));
+}
+
 TEST_CASE("stackReporter: config warnings are printed") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.params.warnings = {"footprint defaulted to 48x40"};

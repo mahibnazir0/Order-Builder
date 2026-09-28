@@ -52,6 +52,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.weightBoundGroups = binding.weightBoundGroups;
     report.linesExcludedByValidator = segregation.linesExcluded;
     report.excludedLines = stacking.excludedLines.size();
+    report.overHeightLines = stacking.overHeightLines.size();
     report.excludedInvalidQuantityLines = stacking.excludedInvalidQuantityLines;
     report.defaultedKeys = params.defaultedKeys;
     report.paramWarnings = params.warnings;
@@ -114,6 +115,8 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
         << "  (validation errors)\n";
     out << "  Excluded lines            " << grouped(static_cast<double>(report.excludedLines))
         << "  (no unit load)\n";
+    out << "  Over-height lines         " << grouped(static_cast<double>(report.overHeightLines))
+        << "  (one pallet exceeds the trailer ceiling)\n";
     out << "  Excluded quantities       "
         << grouped(static_cast<double>(report.excludedInvalidQuantityLines))
         << "  (negative or non-finite)\n\n";
