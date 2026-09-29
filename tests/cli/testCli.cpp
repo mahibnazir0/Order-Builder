@@ -273,6 +273,25 @@ TEST_CASE("cli: a pallet taller than the trailer ceiling exits 1 and is reported
     CHECK(contains(run.output, "Over-height lines         1"));
 }
 
+TEST_CASE("cli: a line with no unit load exits 1 and the report says incomplete") {
+    const SyntheticInputs inputs;
+    const std::vector<std::pair<std::string, std::string>> badProducts{
+        {"strength out of range", "GOOD,Good,10,10,10,11,CS,2,4,2,8,TLD\n"},
+        {"zero weight", "GOOD,Good,10,10,10,5,CS,0,4,2,8,TLD\n"},
+        {"no pallet spec", "GOOD,Good,10,10,10,5,CS,2,4,2,8,ZZZ\n"},
+    };
+    for (const auto& badProduct : badProducts) {
+        CAPTURE(badProduct.first);
+        const std::string productPath = inputs.write("badProducts.csv",
+            "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+            "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n" + badProduct.second);
+        const CliRun run = runCli(inputs.arguments(productPath, inputs.demand, inputs.placeholder, kParams));
+        CHECK(run.exitCode == 1);
+        CHECK(contains(run.output, "was not stacked"));
+        CHECK(contains(run.output, "INCOMPLETE: 1 line(s) that passed validation are in no stack"));
+    }
+}
+
 TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming the problem") {
     const SyntheticInputs inputs;
     const std::string missing = (inputs.directory / "doesNotExist.json").string();
@@ -346,7 +365,7 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params",
                                           "--trailer", "--groups", "--day", "--lanes", "--debug",
-                                          "0  success", "1  success, but validation found errors, or a pallet exceeds the trailer ceiling",
+                                          "0  success", "1  incomplete: validation errors, or a line is in no stack",
                                           "2  could not run"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));

@@ -34,6 +34,31 @@ std::string stackHeightSummary(const std::map<std::size_t, double>& palletsBySta
     return text.empty() ? "-" : text;
 }
 
+std::string joined(const std::vector<std::string>& values) {
+    std::string text;
+    for (const auto& value : values) text += (text.empty() ? "" : ", ") + value;
+    return text;
+}
+
+void printProvisionalRules(const StackReport& report, std::ostream& out) {
+    out << "----------------------------------------------------------------\n";
+    out << " PROVISIONAL BUSINESS RULES (not yet confirmed by the customer)\n";
+    out << "----------------------------------------------------------------\n";
+    out << "  Pallet variant            " << grouped(static_cast<double>(report.ambiguousPalletLines))
+        << " line(s) chose a pallet type by preference order ("
+        << joined(Joiner::default_pallet_preference()) << ")\n";
+    out << "  Do-not-mix reading        "
+        << (report.doNotMixReading == SegregationReading::Strict
+                ? "Strict: each flagged planner kept apart from other planners and normal stock\n"
+                : "FlaggedVsNormal: flagged planners share groups, kept apart from normal stock\n");
+    out << "  Stacking methods          Order Builder's reading of the T3 method names;"
+           " equivalence to T3 not demonstrated\n";
+    out << "  Stacking basis            "
+        << (report.stackWholePallets
+                ? "whole pallets (stackWholePallets = true)\n\n"
+                : "fractional estimate, not a physical count (stackWholePallets = false)\n\n");
+}
+
 } // namespace
 
 StackReport StackReporter::build(const SegregationResult& segregation, const BindingResult& binding,
@@ -54,6 +79,9 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.excludedLines = stacking.excludedLines.size();
     report.overHeightLines = stacking.overHeightLines.size();
     report.excludedInvalidQuantityLines = stacking.excludedInvalidQuantityLines;
+    report.linesNotStacked = stacking.linesNotStacked();
+    report.doNotMixReading = params.doNotMixReading;
+    report.stackWholePallets = params.stackWholePallets;
     report.defaultedKeys = params.defaultedKeys;
     report.paramWarnings = params.warnings;
     report.rows.reserve(report.groups);
@@ -71,8 +99,9 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
         row.method = best.method;
         row.floorPositions = best.floorPositions;
         for (const auto& stack : best.stacks) {
-            row.palletsByStackHeight[stack.lineIndices.size()] +=
-                stack.quantity * static_cast<double>(stack.lineIndices.size());
+            const double palletsInStack = stack.quantity * static_cast<double>(stack.lineIndices.size());
+            row.palletsByStackHeight[stack.lineIndices.size()] += palletsInStack;
+            report.totalPalletsStacked += palletsInStack;
         }
         report.totalPallets += row.pallets;
         report.totalFloorPositions += row.floorPositions;
@@ -81,6 +110,8 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
         }
         report.rows.push_back(std::move(row));
     }
+    const bool demandReachedStacking = segregation.linesIn + segregation.linesExcluded > 0;
+    report.builtNoStacks = demandReachedStacking && report.totalPalletsStacked == 0.0;
     std::stable_sort(report.rows.begin(), report.rows.end(),
                      [](const StackReportRow& a, const StackReportRow& b) {
                          return a.floorPositions > b.floorPositions; });
@@ -109,6 +140,9 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
     out << "  Cube-bound groups         " << grouped(static_cast<double>(report.cubeBoundGroups)) << "\n";
     out << "  Weight-bound groups       " << grouped(static_cast<double>(report.weightBoundGroups)) << "\n";
     out << "  Pallet-equivalents        " << grouped(report.totalPallets, 1) << "\n";
+    out << "  Pallets in stacks         " << grouped(report.totalPalletsStacked, 1)
+        << (report.stackWholePallets ? "  (each line rounded up to whole pallets)\n"
+                                     : "  (fractional pallet-equivalents)\n");
     out << "  Floor positions after stacking  " << grouped(report.totalFloorPositions, 1) << "\n";
     out << "  Lines rejected            "
         << grouped(static_cast<double>(report.linesExcludedByValidator))
@@ -119,7 +153,16 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
         << "  (one pallet exceeds the trailer ceiling)\n";
     out << "  Excluded quantities       "
         << grouped(static_cast<double>(report.excludedInvalidQuantityLines))
-        << "  (negative or non-finite)\n\n";
+        << "  (negative or non-finite)\n";
+    out << "  Result                    ";
+    if (report.linesNotStacked > 0) {
+        out << "INCOMPLETE: " << grouped(static_cast<double>(report.linesNotStacked))
+            << " line(s) that passed validation are in no stack\n\n";
+    } else if (report.builtNoStacks) {
+        out << "INCOMPLETE: demand was supplied but no stack was built\n\n";
+    } else {
+        out << "complete: every line that passed validation is in a stack\n\n";
+    }
 
     if (report.groups > 0 && report.groupsAllSingleHigh == report.groups) {
         out << "  No group could stack anything: every group ships single-high.\n\n";
@@ -128,6 +171,8 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
             << grouped(static_cast<double>(report.groups))
             << " groups ship entirely single-high. Most goods do: height blocks stacking first.\n\n";
     }
+
+    printProvisionalRules(report, out);
 
     out << "----------------------------------------------------------------\n";
     out << " PER-GROUP SUMMARY";

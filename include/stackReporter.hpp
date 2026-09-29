@@ -42,14 +42,26 @@ struct StackReport {
     std::size_t weightBoundGroups = 0;
     std::size_t groupsAllSingleHigh = 0;
     double totalPallets = 0.0;
+    double totalPalletsStacked = 0.0;   // exceeds totalPallets when part pallets are rounded up
     double totalFloorPositions = 0.0;
     std::size_t linesExcludedByValidator = 0;
     std::size_t excludedLines = 0;
     std::size_t overHeightLines = 0;
     std::size_t excludedInvalidQuantityLines = 0;
+    std::size_t linesNotStacked = 0;
+    // Demand lines reached M2 and yet no stack was built, e.g. every line converted to 0 pallets.
+    bool builtNoStacks = false;
+
+    // Business rules the customer has not confirmed, printed so no figure is read as settled.
+    std::size_t ambiguousPalletLines = 0;   // filled by the caller from the validation report
+    SegregationReading doNotMixReading = SegregationReading::Strict;
+    bool stackWholePallets = true;
+
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> paramWarnings;
     std::vector<StackReportRow> rows;   // largest floor use first
+
+    bool isComplete() const { return linesNotStacked == 0 && !builtNoStacks; }
 };
 
 class StackReporter {

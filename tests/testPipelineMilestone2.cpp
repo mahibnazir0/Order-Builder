@@ -260,3 +260,67 @@ TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and us
     CHECK(result.stackReport.overHeightLines == 1);
     CHECK(result.stackReport.totalFloorPositions == 0.0);
 }
+
+TEST_CASE("pipeline: a clean one-line run is complete") {
+    const PipelineResult result = runOneLine("m2_complete", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(60));
+    CHECK(result.stackReport.linesNotStacked == 0);
+    CHECK(isRunComplete(result));
+}
+
+TEST_CASE("pipeline: a line left out of stacking makes the run incomplete") {
+    struct Case {
+        std::string name;
+        std::string productRow;
+        UnitLoadError expectedError;
+    };
+    const std::vector<Case> cases{
+        {"strength_above_range", "P,Bad,10,10,10,11,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"strength_negative", "P,Bad,10,10,10,-1,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"strength_unreadable", "P,Bad,10,10,10,x,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"weight_zero", "P,Light,10,10,10,5,CS,0,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"missing_pallet_spec", "P,Odd,10,10,10,5,CS,10,1,1,1,GMA", UnitLoadError::MissingPalletSpec},
+    };
+    for (const auto& testCase : cases) {
+        CAPTURE(testCase.name);
+        const PipelineResult result = runOneLine("m2_incomplete_" + testCase.name, testCase.productRow,
+                                                 kOnePalletLine, paramsWithPtlWeight(60));
+        CHECK(result.validation.errors == 0);
+        REQUIRE(result.stacking.excludedLines.size() == 1);
+        CHECK(result.stacking.excludedLines[0].error == testCase.expectedError);
+        CHECK(result.stackReport.linesNotStacked == 1);
+        CHECK(result.stackReport.totalFloorPositions == 0.0);
+        CHECK_FALSE(isRunComplete(result));
+    }
+}
+
+TEST_CASE("pipeline: an over-height line makes the run incomplete") {
+    const PipelineResult result = runOneLine("m2_incomplete_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(60));
+    CHECK(result.stackReport.linesNotStacked == 1);
+    CHECK_FALSE(isRunComplete(result));
+}
+
+TEST_CASE("pipeline: demand that converts to no pallets builds no stack and is incomplete") {
+    const std::string eachesLine =
+        R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":5.0,"UNITOFMEAS":"EA"})";
+    const PipelineResult result = runOneLine("m2_no_stacks", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+                                             eachesLine, paramsWithPtlWeight(60));
+    CHECK(result.validation.errors == 0);
+    CHECK(result.stackReport.linesNotStacked == 0);
+    CHECK(result.stackReport.builtNoStacks);
+    CHECK_FALSE(isRunComplete(result));
+}
+
+TEST_CASE("pipeline: the real day is complete and reports its provisional rules") {
+    const PipelineResult result = Pipeline::run(realInputs(true));
+    CHECK(isRunComplete(result));
+    CHECK(result.stackReport.ambiguousPalletLines == 144);
+    CHECK(result.stackReport.stackWholePallets);
+    CHECK(result.stackReport.totalPalletsStacked >= result.stackReport.totalPallets);
+    std::ostringstream out;
+    StackReporter::print(result.stackReport, out);
+    CHECK(out.str().find("complete: every line that passed validation is in a stack") != std::string::npos);
+    CHECK(out.str().find("144 line(s) chose a pallet type by preference order") != std::string::npos);
+    CHECK(out.str().find("equivalence to T3 not demonstrated") != std::string::npos);
+}

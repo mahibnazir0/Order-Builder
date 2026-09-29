@@ -95,12 +95,47 @@ TEST_CASE("stackBuilder: loads too tall to stack stay single-high") {
     }
 }
 
+M2Params fractionalParams() {
+    M2Params params = testParams();
+    params.stackWholePallets = false;
+    return params;
+}
+
 TEST_CASE("stackBuilder: a short load stacks on itself up to the ceiling") {
     Scenario scenario({product("A", 30, 100, 9)}, {4});
     const auto result = scenario.build();
-    CHECK(result.groups[0].best.floorPositions == doctest::Approx(4.0 / 3.0));
-    REQUIRE(result.groups[0].best.stacks.size() >= 1);
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
+    REQUIRE(result.groups[0].best.stacks.size() == 2);
     CHECK(result.groups[0].best.stacks[0].lineIndices.size() == 3);
+    CHECK(result.groups[0].best.stacks[0].quantity == 1.0);
+    CHECK(result.groups[0].best.stacks[1].lineIndices.size() == 1);
+    CHECK(result.groups[0].best.stacks[1].quantity == 1.0);
+}
+
+TEST_CASE("stackBuilder: the fractional estimate spreads 4 pallets over 4/3 floor positions") {
+    Scenario scenario({product("A", 30, 100, 9)}, {4});
+    CHECK(scenario.build(fractionalParams()).groups[0].best.floorPositions == doctest::Approx(4.0 / 3.0));
+}
+
+TEST_CASE("stackBuilder: one physical pallet takes a whole floor position") {
+    Scenario scenario({product("A", 30, 100, 9)}, {1});
+    CHECK(scenario.build().groups[0].best.floorPositions == 1.0);
+    M2Params params = fractionalParams();
+    params.maxStackHeight = 2;
+    CHECK(scenario.build(params).groups[0].best.floorPositions == doctest::Approx(0.5));
+}
+
+TEST_CASE("stackBuilder: a part pallet is rounded up to a whole pallet") {
+    Scenario scenario({product("A", 60, 100, 9)}, {0.25});
+    const auto result = scenario.build();
+    REQUIRE(result.groups[0].best.stacks.size() == 1);
+    CHECK(result.groups[0].best.stacks[0].quantity == 1.0);
+    CHECK(result.groups[0].best.floorPositions == 1.0);
+}
+
+TEST_CASE("stackBuilder: an exact whole quantity is not rounded up past itself") {
+    Scenario scenario({product("A", 60, 100, 9)}, {3.0 + 1e-12});
+    CHECK(scenario.build().groups[0].best.floorPositions == 3.0);
 }
 
 TEST_CASE("stackBuilder: stacks never exceed the configured maximum height") {
@@ -154,13 +189,20 @@ TEST_CASE("stackBuilder: a middle load must carry everything above it, not only 
 TEST_CASE("stackBuilder: every pallet is placed exactly once") {
     Scenario scenario({product("A", 30, 100, 9), product("B", 45, 50, 5), product("C", 70, 20, 9)},
                       {4.5, 3.25, 2});
-    const auto result = scenario.build();
-    std::map<std::size_t, double> placed;
-    for (const auto& stack : result.groups[0].best.stacks) {
-        for (const std::size_t member : stack.lineIndices) placed[member] += stack.quantity;
-    }
-    for (std::size_t i = 0; i < scenario.pallets.size(); ++i) {
-        CHECK(placed[i] == doctest::Approx(scenario.pallets[i]));
+    for (const bool wholePallets : {true, false}) {
+        CAPTURE(wholePallets);
+        M2Params params = testParams();
+        params.stackWholePallets = wholePallets;
+        const auto result = scenario.build(params);
+        std::map<std::size_t, double> placed;
+        for (const auto& stack : result.groups[0].best.stacks) {
+            if (wholePallets) CHECK(stack.quantity == std::floor(stack.quantity));
+            for (const std::size_t member : stack.lineIndices) placed[member] += stack.quantity;
+        }
+        for (std::size_t i = 0; i < scenario.pallets.size(); ++i) {
+            const double expected = wholePallets ? std::ceil(scenario.pallets[i]) : scenario.pallets[i];
+            CHECK(placed[i] == doctest::Approx(expected));
+        }
     }
 }
 
@@ -281,11 +323,12 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
     REQUIRE(result.groups.size() == segregation.groups.size());
     for (std::size_t g = 0; g < result.groups.size(); ++g) {
         double lineTotal = 0.0;
-        for (const std::size_t i : segregation.groups[g].lineIndices) lineTotal += run.pallets_per_line[i];
+        for (const std::size_t i : segregation.groups[g].lineIndices) lineTotal += std::ceil(run.pallets_per_line[i]);
         const auto& best = result.groups[g].best;
         double stacked = 0.0;
         for (const auto& stack : best.stacks) {
             stacked += stack.quantity * static_cast<double>(stack.lineIndices.size());
+            CHECK(stack.quantity == std::floor(stack.quantity));
             CHECK(stack.lineIndices.size() <= static_cast<std::size_t>(params.maxStackHeight));
             double heightIn = 0.0;
             for (const std::size_t member : stack.lineIndices) {

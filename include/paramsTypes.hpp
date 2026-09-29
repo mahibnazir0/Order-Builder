@@ -47,6 +47,10 @@ struct M2Params {
     // Most pallets in one stack. Tom: this customer never goes above two high.
     int maxStackHeight = 2;
     bool blankCriIsStackable = false;
+    // True stacks whole physical pallets: each line's pallet-equivalents are rounded up, so a
+    // part pallet takes a real position. False keeps the fractional estimate, which can report
+    // 0.5 floor positions for one pallet and so understates floor use in small groups.
+    bool stackWholePallets = true;
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> warnings;
 };
