@@ -87,6 +87,10 @@ struct PipelineResult {
     StackReport stackReport;
 };
 
+// True when the run covered all of its demand: no validation errors and, when M2 ran,
+// every line that passed validation ended up in a stack. main() exits 1 otherwise.
+bool isRunComplete(const PipelineResult& result);
+
 class Pipeline {
 public:
     // Run every stage in order.

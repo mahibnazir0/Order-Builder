@@ -269,6 +269,14 @@ M2Params parseParams(const json& root) {
         }
         params.blankCriIsStackable = root["blankCriIsStackable"].get<bool>();
     }
+    if (!root.contains("stackWholePallets")) {
+        params.defaultedKeys.push_back("stackWholePallets");
+    } else {
+        if (!root["stackWholePallets"].is_boolean()) {
+            throw std::runtime_error("params: stackWholePallets must be a boolean");
+        }
+        params.stackWholePallets = root["stackWholePallets"].get<bool>();
+    }
     return params;
 }
 

@@ -16,7 +16,8 @@ namespace ob {
 enum class StackMethod { Natural, Target, TallAndHeavy, BaseAndTop, TryHard };
 
 // One stack template: line indices bottom to top, repeated once per level a line occupies.
-// `quantity` is how many such stacks, in pallet-equivalents (fractional, like the pallets).
+// `quantity` is how many such stacks: whole when params.stackWholePallets is set, otherwise
+// pallet-equivalents (fractional, like the pallets).
 struct BuiltStack {
     std::vector<std::size_t> lineIndices;
     double quantity = 0.0;
@@ -53,6 +54,12 @@ struct StackingResult {
     std::vector<std::size_t> overHeightLines;
     // Lines with a negative or non-finite pallet quantity. A quantity of exactly 0 is skipped quietly.
     std::size_t excludedInvalidQuantityLines = 0;
+
+    // Demand lines that reached stacking but are in no stack. Any of them means the result
+    // does not cover the whole demand, so the run must not report success.
+    std::size_t linesNotStacked() const {
+        return excludedLines.size() + overHeightLines.size() + excludedInvalidQuantityLines;
+    }
 };
 
 // Pass 2: within each group, builds stack sets with every method and keeps the one that

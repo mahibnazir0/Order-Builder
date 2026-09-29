@@ -12,8 +12,9 @@
 //
 // Exit codes:
 //   0  ran successfully, no validation errors
-//   1  ran successfully but validation found errors in the data, or a single
-//      pallet is taller than the trailer's stack-height ceiling
+//   1  ran, but the result does not cover all of the demand: validation found
+//      errors, or (with --params) a line that passed validation is in no stack
+//      (no unit load, taller than the ceiling, bad quantity) or no stack was built
 //   2  could not run (missing argument, unreadable file)
 // ============================================================================
 
@@ -52,7 +53,7 @@ void print_usage(std::ostream& out) {
         "\n"
         "Exit codes:\n"
         "  0  success, no validation errors\n"
-        "  1  success, but validation found errors, or a pallet exceeds the trailer ceiling\n"
+        "  1  incomplete: validation errors, or a line is in no stack (see Result)\n"
         "  2  could not run\n";
 }
 
@@ -143,9 +144,7 @@ int main(int argc, char** argv) {
                                      static_cast<std::size_t>(std::max(max_groups, 0)));
         }
 
-        // A run that produced validation errors or unshippable loads is reported, not hidden.
-        const bool hasOverHeightLoads = !result.stacking.overHeightLines.empty();
-        return (result.validation.errors > 0 || hasOverHeightLoads) ? 1 : 0;
+        return ob::isRunComplete(result) ? 0 : 1;
 
     } catch (const std::exception& e) {
         LOG_ERROR(e.what());

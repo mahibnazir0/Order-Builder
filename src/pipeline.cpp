@@ -47,6 +47,18 @@ std::vector<double> configuredWeightPerLine(const std::vector<JoinedLine>& lines
     return weights;
 }
 
+std::string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
+    switch (error) {
+    case UnitLoadError::MissingProduct: return "product is not in the master";
+    case UnitLoadError::MissingPalletSpec:
+        return "params file has no spec for pallet type '" + line.product->pallet_id + "'";
+    case UnitLoadError::InvalidData:
+        return "product height, weight, layer, case or strength data cannot form a unit load";
+    case UnitLoadError::None: break;
+    }
+    return "unknown";
+}
+
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
     const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
@@ -69,16 +81,28 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
                                    result.weightForStacking, trailer);
     result.stacking = buildStacks(result.segregation, result.join.lines, result.palletsForStacking,
                                   result.binding, result.params, trailer);
+    for (const auto& excludedLine : result.stacking.excludedLines) {
+        const JoinedLine& line = result.join.lines[excludedLine.lineIndex];
+        LOG_WARN("Demand line " + std::to_string(excludedLine.lineIndex) + " (MATNR "
+                 + line.str->matnr + ") was not stacked: "
+                 + unitLoadErrorText(excludedLine.error, line));
+    }
     if (!result.stacking.overHeightLines.empty()) {
         LOG_WARN(std::to_string(result.stacking.overHeightLines.size())
                  + " line(s) have a single pallet taller than the trailer ceiling and were not stacked");
     }
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
+    result.stackReport.ambiguousPalletLines = static_cast<std::size_t>(result.validation.ambiguous_pallet);
     result.ranMilestone2 = true;
 }
 
 } // namespace
+
+bool isRunComplete(const PipelineResult& result) {
+    if (result.validation.errors > 0) return false;
+    return !result.ranMilestone2 || result.stackReport.isComplete();
+}
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     PipelineResult result;

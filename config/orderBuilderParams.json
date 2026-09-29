@@ -17,5 +17,6 @@
   "doNotMixReading": "Strict",
   "pass2AttemptCap": 4,
   "maxStackHeight": 2,
-  "blankCriIsStackable": false
+  "blankCriIsStackable": false,
+  "stackWholePallets": true
 }

@@ -40,6 +40,15 @@ Order sortedOrder(std::size_t count, Less less) {
     return order;
 }
 
+// Whole-pallet stacking commits whole stacks, so a line must have a pallet left for every
+// level it would occupy; otherwise any remainder can be spread across the chain.
+bool hasPalletForAnotherLevel(const Context& context, const Order& chain, std::size_t top,
+                              const std::vector<double>& remaining) {
+    if (!context.params.stackWholePallets) return remaining[top] > kQuantityEpsilon;
+    const auto levelsHeld = std::count(chain.begin(), chain.end(), top);
+    return remaining[top] >= static_cast<double>(levelsHeld + 1);
+}
+
 // `top` may join the chain only if the customer's stack-height cap allows it and every
 // load already in it can still carry what would sit above it. Each level is checked with
 // canStack against a copy of that load that already counts the height and weight of
@@ -77,7 +86,7 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
             for (bool extended = true; extended;) {
                 extended = false;
                 for (const std::size_t top : topOrder) {
-                    if (remaining[top] > kQuantityEpsilon
+                    if (hasPalletForAnotherLevel(context, chain, top, remaining)
                         && canExtendChain(context, chain, items[top].load)) {
                         chain.push_back(top);
                         extended = true;
@@ -94,13 +103,18 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
                 const double fits = remaining[member] / static_cast<double>(timesInChain[member]);
                 if (fits < quantity) { quantity = fits; limiting = member; }
             }
+            if (context.params.stackWholePallets) quantity = std::floor(quantity);
             double stackWeightLb = 0.0;
             for (const std::size_t member : chain) {
                 remaining[member] -= quantity;
                 stackWeightLb += items[member].load.weightLb;
             }
+            // Zeroing the limiting line stops fractional residue from looping forever. Whole
+            // quantities subtract exactly, and flooring can leave the limiting line a pallet.
             for (const std::size_t member : chain) {
-                if (remaining[member] <= kQuantityEpsilon || member == limiting) remaining[member] = 0.0;
+                const bool exhausted = remaining[member] <= kQuantityEpsilon
+                    || (member == limiting && !context.params.stackWholePallets);
+                if (exhausted) remaining[member] = 0.0;
             }
             set.floorPositions += quantity;
             set.heaviestStackLb = std::max(set.heaviestStackLb, stackWeightLb);
@@ -210,6 +224,8 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 continue;
             }
             if (quantity == 0.0) continue;
+            const double stackedQuantity =
+                params.stackWholePallets ? std::ceil(quantity - kQuantityEpsilon) : quantity;
             UnitLoad load = buildUnitLoad(lines[lineIndex], params);
             if (load.error != UnitLoadError::None) {
                 result.excludedLines.push_back({lineIndex, load.error});
@@ -219,7 +235,7 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }
-            items.push_back(Item{lineIndex, std::move(load), quantity});
+            items.push_back(Item{lineIndex, std::move(load), stackedQuantity});
         }
 
         const Context context{items, params, trailer.stackHeightCeilingIn};

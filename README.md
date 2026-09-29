@@ -83,11 +83,13 @@ Exit codes:
 
 | Code | Meaning |
 |---|---|
-| 0 | Ran successfully, no validation errors |
-| 1 | Ran successfully, but validation found errors in the data |
+| 0 | Ran successfully and covered all of the demand |
+| 1 | Ran, but the result is incomplete: validation found errors in the data, or (with `--params`) a line that passed validation is in no stack — it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type with no spec in the params file), a single pallet is taller than the trailer ceiling, or its quantity is invalid — or demand was supplied but no stack was built |
 | 2 | Could not run — a missing argument or an unreadable file |
 
-Validation *warnings* do not affect the exit code. A clean run of the current
+The Milestone 2 report states the outcome on its `Result` line, and each line left
+out of stacking is logged with its MATNR and the reason. Validation *warnings* do not
+affect the exit code. A clean run of the current
 sample data exits 0 with 161 warnings.
 
 ## Test data

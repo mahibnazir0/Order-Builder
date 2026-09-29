@@ -406,10 +406,16 @@ both; Target puts the tallest load that fits on top; Tall & Heavy takes the heav
 bases and the shortest tops; Base & Top takes the highest crush rating as base and the lightest
 as top; Try Hard reruns Base & Top from rotated starting bases up to the attempt cap.
 
-**Quantities are pallet-equivalents, so stacking is fractional.** A line of 4 short pallets can
-report 4/3 floor positions when a real trailer would need 2. This follows the standing rule that
-fractions are summed and never rounded, so the figures are estimates, and they understate
-floor use when a group has few pallets per product.
+**Stacking counts whole pallets by default.** With `stackWholePallets: true` (the shipped
+config) each line's pallet-equivalents are rounded up to whole physical pallets before
+stacking, and only whole stacks are committed: a line of 4 short pallets needs 2 floor
+positions, and one pallet takes 1, never 0.5. Setting `stackWholePallets: false` restores
+the fractional estimate (4/3 and 0.5 in those examples), which spreads part pallets across
+stacks and understates floor use in small groups; it is kept only for comparison and is
+labelled in the report as not a physical count. On 17 August the whole-pallet figure is
+129,785 floor positions against the fractional 129,526.8. A partial pallet is stacked at its
+full unit-load height, which is conservative. M1 pallet totals are unchanged and still summed
+as fractions.
 
 Given Finding A, expect most groups to return mostly singles. A group of tall products
 produces one valid set with no pairs. That is correct, not a failure, and the reporter
@@ -457,7 +463,7 @@ import -> join -> convert -> validate -> segregate -> pass1 -> pass2 -> report
 - [x] Real data end to end through the CLI: 387 groups, 17 lanes split, and (at 32 positions) 383 cube-bound and 4 weight-bound
 - [x] README documents the new flags
 - [x] Merged to `main`
-- [ ] Exit code for M2 problems (see section 8)
+- [x] Exit code for M2 problems: the run exits 1 when any line that passed validation is in no stack (no unit load, over-height, invalid quantity) or when demand was supplied and no stack was built. The report prints a `Result` line, and each unstacked line is logged with its MATNR and reason
 
 Conversion still precedes validation because the large-line check needs pallet figures.
 **Do not reorder.** `main()` parses arguments only. `PipelineResult` stays move-only.
@@ -519,7 +525,8 @@ stands and should be re-confirmed rather than reported as a slip later.
 - Stacks are at most two high for this customer (Tom), enforced through `maxStackHeight`.
 - Floor truck counts are volume divided by capacity — a lower bound for comparing rules,
   not a plan.
-- Pallet-equivalents are summed as fractions across a group, never rounded per line.
+- Pallet-equivalents are summed as fractions for the M1 totals and the binding decision, never
+  rounded per line. Stacking rounds each line up to whole pallets (`stackWholePallets`).
 - The blank `PLANNER_SNP` is an edge case, not an invariant: 1 line on 17 August, 0 in all
   three September files.
 
@@ -545,9 +552,9 @@ config change once he replies.
 | 10 | ~~Config ceiling 110 in~~ | `stackBuilder` results | Resolved: Tom confirmed 108 in, and the config now says 108 |
 | 11 | Large-line threshold (300 to about 3,000 pallets) and the sampling algorithm | Scope, not estimated | Not built |
 | 12 | Whether the T3/P3 API arriving early changes M2's scope | Scope decision | M2 stays self-contained |
-| 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Fractions, per the standing ruling; figures underestimate floor use in small groups |
+| 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Whole pallets by default (`stackWholePallets: true`); the fractional estimate is still available for comparison. Needs the customer's agreement |
 | 14 | Which trailer does a lane use? Placeholder lanes carry an equipment size (`53F` or blank) that the params trailer codes (`53FT_NA`) do not match | Pipeline integration | The first trailer in the params file, or one chosen with `--trailer`, applied to every group |
-| 15 | Should the run exit non-zero when M2 finds problems (pallet types with no spec, lines with no unit load)? | Pipeline integration | They are logged and counted in the report; the exit code still reflects validation errors only |
+| 15 | ~~Should the run exit non-zero when M2 finds problems?~~ | Pipeline integration | Resolved: exit 1 when a line that passed validation is in no stack, or no stack was built; the report's `Result` line says which |
 | 16 | Should M2 groups feed the truck counts (placeholder loads per lane)? | Beyond M2 | No. The report shows floor positions per group, and truck counts are not decided |
 | 17 | Pallet-variant fallback for lines the divisibility rule cannot resolve (for example 105553001, 168 cases = 2 GMA or 1 TLD pallets) | Joiner, Finding C | Preference order (TLD, PTL, PGM, GMA) with the line flagged. The divisibility rule itself is still not built |
 

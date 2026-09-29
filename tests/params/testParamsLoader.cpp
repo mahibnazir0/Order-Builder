@@ -65,7 +65,8 @@ json completeParams() {
         ],
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32}],
-        "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false
+        "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
+        "stackWholePallets":true
     })");
 }
 
@@ -94,6 +95,7 @@ void checkCompleteParams(const M2Params& params) {
     CHECK(params.doNotMixReading == SegregationReading::Strict);
     CHECK(params.pass2AttemptCap == 4);
     CHECK_FALSE(params.blankCriIsStackable);
+    CHECK(params.stackWholePallets);
     CHECK(params.warnings.empty());
 }
 
@@ -142,13 +144,16 @@ TEST_CASE("params missing policy keys use and record their defaults") {
     root.erase("pass2AttemptCap");
     root.erase("maxStackHeight");
     root.erase("blankCriIsStackable");
+    root.erase("stackWholePallets");
     const auto params = parseParams(root);
     CHECK(params.doNotMixReading == SegregationReading::Strict);
     CHECK(params.pass2AttemptCap == 4);
     CHECK(params.maxStackHeight == 2);
     CHECK_FALSE(params.blankCriIsStackable);
+    CHECK(params.stackWholePallets);
     const std::vector<std::string> expectedKeys{
-        "doNotMixReading", "pass2AttemptCap", "maxStackHeight", "blankCriIsStackable"
+        "doNotMixReading", "pass2AttemptCap", "maxStackHeight", "blankCriIsStackable",
+        "stackWholePallets"
     };
     CHECK(params.defaultedKeys == expectedKeys);
 }
@@ -423,6 +428,20 @@ TEST_CASE("params blank CRI policy requires a boolean") {
     for (const auto& value : std::vector<json>{nullptr, "false", 0, json::array(), json::object()}) {
         root["blankCriIsStackable"] = value;
         CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("blankCriIsStackable"), std::runtime_error);
+    }
+}
+
+TEST_CASE("params whole-pallet stacking accepts explicit false") {
+    auto root = completeParams();
+    root["stackWholePallets"] = false;
+    CHECK_FALSE(parseParams(root).stackWholePallets);
+}
+
+TEST_CASE("params whole-pallet stacking requires a boolean") {
+    auto root = completeParams();
+    for (const auto& value : std::vector<json>{nullptr, "true", 1, json::array(), json::object()}) {
+        root["stackWholePallets"] = value;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("stackWholePallets"), std::runtime_error);
     }
 }
 
