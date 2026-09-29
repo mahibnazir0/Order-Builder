@@ -33,5 +33,3 @@ tests/importer/crossDay/
 /m2_run_*.txt
 /run_*.txt
 
-CLAUDE.md
-.claude/
