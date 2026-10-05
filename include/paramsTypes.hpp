@@ -1,5 +1,6 @@
 #pragma once
 
+#include "palletSpec.hpp"
 #include "trailerSpec.hpp"
 
 #include <array>
@@ -21,14 +22,6 @@ constexpr int kMaxStackHeight = 16;
 struct CriTable {
     // Index 0 is unused so callers can index by CRI 1..10 directly.
     std::array<double, 11> safeLimitLb{};
-};
-
-struct PalletSpec {
-    std::string palletId;
-    double addedWeightLb = 0.0;
-    double addedHeightIn = 0.0;
-    double footprintLengthIn = 0.0;
-    double footprintWidthIn = 0.0;
 };
 
 struct M2Params {

@@ -136,7 +136,7 @@ PalletSpec readPallet(const json& record, std::size_t index,
         throw std::runtime_error("params: " + recordName
             + ".palletId must contain a printable ASCII character");
     }
-    if (palletSpecFor(params, pallet.palletId) != nullptr) {
+    if (palletSpecFor(params.pallets, pallet.palletId) != nullptr) {
         throw std::runtime_error("params: " + recordName + ".palletId is duplicated");
     }
     pallet.addedWeightLb = readQuantity(
@@ -314,12 +314,7 @@ M2Params loadParams(const std::string& path) {
 }
 
 const PalletSpec* palletSpecFor(const M2Params& params, const std::string& palletId) {
-    for (const auto& pallet : params.pallets) {
-        if (pallet.palletId == palletId) {
-            return &pallet;
-        }
-    }
-    return nullptr;
+    return palletSpecFor(params.pallets, palletId);
 }
 
 } // namespace ob

@@ -1,4 +1,5 @@
 #include "converter.hpp"
+#include "palletSpec.hpp"
 
 #include <cmath>
 
@@ -29,11 +30,6 @@ double Converter::round_pallets(double pallets, PalletRounding rounding) {
     return pallets;
 }
 
-bool Converter::pallet_has_wood(const std::string& pallet_id) {
-    // PTL and PGM are wood. TLD and GMA are not, and add nothing.
-    return pallet_id == "PTL" || pallet_id == "PGM";
-}
-
 bool Converter::isConvertibleUom(const std::string& uom) {
     return uom == "CS" || uom == "PAL" || uom == "DIS";
 }
@@ -62,18 +58,16 @@ double Converter::to_pallets(double trans,
     return 0.0;
 }
 
-double Converter::to_weight_lb(double pallets,
-                               const ProductRecord& product,
-                               double wood_pallet_weight_lb) {
+double Converter::to_weight_lb(double pallets, const ProductRecord& product) {
     // Weight in the master is per CASE, so a unit load is the case weight
     // times the number of cases on it.
     const double unit_load_lb =
         product.weight_lb * static_cast<double>(product.cases_unit_load);
 
-    const double pallet_lb =
-        pallet_has_wood(product.pallet_id) ? wood_pallet_weight_lb : 0.0;
+    const PalletSpec* pallet = palletSpecFor(confirmedPalletSpecs(), product.pallet_id);
+    const double palletAddedWeightLb = pallet != nullptr ? pallet->addedWeightLb : 0.0;
 
-    return pallets * (unit_load_lb + pallet_lb);
+    return pallets * (unit_load_lb + palletAddedWeightLb);
 }
 
 }  // namespace ob

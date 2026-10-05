@@ -1,6 +1,7 @@
 #include "validator.hpp"
 #include "converter.hpp"
 #include "logger.hpp"
+#include "palletSpec.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -183,15 +184,10 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product master row has no unit of measure", s.matnr, idx);
         }
 
-        // Converter::pallet_has_wood only recognises the same set the Joiner
-        // already treats as the known pallet types. Anything else (blank, a
-        // typo, a new type not yet added here) silently reads as "not wood"
-        // and understates weight by kWoodPalletWeightLb with nothing to flag
-        // it — checked against Joiner's list rather than a second literal set
-        // that could drift out of sync with it.
-        const auto& known_pallet_types = Joiner::default_pallet_preference();
-        if (std::find(known_pallet_types.begin(), known_pallet_types.end(), p.pallet_id)
-                == known_pallet_types.end()) {
+        // The Converter weighs a pallet from the confirmed palletSpec table and
+        // adds nothing for a type it has no spec for (blank, a typo, a new
+        // type), which understates weight with nothing else to flag it.
+        if (palletSpecFor(confirmedPalletSpecs(), p.pallet_id) == nullptr) {
             ++rep.unrecognized_pallet_id;
             add(rep, ValidationIssue::Severity::Warning, "unrecognized_pallet_id",
                 "Product's Pallet_ID '" + p.pallet_id + "' is not one of the known types",
