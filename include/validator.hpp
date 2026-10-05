@@ -142,6 +142,10 @@ public:
     // Error, or Tom's "skip and warn" zero_dimension ruling. Parallel to the joined
     // lines; issues pointing outside [0, lineCount) are ignored.
     static std::vector<bool> excludedLineFlags(const ValidationReport& report, size_t lineCount);
+
+    // Whether this one issue keeps its line out of derived totals; the rule behind
+    // excludedLineFlags, so a caller naming the reason applies the same test.
+    static bool excludesLine(const ValidationIssue& issue);
 };
 
 } // namespace ob

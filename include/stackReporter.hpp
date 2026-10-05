@@ -33,6 +33,13 @@ struct StackReportRow {
     std::map<std::size_t, double> palletsByStackHeight;
 };
 
+// A demand line that ended up in no stack, and why.
+struct UnstackedLine {
+    std::size_t lineIndex = 0;
+    std::string matnr;
+    std::string reason;
+};
+
 struct StackReport {
     std::size_t groups = 0;
     std::size_t lanes = 0;
@@ -47,10 +54,14 @@ struct StackReport {
     std::size_t linesExcludedByValidator = 0;
     std::size_t excludedLines = 0;
     std::size_t overHeightLines = 0;
-    std::size_t excludedInvalidQuantityLines = 0;
+    std::size_t invalidQuantityLines = 0;
+    std::size_t zeroQuantityLines = 0;
     std::size_t linesNotStacked = 0;
     // Demand lines reached M2 and yet no stack was built, e.g. every line converted to 0 pallets.
     bool builtNoStacks = false;
+    // Every demand line in no stack, validator rejections included, with its reason. Filled
+    // by the caller, which holds the lines and the validation report; build() cannot.
+    std::vector<UnstackedLine> unstackedLines;
 
     // Business rules the customer has not confirmed, printed so no figure is read as settled.
     std::size_t ambiguousPalletLines = 0;   // filled by the caller from the validation report
@@ -61,7 +72,7 @@ struct StackReport {
     std::vector<std::string> paramWarnings;
     std::vector<StackReportRow> rows;   // largest floor use first
 
-    bool isComplete() const { return linesNotStacked == 0 && !builtNoStacks; }
+    bool isComplete() const { return unstackedLines.empty() && linesNotStacked == 0 && !builtNoStacks; }
 };
 
 class StackReporter {

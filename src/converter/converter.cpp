@@ -34,6 +34,10 @@ bool Converter::pallet_has_wood(const std::string& pallet_id) {
     return pallet_id == "PTL" || pallet_id == "PGM";
 }
 
+bool Converter::isConvertibleUom(const std::string& uom) {
+    return uom == "CS" || uom == "PAL" || uom == "DIS";
+}
+
 double Converter::to_pallets(double trans,
                              const std::string& uom,
                              const ProductRecord& product,

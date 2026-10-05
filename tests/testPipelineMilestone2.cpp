@@ -307,8 +307,57 @@ TEST_CASE("pipeline: demand that converts to no pallets builds no stack and is i
     const PipelineResult result = runOneLine("m2_no_stacks", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
                                              eachesLine, paramsWithPtlWeight(60));
     CHECK(result.validation.errors == 0);
-    CHECK(result.stackReport.linesNotStacked == 0);
+    CHECK(result.stacking.zeroQuantityLines == std::vector<std::size_t>{0});
+    CHECK(result.stackReport.linesNotStacked == 1);
     CHECK(result.stackReport.builtNoStacks);
+    CHECK_FALSE(isRunComplete(result));
+}
+
+const std::string kFiveEachesLine =
+    R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":5.0,"UNITOFMEAS":"EA"})";
+
+TEST_CASE("pipeline: an unsupported unit beside a valid line makes the run incomplete") {
+    const PipelineResult result = runOneLine("m2_mixed_units", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine + "," + kFiveEachesLine, paramsWithPtlWeight(60));
+    CHECK(result.validation.errors == 0);
+    CHECK(result.stackReport.totalFloorPositions == 1.0);
+    CHECK_FALSE(result.stackReport.builtNoStacks);
+    CHECK(result.stacking.zeroQuantityLines == std::vector<std::size_t>{1});
+    REQUIRE(result.stackReport.unstackedLines.size() == 1);
+    CHECK(result.stackReport.unstackedLines[0].lineIndex == 1);
+    CHECK(result.stackReport.unstackedLines[0].matnr == "P");
+    CHECK(result.stackReport.unstackedLines[0].reason.find("unit of measure 'EA' cannot be converted")
+          != std::string::npos);
+    CHECK_FALSE(isRunComplete(result));
+}
+
+TEST_CASE("pipeline: an unsupported-unit line is named with its reason in the printed report") {
+    const PipelineResult result = runOneLine("m2_mixed_units_report", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine + "," + kFiveEachesLine, paramsWithPtlWeight(60));
+    std::ostringstream out;
+    StackReporter::print(result.stackReport, out);
+    CHECK(out.str().find("INCOMPLETE: 1 demand line(s) are in no stack") != std::string::npos);
+    CHECK(out.str().find("line 1, material P: unit of measure 'EA' cannot be converted") != std::string::npos);
+}
+
+TEST_CASE("pipeline: a raw-material line the validator skips is reported and makes the run incomplete") {
+    const PipelineResult result = runOneLine("m2_raw_material", "P,Raw,0,0,0,5,CS,10,1,1,1,PTL",
+                                             kOnePalletLine, paramsWithPtlWeight(60));
+    CHECK(result.validation.errors == 0);
+    CHECK(result.validation.zero_dimension == 1);
+    REQUIRE(result.stackReport.unstackedLines.size() == 1);
+    CHECK(result.stackReport.unstackedLines[0].reason.find("zero_dimension") != std::string::npos);
+    CHECK_FALSE(isRunComplete(result));
+}
+
+TEST_CASE("pipeline: a line rejected by validation is listed among the unstacked lines") {
+    const PipelineResult result = runOneLine("m2_rejected_listed", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+        kOnePalletLine + "," + R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"NOT_IN_MASTER","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1.0,"UNITOFMEAS":"PAL"})",
+        paramsWithPtlWeight(60));
+    REQUIRE(result.stackReport.unstackedLines.size() == 1);
+    CHECK(result.stackReport.unstackedLines[0].lineIndex == 1);
+    CHECK(result.stackReport.unstackedLines[0].matnr == "NOT_IN_MASTER");
+    CHECK(result.stackReport.unstackedLines[0].reason.find("unmatched_product") != std::string::npos);
     CHECK_FALSE(isRunComplete(result));
 }
 
@@ -320,7 +369,8 @@ TEST_CASE("pipeline: the real day is complete and reports its provisional rules"
     CHECK(result.stackReport.totalPalletsStacked >= result.stackReport.totalPallets);
     std::ostringstream out;
     StackReporter::print(result.stackReport, out);
-    CHECK(out.str().find("complete: every line that passed validation is in a stack") != std::string::npos);
+    CHECK(result.stackReport.unstackedLines.empty());
+    CHECK(out.str().find("complete: every demand line is in a stack") != std::string::npos);
     CHECK(out.str().find("144 line(s) chose a pallet type by preference order") != std::string::npos);
     CHECK(out.str().find("equivalence to T3 not demonstrated") != std::string::npos);
 }

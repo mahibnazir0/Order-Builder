@@ -100,7 +100,45 @@ void checkStacksObeyRules(const PipelineResult& run) {
               << " tallestIn=" << audit.tallestStackIn << '\n';
 }
 
-void checkPalletsConserved(const PipelineResult& run, std::size_t dayIndex) {
+std::vector<double> stackedPalletsPerLine(const StackingResult& stacking, std::size_t lineCount) {
+    std::vector<double> stackedPerLine(lineCount, 0.0);
+    for (const auto& group : stacking.groups) {
+        for (const auto& stack : group.best.stacks) {
+            for (const std::size_t lineIndex : stack.lineIndices) stackedPerLine[lineIndex] += stack.quantity;
+        }
+    }
+    return stackedPerLine;
+}
+
+struct LineConservation {
+    std::size_t linesNotConserved = 0;
+    std::size_t partialPalletLinesConserved = 0;
+    double expectedTotal = 0.0;
+    double stackedTotal = 0.0;
+};
+
+// Each line must put exactly stackedPalletsForLine of its pallet-equivalents into stacks:
+// rounded up to whole pallets in the M2 physical mode, the fraction itself otherwise.
+LineConservation conservePerLine(const PipelineResult& run, const StackingResult& stacking,
+                                 const M2Params& params) {
+    const std::vector<double> stackedPerLine = stackedPalletsPerLine(stacking, run.join.lines.size());
+    LineConservation conservation;
+    for (std::size_t lineIndex = 0; lineIndex < stackedPerLine.size(); ++lineIndex) {
+        const double palletEquivalents = run.palletsForStacking[lineIndex];
+        const double expected = stackedPalletsForLine(palletEquivalents, params);
+        conservation.expectedTotal += expected;
+        conservation.stackedTotal += stackedPerLine[lineIndex];
+        if (std::fabs(stackedPerLine[lineIndex] - expected) > kPerLineTolerancePallets) {
+            ++conservation.linesNotConserved;
+        } else if (palletEquivalents != std::floor(palletEquivalents)) {
+            ++conservation.partialPalletLinesConserved;
+        }
+    }
+    return conservation;
+}
+
+// M1 pallet-equivalents are fractional and must survive segregation and pass 1 unchanged.
+void checkPalletEquivalentsConserved(const PipelineResult& run, std::size_t dayIndex) {
     const double inputPallets = run.summary.total_pallet_equiv;
     CHECK(std::fabs(inputPallets - expectedM1::palletEquivalents[dayIndex]) <= 0.05);
 
@@ -115,34 +153,44 @@ void checkPalletsConserved(const PipelineResult& run, std::size_t dayIndex) {
     double inBinding = 0.0;
     for (const auto& group : run.binding.groups) inBinding += group.totalPallets;
 
-    std::vector<double> stackedPerLine(run.join.lines.size(), 0.0);
-    double inStacks = 0.0;
-    for (const auto& group : run.stacking.groups) {
-        for (const auto& stack : group.best.stacks) {
-            for (const std::size_t lineIndex : stack.lineIndices) {
-                stackedPerLine[lineIndex] += stack.quantity;
-                inStacks += stack.quantity;
-            }
-        }
-    }
-    std::size_t linesNotConserved = 0;
-    for (std::size_t lineIndex = 0; lineIndex < stackedPerLine.size(); ++lineIndex) {
-        if (std::fabs(stackedPerLine[lineIndex] - run.palletsForStacking[lineIndex])
-            > kPerLineTolerancePallets) {
-            ++linesNotConserved;
-        }
-    }
-
-    CHECK(run.stacking.excludedLines.empty());
-    CHECK(run.stacking.excludedInvalidQuantityLines == 0);
     CHECK(std::fabs(stackingInput - inputPallets) <= 1e-3);
     CHECK(std::fabs(inGroups - inputPallets) <= 1e-3);
     CHECK(std::fabs(inBinding - inputPallets) <= 1e-3);
-    CHECK(std::fabs(inStacks - inputPallets) <= 1e-3);
     CHECK(std::fabs(run.stackReport.totalPallets - inputPallets) <= 1e-3);
-    CHECK(linesNotConserved == 0);
-    std::cout << "  input=" << inputPallets << " groups=" << inGroups << " stacks=" << inStacks
-              << " linesNotConserved=" << linesNotConserved << '\n';
+    std::cout << "  pallet-equivalents input=" << inputPallets << " groups=" << inGroups << '\n';
+}
+
+// Stacks hold whole physical pallets under the shipped config; the same groups restacked
+// with stackWholePallets off must hold each line's fractional pallet-equivalents instead.
+void checkStackedPalletsConservedPerLine(const PipelineResult& run) {
+    REQUIRE(run.params.stackWholePallets);
+    CHECK(run.stackReport.unstackedLines.empty());
+    CHECK(run.stacking.linesNotStacked() == 0);
+
+    const LineConservation whole = conservePerLine(run, run.stacking, run.params);
+    CHECK(whole.linesNotConserved == 0);
+    CHECK(whole.partialPalletLinesConserved > 0);
+    CHECK(std::fabs(run.stackReport.totalPalletsStacked - whole.expectedTotal) <= 1e-3);
+    CHECK(whole.stackedTotal >= run.summary.total_pallet_equiv);
+
+    M2Params fractionalParams = run.params;
+    fractionalParams.stackWholePallets = false;
+    const StackingResult fractionalStacking =
+        buildStacks(run.segregation, run.join.lines, run.palletsForStacking, run.binding,
+                    fractionalParams, run.params.trailers.front());
+    const LineConservation fractional = conservePerLine(run, fractionalStacking, fractionalParams);
+    CHECK(fractional.linesNotConserved == 0);
+    CHECK(fractional.partialPalletLinesConserved > 0);
+    CHECK(std::fabs(fractional.stackedTotal - run.summary.total_pallet_equiv) <= 1e-3);
+
+    std::cout << "  whole pallets stacked=" << whole.stackedTotal
+              << " partialLines=" << whole.partialPalletLinesConserved
+              << "; fractional stacked=" << fractional.stackedTotal << '\n';
+}
+
+void checkPalletsConserved(const PipelineResult& run, std::size_t dayIndex) {
+    checkPalletEquivalentsConserved(run, dayIndex);
+    checkStackedPalletsConservedPerLine(run);
 }
 
 } // namespace
@@ -204,7 +252,7 @@ TEST_CASE("guarantee: every built stack fits the 108 in ceiling and its carriers
     }
 }
 
-TEST_CASE("guarantee: pallet-equivalents are conserved from demand through groups to stacks" * doctest::skip(!crossDayTests::allExtractsPresent())) {
+TEST_CASE("guarantee: pallet-equivalents reach the groups and every line's pallets reach the stacks, whole or fractional" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         std::cout << "Cross-day " << dayFiles()[dayIndex].label << " Strict pallets:\n";

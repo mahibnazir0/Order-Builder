@@ -96,6 +96,16 @@ TEST_CASE("PAL and DIS pass the quantity straight through") {
     CHECK(Converter::to_pallets(6.0, "DIS", many) == doctest::Approx(6.0));
 }
 
+TEST_CASE("only CS, PAL and DIS are convertible units of measure") {
+    CHECK(Converter::isConvertibleUom("CS"));
+    CHECK(Converter::isConvertibleUom("PAL"));
+    CHECK(Converter::isConvertibleUom("DIS"));
+    CHECK_FALSE(Converter::isConvertibleUom("EA"));
+    CHECK_FALSE(Converter::isConvertibleUom("cs"));
+    CHECK_FALSE(Converter::isConvertibleUom(""));
+    CHECK(Converter::to_pallets(5.0, "EA", make_product(8, 2.0, "TLD")) == 0.0);
+}
+
 TEST_CASE("pallet-equivalents are never rounded") {
     // Tom's ruling on '0.9 of a pallet?': fractions are summed across the
     // lane, so the fraction has to survive this function intact.

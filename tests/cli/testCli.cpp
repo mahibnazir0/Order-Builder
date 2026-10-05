@@ -288,8 +288,22 @@ TEST_CASE("cli: a line with no unit load exits 1 and the report says incomplete"
         const CliRun run = runCli(inputs.arguments(productPath, inputs.demand, inputs.placeholder, kParams));
         CHECK(run.exitCode == 1);
         CHECK(contains(run.output, "was not stacked"));
-        CHECK(contains(run.output, "INCOMPLETE: 1 line(s) that passed validation are in no stack"));
+        CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
     }
+}
+
+TEST_CASE("cli: a valid PAL line beside an EA line exits 1 and names the EA line") {
+    const SyntheticInputs inputs;
+    const std::string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL",)";
+    const std::string mixedDemand = inputs.write("mixedUnits.json",
+        R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
+        + lineStart + R"("TRANS":1.0,"UNITOFMEAS":"PAL"},)"
+        + lineStart + R"("TRANS":5.0,"UNITOFMEAS":"EA"}]})");
+    const CliRun run = runCli(inputs.arguments(inputs.product, mixedDemand, inputs.placeholder, kParams));
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
+    CHECK(contains(run.output, "line 1, material GOOD: unit of measure 'EA' cannot be converted to pallets"));
+    CHECK_FALSE(contains(run.output, "complete: every demand line is in a stack"));
 }
 
 TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming the problem") {
