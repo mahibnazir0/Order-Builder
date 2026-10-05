@@ -15,6 +15,10 @@ struct PalletSpec {
     double footprintWidthIn = 0.0;
 };
 
+// Whether the pallet's deck height counts toward a unit load's height in the floor. Open
+// with the client (M3 questions 6 and 21); the params file must state which reading runs.
+enum class DeckHeightRule { Excluded, Included };
+
 // The confirmed pallet table, used where no params file is supplied (the Milestone 1
 // weights). The shipped params file must list exactly these specs; a test holds the two
 // together so a corrected figure cannot land in one and not the other.

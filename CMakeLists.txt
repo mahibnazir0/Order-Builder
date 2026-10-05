@@ -43,6 +43,7 @@ add_library(ob_core STATIC
   src/stackReporter/stackReporter.cpp
   src/trailerSpec/trailerSpec.cpp
   src/palletSpec/palletSpec.cpp
+  src/unitLoadMetrics/unitLoadMetrics.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -87,6 +88,7 @@ add_executable(ob_tests
   tests/cli/testCli.cpp
   tests/trailerSpec/testTrailerSpec.cpp
   tests/palletSpec/testPalletSpec.cpp
+  tests/unitLoadMetrics/testUnitLoadMetrics.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

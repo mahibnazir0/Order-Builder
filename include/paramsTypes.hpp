@@ -37,6 +37,8 @@ struct M2Params {
     // part pallet takes a real position. False keeps the fractional estimate, which can report
     // 0.5 floor positions for one pallet and so understates floor use in small groups.
     bool stackWholePallets = true;
+    // Required key: the floor never picks a deck-height reading on silence.
+    DeckHeightRule floorDeckHeight = DeckHeightRule::Excluded;
     // Printable path of the file these params came from; empty when parsed from memory.
     std::string sourcePath;
     std::vector<std::string> defaultedKeys;

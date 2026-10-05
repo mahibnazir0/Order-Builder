@@ -56,7 +56,7 @@ std::string paramsWithPtlWeight(int ptlAddedWeightLb) {
          + R"(,"addedHeightIn":5.5,"footprintLengthIn":48,"footprintWidthIn":40}],)"
            R"("trailers":[{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,)"
            R"("stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],)"
-           R"("doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false})";
+           R"("doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,"floorDeckHeight":"Excluded"})";
 }
 
 const std::string kOnePalletLine =
