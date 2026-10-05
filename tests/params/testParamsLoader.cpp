@@ -64,7 +64,7 @@ json completeParams() {
             {"palletId":"GMA","addedWeightLb":0,"addedHeightIn":0,"footprintLengthIn":48,"footprintWidthIn":40}
         ],
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
-                      "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32}],
+                      "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
         "stackWholePallets":true
     })");

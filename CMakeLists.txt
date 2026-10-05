@@ -41,6 +41,7 @@ add_library(ob_core STATIC
   src/bindingConstraint/bindingConstraint.cpp
   src/stackBuilder/stackBuilder.cpp
   src/stackReporter/stackReporter.cpp
+  src/trailerSpec/trailerSpec.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -83,6 +84,7 @@ add_executable(ob_tests
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp
   tests/cli/testCli.cpp
+  tests/trailerSpec/testTrailerSpec.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

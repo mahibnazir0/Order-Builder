@@ -1,5 +1,7 @@
 #pragma once
 
+#include "trailerSpec.hpp"
+
 #include <array>
 #include <string>
 #include <vector>
@@ -29,15 +31,6 @@ struct PalletSpec {
     double footprintWidthIn = 0.0;
 };
 
-struct TrailerSpec {
-    std::string trailerCode;
-    double interiorLengthIn = 0.0;
-    double interiorWidthIn = 0.0;
-    double stackHeightCeilingIn = 0.0;
-    double weightLimitLb = 0.0;
-    int stackPositions = 0;
-};
-
 struct M2Params {
     CriTable cri;
     std::vector<PalletSpec> pallets;
@@ -51,6 +44,8 @@ struct M2Params {
     // part pallet takes a real position. False keeps the fractional estimate, which can report
     // 0.5 floor positions for one pallet and so understates floor use in small groups.
     bool stackWholePallets = true;
+    // Printable path of the file these params came from; empty when parsed from memory.
+    std::string sourcePath;
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> warnings;
 };

@@ -186,6 +186,10 @@ TrailerSpec readTrailer(const json& record, std::size_t index,
     trailer.stackPositions = readInteger(
         requiredField(record, "stackPositions", recordName),
         recordName + ".stackPositions", 1);
+    const json& maxStackDepth = requiredField(record, "maxStackDepth", recordName);
+    if (!maxStackDepth.is_null()) {
+        trailer.maxStackDepth = readInteger(maxStackDepth, recordName + ".maxStackDepth", 1);
+    }
     return trailer;
 }
 
@@ -304,7 +308,9 @@ M2Params loadParams(const std::string& path) {
         throw std::runtime_error("params: invalid JSON in " + pathText
             + ": " + printableText(error.what()));
     }
-    return parseParams(root);
+    M2Params params = parseParams(root);
+    params.sourcePath = pathText;
+    return params;
 }
 
 const PalletSpec* palletSpecFor(const M2Params& params, const std::string& palletId) {

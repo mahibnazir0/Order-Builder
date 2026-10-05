@@ -13,15 +13,6 @@ namespace ob {
 
 namespace {
 
-const TrailerSpec& selectTrailer(const M2Params& params, const std::string& trailerCode) {
-    if (params.trailers.empty()) throw std::runtime_error("params file lists no trailers");
-    if (trailerCode.empty()) return params.trailers.front();
-    for (const auto& trailer : params.trailers) {
-        if (trailer.trailerCode == trailerCode) return trailer;
-    }
-    throw std::runtime_error("params file has no trailer '" + trailerCode + "'");
-}
-
 std::vector<double> zeroExcluded(const std::vector<double>& figures, const std::vector<bool>& excluded) {
     std::vector<double> kept = figures;
     for (std::size_t i = 0; i < kept.size(); ++i) {
@@ -108,7 +99,10 @@ std::vector<UnstackedLine> unstackedLines(const PipelineResult& result, const Tr
 
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
-    const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
+    if (result.params.trailers.empty()) throw std::runtime_error("params file lists no trailers");
+    const TrailerSpec trailer = inputs.trailerCode.empty()
+        ? result.params.trailers.front()
+        : selectTrailer(result.params.trailers, result.params.sourcePath, inputs.trailerCode);
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
     for (const auto& palletId : result.missingPalletIds) {
