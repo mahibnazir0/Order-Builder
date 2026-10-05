@@ -1,4 +1,5 @@
 #include "validator.hpp"
+#include "converter.hpp"
 #include "logger.hpp"
 
 #include <algorithm>
@@ -37,10 +38,10 @@ bool is_blank(const std::string& s) {
     return s.find_first_not_of(" \t\r\n") == std::string::npos;
 }
 
-// The UoMs the Converter turns into pallets and weight. Any other code converts to 0.0
-// pallets and is already reported as unknown_uom.
+// Any UoM the Converter cannot handle converts to 0.0 pallets and is already reported
+// as unknown_uom.
 bool converted_to_weight(const std::string& uom) {
-    return uom == "CS" || uom == "PAL" || uom == "DIS";
+    return Converter::isConvertibleUom(uom);
 }
 
 bool is_allowed(const std::string& value, const std::vector<std::string>& allowed) {
@@ -290,11 +291,15 @@ void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& plac
     }
 }
 
+bool Validator::excludesLine(const ValidationIssue& issue) {
+    return issue.severity == ValidationIssue::Severity::Error || issue.rule == "zero_dimension";
+}
+
 std::vector<bool> Validator::excludedLineFlags(const ValidationReport& report, size_t lineCount) {
     std::vector<bool> excluded(lineCount, false);
     for (const auto& issue : report.issues) {
         if (issue.line_index < 0 || static_cast<size_t>(issue.line_index) >= lineCount) continue;
-        if (issue.severity == ValidationIssue::Severity::Error || issue.rule == "zero_dimension") {
+        if (excludesLine(issue)) {
             excluded[static_cast<size_t>(issue.line_index)] = true;
         }
     }

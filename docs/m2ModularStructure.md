@@ -554,7 +554,7 @@ config change once he replies.
 | 12 | Whether the T3/P3 API arriving early changes M2's scope | Scope decision | M2 stays self-contained |
 | 13 | Should stacking count whole pallets, not pallet-equivalent fractions? | `stackBuilder` accuracy | Whole pallets by default (`stackWholePallets: true`); the fractional estimate is still available for comparison. Needs the customer's agreement |
 | 14 | Which trailer does a lane use? Placeholder lanes carry an equipment size (`53F` or blank) that the params trailer codes (`53FT_NA`) do not match | Pipeline integration | The first trailer in the params file, or one chosen with `--trailer`, applied to every group |
-| 15 | ~~Should the run exit non-zero when M2 finds problems?~~ | Pipeline integration | Resolved: exit 1 when a line that passed validation is in no stack, or no stack was built; the report's `Result` line says which |
+| 15 | ~~Should the run exit non-zero when M2 finds problems?~~ | Pipeline integration | Resolved: exit 1 when any demand line is in no stack, validator rejections included, or no stack was built; the report's `Result` line names each line and its reason. Proposed rules and worked examples for the open items are in `m2BusinessRules.md` |
 | 16 | Should M2 groups feed the truck counts (placeholder loads per lane)? | Beyond M2 | No. The report shows floor positions per group, and truck counts are not decided |
 | 17 | Pallet-variant fallback for lines the divisibility rule cannot resolve (for example 105553001, 168 cases = 2 GMA or 1 TLD pallets) | Joiner, Finding C | Preference order (TLD, PTL, PGM, GMA) with the line flagged. The divisibility rule itself is still not built |
 

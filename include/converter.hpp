@@ -96,6 +96,9 @@ public:
                              const ProductRecord& product,
                              PalletRounding rounding = PalletRounding::None);
 
+    // The unit-of-measure codes to_pallets converts: CS, PAL and DIS.
+    static bool isConvertibleUom(const std::string& uom);
+
     // Apply a rounding mode to an already-computed pallet figure. Exposed so
     // a caller that has summed a lane can round the total rather than each
     // line, which are not the same number.

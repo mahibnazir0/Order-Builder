@@ -77,7 +77,8 @@ bool sameOutcomes(const std::vector<MethodOutcome>& a, const std::vector<MethodO
 
 std::size_t stackingDifferences(const StackingResult& first, const StackingResult& second) {
     if (first.excludedLines.size() != second.excludedLines.size()
-        || first.excludedInvalidQuantityLines != second.excludedInvalidQuantityLines
+        || first.invalidQuantityLines != second.invalidQuantityLines
+        || first.zeroQuantityLines != second.zeroQuantityLines
         || first.groups.size() != second.groups.size()) {
         return 1;
     }

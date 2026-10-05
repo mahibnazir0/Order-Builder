@@ -3,6 +3,7 @@
 #include "importer.hpp"
 #include "logger.hpp"
 #include "paramsLoader.hpp"
+#include "reportFormat.hpp"
 #include "segregation.hpp"
 #include "stackRules.hpp"
 
@@ -59,6 +60,52 @@ std::string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     return "unknown";
 }
 
+std::string zeroPalletReason(const JoinedLine& line) {
+    if (!Converter::isConvertibleUom(line.str->unitofmeas)) {
+        return "unit of measure '" + line.str->unitofmeas
+             + "' cannot be converted to pallets (supported: CS, PAL, DIS)";
+    }
+    return "quantity converts to 0 pallets";
+}
+
+// Every joined line must end up in a stack or on this list with a reason; the list is built
+// from which lines the stacks actually hold, so a line dropped anywhere upstream (validator,
+// segregation, conversion, stacking) cannot pass unreported.
+std::vector<UnstackedLine> unstackedLines(const PipelineResult& result, const TrailerSpec& trailer) {
+    const auto& lines = result.join.lines;
+    std::vector<std::string> reasons(lines.size());
+    for (const auto& issue : result.validation.issues) {
+        if (issue.line_index < 0 || static_cast<std::size_t>(issue.line_index) >= lines.size()) continue;
+        std::string& reason = reasons[static_cast<std::size_t>(issue.line_index)];
+        if (reason.empty() && Validator::excludesLine(issue)) {
+            reason = "rejected by validation (" + issue.rule + "): " + issue.message;
+        }
+    }
+    const StackingResult& stacking = result.stacking;
+    for (const auto& excludedLine : stacking.excludedLines) {
+        reasons[excludedLine.lineIndex] = unitLoadErrorText(excludedLine.error, lines[excludedLine.lineIndex]);
+    }
+    for (const std::size_t lineIndex : stacking.overHeightLines) {
+        reasons[lineIndex] = "one pallet is taller than the trailer's "
+                           + fixed(trailer.stackHeightCeilingIn, 0) + " in ceiling";
+    }
+    for (const std::size_t lineIndex : stacking.invalidQuantityLines) {
+        reasons[lineIndex] = "pallet quantity is negative or not a finite number";
+    }
+    for (const std::size_t lineIndex : stacking.zeroQuantityLines) {
+        reasons[lineIndex] = zeroPalletReason(lines[lineIndex]);
+    }
+
+    const std::vector<bool> stacked = stackedLineFlags(stacking, lines.size());
+    std::vector<UnstackedLine> unstacked;
+    for (std::size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+        if (stacked[lineIndex]) continue;
+        std::string reason = reasons[lineIndex].empty() ? "is in no stack" : std::move(reasons[lineIndex]);
+        unstacked.push_back({lineIndex, lines[lineIndex].str->matnr, std::move(reason)});
+    }
+    return unstacked;
+}
+
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
     const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
@@ -81,18 +128,13 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
                                    result.weightForStacking, trailer);
     result.stacking = buildStacks(result.segregation, result.join.lines, result.palletsForStacking,
                                   result.binding, result.params, trailer);
-    for (const auto& excludedLine : result.stacking.excludedLines) {
-        const JoinedLine& line = result.join.lines[excludedLine.lineIndex];
-        LOG_WARN("Demand line " + std::to_string(excludedLine.lineIndex) + " (MATNR "
-                 + line.str->matnr + ") was not stacked: "
-                 + unitLoadErrorText(excludedLine.error, line));
-    }
-    if (!result.stacking.overHeightLines.empty()) {
-        LOG_WARN(std::to_string(result.stacking.overHeightLines.size())
-                 + " line(s) have a single pallet taller than the trailer ceiling and were not stacked");
-    }
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
+    result.stackReport.unstackedLines = unstackedLines(result, trailer);
+    for (const auto& line : result.stackReport.unstackedLines) {
+        LOG_WARN("Demand line " + std::to_string(line.lineIndex) + " (MATNR " + line.matnr
+                 + ") was not stacked: " + line.reason);
+    }
     result.stackReport.ambiguousPalletLines = static_cast<std::size_t>(result.validation.ambiguous_pallet);
     result.ranMilestone2 = true;
 }

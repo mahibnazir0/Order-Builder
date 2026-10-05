@@ -206,6 +206,43 @@ TEST_CASE("stackBuilder: every pallet is placed exactly once") {
     }
 }
 
+TEST_CASE("stackBuilder: a partial pallet stacks as a whole pallet, or as its fraction when whole pallets are off") {
+    M2Params params = testParams();
+    CHECK(stackedPalletsForLine(2.25, params) == 3.0);
+    CHECK(stackedPalletsForLine(0.5, params) == 1.0);
+    CHECK(stackedPalletsForLine(3.0, params) == 3.0);
+    params.stackWholePallets = false;
+    CHECK(stackedPalletsForLine(2.25, params) == 2.25);
+    CHECK(stackedPalletsForLine(0.5, params) == 0.5);
+}
+
+TEST_CASE("stackBuilder: stacked line flags mark exactly the lines that sit in a stack") {
+    Scenario scenario({product("A", 30, 10, 9), product("B", 30, 10, 9), product("C", 200, 10, 9)},
+                      {2, 0, 1});
+    const auto result = scenario.build();
+    CHECK(stackedLineFlags(result, 3) == std::vector<bool>{true, false, false});
+}
+
+// Worked example 4 in docs/m2BusinessRules.md: the five methods on one 4-pallet group,
+// two high as for this customer. Only Base & Top finds both pairs.
+TEST_CASE("stackBuilder: documented worked example gives each method's floor positions") {
+    M2Params params = testParams();
+    params.maxStackHeight = 2;
+    Scenario scenario({product("A", 70, 500, 9), product("B", 40, 900, 2),
+                       product("C", 35, 200, 9), product("D", 60, 300, 5)}, {1, 1, 1, 1});
+    const auto result = scenario.build(params);
+    const GroupStacking& group = result.groups[0];
+    CHECK(outcomeFor(group, StackMethod::Natural) == 3.0);
+    CHECK(outcomeFor(group, StackMethod::Target) == 3.0);
+    CHECK(outcomeFor(group, StackMethod::TallAndHeavy) == 3.0);
+    CHECK(outcomeFor(group, StackMethod::BaseAndTop) == 2.0);
+    CHECK(outcomeFor(group, StackMethod::TryHard) == 3.0);
+    CHECK(group.best.method == StackMethod::BaseAndTop);
+    REQUIRE(group.best.stacks.size() == 2);
+    CHECK(group.best.stacks[0].lineIndices == std::vector<std::size_t>{0, 2});
+    CHECK(group.best.stacks[1].lineIndices == std::vector<std::size_t>{3, 1});
+}
+
 TEST_CASE("stackBuilder: results are repeatable") {
     Scenario scenario({product("A", 30, 100, 9), product("B", 45, 50, 5), product("C", 60, 20, 9)},
                       {4, 3, 2});
@@ -230,11 +267,13 @@ TEST_CASE("stackBuilder: an empty group gives an empty stack set") {
     CHECK(result.groups[0].best.floorPositions == 0.0);
 }
 
-TEST_CASE("stackBuilder: zero quantity is skipped and negative or non-finite is counted") {
+TEST_CASE("stackBuilder: zero, negative and non-finite quantities are reported by line, not stacked") {
     Scenario scenario({product("A", 30, 10, 9), product("B", 30, 10, 9), product("C", 30, 10, 9),
                        product("D", 30, 10, 9), product("E", 30, 10, 9)}, {0, -1, kNaN, kInf, 2});
     const auto result = scenario.build();
-    CHECK(result.excludedInvalidQuantityLines == 3);
+    CHECK(result.zeroQuantityLines == std::vector<std::size_t>{0});
+    CHECK(result.invalidQuantityLines == std::vector<std::size_t>{1, 2, 3});
+    CHECK(result.linesNotStacked() == 4);
     CHECK(result.excludedLines.empty());
     CHECK(result.groups[0].best.floorPositions > 0.0);
 }

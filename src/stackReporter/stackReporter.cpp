@@ -9,6 +9,8 @@
 namespace ob {
 namespace {
 
+constexpr std::size_t kUnstackedLinesListed = 20;
+
 const char* methodName(StackMethod method) {
     switch (method) {
     case StackMethod::Natural: return "Natural";
@@ -78,7 +80,8 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.linesExcludedByValidator = segregation.linesExcluded;
     report.excludedLines = stacking.excludedLines.size();
     report.overHeightLines = stacking.overHeightLines.size();
-    report.excludedInvalidQuantityLines = stacking.excludedInvalidQuantityLines;
+    report.invalidQuantityLines = stacking.invalidQuantityLines.size();
+    report.zeroQuantityLines = stacking.zeroQuantityLines.size();
     report.linesNotStacked = stacking.linesNotStacked();
     report.doNotMixReading = params.doNotMixReading;
     report.stackWholePallets = params.stackWholePallets;
@@ -152,16 +155,32 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
     out << "  Over-height lines         " << grouped(static_cast<double>(report.overHeightLines))
         << "  (one pallet exceeds the trailer ceiling)\n";
     out << "  Excluded quantities       "
-        << grouped(static_cast<double>(report.excludedInvalidQuantityLines))
+        << grouped(static_cast<double>(report.invalidQuantityLines))
         << "  (negative or non-finite)\n";
+    out << "  Zero-pallet lines         " << grouped(static_cast<double>(report.zeroQuantityLines))
+        << "  (quantity converts to no pallets)\n";
     out << "  Result                    ";
-    if (report.linesNotStacked > 0) {
+    if (!report.unstackedLines.empty()) {
+        out << "INCOMPLETE: " << grouped(static_cast<double>(report.unstackedLines.size()))
+            << " demand line(s) are in no stack\n";
+        const std::size_t listed = std::min(report.unstackedLines.size(), kUnstackedLinesListed);
+        for (std::size_t i = 0; i < listed; ++i) {
+            const UnstackedLine& line = report.unstackedLines[i];
+            out << "      line " << line.lineIndex << ", material " << line.matnr << ": "
+                << line.reason << "\n";
+        }
+        if (listed < report.unstackedLines.size()) {
+            out << "      ... and " << (report.unstackedLines.size() - listed)
+                << " more (every line is in the log)\n";
+        }
+        out << "\n";
+    } else if (report.linesNotStacked > 0) {
         out << "INCOMPLETE: " << grouped(static_cast<double>(report.linesNotStacked))
             << " line(s) that passed validation are in no stack\n\n";
     } else if (report.builtNoStacks) {
         out << "INCOMPLETE: demand was supplied but no stack was built\n\n";
     } else {
-        out << "complete: every line that passed validation is in a stack\n\n";
+        out << "complete: every demand line is in a stack\n\n";
     }
 
     if (report.groups > 0 && report.groupsAllSingleHigh == report.groups) {

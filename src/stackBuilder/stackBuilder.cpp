@@ -201,6 +201,23 @@ void requireAlignedInputs(const SegregationResult& segregation, const std::vecto
 
 } // namespace
 
+double stackedPalletsForLine(double palletEquivalents, const M2Params& params) {
+    return params.stackWholePallets ? std::ceil(palletEquivalents - kQuantityEpsilon) : palletEquivalents;
+}
+
+std::vector<bool> stackedLineFlags(const StackingResult& stacking, std::size_t lineCount) {
+    std::vector<bool> stacked(lineCount, false);
+    for (const auto& group : stacking.groups) {
+        for (const auto& stack : group.best.stacks) {
+            if (stack.quantity <= 0.0) continue;
+            for (const std::size_t lineIndex : stack.lineIndices) {
+                if (lineIndex < lineCount) stacked[lineIndex] = true;
+            }
+        }
+    }
+    return stacked;
+}
+
 StackingResult buildStacks(const SegregationResult& segregation,
                            const std::vector<JoinedLine>& lines,
                            const std::vector<double>& palletsPerLine,
@@ -220,12 +237,14 @@ StackingResult buildStacks(const SegregationResult& segregation,
             }
             const double quantity = palletsPerLine[lineIndex];
             if (!std::isfinite(quantity) || quantity < 0.0) {
-                ++result.excludedInvalidQuantityLines;
+                result.invalidQuantityLines.push_back(lineIndex);
                 continue;
             }
-            if (quantity == 0.0) continue;
-            const double stackedQuantity =
-                params.stackWholePallets ? std::ceil(quantity - kQuantityEpsilon) : quantity;
+            if (quantity == 0.0) {
+                result.zeroQuantityLines.push_back(lineIndex);
+                continue;
+            }
+            const double stackedQuantity = stackedPalletsForLine(quantity, params);
             UnitLoad load = buildUnitLoad(lines[lineIndex], params);
             if (load.error != UnitLoadError::None) {
                 result.excludedLines.push_back({lineIndex, load.error});

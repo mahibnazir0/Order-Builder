@@ -52,15 +52,26 @@ struct StackingResult {
     // Lines whose single unit load is taller than the trailer's stack-height ceiling. They
     // cannot ship on this trailer even single-high, so they are left out of stacking.
     std::vector<std::size_t> overHeightLines;
-    // Lines with a negative or non-finite pallet quantity. A quantity of exactly 0 is skipped quietly.
-    std::size_t excludedInvalidQuantityLines = 0;
+    // Lines with a negative or non-finite pallet quantity.
+    std::vector<std::size_t> invalidQuantityLines;
+    // Lines whose quantity converted to 0 pallets, e.g. a unit of measure the Converter
+    // does not handle. They hold demand that no stack carries, so they count as unstacked.
+    std::vector<std::size_t> zeroQuantityLines;
 
     // Demand lines that reached stacking but are in no stack. Any of them means the result
     // does not cover the whole demand, so the run must not report success.
     std::size_t linesNotStacked() const {
-        return excludedLines.size() + overHeightLines.size() + excludedInvalidQuantityLines;
+        return excludedLines.size() + overHeightLines.size() + invalidQuantityLines.size()
+             + zeroQuantityLines.size();
     }
 };
+
+// The pallets a line puts into stacks: its pallet-equivalents rounded up to whole physical
+// pallets when params.stackWholePallets is set, otherwise the fraction unchanged.
+double stackedPalletsForLine(double palletEquivalents, const M2Params& params);
+
+// Which joined lines sit in at least one stack of `stacking`. Parallel to the joined lines.
+std::vector<bool> stackedLineFlags(const StackingResult& stacking, std::size_t lineCount);
 
 // Pass 2: within each group, builds stack sets with every method and keeps the one that
 // uses the fewest floor positions. Ties go to the lower heaviest stack when the group is
