@@ -97,6 +97,8 @@ add_executable(ob_tests
   tests/floorPlanner/testFloorPlanner.cpp
   tests/demandSelector/testDemandSelector.cpp
   tests/floorReporter/testFloorReporter.cpp
+  tests/acceptance/acceptanceHarness.cpp
+  tests/acceptance/testAcceptanceHarness.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
