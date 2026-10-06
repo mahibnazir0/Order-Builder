@@ -47,6 +47,7 @@ add_library(ob_core STATIC
   src/floorBound/floorBound.cpp
   src/floorPlanner/floorPlanner.cpp
   src/demandSelector/demandSelector.cpp
+  src/floorReporter/floorReporter.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -95,6 +96,7 @@ add_executable(ob_tests
   tests/floorBound/testFloorBound.cpp
   tests/floorPlanner/testFloorPlanner.cpp
   tests/demandSelector/testDemandSelector.cpp
+  tests/floorReporter/testFloorReporter.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)

@@ -1,7 +1,5 @@
 #include "doctest.h"
-#include "../importer/crossDayFixtures.hpp"
-#include "floorPlanner.hpp"
-#include "paramsLoader.hpp"
+#include "floorFixtures.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -11,93 +9,7 @@
 using namespace std;
 using namespace ob;
 using namespace crossDayTests;
-
-namespace {
-
-const M2Params& shippedParams() {
-    static const M2Params params = loadParams(kStrictParamsPath);
-    return params;
-}
-
-const TrailerSpec& shippedTrailer() {
-    return selectTrailer(shippedParams().trailers, shippedParams().sourcePath, "53FT_NA");
-}
-
-M2Params paramsRoundingAt(FloorRoundingPoint roundingPoint) {
-    M2Params params = shippedParams();
-    params.floorRoundingPoint = roundingPoint;
-    return params;
-}
-
-// One case per layer and one layer per unit load, so the case height is the unit-load height.
-ProductRecord unitLoadProduct(const string& palletId, double unitLoadHeightIn) {
-    ProductRecord record;
-    record.id = "P";
-    record.pallet_id = palletId;
-    record.height_in = unitLoadHeightIn;
-    record.weight_lb = 1.0;
-    record.cases_layer = 1;
-    record.layers_unit_load = 1;
-    record.cases_unit_load = 1;
-    return record;
-}
-
-STRRecord palletDemand(double unitLoads) {
-    STRRecord record;
-    record.matnr = "P";
-    record.trans = unitLoads;
-    record.unitofmeas = "PAL";
-    return record;
-}
-
-// Pairs products[i] with demand[i]; the result points into both, so they must outlive it.
-vector<JoinedLine> joinedLines(const vector<ProductRecord>& products,
-                               const vector<STRRecord>& demand) {
-    vector<JoinedLine> lines(demand.size());
-    for (size_t lineIndex = 0; lineIndex < demand.size(); ++lineIndex) {
-        lines[lineIndex].str = &demand[lineIndex];
-        lines[lineIndex].product = &products[lineIndex];
-        lines[lineIndex].matched = true;
-    }
-    return lines;
-}
-
-SegregatedGroup group(const string& locationTo, const string& segregant,
-                      const vector<size_t>& lineIndices) {
-    SegregatedGroup segregatedGroup;
-    segregatedGroup.key = {"2027", locationTo, "TL", !segregant.empty(), segregant};
-    segregatedGroup.lineIndices = lineIndices;
-    return segregatedGroup;
-}
-
-// Half a trailer of stacked height per line.
-struct HalfTrailerLines {
-    vector<ProductRecord> products;
-    vector<STRRecord> demand;
-    vector<JoinedLine> lines;
-
-    explicit HalfTrailerLines(size_t lineCount) {
-        const TrailerSpec& trailer = shippedTrailer();
-        products.assign(lineCount, unitLoadProduct("TLD", trailer.stackHeightCeilingIn));
-        demand.assign(lineCount, palletDemand(trailer.stackPositions / 2.0));
-        lines = joinedLines(products, demand);
-    }
-    // lines points into this object's own vectors; a copy would point into the original.
-    HalfTrailerLines(const HalfTrailerLines&) = delete;
-    HalfTrailerLines& operator=(const HalfTrailerLines&) = delete;
-};
-
-DemandSelection wholeExtract(const vector<JoinedLine>& lines) {
-    return selectDemand(vector<STRRecord>(lines.size()), DemandSelector{});
-}
-
-SegregationResult segregation(const vector<SegregatedGroup>& groups) {
-    SegregationResult result;
-    result.groups = groups;
-    return result;
-}
-
-} // namespace
+using namespace floorTests;
 
 TEST_CASE("floorPlanner: a lane split by segregation is floored per group, never across it") {
     const HalfTrailerLines fixture(2);
