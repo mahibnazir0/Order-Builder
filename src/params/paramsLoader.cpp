@@ -282,6 +282,13 @@ M2Params parseParams(const json& root) {
     } else if (floorDeckHeight != "Excluded") {
         throw runtime_error("params: floorDeckHeight must be Excluded or Included");
     }
+    const string floorRoundingPoint = readString(
+        requiredBlock(root, "floorRoundingPoint"), "floorRoundingPoint");
+    if (floorRoundingPoint == "Lane") {
+        params.floorRoundingPoint = FloorRoundingPoint::Lane;
+    } else if (floorRoundingPoint != "Group") {
+        throw runtime_error("params: floorRoundingPoint must be Group or Lane");
+    }
     if (!root.contains("stackWholePallets")) {
         params.defaultedKeys.push_back("stackWholePallets");
     } else {
