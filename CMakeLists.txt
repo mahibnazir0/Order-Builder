@@ -44,6 +44,7 @@ add_library(ob_core STATIC
   src/trailerSpec/trailerSpec.cpp
   src/palletSpec/palletSpec.cpp
   src/unitLoadMetrics/unitLoadMetrics.cpp
+  src/floorBound/floorBound.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -89,6 +90,7 @@ add_executable(ob_tests
   tests/trailerSpec/testTrailerSpec.cpp
   tests/palletSpec/testPalletSpec.cpp
   tests/unitLoadMetrics/testUnitLoadMetrics.cpp
+  tests/floorBound/testFloorBound.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
