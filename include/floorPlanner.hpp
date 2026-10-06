@@ -1,5 +1,6 @@
 #pragma once
 
+#include "demandSelector.hpp"
 #include "floorBound.hpp"
 #include "joiner.hpp"
 #include "paramsTypes.hpp"
@@ -23,6 +24,7 @@ struct FloorExcludedLine {
 struct GroupFloor {
     FloorTotals totals;
     FloorBoundResult bound;
+    std::size_t linesSelected = 0;
     std::size_t linesCounted = 0;
 };
 
@@ -40,27 +42,34 @@ struct LaneFloor {
 };
 
 struct FloorPlan {
+    DemandSelector selector;
     FloorRoundingPoint roundingPoint = FloorRoundingPoint::Group;
     std::vector<GroupFloor> groups; // parallel to SegregationResult::groups
-    std::vector<LaneFloor> lanes;   // in order of each lane's first group
+    // In order of each lane's first group. A group with no selected line joins no lane, so a
+    // lane with no demand under the rule never appears as a zero-floor row.
+    std::vector<LaneFloor> lanes;
     FloorTotals totals;
     double boundTrucks = 0.0;
     long long floorTrucks = 0;      // always the sum of the lane floors
     long long noStackingBaselineTrucks = 0;
+    // Grouped lines the demand rule leaves out; they are not errors and are not listed.
+    std::size_t linesNotSelected = 0;
     std::vector<FloorExcludedLine> excludedLines;
     std::size_t casesPerUnitLoadMismatchLines = 0;
 };
 
-// Applies floorBound to every segregated group and sums. The bound is always taken per group,
+// Applies floorBound to every segregated group and sums, counting only the lines the demand
+// rule selected: there is no floor without a rule. The bound is always taken per group,
 // never across a lane, because segregated groups cannot share trucks. The rounding point only
 // decides where fractional trucks are rounded up: per group before summing (the confirmed
 // rule) or once per lane. The no-stacking baseline is always rounded per group.
 // Lines with a metrics error, or a unit load taller than the ceiling, are left out of the
 // totals and listed in excludedLines; removing demand can only lower the bound, so it stays
-// valid. Throws std::invalid_argument for a group index outside lines (a caller bug), and
-// whatever floorBound throws for an unusable trailer.
+// valid. Throws std::invalid_argument for a group index outside lines or a selection that is
+// not parallel to lines (caller bugs), and whatever floorBound throws for an unusable trailer.
 FloorPlan planFloor(const SegregationResult& segregation, const std::vector<JoinedLine>& lines,
-                    const M2Params& params, const TrailerSpec& trailer);
+                    const DemandSelection& selection, const M2Params& params,
+                    const TrailerSpec& trailer);
 
 // Stable plain-ASCII name for reports.
 const char* floorRoundingPointName(FloorRoundingPoint roundingPoint);

@@ -87,6 +87,10 @@ struct HalfTrailerLines {
     HalfTrailerLines& operator=(const HalfTrailerLines&) = delete;
 };
 
+DemandSelection wholeExtract(const vector<JoinedLine>& lines) {
+    return selectDemand(vector<STRRecord>(lines.size()), DemandSelector{});
+}
+
 SegregationResult segregation(const vector<SegregatedGroup>& groups) {
     SegregationResult result;
     result.groups = groups;
@@ -99,7 +103,7 @@ TEST_CASE("floorPlanner: a lane split by segregation is floored per group, never
     const HalfTrailerLines fixture(2);
     const SegregationResult split =
         segregation({group("S1", "", {0}), group("S1", "PLANNER_A", {1})});
-    const FloorPlan plan = planFloor(split, fixture.lines,
+    const FloorPlan plan = planFloor(split, fixture.lines, wholeExtract(fixture.lines),
                                      paramsRoundingAt(FloorRoundingPoint::Group), shippedTrailer());
     REQUIRE(plan.lanes.size() == 1);
     CHECK(plan.lanes[0].groupIndices == vector<size_t>{0, 1});
@@ -113,7 +117,7 @@ TEST_CASE("floorPlanner: lane rounding sums fractional group bounds and rounds o
     const HalfTrailerLines fixture(2);
     const SegregationResult split =
         segregation({group("S1", "", {0}), group("S1", "PLANNER_A", {1})});
-    const FloorPlan plan = planFloor(split, fixture.lines,
+    const FloorPlan plan = planFloor(split, fixture.lines, wholeExtract(fixture.lines),
                                      paramsRoundingAt(FloorRoundingPoint::Lane), shippedTrailer());
     CHECK(plan.roundingPoint == FloorRoundingPoint::Lane);
     CHECK(plan.lanes[0].boundTrucks == doctest::Approx(1.0));
@@ -126,7 +130,8 @@ TEST_CASE("floorPlanner: group, lane and plan totals agree") {
     const HalfTrailerLines fixture(5);
     const SegregationResult groups = segregation({group("S1", "", {0, 1}), group("S1", "P", {2}),
                                                   group("S2", "", {3}), group("S3", "", {4})});
-    const FloorPlan plan = planFloor(groups, fixture.lines, shippedParams(), shippedTrailer());
+    const FloorPlan plan = planFloor(groups, fixture.lines, wholeExtract(fixture.lines),
+                                     shippedParams(), shippedTrailer());
     REQUIRE(plan.groups.size() == 4);
     REQUIRE(plan.lanes.size() == 3);
     long long groupFloorSum = 0;
@@ -148,7 +153,8 @@ TEST_CASE("floorPlanner: lanes are listed in the order of their first group") {
     const HalfTrailerLines fixture(3);
     const SegregationResult groups =
         segregation({group("S2", "", {0}), group("S1", "", {1}), group("S2", "P", {2})});
-    const FloorPlan plan = planFloor(groups, fixture.lines, shippedParams(), shippedTrailer());
+    const FloorPlan plan = planFloor(groups, fixture.lines, wholeExtract(fixture.lines),
+                                     shippedParams(), shippedTrailer());
     REQUIRE(plan.lanes.size() == 2);
     CHECK(plan.lanes[0].locationTo == "S2");
     CHECK(plan.lanes[0].groupIndices == vector<size_t>{0, 2});
@@ -156,7 +162,8 @@ TEST_CASE("floorPlanner: lanes are listed in the order of their first group") {
 }
 
 TEST_CASE("floorPlanner: an empty segregation is a zero plan with no lanes") {
-    const FloorPlan plan = planFloor(SegregationResult{}, {}, shippedParams(), shippedTrailer());
+    const FloorPlan plan = planFloor(SegregationResult{}, {}, wholeExtract({}), shippedParams(),
+                                     shippedTrailer());
     CHECK(plan.lanes.empty());
     CHECK(plan.groups.empty());
     CHECK(plan.floorTrucks == 0);
@@ -169,7 +176,8 @@ TEST_CASE("floorPlanner: the no-stacking baseline is summed beside the floor, no
     const vector<STRRecord> demand{palletDemand(2.0 * trailer.stackPositions)};
     const vector<JoinedLine> lines = joinedLines(products, demand);
     const FloorPlan plan =
-        planFloor(segregation({group("S1", "", {0})}), lines, shippedParams(), trailer);
+        planFloor(segregation({group("S1", "", {0})}), lines, wholeExtract(lines), shippedParams(),
+                  trailer);
     CHECK(plan.floorTrucks == 1);
     CHECK(plan.noStackingBaselineTrucks == 2);
 }
@@ -180,7 +188,8 @@ TEST_CASE("floorPlanner: a line with a metrics error is listed and left out of t
     const vector<STRRecord> demand{palletDemand(1.0), palletDemand(5.0)};
     const vector<JoinedLine> lines = joinedLines(products, demand);
     const FloorPlan plan =
-        planFloor(segregation({group("S1", "", {0, 1})}), lines, shippedParams(), trailer);
+        planFloor(segregation({group("S1", "", {0, 1})}), lines, wholeExtract(lines),
+                  shippedParams(), trailer);
     REQUIRE(plan.excludedLines.size() == 1);
     CHECK(plan.excludedLines[0].lineIndex == 1);
     CHECK(plan.excludedLines[0].error == UnitLoadMetricsError::MissingPalletSpec);
@@ -193,8 +202,8 @@ TEST_CASE("floorPlanner: an unmatched line is listed rather than counted as zero
     const vector<STRRecord> demand{palletDemand(3.0)};
     vector<JoinedLine> lines(1);
     lines[0].str = &demand[0];
-    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines, shippedParams(),
-                                     shippedTrailer());
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines,
+                                     wholeExtract(lines), shippedParams(), shippedTrailer());
     REQUIRE(plan.excludedLines.size() == 1);
     CHECK(plan.excludedLines[0].error == UnitLoadMetricsError::MissingProduct);
     CHECK(plan.floorTrucks == 0);
@@ -208,7 +217,8 @@ TEST_CASE("floorPlanner: a unit load over the ceiling is excluded; one exactly a
     const vector<STRRecord> demand{palletDemand(1.0), palletDemand(1.0)};
     const vector<JoinedLine> lines = joinedLines(products, demand);
     const FloorPlan plan =
-        planFloor(segregation({group("S1", "", {0, 1})}), lines, shippedParams(), trailer);
+        planFloor(segregation({group("S1", "", {0, 1})}), lines, wholeExtract(lines),
+                  shippedParams(), trailer);
     REQUIRE(plan.excludedLines.size() == 1);
     CHECK(plan.excludedLines[0].lineIndex == 1);
     CHECK(plan.excludedLines[0].overCeiling);
@@ -231,9 +241,9 @@ TEST_CASE("floorPlanner: a deck-dependent over-height product follows floorDeckH
 
     M2Params params = shippedParams();
     params.floorDeckHeight = DeckHeightRule::Excluded;
-    CHECK(planFloor(oneGroup, lines, params, trailer).excludedLines.empty());
+    CHECK(planFloor(oneGroup, lines, wholeExtract(lines), params, trailer).excludedLines.empty());
     params.floorDeckHeight = DeckHeightRule::Included;
-    const FloorPlan withDeck = planFloor(oneGroup, lines, params, trailer);
+    const FloorPlan withDeck = planFloor(oneGroup, lines, wholeExtract(lines), params, trailer);
     REQUIRE(withDeck.excludedLines.size() == 1);
     CHECK(withDeck.excludedLines[0].overCeiling);
 }
@@ -244,16 +254,55 @@ TEST_CASE("floorPlanner: lines whose cases per unit load disagree with the layer
     const vector<ProductRecord> products{mismatched};
     const vector<STRRecord> demand{palletDemand(1.0)};
     const vector<JoinedLine> lines = joinedLines(products, demand);
-    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines, shippedParams(),
-                                     shippedTrailer());
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines,
+                                     wholeExtract(lines), shippedParams(), shippedTrailer());
     CHECK(plan.casesPerUnitLoadMismatchLines == 1);
     CHECK(plan.excludedLines.empty());
 }
 
+TEST_CASE("floorPlanner: lines the demand rule leaves out are counted but not floored") {
+    const TrailerSpec& trailer = shippedTrailer();
+    HalfTrailerLines fixture(2);
+    fixture.demand[0].datto_ta = "2026-10-02";
+    fixture.demand[1].datto_ta = "2026-10-03";
+    const DemandSelection selection =
+        selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1})}), fixture.lines,
+                                     selection, shippedParams(), trailer);
+    CHECK(plan.linesNotSelected == 1);
+    CHECK(plan.groups[0].linesSelected == 1);
+    CHECK(plan.totals.unitLoads == doctest::Approx(trailer.stackPositions / 2.0));
+    CHECK(plan.excludedLines.empty());
+    CHECK(describeDemandSelector(plan.selector) == "dueBy(2026-10-02)");
+}
+
+TEST_CASE("floorPlanner: a lane with no demand under the rule produces no zero-floor row") {
+    HalfTrailerLines fixture(2);
+    fixture.demand[0].datto_ta = "2026-10-02";
+    fixture.demand[1].datto_ta = "2026-10-09";
+    const DemandSelection selection =
+        selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0}), group("S2", "", {1})}),
+                                     fixture.lines, selection, shippedParams(), shippedTrailer());
+    REQUIRE(plan.groups.size() == 2);
+    CHECK(plan.groups[1].bound.floorTrucks == 0);
+    REQUIRE(plan.lanes.size() == 1);
+    CHECK(plan.lanes[0].locationTo == "S1");
+    CHECK(plan.floorTrucks == 1);
+}
+
+TEST_CASE("floorPlanner: a selection not parallel to the lines is a caller error") {
+    const HalfTrailerLines fixture(2);
+    const DemandSelection tooShort = selectDemand(vector<STRRecord>(1), DemandSelector{});
+    CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {0})}), fixture.lines, tooShort,
+                              shippedParams(), shippedTrailer()),
+                    invalid_argument);
+}
+
 TEST_CASE("floorPlanner: a group line index outside the lines is a caller error") {
     const HalfTrailerLines fixture(1);
-    CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {1})}), fixture.lines, shippedParams(),
-                              shippedTrailer()),
+    CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {1})}), fixture.lines,
+                              wholeExtract(fixture.lines), shippedParams(), shippedTrailer()),
                     invalid_argument);
 }
 
@@ -261,8 +310,8 @@ TEST_CASE("floorPlanner: an unusable trailer is rejected through floorBound") {
     const HalfTrailerLines fixture(1);
     TrailerSpec trailer = shippedTrailer();
     trailer.stackPositions = 0;
-    CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {0})}), fixture.lines, shippedParams(),
-                              trailer),
+    CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {0})}), fixture.lines,
+                              wholeExtract(fixture.lines), shippedParams(), trailer),
                     invalid_argument);
 }
 
@@ -275,8 +324,9 @@ TEST_CASE("floorPlanner: the plan on every extract reconciles with Milestone 1 a
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
-        const FloorPlan plan =
-            planFloor(run.segregation, run.join.lines, run.params, shippedTrailer());
+        const FloorPlan plan = planFloor(run.segregation, run.join.lines,
+                                         selectDemand(run.demand.str, DemandSelector{}),
+                                         run.params, shippedTrailer());
 
         CHECK(plan.excludedLines.empty());
         CHECK(plan.groups.size() == expectedM2::strictGroups[dayIndex]);
@@ -305,10 +355,11 @@ TEST_CASE("floorPlanner: rounding per lane never exceeds rounding per group on a
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
-        const FloorPlan perGroup = planFloor(run.segregation, run.join.lines,
+        const DemandSelection everyLine = selectDemand(run.demand.str, DemandSelector{});
+        const FloorPlan perGroup = planFloor(run.segregation, run.join.lines, everyLine,
                                              paramsRoundingAt(FloorRoundingPoint::Group),
                                              shippedTrailer());
-        const FloorPlan perLane = planFloor(run.segregation, run.join.lines,
+        const FloorPlan perLane = planFloor(run.segregation, run.join.lines, everyLine,
                                             paramsRoundingAt(FloorRoundingPoint::Lane),
                                             shippedTrailer());
         CHECK(perLane.floorTrucks <= perGroup.floorTrucks);

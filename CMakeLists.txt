@@ -46,6 +46,7 @@ add_library(ob_core STATIC
   src/unitLoadMetrics/unitLoadMetrics.cpp
   src/floorBound/floorBound.cpp
   src/floorPlanner/floorPlanner.cpp
+  src/demandSelector/demandSelector.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -93,6 +94,7 @@ add_executable(ob_tests
   tests/unitLoadMetrics/testUnitLoadMetrics.cpp
   tests/floorBound/testFloorBound.cpp
   tests/floorPlanner/testFloorPlanner.cpp
+  tests/demandSelector/testDemandSelector.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
