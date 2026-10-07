@@ -47,6 +47,8 @@ add_library(ob_core STATIC
   src/floorBound/floorBound.cpp
   src/floorPlanner/floorPlanner.cpp
   src/demandSelector/demandSelector.cpp
+  src/floorReporter/floorReporter.cpp
+  src/isoDate/isoDate.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -85,6 +87,7 @@ add_executable(ob_tests
   tests/stackBuilder/testStackBuilder.cpp
   tests/stackReporter/testStackReporter.cpp
   tests/testPipelineMilestone2.cpp
+  tests/testPipelineMilestone3.cpp
   tests/testCrossDayPipeline.cpp
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp
@@ -95,6 +98,10 @@ add_executable(ob_tests
   tests/floorBound/testFloorBound.cpp
   tests/floorPlanner/testFloorPlanner.cpp
   tests/demandSelector/testDemandSelector.cpp
+  tests/floorReporter/testFloorReporter.cpp
+  tests/acceptance/acceptanceHarness.cpp
+  tests/acceptance/testAcceptanceHarness.cpp
+  tests/isoDate/testIsoDate.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
