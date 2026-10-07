@@ -60,15 +60,22 @@ string roundingPointText(FloorRoundingPoint roundingPoint) {
         : "once per lane (floorRoundingPoint = Lane; not the client ruling)";
 }
 
+string trailerChoiceText(TrailerChoice trailerChoice) {
+    return trailerChoice == TrailerChoice::Named
+        ? "named with --trailer"
+        : "largest listed on payload, height, positions and depth";
+}
+
 void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
-                const TrailerSpec& trailer, const string& extractLabel) {
+                const TrailerSpec& trailer, TrailerChoice trailerChoice,
+                const string& extractLabel) {
     out << kRule << " BASIS - every figure below holds only under these\n" << kRule;
     printLabel(out, "Extract");
     out << (extractLabel.empty() ? "(not named)" : printable(extractLabel)) << "\n";
     printLabel(out, "Demand rule");
     out << describeDemandSelector(plan.selector) << "  (open: question 1; no default)\n";
     printLabel(out, "Trailer");
-    out << printable(trailer.trailerCode) << "\n";
+    out << printable(trailer.trailerCode) << "  (" << trailerChoiceText(trailerChoice) << ")\n";
     printLabel(out, "Weight limit");
     out << measure(trailer.weightLimitLb) << " lb\n";
     printLabel(out, "Stack positions");
@@ -94,7 +101,11 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
                 : "not added to unit-load height (floorDeckHeight = Excluded)")
         << "  (open: questions 6 and 21)\n";
     printLabel(out, "Rounding point");
-    out << roundingPointText(plan.roundingPoint) << "\n\n";
+    out << roundingPointText(plan.roundingPoint) << "\n";
+    printLabel(out, "Unit-load equivalents");
+    out << "fractional (cases / Cases_Unit_Load), not physical pallets; a partial\n";
+    printLabel(out, "");
+    out << "pallet is scaled by its fraction in weight and height (can only lower the floor)\n\n";
 }
 
 struct TermTotals {
@@ -135,6 +146,16 @@ string excludedReason(const FloorExcludedLine& line) {
                             : unitLoadMetricsErrorName(line.error);
 }
 
+size_t lanesNotMeasurable(const FloorPlan& plan) {
+    return static_cast<size_t>(count_if(plan.lanes.begin(), plan.lanes.end(),
+        [](const LaneFloor& lane) { return !lane.isMeasurable(); }));
+}
+
+size_t lanesUnderstated(const FloorPlan& plan) {
+    return static_cast<size_t>(count_if(plan.lanes.begin(), plan.lanes.end(),
+        [](const LaneFloor& lane) { return lane.isMeasurable() && lane.isUnderstated(); }));
+}
+
 void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& selection,
                    const TrailerSpec& trailer) {
     const TermTotals terms = termTotals(plan);
@@ -143,6 +164,9 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     printLabel(out, "Demand lines selected");
     out << count(selection.selectedLines) << " of " << count(selection.selected.size())
         << " in the extract  (" << ruleText << ")\n";
+    printLabel(out, "  overdue");
+    out << count(selection.overdueLines)
+        << "  (selected, latest arrival before the planning date)\n";
     printLabel(out, "  undated");
     out << count(selection.undatedLines.size())
         << "  (date blank or malformed; cannot be judged, not selected)\n";
@@ -150,10 +174,15 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     out << count(plan.linesNotSelected) << "\n";
     printLabel(out, "Lanes");
     out << count(plan.lanes.size()) << "  (with demand under the rule)\n";
+    printLabel(out, "  not measurable");
+    out << count(lanesNotMeasurable(plan))
+        << "  (every selected line left out; no floor, not a floor of 0)\n";
+    printLabel(out, "  understated");
+    out << count(lanesUnderstated(plan)) << "  (some selected lines left out; marked * below)\n";
     printLabel(out, "Groups");
     out << count(terms.groupsWithDemand) << "  (segregated; groups never share a truck)\n";
-    printLabel(out, "Unit loads");
-    out << grouped(plan.totals.unitLoads, 1) << "\n";
+    printLabel(out, "Unit-load equivalents");
+    out << grouped(plan.totals.unitLoads, 1) << "  (fractional; see basis)\n";
     printLabel(out, "Total weight");
     out << grouped(plan.totals.totalWeightLb) << " lb\n";
     printLabel(out, "Stacked height");
@@ -175,6 +204,10 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     out << grouped(static_cast<double>(plan.floorTrucks)) << " trucks  (" << ruleText
         << ", rounded " << floorRoundingPointName(plan.roundingPoint) << " level, "
         << printable(trailer.trailerCode) << ")\n";
+    printLabel(out, "");
+    out << "NOT YET VALIDATED: exceeds Truck Builder's achieved loads on some lane-days\n";
+    printLabel(out, "");
+    out << "(stack positions is not yet an upper bound for every footprint; open: question 7)\n";
     printLabel(out, "No-stacking baseline");
     out << grouped(static_cast<double>(plan.noStackingBaselineTrucks))
         << " trucks  NOT a floor: assumes nothing stacks (unit loads / stack positions)\n\n";
@@ -198,6 +231,12 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     out << count(plan.casesPerUnitLoadMismatchLines)
         << " line(s)  (unit loads and weight follow Cases_Unit_Load;"
            " height follows Layers_Unit_Load)\n\n";
+}
+
+string laneFloorText(const LaneFloor& lane) {
+    if (!lane.isMeasurable()) return "not measurable";
+    const string floorText = grouped(static_cast<double>(lane.floorTrucks));
+    return lane.isUnderstated() ? floorText + "*" : floorText;
 }
 
 string laneLabel(const LaneFloor& lane) {
@@ -238,23 +277,26 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
     out << "\n" << kRule;
     pad_right(out, "  Lane", 24);
     pad_left(out, "Groups", 7);
-    pad_left(out, "Unit loads", 12);
+    pad_left(out, "Unit-load eq", 14);
     pad_left(out, "Stacked in", 14);
     pad_right(out, "  Binds", 18);
-    pad_left(out, "Floor", 7);
+    pad_left(out, "Floor", 15);
     out << "\n";
     for (size_t rank = 0; rank < shown; ++rank) {
         const LaneFloor& lane = plan.lanes[laneOrder[rank]];
         pad_right(out, "  " + laneLabel(lane), 24);
         pad_left(out, count(lane.groupIndices.size()), 7);
-        pad_left(out, grouped(lane.totals.unitLoads, 1), 12);
+        pad_left(out, grouped(lane.totals.unitLoads, 1), 14);
         pad_left(out, grouped(lane.totals.stackedInches, 1), 14);
         pad_right(out, "  " + laneBinding(lane, plan), 18);
-        pad_left(out, grouped(static_cast<double>(lane.floorTrucks)), 7);
+        pad_left(out, laneFloorText(lane), 15);
         out << "\n";
     }
     if (shown < laneOrder.size()) {
         out << "  ... " << count(laneOrder.size() - shown) << " more lane(s)\n";
+    }
+    if (lanesUnderstated(plan) > 0) {
+        out << "  * lane has selected lines left out of the floor; its floor is understated\n";
     }
 }
 
@@ -262,7 +304,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
 
 void printFloorReport(ostream& out, const FloorPlan& plan, const DemandSelection& selection,
                       const M2Params& params, const TrailerSpec& trailer,
-                      const string& extractLabel, size_t maxLanes) {
+                      TrailerChoice trailerChoice, const string& extractLabel, size_t maxLanes) {
     if (!sameSelector(plan.selector, selection.selector)) {
         throw invalid_argument(
             "floorReporter: the selection does not carry the plan's demand rule");
@@ -270,7 +312,7 @@ void printFloorReport(ostream& out, const FloorPlan& plan, const DemandSelection
     out << "\n================================================================\n";
     out << " ORDER BUILDER - MILESTONE 3 TRUCK FLOOR\n";
     out << "================================================================\n\n";
-    printBasis(out, plan, params, trailer, extractLabel);
+    printBasis(out, plan, params, trailer, trailerChoice, extractLabel);
     printSectionB(out, plan, selection, trailer);
     printSectionC(out, plan, trailer, maxLanes);
 }
