@@ -212,10 +212,16 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
     CHECK(contains(truncated.output, "(top 5 of 387 by floor use)"));
 }
 
-TEST_CASE("cli: --trailer 53FT_NA gives exactly the default output") {
+TEST_CASE("cli: --trailer 53FT_NA differs from the default output only in how the trailer was chosen") {
     const CliRun named = runCli(withExtra(realDayArguments(true), {"--trailer", "53FT_NA"}));
     CHECK(named.exitCode == 0);
-    CHECK(named.output == fullRealRun().output);
+    const std::string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, positions and depth)";
+    const std::string namedTrailerLine = "53FT_NA  (named with --trailer)";
+    std::string defaultOutput = fullRealRun().output;
+    const size_t at = defaultOutput.find(defaultTrailerLine);
+    REQUIRE(at != std::string::npos);
+    defaultOutput.replace(at, defaultTrailerLine.size(), namedTrailerLine);
+    CHECK(named.output == defaultOutput);
 }
 
 TEST_CASE("cli: an unknown trailer exits 2 and names the code") {
@@ -409,6 +415,14 @@ TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and p
     CHECK(run.exitCode == 2);
     CHECK(contains(run.output, "--demand-rule: is required; there is no default"));
     CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: a demand rule that selects no line of the real day exits 1") {
+    const CliRun run = runCli({"--product", kProduct, "--demand", kDemand, "--placeholder",
+                               kPlaceholder, "--params", kParams, "--demand-rule",
+                               "dueBy:2020-01-01"});
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "selected none of the"));
 }
 
 TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {

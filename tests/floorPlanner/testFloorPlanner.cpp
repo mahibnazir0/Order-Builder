@@ -110,6 +110,39 @@ TEST_CASE("floorPlanner: a line with a metrics error is listed and left out of t
     CHECK(plan.totals.unitLoads == doctest::Approx(1.0));
 }
 
+TEST_CASE("floorPlanner: a lane whose every selected line is left out is not measurable") {
+    const vector<ProductRecord> products{unitLoadProduct("", 50.0)};
+    const vector<STRRecord> demand{palletDemand(5.0)};
+    const vector<JoinedLine> lines = joinedLines(products, demand);
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines,
+                                     wholeExtract(lines), shippedParams(), shippedTrailer());
+    REQUIRE(plan.lanes.size() == 1);
+    CHECK(plan.lanes[0].linesSelected == 1);
+    CHECK(plan.lanes[0].linesCounted == 0);
+    CHECK_FALSE(plan.lanes[0].isMeasurable());
+}
+
+TEST_CASE("floorPlanner: a lane with some selected lines left out is understated") {
+    const vector<ProductRecord> products{unitLoadProduct("TLD", 50.0), unitLoadProduct("", 50.0)};
+    const vector<STRRecord> demand{palletDemand(1.0), palletDemand(5.0)};
+    const vector<JoinedLine> lines = joinedLines(products, demand);
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1})}), lines,
+                                     wholeExtract(lines), shippedParams(), shippedTrailer());
+    REQUIRE(plan.lanes.size() == 1);
+    CHECK(plan.lanes[0].isMeasurable());
+    CHECK(plan.lanes[0].isUnderstated());
+}
+
+TEST_CASE("floorPlanner: a lane with every selected line counted is measurable and complete") {
+    HalfTrailerLines fixture(2);
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1})}), fixture.lines,
+                                     wholeExtract(fixture.lines), shippedParams(),
+                                     shippedTrailer());
+    REQUIRE(plan.lanes.size() == 1);
+    CHECK(plan.lanes[0].isMeasurable());
+    CHECK_FALSE(plan.lanes[0].isUnderstated());
+}
+
 TEST_CASE("floorPlanner: an unmatched line is listed rather than counted as zero weight") {
     const vector<STRRecord> demand{palletDemand(3.0)};
     vector<JoinedLine> lines(1);

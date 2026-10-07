@@ -232,11 +232,11 @@ TEST_CASE("pipeline: the printed Milestone 2 report matches the run") {
     CHECK(out.str().find("top 5 of 387") != std::string::npos);
 }
 
-TEST_CASE("pipeline: M2 weighs pallets with the configured pallet weight, M1 keeps its own") {
+TEST_CASE("pipeline: M1 and M2 both weigh pallets with the configured pallet weight") {
     const PipelineResult result = runOneLine("m2_pallet_weight", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
                                              kOnePalletLine, paramsWithPtlWeight(100));
     REQUIRE(result.ranMilestone2);
-    CHECK(result.weight_per_line[0] == doctest::Approx(1390.0));
+    CHECK(result.weight_per_line[0] == doctest::Approx(1430.0));
     CHECK(result.weightForStacking[0] == doctest::Approx(1430.0));
     REQUIRE(result.binding.groups.size() == 1);
     CHECK(result.binding.groups[0].totalWeightLb == doctest::Approx(1430.0));

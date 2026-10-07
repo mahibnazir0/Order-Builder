@@ -130,6 +130,26 @@ TEST_CASE("unitLoadMetrics: a unit load exactly at the ceiling fits") {
                                shippedTrailer()));
 }
 
+TEST_CASE("unitLoadMetrics: a unit load one ULP over the ceiling fits") {
+    const double ceilingIn = shippedTrailer().stackHeightCeilingIn;
+    CHECK_FALSE(exceedsCeiling(metricsWithUnitLoadHeight(nextafter(ceilingIn, kInfinity)),
+                               shippedTrailer()));
+}
+
+TEST_CASE("unitLoadMetrics: a case height that computes a hair over the ceiling fits") {
+    const double ceilingIn = shippedTrailer().stackHeightCeilingIn;
+    const ProductRecord sevenths = product("TLD", ceilingIn / 21.0, 9.0, 1, 21, 21);
+    const UnitLoadMetrics metrics =
+        metricsFor(sevenths, demand(1.0, "PAL"), DeckHeightRule::Excluded);
+    REQUIRE(metrics.unitLoadHeightIn > ceilingIn);
+    CHECK_FALSE(exceedsCeiling(metrics, shippedTrailer()));
+}
+
+TEST_CASE("unitLoadMetrics: a unit load 1e-6 in over the ceiling does not fit") {
+    CHECK(exceedsCeiling(metricsWithUnitLoadHeight(shippedTrailer().stackHeightCeilingIn + 1e-6),
+                         shippedTrailer()));
+}
+
 TEST_CASE("unitLoadMetrics: a unit load just over the ceiling does not fit") {
     CHECK(exceedsCeiling(metricsWithUnitLoadHeight(shippedTrailer().stackHeightCeilingIn + 0.01),
                          shippedTrailer()));
