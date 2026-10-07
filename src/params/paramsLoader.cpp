@@ -11,6 +11,8 @@
 #include <sstream>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 
 using json = nlohmann::json;
@@ -136,7 +138,7 @@ PalletSpec readPallet(const json& record, std::size_t index,
         throw std::runtime_error("params: " + recordName
             + ".palletId must contain a printable ASCII character");
     }
-    if (palletSpecFor(params, pallet.palletId) != nullptr) {
+    if (palletSpecFor(params.pallets, pallet.palletId) != nullptr) {
         throw std::runtime_error("params: " + recordName + ".palletId is duplicated");
     }
     pallet.addedWeightLb = readQuantity(
@@ -273,6 +275,20 @@ M2Params parseParams(const json& root) {
         }
         params.blankCriIsStackable = root["blankCriIsStackable"].get<bool>();
     }
+    const string floorDeckHeight = readString(
+        requiredBlock(root, "floorDeckHeight"), "floorDeckHeight");
+    if (floorDeckHeight == "Included") {
+        params.floorDeckHeight = DeckHeightRule::Included;
+    } else if (floorDeckHeight != "Excluded") {
+        throw runtime_error("params: floorDeckHeight must be Excluded or Included");
+    }
+    const string floorRoundingPoint = readString(
+        requiredBlock(root, "floorRoundingPoint"), "floorRoundingPoint");
+    if (floorRoundingPoint == "Lane") {
+        params.floorRoundingPoint = FloorRoundingPoint::Lane;
+    } else if (floorRoundingPoint != "Group") {
+        throw runtime_error("params: floorRoundingPoint must be Group or Lane");
+    }
     if (!root.contains("stackWholePallets")) {
         params.defaultedKeys.push_back("stackWholePallets");
     } else {
@@ -314,12 +330,7 @@ M2Params loadParams(const std::string& path) {
 }
 
 const PalletSpec* palletSpecFor(const M2Params& params, const std::string& palletId) {
-    for (const auto& pallet : params.pallets) {
-        if (pallet.palletId == palletId) {
-            return &pallet;
-        }
-    }
-    return nullptr;
+    return palletSpecFor(params.pallets, palletId);
 }
 
 } // namespace ob

@@ -1,6 +1,7 @@
 #include "stackBuilder.hpp"
 
 #include "stackRules.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,9 +10,6 @@
 
 namespace ob {
 namespace {
-
-// Below this a quantity is floating-point residue, not a real fraction of a pallet.
-constexpr double kQuantityEpsilon = 1e-9;
 
 struct Item {
     std::size_t lineIndex = 0;

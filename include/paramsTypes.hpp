@@ -1,5 +1,6 @@
 #pragma once
 
+#include "palletSpec.hpp"
 #include "trailerSpec.hpp"
 
 #include <array>
@@ -9,6 +10,12 @@
 namespace ob {
 
 enum class SegregationReading { Strict, FlaggedVsNormal };
+
+// Where the floor rounds fractional trucks up. Group is the client's ruling (1 October):
+// segregated groups cannot share trucks, so each group's bound is rounded before summing.
+// Lane sums each lane's fractional group bounds and rounds once, so the ruling can be
+// re-read without a rewrite.
+enum class FloorRoundingPoint { Group, Lane };
 
 // Upper bound for pass2AttemptCap. Try Hard re-runs the whole greedy build once per
 // attempt per group. The shipped config uses 4; 64 is generous while bounding runtime.
@@ -21,14 +28,6 @@ constexpr int kMaxStackHeight = 16;
 struct CriTable {
     // Index 0 is unused so callers can index by CRI 1..10 directly.
     std::array<double, 11> safeLimitLb{};
-};
-
-struct PalletSpec {
-    std::string palletId;
-    double addedWeightLb = 0.0;
-    double addedHeightIn = 0.0;
-    double footprintLengthIn = 0.0;
-    double footprintWidthIn = 0.0;
 };
 
 struct M2Params {
@@ -44,6 +43,10 @@ struct M2Params {
     // part pallet takes a real position. False keeps the fractional estimate, which can report
     // 0.5 floor positions for one pallet and so understates floor use in small groups.
     bool stackWholePallets = true;
+    // Required key: the floor never picks a deck-height reading on silence.
+    DeckHeightRule floorDeckHeight = DeckHeightRule::Excluded;
+    // Required key, like floorDeckHeight.
+    FloorRoundingPoint floorRoundingPoint = FloorRoundingPoint::Group;
     // Printable path of the file these params came from; empty when parsed from memory.
     std::string sourcePath;
     std::vector<std::string> defaultedKeys;
