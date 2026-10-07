@@ -20,5 +20,6 @@
   "maxStackHeight": 2,
   "blankCriIsStackable": false,
   "stackWholePallets": true,
-  "floorDeckHeight": "Excluded"
+  "floorDeckHeight": "Excluded",
+  "floorRoundingPoint": "Group"
 }
