@@ -22,12 +22,18 @@ string laneKey(const GroupKey& key) {
 }
 
 GroupFloor groupFloor(const SegregatedGroup& group, const vector<JoinedLine>& lines,
-                      const M2Params& params, const TrailerSpec& trailer, FloorPlan& plan) {
+                      const DemandSelection& selection, const M2Params& params,
+                      const TrailerSpec& trailer, FloorPlan& plan) {
     GroupFloor floor;
     for (const size_t lineIndex : group.lineIndices) {
         if (lineIndex >= lines.size()) {
             throw invalid_argument("floorPlanner: group line index out of range");
         }
+        if (!selection.selected[lineIndex]) {
+            ++plan.linesNotSelected;
+            continue;
+        }
+        ++floor.linesSelected;
         const UnitLoadMetrics metrics =
             unitLoadMetricsFor(lines[lineIndex], params.pallets, params.floorDeckHeight);
         if (metrics.error != UnitLoadMetricsError::None) {
@@ -49,8 +55,13 @@ GroupFloor groupFloor(const SegregatedGroup& group, const vector<JoinedLine>& li
 } // anonymous namespace
 
 FloorPlan planFloor(const SegregationResult& segregation, const vector<JoinedLine>& lines,
-                    const M2Params& params, const TrailerSpec& trailer) {
+                    const DemandSelection& selection, const M2Params& params,
+                    const TrailerSpec& trailer) {
+    if (selection.selected.size() != lines.size()) {
+        throw invalid_argument("floorPlanner: demand selection is not parallel to the lines");
+    }
     FloorPlan plan;
+    plan.selector = selection.selector;
     plan.roundingPoint = params.floorRoundingPoint;
     plan.groups.reserve(segregation.groups.size());
 
@@ -58,8 +69,9 @@ FloorPlan planFloor(const SegregationResult& segregation, const vector<JoinedLin
     laneIndexByKey.reserve(segregation.groups.size());
     for (size_t groupIndex = 0; groupIndex < segregation.groups.size(); ++groupIndex) {
         const SegregatedGroup& group = segregation.groups[groupIndex];
-        plan.groups.push_back(groupFloor(group, lines, params, trailer, plan));
+        plan.groups.push_back(groupFloor(group, lines, selection, params, trailer, plan));
         const GroupFloor& floor = plan.groups.back();
+        if (floor.linesSelected == 0) continue;
 
         const auto inserted = laneIndexByKey.emplace(laneKey(group.key), plan.lanes.size());
         if (inserted.second) {
@@ -73,6 +85,8 @@ FloorPlan planFloor(const SegregationResult& segregation, const vector<JoinedLin
         addTotals(lane.totals, floor.totals);
         lane.boundTrucks += floor.bound.boundTrucks;
         lane.noStackingBaselineTrucks += floor.bound.noStackingBaselineRounded;
+        lane.linesSelected += floor.linesSelected;
+        lane.linesCounted += floor.linesCounted;
         if (plan.roundingPoint == FloorRoundingPoint::Group) {
             lane.floorTrucks += floor.bound.floorTrucks;
         }
