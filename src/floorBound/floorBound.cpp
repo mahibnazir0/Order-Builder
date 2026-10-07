@@ -1,4 +1,5 @@
 #include "floorBound.hpp"
+#include "tolerance.hpp"
 
 #include <cmath>
 #include <limits>
@@ -10,11 +11,6 @@ using namespace std;
 namespace ob {
 
 namespace {
-
-// Totals are sums of many per-line floats, so a group that exactly fills N trucks can land a
-// hair above N. Rounding that up would add a phantom truck; shaving the tolerance first only
-// ever lowers the result, so the floor stays a valid lower bound.
-constexpr double kRoundingTolerance = 1e-9;
 
 void requirePositiveFinite(double value, const char* field) {
     if (!isfinite(value) || value <= 0.0) {
@@ -47,7 +43,10 @@ void requireUsableTrailer(const TrailerSpec& trailer) {
 
 long long roundUpTrucks(double fractionalTrucks) {
     requireNonNegativeFinite(fractionalTrucks, "fractional truck count");
-    const double rounded = ceil(fractionalTrucks - kRoundingTolerance);
+    // Totals are sums of many per-line floats, so a group that exactly fills N trucks can land
+    // a hair above N. Rounding that up would add a phantom truck; shaving the tolerance first
+    // only ever lowers the result, so the floor stays a valid lower bound.
+    const double rounded = ceil(fractionalTrucks - kQuantityEpsilon);
     if (rounded >= static_cast<double>(numeric_limits<long long>::max())) {
         throw invalid_argument("floorBound: truck count " + to_string(fractionalTrucks)
             + " is too large to represent");

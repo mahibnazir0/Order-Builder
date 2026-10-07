@@ -5,8 +5,10 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace std;
 using namespace ob;
@@ -118,4 +120,64 @@ TEST_CASE("trailerSpec: a maxStackDepth that is not a positive integer is reject
         CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("trailers[0].maxStackDepth"),
                              runtime_error);
     }
+}
+
+namespace {
+
+TrailerSpec trailerSized(const string& trailerCode, double weightLimitLb,
+                         double stackHeightCeilingIn, int stackPositions,
+                         optional<int> maxStackDepth = nullopt) {
+    TrailerSpec trailer;
+    trailer.trailerCode = trailerCode;
+    trailer.weightLimitLb = weightLimitLb;
+    trailer.stackHeightCeilingIn = stackHeightCeilingIn;
+    trailer.stackPositions = stackPositions;
+    trailer.maxStackDepth = maxStackDepth;
+    return trailer;
+}
+
+string largestTrailerErrorMessage(const vector<TrailerSpec>& trailers) {
+    try {
+        largestTrailer(trailers, "params.json");
+    } catch (const runtime_error& error) {
+        return error.what();
+    }
+    return "";
+}
+
+} // namespace
+
+TEST_CASE("trailerSpec: the largest trailer is chosen even when a smaller one is listed first") {
+    const vector<TrailerSpec> trailers{trailerSized("48FT", 40000, 100, 28),
+                                       trailerSized("53FT", 45000, 108, 32)};
+    CHECK(largestTrailer(trailers, "params.json").trailerCode == "53FT");
+}
+
+TEST_CASE("trailerSpec: equal trailers resolve to the lowest trailerCode") {
+    const vector<TrailerSpec> trailers{trailerSized("53FT_B", 45000, 108, 32),
+                                       trailerSized("53FT_A", 45000, 108, 32)};
+    CHECK(largestTrailer(trailers, "params.json").trailerCode == "53FT_A");
+}
+
+TEST_CASE("trailerSpec: a trailer with no depth limit beats an otherwise equal one with a limit") {
+    const vector<TrailerSpec> trailers{trailerSized("A_DEPTH", 45000, 108, 32, 2),
+                                       trailerSized("B_NODEPTH", 45000, 108, 32)};
+    CHECK(largestTrailer(trailers, "params.json").trailerCode == "B_NODEPTH");
+}
+
+TEST_CASE("trailerSpec: no trailer largest on every figure is an error asking for --trailer") {
+    const vector<TrailerSpec> trailers{trailerSized("HEAVY", 48000, 100, 28),
+                                       trailerSized("TALL", 45000, 108, 32)};
+    const string message = largestTrailerErrorMessage(trailers);
+    CHECK(message.find("params.json") != string::npos);
+    CHECK(message.find("--trailer") != string::npos);
+}
+
+TEST_CASE("trailerSpec: an empty trailer list has no largest trailer") {
+    CHECK(largestTrailerErrorMessage({}).find("lists none") != string::npos);
+}
+
+TEST_CASE("trailerSpec: the shipped params file's largest trailer is 53FT_NA") {
+    const M2Params params = loadParams(kShippedParamsPath);
+    CHECK(largestTrailer(params.trailers, params.sourcePath).trailerCode == "53FT_NA");
 }

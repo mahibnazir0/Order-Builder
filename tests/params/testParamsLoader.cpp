@@ -67,7 +67,7 @@ json completeParams() {
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
-        "stackWholePallets":true,"floorDeckHeight":"Excluded"
+        "stackWholePallets":true,"floorDeckHeight":"Excluded","floorRoundingPoint":"Group"
     })");
 }
 
@@ -733,5 +733,29 @@ TEST_CASE("params floorDeckHeight of the wrong value or type is rejected") {
         auto root = completeParams();
         root["floorDeckHeight"] = badRule;
         CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorDeckHeight"), runtime_error);
+    }
+}
+
+TEST_CASE("params floorRoundingPoint reads Group and Lane") {
+    auto root = completeParams();
+    CHECK(parseParams(root).floorRoundingPoint == FloorRoundingPoint::Group);
+    root["floorRoundingPoint"] = "Lane";
+    CHECK(parseParams(root).floorRoundingPoint == FloorRoundingPoint::Lane);
+}
+
+TEST_CASE("params missing floorRoundingPoint is rejected rather than defaulted") {
+    auto root = completeParams();
+    root.erase("floorRoundingPoint");
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorRoundingPoint"), runtime_error);
+}
+
+TEST_CASE("params floorRoundingPoint of the wrong value or type is rejected") {
+    for (const json& badPoint : {json("group"), json("Plan"), json(""), json(true), json(0),
+                                 json::object(), json::array(), json(nullptr)}) {
+        CAPTURE(badPoint.dump());
+        auto root = completeParams();
+        root["floorRoundingPoint"] = badPoint;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorRoundingPoint"),
+                             runtime_error);
     }
 }
