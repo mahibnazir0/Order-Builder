@@ -1,5 +1,6 @@
 #include "unitLoadMetrics.hpp"
 #include "converter.hpp"
+#include "tolerance.hpp"
 
 #include <cmath>
 
@@ -66,7 +67,7 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const vector<PalletSp
 }
 
 bool exceedsCeiling(const UnitLoadMetrics& metrics, const TrailerSpec& trailer) {
-    return metrics.unitLoadHeightIn > trailer.stackHeightCeilingIn;
+    return metrics.unitLoadHeightIn > trailer.stackHeightCeilingIn + kQuantityEpsilon;
 }
 
 const char* unitLoadMetricsErrorName(UnitLoadMetricsError error) {

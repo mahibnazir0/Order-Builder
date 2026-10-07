@@ -30,6 +30,9 @@ struct DemandSelection {
     // Lines whose date the rule reads is blank or not a real YYYY-MM-DD date. They cannot be
     // judged, so they are not selected, and are listed rather than silently dropped.
     std::vector<std::size_t> undatedLines;
+    // Selected lines whose latest arrival (DATTO_TA) is before the planning date, under dueBy
+    // and availableBy. Counted, not excluded: overdue demand still ships.
+    std::size_t overdueLines = 0;
 };
 
 // The command-line argument that names the rule; every parse error names it.

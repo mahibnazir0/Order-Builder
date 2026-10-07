@@ -35,7 +35,8 @@ string lineContaining(const string& report, const string& marker) {
 string reportFor(const FloorPlan& plan, const DemandSelection& selection, size_t maxLanes = 0,
                  const M2Params& params = shippedParams()) {
     ostringstream out;
-    printFloorReport(out, plan, selection, params, shippedTrailer(), "17 Aug", maxLanes);
+    printFloorReport(out, plan, selection, params, shippedTrailer(), TrailerChoice::Named, "17 Aug",
+                     maxLanes);
     return out.str();
 }
 
@@ -101,7 +102,8 @@ TEST_CASE("floorReporter: a configured depth limit prints its term") {
     trailer.maxStackDepth = 3;
     const ThreeLanes lanes;
     ostringstream out;
-    printFloorReport(out, lanes.plan, lanes.selection, shippedParams(), trailer, "17 Aug");
+    printFloorReport(out, lanes.plan, lanes.selection, shippedParams(), trailer,
+                     TrailerChoice::Named, "17 Aug");
     CHECK(lineContaining(out.str(), "    stack depth").find("binds on") != string::npos);
     CHECK(lineContaining(out.str(), "Max stack depth").find("3") != string::npos);
 }
@@ -196,7 +198,8 @@ TEST_CASE("floorReporter: text from the input files is printed as plain ASCII") 
     const FloorPlan plan = planFloor(segregation({group("S\xC3\xA9", "", {0})}), lines, selection,
                                      shippedParams(), trailer);
     ostringstream out;
-    printFloorReport(out, plan, selection, shippedParams(), trailer, "Extract \xE2\x80\x94 Aug");
+    printFloorReport(out, plan, selection, shippedParams(), trailer, TrailerChoice::Named,
+                     "Extract \xE2\x80\x94 Aug");
     CHECK(isPlainAscii(out.str()));
     CHECK(out.str().find("2027 -> S?? TL") != string::npos);
 }
@@ -210,13 +213,77 @@ TEST_CASE("floorReporter: an empty plan still prints its basis and a zero floor"
     CHECK(lineContaining(report, "Demand rule").find("wholeExtract") != string::npos);
 }
 
+TEST_CASE("floorReporter: the floor is printed with its not-yet-validated caveat") {
+    const ThreeLanes lanes;
+    const string report = reportFor(lanes.plan, lanes.selection);
+    CHECK(report.find("NOT YET VALIDATED") > report.find("FLOOR "));
+    CHECK(report.find("NOT YET VALIDATED") != string::npos);
+    CHECK(lineContaining(report, "upper bound").find("question 7") != string::npos);
+}
+
+TEST_CASE("floorReporter: the basis says how the trailer was chosen") {
+    const ThreeLanes lanes;
+    ostringstream largest;
+    printFloorReport(largest, lanes.plan, lanes.selection, shippedParams(), shippedTrailer(),
+                     TrailerChoice::Largest, "17 Aug");
+    CHECK(lineContaining(largest.str(), "Trailer").find("largest listed") != string::npos);
+    CHECK(lineContaining(reportFor(lanes.plan, lanes.selection), "Trailer")
+              .find("named with --trailer") != string::npos);
+}
+
+TEST_CASE("floorReporter: unit loads are labelled as fractional equivalents") {
+    const ThreeLanes lanes;
+    const string report = reportFor(lanes.plan, lanes.selection);
+    CHECK(lineContaining(report, "Unit-load equivalents").find("not physical pallets")
+          != string::npos);
+    CHECK(report.find("Unit loads") == string::npos);
+}
+
+TEST_CASE("floorReporter: section B counts the overdue lines the rule selected") {
+    const ThreeLanes lanes;
+    CHECK(lineContaining(reportFor(lanes.plan, lanes.selection), "  overdue")
+              .find(" 0  (selected") != string::npos);
+}
+
+TEST_CASE("floorReporter: a lane with no line counted prints not measurable, never a zero floor") {
+    const vector<ProductRecord> products{unitLoadProduct("", 50.0)};
+    const vector<STRRecord> demand{palletDemand(5.0)};
+    const vector<JoinedLine> lines = joinedLines(products, demand);
+    const DemandSelection selection = wholeExtract(lines);
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), lines, selection,
+                                     shippedParams(), shippedTrailer());
+    const string report = reportFor(plan, selection);
+    CHECK(lineContaining(report, "2027 -> S1").find("not measurable") != string::npos);
+    CHECK(lineContaining(report, "  not measurable").find(" 1  (every") != string::npos);
+}
+
+TEST_CASE("floorReporter: a lane with some lines left out is starred as understated") {
+    const vector<ProductRecord> products{unitLoadProduct("TLD", 50.0), unitLoadProduct("", 50.0)};
+    const vector<STRRecord> demand{palletDemand(1.0), palletDemand(5.0)};
+    const vector<JoinedLine> lines = joinedLines(products, demand);
+    const DemandSelection selection = wholeExtract(lines);
+    const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1})}), lines, selection,
+                                     shippedParams(), shippedTrailer());
+    const string report = reportFor(plan, selection);
+    CHECK(lineContaining(report, "2027 -> S1").find("1*") != string::npos);
+    CHECK(report.find("* lane has selected lines left out") != string::npos);
+    CHECK(lineContaining(report, "  understated").find(" 1  (some") != string::npos);
+}
+
+TEST_CASE("floorReporter: a fully counted lane prints its floor with no star or footnote") {
+    const ThreeLanes lanes;
+    const string report = reportFor(lanes.plan, lanes.selection);
+    CHECK(lineContaining(report, "2027 -> S1").find("*") == string::npos);
+    CHECK(report.find("* lane has selected lines left out") == string::npos);
+}
+
 TEST_CASE("floorReporter: a selection that is not the plan's is a caller error") {
     const ThreeLanes lanes;
     const DemandSelection otherRule =
         selectDemand(lanes.fixture.demand, parseDemandSelector("dueBy:2026-10-03"));
     ostringstream out;
     CHECK_THROWS_AS(printFloorReport(out, lanes.plan, otherRule, shippedParams(), shippedTrailer(),
-                                     "17 Aug"),
+                                     TrailerChoice::Named, "17 Aug"),
                     invalid_argument);
 }
 
@@ -230,7 +297,7 @@ TEST_CASE("floorReporter: the report on every extract is plain ASCII and states 
             planFloor(run.segregation, run.join.lines, selection, run.params, shippedTrailer());
         ostringstream out;
         printFloorReport(out, plan, selection, run.params, shippedTrailer(),
-                         dayFiles()[dayIndex].label);
+                         TrailerChoice::Named, dayFiles()[dayIndex].label);
         const string report = out.str();
         CHECK(isPlainAscii(report));
         CHECK(lineContaining(report, "FLOOR ")

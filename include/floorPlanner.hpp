@@ -39,6 +39,13 @@ struct LaneFloor {
     double boundTrucks = 0.0;
     long long floorTrucks = 0;
     long long noStackingBaselineTrucks = 0;
+    std::size_t linesSelected = 0;
+    // Below linesSelected when lines were left out: the floor is understated, and with no line
+    // counted it is not measurable at all rather than a floor of zero.
+    std::size_t linesCounted = 0;
+
+    bool isMeasurable() const { return linesCounted > 0; }
+    bool isUnderstated() const { return linesCounted < linesSelected; }
 };
 
 struct FloorPlan {
