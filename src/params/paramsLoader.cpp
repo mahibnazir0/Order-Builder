@@ -11,6 +11,8 @@
 #include <sstream>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 
 using json = nlohmann::json;
@@ -272,6 +274,20 @@ M2Params parseParams(const json& root) {
             throw std::runtime_error("params: blankCriIsStackable must be a boolean");
         }
         params.blankCriIsStackable = root["blankCriIsStackable"].get<bool>();
+    }
+    const string floorDeckHeight = readString(
+        requiredBlock(root, "floorDeckHeight"), "floorDeckHeight");
+    if (floorDeckHeight == "Included") {
+        params.floorDeckHeight = DeckHeightRule::Included;
+    } else if (floorDeckHeight != "Excluded") {
+        throw runtime_error("params: floorDeckHeight must be Excluded or Included");
+    }
+    const string floorRoundingPoint = readString(
+        requiredBlock(root, "floorRoundingPoint"), "floorRoundingPoint");
+    if (floorRoundingPoint == "Lane") {
+        params.floorRoundingPoint = FloorRoundingPoint::Lane;
+    } else if (floorRoundingPoint != "Group") {
+        throw runtime_error("params: floorRoundingPoint must be Group or Lane");
     }
     if (!root.contains("stackWholePallets")) {
         params.defaultedKeys.push_back("stackWholePallets");

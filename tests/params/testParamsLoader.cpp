@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+using namespace std;
 using namespace ob;
 using json = nlohmann::json;
 
@@ -66,7 +67,7 @@ json completeParams() {
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
-        "stackWholePallets":true
+        "stackWholePallets":true,"floorDeckHeight":"Excluded","floorRoundingPoint":"Group"
     })");
 }
 
@@ -710,4 +711,51 @@ TEST_CASE("params unprintable path characters are replaced in the message") {
     const std::string message = loadErrorMessage("does/not/exist\t\xC3\xA9.json");
     CHECK(message.find("does/not/exist") != std::string::npos);
     CHECK(isPrintableAscii(message));
+}
+
+TEST_CASE("params floorDeckHeight reads Excluded and Included") {
+    auto root = completeParams();
+    CHECK(parseParams(root).floorDeckHeight == DeckHeightRule::Excluded);
+    root["floorDeckHeight"] = "Included";
+    CHECK(parseParams(root).floorDeckHeight == DeckHeightRule::Included);
+}
+
+TEST_CASE("params missing floorDeckHeight is rejected rather than defaulted") {
+    auto root = completeParams();
+    root.erase("floorDeckHeight");
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorDeckHeight"), runtime_error);
+}
+
+TEST_CASE("params floorDeckHeight of the wrong value or type is rejected") {
+    for (const json& badRule : {json("excluded"), json("Yes"), json(""), json(true), json(0),
+                                json::object(), json::array(), json(nullptr)}) {
+        CAPTURE(badRule.dump());
+        auto root = completeParams();
+        root["floorDeckHeight"] = badRule;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorDeckHeight"), runtime_error);
+    }
+}
+
+TEST_CASE("params floorRoundingPoint reads Group and Lane") {
+    auto root = completeParams();
+    CHECK(parseParams(root).floorRoundingPoint == FloorRoundingPoint::Group);
+    root["floorRoundingPoint"] = "Lane";
+    CHECK(parseParams(root).floorRoundingPoint == FloorRoundingPoint::Lane);
+}
+
+TEST_CASE("params missing floorRoundingPoint is rejected rather than defaulted") {
+    auto root = completeParams();
+    root.erase("floorRoundingPoint");
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorRoundingPoint"), runtime_error);
+}
+
+TEST_CASE("params floorRoundingPoint of the wrong value or type is rejected") {
+    for (const json& badPoint : {json("group"), json("Plan"), json(""), json(true), json(0),
+                                 json::object(), json::array(), json(nullptr)}) {
+        CAPTURE(badPoint.dump());
+        auto root = completeParams();
+        root["floorRoundingPoint"] = badPoint;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorRoundingPoint"),
+                             runtime_error);
+    }
 }
