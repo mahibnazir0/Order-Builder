@@ -86,6 +86,7 @@ add_executable(ob_tests
   tests/stackBuilder/testStackBuilder.cpp
   tests/stackReporter/testStackReporter.cpp
   tests/testPipelineMilestone2.cpp
+  tests/testPipelineMilestone3.cpp
   tests/testCrossDayPipeline.cpp
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp

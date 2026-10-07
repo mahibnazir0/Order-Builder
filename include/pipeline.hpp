@@ -9,11 +9,16 @@
 //   read three files -> join -> convert -> validate -> summarise
 //   and, when a params file is given:
 //   -> segregate -> pass 1 (binding constraint) -> pass 2 (stacks) -> stack report
+//   and, when a demand rule is also given:
+//   -> select demand -> floor (Milestone 3)
 // Conversion precedes validation because the large-line check needs pallet figures.
+// The floor runs last because it reads the groups segregation formed.
 // ============================================================================
 
 #include "demand_types.hpp"
 #include "bindingConstraint.hpp"
+#include "demandSelector.hpp"
+#include "floorPlanner.hpp"
 #include "joiner.hpp"
 #include "paramsTypes.hpp"
 #include "placeholder_types.hpp"
@@ -25,6 +30,7 @@
 #include "reporter.hpp"
 #include "validator.hpp"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,6 +48,9 @@ struct PipelineInputs {
     std::string paramsPath;
     // Trailer to plan against, by params trailerCode; empty picks the first one listed.
     std::string trailerCode;
+    // Milestone 3 runs only when this is set, and needs paramsPath. Never defaulted: which
+    // demand counts toward the day is open with the client (M3 question 1).
+    std::optional<DemandSelector> demandSelector;
 };
 
 // Everything the run produced. Held together so a caller (or a test) can
@@ -85,17 +94,26 @@ struct PipelineResult {
     BindingResult binding;
     StackingResult stacking;
     StackReport stackReport;
+    // The trailer M2 and the floor were planned against.
+    TrailerSpec trailer;
+
+    // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
+    bool ranFloor = false;
+    DemandSelection demandSelection;
+    FloorPlan floorPlan;
 };
 
-// True when the run covered all of its demand: no validation errors and, when M2 ran,
-// every demand line ended up in a stack. main() exits 1 otherwise.
+// True when the run covered all of its demand: no validation errors; when M2 ran, every
+// demand line ended up in a stack; and when the floor ran, the demand rule could judge every
+// line's date and no selected line was left out of the floor. main() exits 1 otherwise.
 bool isRunComplete(const PipelineResult& result);
 
 class Pipeline {
 public:
     // Run every stage in order.
-    // Throws std::runtime_error if any input file cannot be read — bad data
-    // inside a file is reported through result.validation, not by throwing.
+    // Throws std::runtime_error if any input file cannot be read, or if a demand rule is
+    // given without a params file — bad data inside a file is reported through
+    // result.validation, not by throwing.
     static PipelineResult run(const PipelineInputs& inputs);
 };
 

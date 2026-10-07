@@ -11,6 +11,8 @@
 #include <sys/wait.h>
 #endif
 
+using namespace std;
+
 // Drives the built order_builder executable, as a user would, so argument parsing,
 // report printing and exit codes are tested together. OB_CLI_PATH comes from CMake.
 
@@ -65,8 +67,7 @@ std::vector<std::string> realDayArguments(bool withParams) {
     std::vector<std::string> arguments{"--product", kProduct, "--demand", kDemand,
                                        "--placeholder", kPlaceholder, "--day", "2026-08-17"};
     if (withParams) {
-        arguments.push_back("--params");
-        arguments.push_back(kParams);
+        arguments.insert(arguments.end(), {"--params", kParams, "--demand-rule", "wholeExtract"});
     }
     return arguments;
 }
@@ -121,9 +122,20 @@ const std::string kM1Summary = "ORDER BUILDER - MILESTONE 1 SUMMARY";
 const std::string kM2Summary = "ORDER BUILDER - MILESTONE 2 GROUPS AND STACKS";
 const std::string kLaneTable = "PER-LANE SUMMARY";
 const std::string kGroupTable = "PER-GROUP SUMMARY";
+const std::string kM3Floor = "ORDER BUILDER - MILESTONE 3 TRUCK FLOOR";
+const std::string kFloorByLane = "C. FLOOR BY LANE";
 
 bool contains(const std::string& text, const std::string& needle) {
     return text.find(needle) != std::string::npos;
+}
+
+// Floor-by-lane rows are indented like its notes; a row is the one that names a lane.
+size_t floorLaneRows(const vector<string>& sectionLines) {
+    size_t rows = 0;
+    for (const string& line : sectionLines) {
+        if (contains(line, " -> ")) ++rows;
+    }
+    return rows;
 }
 
 // Small valid inputs, so the bad-input cases fail on the one file under test and run fast.
@@ -168,8 +180,7 @@ struct SyntheticInputs {
         std::vector<std::string> result{"--product", productPath, "--demand", demandPath,
                                         "--placeholder", placeholderPath};
         if (!paramsPath.empty()) {
-            result.push_back("--params");
-            result.push_back(paramsPath);
+            result.insert(result.end(), {"--params", paramsPath, "--demand-rule", "wholeExtract"});
         }
         return result;
     }
@@ -177,11 +188,13 @@ struct SyntheticInputs {
 
 } // namespace
 
-TEST_CASE("cli: a clean run on the real day exits 0 and prints both milestones") {
+TEST_CASE("cli: a clean run on the real day exits 0 and prints all three milestones") {
     const CliRun& run = fullRealRun();
     CHECK(run.exitCode == 0);
     CHECK(contains(run.output, kM1Summary));
     CHECK(contains(run.output, kM2Summary));
+    CHECK(contains(run.output, kM3Floor));
+    CHECK(run.output.find(kM2Summary) < run.output.find(kM3Floor));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
     CHECK(tableRows(section(run.output, kGroupTable)) == 387);
 }
@@ -194,6 +207,7 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
     CHECK(section(truncated.output, kM2Summary) == section(full.output, kM2Summary));
     CHECK(tableRows(section(truncated.output, kLaneTable)) == 7);
     CHECK(tableRows(section(truncated.output, kGroupTable)) == 5);
+    CHECK(floorLaneRows(section(truncated.output, kFloorByLane)) == 7);
     CHECK(contains(truncated.output, "(top 7 of 371 by volume)"));
     CHECK(contains(truncated.output, "(top 5 of 387 by floor use)"));
 }
@@ -239,6 +253,7 @@ TEST_CASE("cli: without --params only the Milestone 1 report is printed") {
     CHECK(section(run.output, kM1Summary) == section(fullRealRun().output, kM1Summary));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
     CHECK_FALSE(contains(run.output, "MILESTONE 2"));
+    CHECK_FALSE(contains(run.output, "MILESTONE 3"));
     CHECK_FALSE(contains(run.output, kGroupTable));
 }
 
@@ -365,6 +380,7 @@ TEST_CASE("cli: argument mistakes exit 2 with a message") {
         {{"--product"}, "--product needs a value"},
         {{"--groups", "abc"}, "--groups needs a number, got 'abc'"},
         {{"--lanes", "abc"}, "--lanes needs a number, got 'abc'"},
+        {{"--demand-rule"}, "--demand-rule needs a value"},
     };
     for (const auto& bad : cases) {
         CAPTURE(bad.expectedMessage);
@@ -377,11 +393,61 @@ TEST_CASE("cli: argument mistakes exit 2 with a message") {
 TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     const CliRun run = runCli({"--help"});
     CHECK(run.exitCode == 0);
-    for (const char* documented : {"--product", "--demand", "--placeholder", "--params",
+    for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
                                           "--trailer", "--groups", "--day", "--lanes", "--debug",
                                           "0  success", "1  incomplete: validation errors, or a line is in no stack",
                                           "2  could not run"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
+}
+
+TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and plans nothing") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "--demand-rule: is required; there is no default"));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {
+    const SyntheticInputs inputs;
+    for (const char* rule : {"", "tomorrow", "dueBy", "dueBy:2026-02-30",
+                                   "window:2026-08-19:2026-08-17"}) {
+        CAPTURE(rule);
+        const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                                   "--placeholder", inputs.placeholder, "--params", kParams,
+                                   "--demand-rule", rule});
+        CHECK(run.exitCode == 2);
+        CHECK(contains(run.output, "[ERROR] --demand-rule: "));
+        CHECK_FALSE(contains(run.output, kM1Summary));
+    }
+}
+
+TEST_CASE("cli: --demand-rule without --params exits 2") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--demand-rule", "wholeExtract"});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "--demand-rule needs --params"));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: the floor prints the demand rule it was planned under") {
+    const CliRun run = runCli(withExtra(realDayArguments(false),
+                                        {"--params", kParams, "--demand-rule", "dueBy:2026-08-19"}));
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "Demand rule               dueBy(2026-08-19)"));
+    CHECK(contains(run.output, "FLOOR                     53 trucks  (dueBy(2026-08-19)"));
+}
+
+TEST_CASE("cli: a line the demand rule cannot date exits 1 and is reported") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--demand-rule", "dueBy:2026-08-19"});
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "1 demand line(s) have a date dueBy(2026-08-19) cannot judge"));
+    CHECK(contains(run.output, "undated                 1"));
 }

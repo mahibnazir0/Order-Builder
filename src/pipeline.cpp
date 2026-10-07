@@ -1,5 +1,6 @@
 #include "pipeline.hpp"
 #include "converter.hpp"
+#include "floorPlanner.hpp"
 #include "importer.hpp"
 #include "logger.hpp"
 #include "paramsLoader.hpp"
@@ -8,6 +9,8 @@
 #include "stackRules.hpp"
 
 #include <stdexcept>
+
+using namespace std;
 
 namespace ob {
 
@@ -100,9 +103,10 @@ std::vector<UnstackedLine> unstackedLines(const PipelineResult& result, const Tr
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
     if (result.params.trailers.empty()) throw std::runtime_error("params file lists no trailers");
-    const TrailerSpec trailer = inputs.trailerCode.empty()
+    result.trailer = inputs.trailerCode.empty()
         ? result.params.trailers.front()
         : selectTrailer(result.params.trailers, result.params.sourcePath, inputs.trailerCode);
+    const TrailerSpec& trailer = result.trailer;
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
     for (const auto& palletId : result.missingPalletIds) {
@@ -133,14 +137,41 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.ranMilestone2 = true;
 }
 
+void runFloor(const DemandSelector& selector, PipelineResult& result) {
+    result.demandSelection = selectDemand(result.demand.str, selector);
+    result.floorPlan = planFloor(result.segregation, result.join.lines, result.demandSelection,
+                                 result.params, result.trailer);
+    const string ruleText = describeDemandSelector(selector);
+    if (!result.demandSelection.undatedLines.empty()) {
+        LOG_WARN(to_string(result.demandSelection.undatedLines.size())
+                 + " demand line(s) have a date " + ruleText
+                 + " cannot judge and do not count toward the floor");
+    }
+    if (!result.floorPlan.excludedLines.empty()) {
+        LOG_WARN(to_string(result.floorPlan.excludedLines.size())
+                 + " demand line(s) selected by " + ruleText
+                 + " were left out of the floor (listed in section B)");
+    }
+    result.ranFloor = true;
+}
+
+bool isFloorComplete(const PipelineResult& result) {
+    return result.demandSelection.undatedLines.empty() && result.floorPlan.excludedLines.empty();
+}
+
 } // namespace
 
 bool isRunComplete(const PipelineResult& result) {
     if (result.validation.errors > 0) return false;
-    return !result.ranMilestone2 || result.stackReport.isComplete();
+    if (result.ranMilestone2 && !result.stackReport.isComplete()) return false;
+    return !result.ranFloor || isFloorComplete(result);
 }
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {
+    if (inputs.demandSelector && inputs.paramsPath.empty()) {
+        throw runtime_error("a demand rule needs a params file: the floor is planned against "
+                            "its trailer and pallet specs");
+    }
     PipelineResult result;
 
     // ── 1. Read the three input files ───────────────────────────────────────
@@ -194,6 +225,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
 
     // ── 6. Milestone 2: segregate, pass 1, pass 2, stack report ─────────────
     if (!inputs.paramsPath.empty()) runMilestone2(inputs, result);
+
+    // ── 7. Milestone 3: select demand, floor ────────────────────────────────
+    if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
 
     return result;
 }
