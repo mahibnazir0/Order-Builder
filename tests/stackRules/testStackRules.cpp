@@ -11,13 +11,15 @@
 #include <map>
 #include <unordered_set>
 
+using namespace std;
+
 using namespace ob;
 using Reason = StackFeasibility::Reason;
 
 namespace {
 
-const double kNaN = std::numeric_limits<double>::quiet_NaN();
-const double kInf = std::numeric_limits<double>::infinity();
+const double kNaN = numeric_limits<double>::quiet_NaN();
+const double kInf = numeric_limits<double>::infinity();
 constexpr double kCeilingIn = 108.0;
 
 M2Params testParams() {
@@ -165,9 +167,9 @@ TEST_CASE("stackRules: missing pallet ids are exact, distinct, sorted and collec
     spaced.pallet_id = "PTL ";
     ProductRecord unknown = product();
     unknown.pallet_id = "ABC";
-    const std::vector<JoinedLine> lines{matchedLine(good), matchedLine(spaced),
+    const vector<JoinedLine> lines{matchedLine(good), matchedLine(spaced),
                                         matchedLine(unknown), matchedLine(spaced), JoinedLine{}};
-    const std::vector<std::string> expected{"ABC", "PTL "};
+    const vector<string> expected{"ABC", "PTL "};
     CHECK(missingPalletIds(lines, testParams()) == expected);
 }
 
@@ -264,14 +266,14 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
 
     CHECK(missingPalletIds(join.lines, params).empty());
 
-    std::unordered_set<std::string> seenProducts;
-    std::vector<UnitLoad> loads;
+    unordered_set<string> seenProducts;
+    vector<UnitLoad> loads;
     for (const auto& line : join.lines) {
         if (!seenProducts.insert(line.product->id).second) continue;
         loads.push_back(buildUnitLoad(line, params));
     }
 
-    std::size_t pairs = 0, passHeight = 0, passBoth = 0;
+    size_t pairs = 0, passHeight = 0, passBoth = 0;
     for (const auto& base : loads) {
         for (const auto& top : loads) {
             ++pairs;
@@ -288,22 +290,22 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
 namespace {
 
 struct PairPassCounts {
-    std::size_t sampledProducts = 0;
-    std::size_t pairs = 0;
-    std::size_t passHeight = 0;
-    std::size_t passBoth = 0;
+    size_t sampledProducts = 0;
+    size_t pairs = 0;
+    size_t passHeight = 0;
+    size_t passBoth = 0;
 };
 
 // Every Nth distinct demanded product in ID order, then every ordered pair within it.
 // Sorting by ID keeps the sample independent of demand line order.
-PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2Params& params,
-                                 std::size_t everyNth) {
-    std::map<std::string, const JoinedLine*> firstLineByProduct;
+PairPassCounts sampledPairCounts(const vector<JoinedLine>& lines, const M2Params& params,
+                                 size_t everyNth) {
+    map<string, const JoinedLine*> firstLineByProduct;
     for (const auto& line : lines) {
         if (line.product != nullptr) firstLineByProduct.emplace(line.product->id, &line);
     }
-    std::vector<UnitLoad> loads;
-    std::size_t position = 0;
+    vector<UnitLoad> loads;
+    size_t position = 0;
     for (const auto& entry : firstLineByProduct) {
         if (position++ % everyNth == 0) loads.push_back(buildUnitLoad(*entry.second, params));
     }
@@ -323,12 +325,12 @@ PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2P
 } // namespace
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
-    constexpr std::size_t everyNth = 10;
+    constexpr size_t everyNth = 10;
     // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
-    const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<std::size_t> passHeight{484, 625, 484, 841};
-    const crossDayTests::PerDay<std::size_t> passBoth{308, 408, 334, 531};
-    for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
+    const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
+    const crossDayTests::PerDay<size_t> passHeight{484, 625, 484, 841};
+    const crossDayTests::PerDay<size_t> passBoth{308, 408, 334, 531};
+    for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
@@ -338,9 +340,28 @@ TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 i
         CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
         CHECK(counts.passHeight == passHeight[dayIndex]);
         CHECK(counts.passBoth == passBoth[dayIndex]);
-        std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
+        cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs
                   << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';
     }
+}
+
+TEST_CASE("stackRules: a load whose own upper layers outweigh its CRI limit exceeds its own CRI") {
+    CHECK(exceedsOwnCri(load(50.0, 500.0, 300.0, 2), testParams()));
+}
+
+TEST_CASE("stackRules: a load exactly at its own CRI limit does not exceed it") {
+    CHECK_FALSE(exceedsOwnCri(load(50.0, 500.0, 299.0, 2), testParams()));
+}
+
+TEST_CASE("stackRules: a blank CRI has no limit for its own build to exceed") {
+    CHECK_FALSE(exceedsOwnCri(load(50.0, 500.0, 1e6, 0), testParams()));
+}
+
+TEST_CASE("stackRules: a load over its own CRI limit cannot carry even the lightest top") {
+    const UnitLoad base = load(50.0, 500.0, 300.0, 2);
+    const auto result = canStack(base, load(10.0, 0.1, 0.0, 2), testParams(), kCeilingIn);
+    CHECK_FALSE(result.isFeasible);
+    CHECK(result.reason == Reason::CriExceeded);
 }

@@ -11,6 +11,8 @@
 #include <fstream>
 #include <limits>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* DEMAND_PATH  = "tests/importer/Demand-1.json";
@@ -30,8 +32,8 @@ struct Fixture {
     }
 };
 
-int count_rule(const ValidationReport& r, const std::string& rule) {
-    return static_cast<int>(std::count_if(r.issues.begin(), r.issues.end(),
+int count_rule(const ValidationReport& r, const string& rule) {
+    return static_cast<int>(count_if(r.issues.begin(), r.issues.end(),
         [&](const ValidationIssue& i){ return i.rule == rule; }));
 }
 } // namespace
@@ -161,15 +163,15 @@ void checkNonFiniteQuantityIsExcluded(double trans) {
 } // namespace
 
 TEST_CASE("a NaN quantity is an error and the line is excluded") {
-    checkNonFiniteQuantityIsExcluded(std::numeric_limits<double>::quiet_NaN());
+    checkNonFiniteQuantityIsExcluded(numeric_limits<double>::quiet_NaN());
 }
 
 TEST_CASE("an infinite quantity is an error and the line is excluded") {
-    checkNonFiniteQuantityIsExcluded(std::numeric_limits<double>::infinity());
+    checkNonFiniteQuantityIsExcluded(numeric_limits<double>::infinity());
 }
 
 TEST_CASE("a negative infinite quantity is an error and the line is excluded") {
-    checkNonFiniteQuantityIsExcluded(-std::numeric_limits<double>::infinity());
+    checkNonFiniteQuantityIsExcluded(-numeric_limits<double>::infinity());
 }
 
 TEST_CASE("a CS line whose product has Cases_Unit_Load 0 is an error") {
@@ -194,7 +196,7 @@ TEST_CASE("a CS line whose product has Cases_Unit_Load 0 is an error") {
 namespace {
 
 // Line 0 with the given UoM on a product whose Cases_Unit_Load is 0.
-void checkZeroUnitLoadIsExcluded(const std::string& uom) {
+void checkZeroUnitLoadIsExcluded(const string& uom) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -261,7 +263,7 @@ TEST_CASE("a non-finite product weight is an error, not a silently NaN total") {
     REQUIRE(j.lines[0].product != nullptr);
 
     static ProductRecord bad_product = *j.lines[0].product;
-    bad_product.weight_lb = std::nan("");
+    bad_product.weight_lb = nan("");
     j.lines[0].product = &bad_product;
 
     ValidationReport r = Validator::validate(j);
@@ -294,7 +296,7 @@ TEST_CASE("a product weight above the maximum is an invalid_weight error and the
 
     ValidationReport r = Validator::validate(j);
     CHECK(r.invalid_weight == 1);
-    const auto weightIssue = std::find_if(r.issues.begin(), r.issues.end(),
+    const auto weightIssue = find_if(r.issues.begin(), r.issues.end(),
         [](const ValidationIssue& i){ return i.rule == "invalid_weight"; });
     REQUIRE(weightIssue != r.issues.end());
     CHECK(weightIssue->severity == ValidationIssue::Severity::Error);
@@ -344,7 +346,7 @@ TEST_CASE("a product with a NaN length is an invalid_dimension error") {
     REQUIRE(j.lines[0].product != nullptr);
 
     ProductRecord badProduct = *j.lines[0].product;
-    badProduct.length_in = std::nan("");
+    badProduct.length_in = nan("");
 
     ValidationReport r = validateWithFirstProduct(j, badProduct);
     CHECK(r.invalid_dimension == 1);
@@ -357,7 +359,7 @@ TEST_CASE("a product with an infinite width is an invalid_dimension error") {
     REQUIRE(j.lines[0].product != nullptr);
 
     ProductRecord badProduct = *j.lines[0].product;
-    badProduct.width_in = std::numeric_limits<double>::infinity();
+    badProduct.width_in = numeric_limits<double>::infinity();
 
     ValidationReport r = validateWithFirstProduct(j, badProduct);
     CHECK(r.invalid_dimension == 1);
@@ -489,7 +491,7 @@ TEST_CASE("a product with a blank UoM raises blank_uom_product") {
     CHECK(rep.blank_uom_product == 1);
     CHECK(rep.warnings == 1);
     CHECK(rep.errors == 0);
-    CHECK(Validator::excludedLineFlags(rep, 1) == std::vector<bool>{false});
+    CHECK(Validator::excludedLineFlags(rep, 1) == vector<bool>{false});
 }
 
 TEST_CASE("a whitespace-only product UoM also raises blank_uom_product") {
@@ -506,7 +508,7 @@ TEST_CASE("a whitespace-only product UoM also raises blank_uom_product") {
     CHECK(rep.blank_uom_product == 1);
     CHECK(rep.warnings == 1);
     CHECK(rep.errors == 0);
-    CHECK(Validator::excludedLineFlags(rep, 1) == std::vector<bool>{false});
+    CHECK(Validator::excludedLineFlags(rep, 1) == vector<bool>{false});
 }
 
 namespace {
@@ -579,7 +581,7 @@ TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning") {
 }
 
 TEST_CASE("a placeholder with a negative NO_OF_LOADS is an error") {
-    std::vector<PlaceholderRecord> placeholders(1);
+    vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno    = "2023";
     placeholders[0].loctono    = "2528";
     placeholders[0].ship_cond   = "TL";
@@ -597,13 +599,13 @@ TEST_CASE("a placeholder with a negative NO_OF_LOADS is an error") {
 }
 
 TEST_CASE("a placeholder loaded with an unreadable NO_OF_LOADS is flagged by the Validator") {
-    const std::string path = "tests/importer/_tmp_validator_pholder.json";
+    const string path = "tests/importer/_tmp_validator_pholder.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[{"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":"three"}]})";
     }
     const PlaceholderLoadResult loaded = PlaceholderImporter::load(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
 
     ValidationReport r;
     Validator::validate_placeholders(loaded.placeholders, r);
@@ -612,13 +614,13 @@ TEST_CASE("a placeholder loaded with an unreadable NO_OF_LOADS is flagged by the
 }
 
 TEST_CASE("a placeholder loaded with a fractional NO_OF_LOADS is flagged by the Validator") {
-    const std::string path = "tests/importer/_tmp_validator_pholder.json";
+    const string path = "tests/importer/_tmp_validator_pholder.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[{"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":2.9}]})";
     }
     const PlaceholderLoadResult loaded = PlaceholderImporter::load(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
 
     ValidationReport r;
     Validator::validate_placeholders(loaded.placeholders, r);
@@ -626,19 +628,19 @@ TEST_CASE("a placeholder loaded with a fractional NO_OF_LOADS is flagged by the 
 }
 
 TEST_CASE("a product whose Weight cell was unreadable is an invalid_weight error and the line is excluded") {
-    const std::string path = "tests/importer/_tmp_validator_weight.csv";
+    const string path = "tests/importer/_tmp_validator_weight.csv";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
                "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
         out << "T1,Test,10,10,10,5,CS,9500x,4,2,8,TLD\n";
     }
     const ProductLoadResult loaded = ProductImporter::load(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
 
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE_FALSE(demand.str.empty());
-    std::vector<STRRecord> demandLines{demand.str[0]};
+    vector<STRRecord> demandLines{demand.str[0]};
     demandLines[0].matnr = "T1";
 
     const ProductIndex index = Joiner::build_index(loaded.products);
@@ -651,7 +653,7 @@ TEST_CASE("a product whose Weight cell was unreadable is an invalid_weight error
 }
 
 TEST_CASE("a placeholder with NO_OF_LOADS above the maximum is an error") {
-    std::vector<PlaceholderRecord> placeholders(2);
+    vector<PlaceholderRecord> placeholders(2);
     placeholders[0].locfrno     = "2023";
     placeholders[0].loctono     = "2528";
     placeholders[0].ship_cond   = "TL";
@@ -673,7 +675,7 @@ TEST_CASE("a placeholder with NO_OF_LOADS above the maximum is an error") {
 }
 
 TEST_CASE("a placeholder with a blank SHIP_COND is an error and its trucks are excluded") {
-    std::vector<PlaceholderRecord> placeholders(1);
+    vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno     = "2023";
     placeholders[0].loctono     = "2528";
     placeholders[0].ship_cond   = "";
@@ -693,7 +695,7 @@ TEST_CASE("a placeholder with a blank SHIP_COND is an error and its trucks are e
 }
 
 TEST_CASE("a placeholder with an unrecognised SHIP_COND is a warning, not an error") {
-    std::vector<PlaceholderRecord> placeholders(1);
+    vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno     = "2023";
     placeholders[0].loctono     = "2528";
     placeholders[0].ship_cond   = "TX";
@@ -707,7 +709,7 @@ TEST_CASE("a placeholder with an unrecognised SHIP_COND is a warning, not an err
 }
 
 TEST_CASE("a placeholder with a blank lane identifier is an error") {
-    std::vector<PlaceholderRecord> placeholders(1);
+    vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno     = "";
     placeholders[0].loctono     = "2528";
     placeholders[0].ship_cond   = "TL";
@@ -721,7 +723,7 @@ TEST_CASE("a placeholder with a blank lane identifier is an error") {
 }
 
 TEST_CASE("a DNM entry with a blank PLANNER_SNP raises invalid_do_not_mix_pair") {
-    std::vector<DNMRecord> pairs(1);
+    vector<DNMRecord> pairs(1);
     pairs[0].planner_snp = "";
     pairs[0].locfrno     = "2027";
 
@@ -733,7 +735,7 @@ TEST_CASE("a DNM entry with a blank PLANNER_SNP raises invalid_do_not_mix_pair")
 }
 
 TEST_CASE("a DNM entry with a blank LOCFRNO raises invalid_do_not_mix_pair") {
-    std::vector<DNMRecord> pairs(1);
+    vector<DNMRecord> pairs(1);
     pairs[0].planner_snp = "S20";
     pairs[0].locfrno     = " ";
 
@@ -756,15 +758,15 @@ TEST_CASE("the supplied DNM block raises no invalid_do_not_mix_pair") {
 }
 
 namespace {
-std::vector<DNMRecord> doNotMixAt2027() {
-    std::vector<DNMRecord> pairs(1);
+vector<DNMRecord> doNotMixAt2027() {
+    vector<DNMRecord> pairs(1);
     pairs[0].planner_snp = "S20";
     pairs[0].locfrno     = "2027";
     return pairs;
 }
 
-std::vector<STRRecord> oneDemandLine(const std::string& locfrno, const std::string& plannerSnp) {
-    std::vector<STRRecord> lines(1);
+vector<STRRecord> oneDemandLine(const string& locfrno, const string& plannerSnp) {
+    vector<STRRecord> lines(1);
     lines[0].matnr       = "M1";
     lines[0].locfrno     = locfrno;
     lines[0].planner_snp = plannerSnp;
@@ -805,15 +807,15 @@ TEST_CASE("a blank PLANNER_SNP at a do-not-mix site does not exclude the line fr
 }
 
 TEST_CASE("a demand line loaded with a wrong-type PLANNER_SNP at a do-not-mix site is flagged") {
-    const std::string path = "tests/validator/_tmp_str_planner_wrong_type.json";
+    const string path = "tests/validator/_tmp_str_planner_wrong_type.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"REQUEST_ID":"X",)"
                R"("STR":[{"MATNR":"M1","LOCFRNO":"2027","PLANNER_SNP":20}],)"
                R"("DNM":[{"PLANNER_SNP":"S20","LOCFRNO":"2027"}]})";
     }
     const DemandFile demand = Importer::load_demand(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
 
     ValidationReport r;
     Validator::validate_do_not_mix(demand.dnm, demand.str, r);
@@ -831,7 +833,7 @@ TEST_CASE("the supplied fixtures raise no blank_planner_at_do_not_mix_site") {
 }
 
 TEST_CASE("a well-formed placeholder produces no validation issues") {
-    std::vector<PlaceholderRecord> placeholders(1);
+    vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno     = "2023";
     placeholders[0].loctono     = "2528";
     placeholders[0].ship_cond   = "TL";
@@ -846,7 +848,7 @@ TEST_CASE("a well-formed placeholder produces no validation issues") {
 
 TEST_CASE("large-line warning message rounds rather than truncates") {
     Fixture f;
-    std::vector<double> pallets(f.join.lines.size(), 300.97);
+    vector<double> pallets(f.join.lines.size(), 300.97);
 
     ValidationConfig cfg;
     cfg.pallet_warn_threshold = 300.0;
@@ -858,7 +860,7 @@ TEST_CASE("large-line warning message rounds rather than truncates") {
             found = true;
             // 300.97 is meaningfully over threshold; truncating to 300 would
             // hide that.
-            CHECK(issue.message.find("301 pallets") != std::string::npos);
+            CHECK(issue.message.find("301 pallets") != string::npos);
         }
     }
     CHECK(found);
@@ -885,7 +887,7 @@ TEST_CASE("pallet threshold is skipped when no pallet figures are supplied") {
 TEST_CASE("pallet threshold flags large lines as warnings, never errors") {
     Fixture f;
     // Give every line a pallet count above any sane threshold.
-    std::vector<double> pallets(f.join.lines.size(), 500.0);
+    vector<double> pallets(f.join.lines.size(), 500.0);
 
     ValidationConfig cfg;
     cfg.pallet_warn_threshold = 300.0;
@@ -898,7 +900,7 @@ TEST_CASE("pallet threshold flags large lines as warnings, never errors") {
 
 TEST_CASE("pallet threshold is configurable") {
     Fixture f;
-    std::vector<double> pallets(f.join.lines.size(), 100.0);
+    vector<double> pallets(f.join.lines.size(), 100.0);
 
     ValidationConfig low;  low.pallet_warn_threshold  = 50.0;
     ValidationConfig high; high.pallet_warn_threshold = 1000.0;
@@ -916,4 +918,46 @@ TEST_CASE("every issue carries a traceable line index and rule name") {
         REQUIRE_FALSE(i.rule.empty());
         REQUIRE_FALSE(i.message.empty());
     }
+}
+
+TEST_CASE("a CS line for product 106052500, real dimensions but zero case counts, is rejected") {
+    const ProductLoadResult loaded = ProductImporter::load(PRODUCT_PATH);
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "106052500";
+    demandLines[0].unitofmeas = "CS";
+
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    REQUIRE(j.lines[0].product != nullptr);
+    REQUIRE(j.lines[0].product->cases_unit_load == 0);
+
+    const ValidationReport r = Validator::validate(j);
+    CHECK(r.zero_unit_load == 1);
+    CHECK(r.invalid_layer_data == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("a line for a blank shell product row is rejected") {
+    const string path = "tests/importer/_tmp_validator_shell.csv";
+    {
+        ofstream out(path);
+        out << "ID,Product_Master_Available,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+               "SHELL,t,,,,,,,,,,\n";
+    }
+    const ProductLoadResult loaded = ProductImporter::load(path);
+    remove(path.c_str());
+
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "SHELL";
+
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    const ValidationReport r = Validator::validate(j);
+    CHECK(r.errors > 0);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }

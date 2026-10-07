@@ -7,6 +7,8 @@
 #include <numeric>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 namespace {
 
@@ -14,38 +16,38 @@ namespace {
 constexpr double kQuantityEpsilon = 1e-9;
 
 struct Item {
-    std::size_t lineIndex = 0;
+    size_t lineIndex = 0;
     UnitLoad load;
     double quantity = 0.0;
 };
 
-using Order = std::vector<std::size_t>;
+using Order = vector<size_t>;
 
 struct Context {
-    const std::vector<Item>& items;
+    const vector<Item>& items;
     const M2Params& params;
     double ceilingIn;
 };
 
-Order naturalOrder(std::size_t count) {
+Order naturalOrder(size_t count) {
     Order order(count);
-    std::iota(order.begin(), order.end(), std::size_t{0});
+    iota(order.begin(), order.end(), size_t{0});
     return order;
 }
 
 template <typename Less>
-Order sortedOrder(std::size_t count, Less less) {
+Order sortedOrder(size_t count, Less less) {
     Order order = naturalOrder(count);
-    std::stable_sort(order.begin(), order.end(), less);
+    stable_sort(order.begin(), order.end(), less);
     return order;
 }
 
 // Whole-pallet stacking commits whole stacks, so a line must have a pallet left for every
 // level it would occupy; otherwise any remainder can be spread across the chain.
-bool hasPalletForAnotherLevel(const Context& context, const Order& chain, std::size_t top,
-                              const std::vector<double>& remaining) {
+bool hasPalletForAnotherLevel(const Context& context, const Order& chain, size_t top,
+                              const vector<double>& remaining) {
     if (!context.params.stackWholePallets) return remaining[top] > kQuantityEpsilon;
-    const auto levelsHeld = std::count(chain.begin(), chain.end(), top);
+    const auto levelsHeld = count(chain.begin(), chain.end(), top);
     return remaining[top] >= static_cast<double>(levelsHeld + 1);
 }
 
@@ -54,10 +56,10 @@ bool hasPalletForAnotherLevel(const Context& context, const Order& chain, std::s
 // canStack against a copy of that load that already counts the height and weight of
 // everything stacked over it.
 bool canExtendChain(const Context& context, const Order& chain, const UnitLoad& top) {
-    if (chain.size() >= static_cast<std::size_t>(context.params.maxStackHeight)) return false;
+    if (chain.size() >= static_cast<size_t>(context.params.maxStackHeight)) return false;
     double heightAboveIn = 0.0;
     double weightAboveLb = 0.0;
-    for (std::size_t level = chain.size(); level-- > 0;) {
+    for (size_t level = chain.size(); level-- > 0;) {
         const UnitLoad& own = context.items[chain[level]].load;
         UnitLoad carrier = own;
         carrier.heightIn += heightAboveIn;
@@ -75,17 +77,17 @@ bool canExtendChain(const Context& context, const Order& chain, const UnitLoad& 
 StackSet buildWithOrders(const Context& context, StackMethod method,
                          const Order& baseOrder, const Order& topOrder) {
     const auto& items = context.items;
-    std::vector<double> remaining(items.size());
-    for (std::size_t i = 0; i < items.size(); ++i) remaining[i] = items[i].quantity;
+    vector<double> remaining(items.size());
+    for (size_t i = 0; i < items.size(); ++i) remaining[i] = items[i].quantity;
 
     StackSet set;
     set.method = method;
-    for (const std::size_t base : baseOrder) {
+    for (const size_t base : baseOrder) {
         while (remaining[base] > kQuantityEpsilon) {
             Order chain{base};
             for (bool extended = true; extended;) {
                 extended = false;
-                for (const std::size_t top : topOrder) {
+                for (const size_t top : topOrder) {
                     if (hasPalletForAnotherLevel(context, chain, top, remaining)
                         && canExtendChain(context, chain, items[top].load)) {
                         chain.push_back(top);
@@ -95,29 +97,29 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
                 }
             }
 
-            std::vector<std::size_t> timesInChain(items.size(), 0);
-            for (const std::size_t member : chain) ++timesInChain[member];
+            vector<size_t> timesInChain(items.size(), 0);
+            for (const size_t member : chain) ++timesInChain[member];
             double quantity = remaining[base] / static_cast<double>(timesInChain[base]);
-            std::size_t limiting = base;
-            for (const std::size_t member : chain) {
+            size_t limiting = base;
+            for (const size_t member : chain) {
                 const double fits = remaining[member] / static_cast<double>(timesInChain[member]);
                 if (fits < quantity) { quantity = fits; limiting = member; }
             }
-            if (context.params.stackWholePallets) quantity = std::floor(quantity);
+            if (context.params.stackWholePallets) quantity = floor(quantity);
             double stackWeightLb = 0.0;
-            for (const std::size_t member : chain) {
+            for (const size_t member : chain) {
                 remaining[member] -= quantity;
                 stackWeightLb += items[member].load.weightLb;
             }
             // Zeroing the limiting line stops fractional residue from looping forever. Whole
             // quantities subtract exactly, and flooring can leave the limiting line a pallet.
-            for (const std::size_t member : chain) {
+            for (const size_t member : chain) {
                 const bool exhausted = remaining[member] <= kQuantityEpsilon
                     || (member == limiting && !context.params.stackWholePallets);
                 if (exhausted) remaining[member] = 0.0;
             }
             set.floorPositions += quantity;
-            set.heaviestStackLb = std::max(set.heaviestStackLb, stackWeightLb);
+            set.heaviestStackLb = max(set.heaviestStackLb, stackWeightLb);
             set.stacks.push_back(BuiltStack{std::move(chain), quantity});
         }
     }
@@ -126,10 +128,10 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
 
 StackSet runMethod(const Context& context, StackMethod method) {
     const auto& items = context.items;
-    const std::size_t count = items.size();
-    const auto weightOf = [&](std::size_t i) { return items[i].load.weightLb; };
-    const auto heightOf = [&](std::size_t i) { return items[i].load.heightIn; };
-    const auto criOf = [&](std::size_t i) { return items[i].load.cri; };
+    const size_t count = items.size();
+    const auto weightOf = [&](size_t i) { return items[i].load.weightLb; };
+    const auto heightOf = [&](size_t i) { return items[i].load.heightIn; };
+    const auto criOf = [&](size_t i) { return items[i].load.cri; };
 
     switch (method) {
     case StackMethod::Natural:
@@ -137,22 +139,22 @@ StackSet runMethod(const Context& context, StackMethod method) {
     case StackMethod::Target:
         // Fill toward the ceiling: the tallest load that still fits goes on top.
         return buildWithOrders(context, method, naturalOrder(count),
-                               sortedOrder(count, [&](std::size_t a, std::size_t b) {
+                               sortedOrder(count, [&](size_t a, size_t b) {
                                    return heightOf(a) > heightOf(b); }));
     case StackMethod::TallAndHeavy:
         // Heavy, tall loads carry; the shortest loads ride on top.
         return buildWithOrders(context, method,
-                               sortedOrder(count, [&](std::size_t a, std::size_t b) {
+                               sortedOrder(count, [&](size_t a, size_t b) {
                                    return weightOf(a) != weightOf(b) ? weightOf(a) > weightOf(b)
                                                                      : heightOf(a) > heightOf(b); }),
-                               sortedOrder(count, [&](std::size_t a, std::size_t b) {
+                               sortedOrder(count, [&](size_t a, size_t b) {
                                    return heightOf(a) < heightOf(b); }));
     case StackMethod::BaseAndTop:
         // Strongest crush rating carries; the lightest loads ride on top.
         return buildWithOrders(context, method,
-                               sortedOrder(count, [&](std::size_t a, std::size_t b) {
+                               sortedOrder(count, [&](size_t a, size_t b) {
                                    return criOf(a) > criOf(b); }),
-                               sortedOrder(count, [&](std::size_t a, std::size_t b) {
+                               sortedOrder(count, [&](size_t a, size_t b) {
                                    return weightOf(a) < weightOf(b); }));
     case StackMethod::TryHard:
         break;
@@ -161,7 +163,7 @@ StackSet runMethod(const Context& context, StackMethod method) {
 }
 
 bool isBetter(const StackSet& candidate, const StackSet& incumbent, bool weightBound) {
-    if (std::abs(candidate.floorPositions - incumbent.floorPositions) > kQuantityEpsilon) {
+    if (abs(candidate.floorPositions - incumbent.floorPositions) > kQuantityEpsilon) {
         return candidate.floorPositions < incumbent.floorPositions;
     }
     return weightBound && candidate.heaviestStackLb < incumbent.heaviestStackLb;
@@ -169,15 +171,15 @@ bool isBetter(const StackSet& candidate, const StackSet& incumbent, bool weightB
 
 // Try Hard re-runs Base & Top ordering from several rotated starting bases, up to the
 // configured attempt cap, and keeps the best. Deterministic, so results are repeatable.
-StackSet runTryHard(const Context& context, std::size_t attempts, bool weightBound) {
+StackSet runTryHard(const Context& context, size_t attempts, bool weightBound) {
     const auto& items = context.items;
-    const std::size_t count = items.size();
-    const Order tops = sortedOrder(count, [&](std::size_t a, std::size_t b) {
+    const size_t count = items.size();
+    const Order tops = sortedOrder(count, [&](size_t a, size_t b) {
         return items[a].load.weightLb < items[b].load.weightLb; });
     StackSet best;
-    for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
+    for (size_t attempt = 0; attempt < attempts; ++attempt) {
         Order bases = naturalOrder(count);
-        std::rotate(bases.begin(), bases.begin() + static_cast<std::ptrdiff_t>(
+        rotate(bases.begin(), bases.begin() + static_cast<ptrdiff_t>(
                         (attempt + 1) * count / (attempts + 1)), bases.end());
         StackSet candidate = buildWithOrders(context, StackMethod::TryHard, bases, tops);
         if (attempt == 0 || isBetter(candidate, best, weightBound)) best = std::move(candidate);
@@ -185,32 +187,32 @@ StackSet runTryHard(const Context& context, std::size_t attempts, bool weightBou
     return best;
 }
 
-void requireAlignedInputs(const SegregationResult& segregation, const std::vector<JoinedLine>& lines,
-                          const std::vector<double>& palletsPerLine, const BindingResult& binding,
+void requireAlignedInputs(const SegregationResult& segregation, const vector<JoinedLine>& lines,
+                          const vector<double>& palletsPerLine, const BindingResult& binding,
                           const TrailerSpec& trailer) {
-    if (!std::isfinite(trailer.stackHeightCeilingIn) || trailer.stackHeightCeilingIn <= 0.0) {
-        throw std::invalid_argument("stackBuilder: trailer stackHeightCeilingIn must be positive");
+    if (!isfinite(trailer.stackHeightCeilingIn) || trailer.stackHeightCeilingIn <= 0.0) {
+        throw invalid_argument("stackBuilder: trailer stackHeightCeilingIn must be positive");
     }
     if (palletsPerLine.size() != lines.size()) {
-        throw std::invalid_argument("stackBuilder: pallet vector does not match the joined lines");
+        throw invalid_argument("stackBuilder: pallet vector does not match the joined lines");
     }
     if (binding.groups.size() != segregation.groups.size()) {
-        throw std::invalid_argument("stackBuilder: binding results do not match the groups");
+        throw invalid_argument("stackBuilder: binding results do not match the groups");
     }
 }
 
 } // namespace
 
 double stackedPalletsForLine(double palletEquivalents, const M2Params& params) {
-    return params.stackWholePallets ? std::ceil(palletEquivalents - kQuantityEpsilon) : palletEquivalents;
+    return params.stackWholePallets ? ceil(palletEquivalents - kQuantityEpsilon) : palletEquivalents;
 }
 
-std::vector<bool> stackedLineFlags(const StackingResult& stacking, std::size_t lineCount) {
-    std::vector<bool> stacked(lineCount, false);
+vector<bool> stackedLineFlags(const StackingResult& stacking, size_t lineCount) {
+    vector<bool> stacked(lineCount, false);
     for (const auto& group : stacking.groups) {
         for (const auto& stack : group.best.stacks) {
             if (stack.quantity <= 0.0) continue;
-            for (const std::size_t lineIndex : stack.lineIndices) {
+            for (const size_t lineIndex : stack.lineIndices) {
                 if (lineIndex < lineCount) stacked[lineIndex] = true;
             }
         }
@@ -219,8 +221,8 @@ std::vector<bool> stackedLineFlags(const StackingResult& stacking, std::size_t l
 }
 
 StackingResult buildStacks(const SegregationResult& segregation,
-                           const std::vector<JoinedLine>& lines,
-                           const std::vector<double>& palletsPerLine,
+                           const vector<JoinedLine>& lines,
+                           const vector<double>& palletsPerLine,
                            const BindingResult& binding,
                            const M2Params& params,
                            const TrailerSpec& trailer) {
@@ -228,15 +230,15 @@ StackingResult buildStacks(const SegregationResult& segregation,
 
     StackingResult result;
     result.groups.reserve(segregation.groups.size());
-    for (std::size_t groupIndex = 0; groupIndex < segregation.groups.size(); ++groupIndex) {
-        std::vector<Item> items;
+    for (size_t groupIndex = 0; groupIndex < segregation.groups.size(); ++groupIndex) {
+        vector<Item> items;
         items.reserve(segregation.groups[groupIndex].lineIndices.size());
-        for (const std::size_t lineIndex : segregation.groups[groupIndex].lineIndices) {
+        for (const size_t lineIndex : segregation.groups[groupIndex].lineIndices) {
             if (lineIndex >= lines.size()) {
-                throw std::invalid_argument("stackBuilder: group line index out of range");
+                throw invalid_argument("stackBuilder: group line index out of range");
             }
             const double quantity = palletsPerLine[lineIndex];
-            if (!std::isfinite(quantity) || quantity < 0.0) {
+            if (!isfinite(quantity) || quantity < 0.0) {
                 result.invalidQuantityLines.push_back(lineIndex);
                 continue;
             }
@@ -254,24 +256,25 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }
+            if (exceedsOwnCri(load, params)) result.ownCriExceededLines.push_back(lineIndex);
             items.push_back(Item{lineIndex, std::move(load), stackedQuantity});
         }
 
         const Context context{items, params, trailer.stackHeightCeilingIn};
         const bool weightBound = binding.groups[groupIndex].binding == BindingConstraint::Weight;
-        std::vector<StackSet> candidates;
+        vector<StackSet> candidates;
         for (const StackMethod method : {StackMethod::Natural, StackMethod::Target,
                                          StackMethod::TallAndHeavy, StackMethod::BaseAndTop}) {
             candidates.push_back(runMethod(context, method));
         }
         if (params.pass2AttemptCap > 0) {
-            candidates.push_back(runTryHard(context, static_cast<std::size_t>(params.pass2AttemptCap),
+            candidates.push_back(runTryHard(context, static_cast<size_t>(params.pass2AttemptCap),
                                             weightBound));
         }
 
         GroupStacking group;
-        std::size_t bestIndex = 0;
-        for (std::size_t i = 0; i < candidates.size(); ++i) {
+        size_t bestIndex = 0;
+        for (size_t i = 0; i < candidates.size(); ++i) {
             group.outcomes.push_back({candidates[i].method, candidates[i].floorPositions});
             if (isBetter(candidates[i], candidates[bestIndex], weightBound)) bestIndex = i;
         }

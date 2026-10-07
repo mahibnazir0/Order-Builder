@@ -3,15 +3,17 @@
 #include <cmath>
 #include <set>
 
+using namespace std;
+
 namespace ob {
 namespace {
 
-bool isPositiveFinite(double value) noexcept { return std::isfinite(value) && value > 0.0; }
+bool isPositiveFinite(double value) noexcept { return isfinite(value) && value > 0.0; }
 
-bool isNonNegativeFinite(double value) noexcept { return std::isfinite(value) && value >= 0.0; }
+bool isNonNegativeFinite(double value) noexcept { return isfinite(value) && value >= 0.0; }
 
 bool isCriInRange(int cri, const M2Params& params) noexcept {
-    return cri >= 0 && static_cast<std::size_t>(cri) < params.cri.safeLimitLb.size();
+    return cri >= 0 && static_cast<size_t>(cri) < params.cri.safeLimitLb.size();
 }
 
 bool isStackableData(const UnitLoad& load, const M2Params& params) noexcept {
@@ -32,7 +34,7 @@ bool isBuildableProduct(const ProductRecord& product, const PalletSpec& pallet,
 } // namespace
 
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
-                       std::optional<double> suppliedWeightAboveLb) {
+                       optional<double> suppliedWeightAboveLb) {
     UnitLoad load;
     if (!line.matched || line.product == nullptr) {
         load.error = UnitLoadError::MissingProduct;
@@ -59,24 +61,29 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
     load.weightLb = product.weight_lb * product.cases_unit_load + pallet->addedWeightLb;
     load.ownWeightAboveLb = suppliedWeightAboveLb.value_or(
         static_cast<double>(product.layers_unit_load - 1) * product.cases_layer * product.weight_lb);
-    if (!std::isfinite(load.heightIn) || !std::isfinite(load.weightLb)
-        || !std::isfinite(load.ownWeightAboveLb)) {
+    if (!isfinite(load.heightIn) || !isfinite(load.weightLb)
+        || !isfinite(load.ownWeightAboveLb)) {
         load.error = UnitLoadError::InvalidData;
     }
     return load;
 }
 
-std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
+vector<string> missingPalletIds(const vector<JoinedLine>& lines,
                                           const M2Params& params) {
-    std::set<std::string> palletIds;
+    set<string> palletIds;
     for (const auto& line : lines) {
         if (line.matched && line.product != nullptr) palletIds.insert(line.product->pallet_id);
     }
-    std::vector<std::string> missing;
+    vector<string> missing;
     for (const auto& palletId : palletIds) {
         if (palletSpecFor(params, palletId) == nullptr) missing.push_back(palletId);
     }
     return missing;
+}
+
+bool exceedsOwnCri(const UnitLoad& load, const M2Params& params) noexcept {
+    if (load.cri <= 0 || !isCriInRange(load.cri, params)) return false;
+    return load.ownWeightAboveLb > params.cri.safeLimitLb[static_cast<size_t>(load.cri)];
 }
 
 StackFeasibility canStack(const UnitLoad& base, const UnitLoad& top,
@@ -96,7 +103,7 @@ StackFeasibility canStack(const UnitLoad& base, const UnitLoad& top,
         if (!params.blankCriIsStackable) return {false, Reason::BlankCri, 0.0};
         return {true, Reason::Ok, ceilingIn - combinedHeightIn};
     }
-    const double safeLimitLb = params.cri.safeLimitLb[static_cast<std::size_t>(base.cri)];
+    const double safeLimitLb = params.cri.safeLimitLb[static_cast<size_t>(base.cri)];
     if (weightAboveLb > safeLimitLb) return {false, Reason::CriExceeded, weightAboveLb - safeLimitLb};
     return {true, Reason::Ok, ceilingIn - combinedHeightIn};
 }

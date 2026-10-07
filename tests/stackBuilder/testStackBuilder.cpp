@@ -11,12 +11,14 @@
 #include <limits>
 #include <map>
 
+using namespace std;
+
 using namespace ob;
 
 namespace {
 
-const double kNaN = std::numeric_limits<double>::quiet_NaN();
-const double kInf = std::numeric_limits<double>::infinity();
+const double kNaN = numeric_limits<double>::quiet_NaN();
+const double kInf = numeric_limits<double>::infinity();
 
 M2Params testParams() {
     M2Params params;
@@ -36,7 +38,7 @@ TrailerSpec trailer() {
 }
 
 // One case per layer and one layer, so height and weight are the given case figures.
-ProductRecord product(const std::string& id, double heightIn, double weightLb, int cri) {
+ProductRecord product(const string& id, double heightIn, double weightLb, int cri) {
     ProductRecord record;
     record.id = id;
     record.height_in = heightIn;
@@ -51,11 +53,11 @@ ProductRecord product(const std::string& id, double heightIn, double weightLb, i
 
 // Products must outlive the lines that point at them.
 struct Scenario {
-    std::vector<ProductRecord> products;
-    std::vector<JoinedLine> lines;
-    std::vector<double> pallets;
+    vector<ProductRecord> products;
+    vector<JoinedLine> lines;
+    vector<double> pallets;
 
-    Scenario(std::vector<ProductRecord> productList, std::vector<double> quantities)
+    Scenario(vector<ProductRecord> productList, vector<double> quantities)
         : products(std::move(productList)), pallets(std::move(quantities)) {
         for (const auto& record : products) {
             JoinedLine line;
@@ -68,7 +70,7 @@ struct Scenario {
     StackingResult build(const M2Params& params = testParams()) const {
         SegregationResult segregation;
         SegregatedGroup group;
-        for (std::size_t i = 0; i < lines.size(); ++i) group.lineIndices.push_back(i);
+        for (size_t i = 0; i < lines.size(); ++i) group.lineIndices.push_back(i);
         segregation.groups.push_back(group);
         BindingResult binding;
         binding.groups.resize(1);
@@ -176,9 +178,9 @@ TEST_CASE("stackBuilder: a middle load must carry everything above it, not only 
     Scenario scenario({product("Weak", 20, 50, 2), product("Load", 20, 200, 9)}, {1, 2});
     const auto result = scenario.build();
     for (const auto& stack : result.groups[0].best.stacks) {
-        std::size_t loadsOnWeak = 0;
+        size_t loadsOnWeak = 0;
         bool sawWeak = false;
-        for (const std::size_t member : stack.lineIndices) {
+        for (const size_t member : stack.lineIndices) {
             if (sawWeak && member == 1) ++loadsOnWeak;
             if (member == 0) sawWeak = true;
         }
@@ -194,13 +196,13 @@ TEST_CASE("stackBuilder: every pallet is placed exactly once") {
         M2Params params = testParams();
         params.stackWholePallets = wholePallets;
         const auto result = scenario.build(params);
-        std::map<std::size_t, double> placed;
+        map<size_t, double> placed;
         for (const auto& stack : result.groups[0].best.stacks) {
-            if (wholePallets) CHECK(stack.quantity == std::floor(stack.quantity));
-            for (const std::size_t member : stack.lineIndices) placed[member] += stack.quantity;
+            if (wholePallets) CHECK(stack.quantity == floor(stack.quantity));
+            for (const size_t member : stack.lineIndices) placed[member] += stack.quantity;
         }
-        for (std::size_t i = 0; i < scenario.pallets.size(); ++i) {
-            const double expected = wholePallets ? std::ceil(scenario.pallets[i]) : scenario.pallets[i];
+        for (size_t i = 0; i < scenario.pallets.size(); ++i) {
+            const double expected = wholePallets ? ceil(scenario.pallets[i]) : scenario.pallets[i];
             CHECK(placed[i] == doctest::Approx(expected));
         }
     }
@@ -220,7 +222,7 @@ TEST_CASE("stackBuilder: stacked line flags mark exactly the lines that sit in a
     Scenario scenario({product("A", 30, 10, 9), product("B", 30, 10, 9), product("C", 200, 10, 9)},
                       {2, 0, 1});
     const auto result = scenario.build();
-    CHECK(stackedLineFlags(result, 3) == std::vector<bool>{true, false, false});
+    CHECK(stackedLineFlags(result, 3) == vector<bool>{true, false, false});
 }
 
 // Worked example 4 in docs/m2BusinessRules.md: the five methods on one 4-pallet group,
@@ -239,8 +241,8 @@ TEST_CASE("stackBuilder: documented worked example gives each method's floor pos
     CHECK(outcomeFor(group, StackMethod::TryHard) == 3.0);
     CHECK(group.best.method == StackMethod::BaseAndTop);
     REQUIRE(group.best.stacks.size() == 2);
-    CHECK(group.best.stacks[0].lineIndices == std::vector<std::size_t>{0, 2});
-    CHECK(group.best.stacks[1].lineIndices == std::vector<std::size_t>{3, 1});
+    CHECK(group.best.stacks[0].lineIndices == vector<size_t>{0, 2});
+    CHECK(group.best.stacks[1].lineIndices == vector<size_t>{3, 1});
 }
 
 TEST_CASE("stackBuilder: results are repeatable") {
@@ -271,8 +273,8 @@ TEST_CASE("stackBuilder: zero, negative and non-finite quantities are reported b
     Scenario scenario({product("A", 30, 10, 9), product("B", 30, 10, 9), product("C", 30, 10, 9),
                        product("D", 30, 10, 9), product("E", 30, 10, 9)}, {0, -1, kNaN, kInf, 2});
     const auto result = scenario.build();
-    CHECK(result.zeroQuantityLines == std::vector<std::size_t>{0});
-    CHECK(result.invalidQuantityLines == std::vector<std::size_t>{1, 2, 3});
+    CHECK(result.zeroQuantityLines == vector<size_t>{0});
+    CHECK(result.invalidQuantityLines == vector<size_t>{1, 2, 3});
     CHECK(result.linesNotStacked() == 4);
     CHECK(result.excludedLines.empty());
     CHECK(result.groups[0].best.floorPositions > 0.0);
@@ -294,10 +296,10 @@ TEST_CASE("stackBuilder: a single load taller than the ceiling is reported, not 
         M2Params params = testParams();
         params.maxStackHeight = maxStackHeight;
         const auto result = scenario.build(params);
-        CHECK(result.overHeightLines == std::vector<std::size_t>{0});
+        CHECK(result.overHeightLines == vector<size_t>{0});
         CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
         for (const auto& stack : result.groups[0].best.stacks) {
-            CHECK(std::find(stack.lineIndices.begin(), stack.lineIndices.end(), 0u)
+            CHECK(find(stack.lineIndices.begin(), stack.lineIndices.end(), 0u)
                   == stack.lineIndices.end());
         }
     }
@@ -309,7 +311,7 @@ TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height") 
     Scenario scenario({product("DECKED", 105, 10, 9)}, {1});
     scenario.products[0].pallet_id = "PTL";
     const auto result = scenario.build(params);
-    CHECK(result.overHeightLines == std::vector<std::size_t>{0});
+    CHECK(result.overHeightLines == vector<size_t>{0});
     CHECK(result.groups[0].best.stacks.empty());
 }
 
@@ -330,15 +332,15 @@ TEST_CASE("stackBuilder: caller bugs are rejected") {
     for (double badCeiling : {0.0, -1.0, kNaN, kInf}) {
         badTrailer.stackHeightCeilingIn = badCeiling;
         CHECK_THROWS_AS(buildStacks(segregation, scenario.lines, scenario.pallets, binding,
-                                    testParams(), badTrailer), std::invalid_argument);
+                                    testParams(), badTrailer), invalid_argument);
     }
     CHECK_THROWS_AS(buildStacks(segregation, scenario.lines, {}, binding, testParams(), trailer()),
-                    std::invalid_argument);
+                    invalid_argument);
     CHECK_THROWS_AS(buildStacks(segregation, scenario.lines, scenario.pallets, BindingResult{},
-                                testParams(), trailer()), std::invalid_argument);
+                                testParams(), trailer()), invalid_argument);
     segregation.groups[0].lineIndices = {5};
     CHECK_THROWS_AS(buildStacks(segregation, scenario.lines, scenario.pallets, binding,
-                                testParams(), trailer()), std::invalid_argument);
+                                testParams(), trailer()), invalid_argument);
 }
 
 TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget") {
@@ -350,27 +352,27 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
     const M2Params params = loadParams("config/orderBuilderParams.json");
     const TrailerSpec& trailerSpec = params.trailers[0];
     const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
-                                       std::vector<bool>(run.join.lines.size(), false));
+                                       vector<bool>(run.join.lines.size(), false));
     const auto binding = assessBinding(segregation, run.pallets_per_line, run.weight_per_line, trailerSpec);
 
-    const auto started = std::chrono::steady_clock::now();
+    const auto started = chrono::steady_clock::now();
     const auto result = buildStacks(segregation, run.join.lines, run.pallets_per_line, binding,
                                     params, trailerSpec);
-    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    const double seconds = chrono::duration<double>(chrono::steady_clock::now() - started).count();
     CHECK(seconds < 10.0);
 
     REQUIRE(result.groups.size() == segregation.groups.size());
-    for (std::size_t g = 0; g < result.groups.size(); ++g) {
+    for (size_t g = 0; g < result.groups.size(); ++g) {
         double lineTotal = 0.0;
-        for (const std::size_t i : segregation.groups[g].lineIndices) lineTotal += std::ceil(run.pallets_per_line[i]);
+        for (const size_t i : segregation.groups[g].lineIndices) lineTotal += ceil(run.pallets_per_line[i]);
         const auto& best = result.groups[g].best;
         double stacked = 0.0;
         for (const auto& stack : best.stacks) {
             stacked += stack.quantity * static_cast<double>(stack.lineIndices.size());
-            CHECK(stack.quantity == std::floor(stack.quantity));
-            CHECK(stack.lineIndices.size() <= static_cast<std::size_t>(params.maxStackHeight));
+            CHECK(stack.quantity == floor(stack.quantity));
+            CHECK(stack.lineIndices.size() <= static_cast<size_t>(params.maxStackHeight));
             double heightIn = 0.0;
-            for (const std::size_t member : stack.lineIndices) {
+            for (const size_t member : stack.lineIndices) {
                 const auto load = buildUnitLoad(run.join.lines[member], params);
                 heightIn += load.heightIn;
             }
@@ -382,4 +384,20 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
             CHECK(best.floorPositions <= outcome.floorPositions + 1e-9);
         }
     }
+}
+
+TEST_CASE("stackBuilder: a product over its own CRI limit is warned about and still ships single-high") {
+    ProductRecord overBuilt = product("OVERBUILT", 30, 400, 2);
+    overBuilt.layers_unit_load = 2;
+    Scenario scenario({overBuilt}, {2});
+    const auto result = scenario.build();
+    CHECK(result.ownCriExceededLines == vector<size_t>{0});
+    CHECK(result.linesNotStacked() == 0);
+    CHECK(stackedLineFlags(result, 1)[0]);
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
+}
+
+TEST_CASE("stackBuilder: a product within its own CRI limit raises no warning") {
+    Scenario scenario({product("A", 30, 10, 9)}, {2});
+    CHECK(scenario.build().ownCriExceededLines.empty());
 }

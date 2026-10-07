@@ -8,6 +8,8 @@
 #include <fstream>
 #include <stdexcept>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* PH_PATH = "tests/importer/PlaceHolder-1.json";
@@ -66,52 +68,52 @@ TEST_CASE("every entry requests at least one truck") {
 
 TEST_CASE("lane triplets are unique — no de-dup needed") {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
-    std::vector<std::string> keys;
+    vector<string> keys;
     keys.reserve(r.placeholders.size());
     for (const auto& p : r.placeholders) {
         keys.push_back(p.locfrno + "|" + p.loctono + "|" + p.ship_cond);
     }
-    std::sort(keys.begin(), keys.end());
-    CHECK(std::adjacent_find(keys.begin(), keys.end()) == keys.end());
+    sort(keys.begin(), keys.end());
+    CHECK(adjacent_find(keys.begin(), keys.end()) == keys.end());
 }
 
 TEST_CASE("missing file throws, does not crash") {
-    CHECK_THROWS_AS(PlaceholderImporter::load("does/not/exist.json"), std::runtime_error);
+    CHECK_THROWS_AS(PlaceholderImporter::load("does/not/exist.json"), runtime_error);
 }
 
 TEST_CASE("PHOLDER present but the wrong JSON type throws") {
-    const std::string path = "tests/importer/_tmp_pholder_wrong_type.json";
+    const string path = "tests/importer/_tmp_pholder_wrong_type.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":{"LOCFRNO":"2023"}})";
     }
-    CHECK_THROWS_AS(PlaceholderImporter::load(path), std::runtime_error);
-    std::remove(path.c_str());
+    CHECK_THROWS_AS(PlaceholderImporter::load(path), runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
-    const std::string path = "tests/importer/_tmp_pholder_absent.json";
+    const string path = "tests/importer/_tmp_pholder_absent.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({})";
     }
     PlaceholderLoadResult r = PlaceholderImporter::load(path);
     CHECK(r.placeholders.empty());
     CHECK(r.total_loads == 0);
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
 namespace {
 
 // Loads a one-entry placeholder file whose entry is the given JSON object text.
-PlaceholderLoadResult loadOnePlaceholder(const std::string& entryJson) {
-    const std::string path = "tests/importer/_tmp_pholder_entry.json";
+PlaceholderLoadResult loadOnePlaceholder(const string& entryJson) {
+    const string path = "tests/importer/_tmp_pholder_entry.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[)" << entryJson << "]}";
     }
     PlaceholderLoadResult result = PlaceholderImporter::load(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
     return result;
 }
 
@@ -148,14 +150,14 @@ TEST_CASE("the unreadable sentinel is left out of total_loads") {
 
 TEST_CASE("a NO_OF_LOADS above the maximum is left out of total_loads") {
     const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
-                                      + std::to_string(kMaxLoadsPerPlaceholder + 1) + "}");
+                                      + to_string(kMaxLoadsPerPlaceholder + 1) + "}");
     REQUIRE(r.placeholders.size() == 1);
     CHECK(r.total_loads == 0);
 }
 
 TEST_CASE("a NO_OF_LOADS of exactly the maximum is still counted in total_loads") {
     const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
-                                      + std::to_string(kMaxLoadsPerPlaceholder) + "}");
+                                      + to_string(kMaxLoadsPerPlaceholder) + "}");
     CHECK(r.total_loads == kMaxLoadsPerPlaceholder);
 }
 
@@ -194,34 +196,63 @@ TEST_CASE("a whole-number float NO_OF_LOADS loads as that count") {
 }
 
 TEST_CASE("a NO_OF_LOADS too large for a double is rejected at load as a runtime_error") {
-    const std::string path = "tests/importer/_tmp_pholder_overflow.json";
+    const string path = "tests/importer/_tmp_pholder_overflow.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":1e999}]})";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path), doctest::Contains("number overflow"),
-                         std::runtime_error);
-    std::remove(path.c_str());
+                         runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("a placeholder file whose root is an array throws instead of loading as empty") {
-    const std::string path = "tests/importer/_tmp_ph_root_array.json";
+    const string path = "tests/importer/_tmp_ph_root_array.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"([{"PHOLDER":[]}])";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
-                         doctest::Contains("root must be a JSON object"), std::runtime_error);
-    std::remove(path.c_str());
+                         doctest::Contains("root must be a JSON object"), runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("a placeholder file whose root is a number throws instead of loading as empty") {
-    const std::string path = "tests/importer/_tmp_ph_root_number.json";
+    const string path = "tests/importer/_tmp_ph_root_number.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << "42";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
-                         doctest::Contains("root must be a JSON object"), std::runtime_error);
-    std::remove(path.c_str());
+                         doctest::Contains("root must be a JSON object"), runtime_error);
+    remove(path.c_str());
+}
+
+namespace {
+
+PlaceholderLoadResult loadPlaceholderEntries(const string& entriesJson) {
+    const string path = "tests/importer/_tmp_pholder_entries.json";
+    {
+        ofstream out(path);
+        out << R"({"PHOLDER":[)" << entriesJson << "]}";
+    }
+    PlaceholderLoadResult result = PlaceholderImporter::load(path);
+    remove(path.c_str());
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("repeated placeholder lanes are counted and their trucks summed, not overwritten") {
+    const auto loaded = loadPlaceholderEntries(
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":2},)"
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":3},)"
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TF","NO_OF_LOADS":1})");
+    CHECK(loaded.placeholders.size() == 3);
+    CHECK(loaded.duplicateLaneEntries == 1);
+    CHECK(loaded.total_loads == 6);
+}
+
+TEST_CASE("the 17 Aug placeholder file repeats no lane") {
+    CHECK(PlaceholderImporter::load(PH_PATH).duplicateLaneEntries == 0);
 }

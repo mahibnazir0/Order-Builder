@@ -56,6 +56,7 @@ struct StackReport {
     std::size_t overHeightLines = 0;
     std::size_t invalidQuantityLines = 0;
     std::size_t zeroQuantityLines = 0;
+    std::size_t ownCriExceededLines = 0;   // a warning: these lines are still stacked
     std::size_t linesNotStacked = 0;
     // Demand lines reached M2 and yet no stack was built, e.g. every line converted to 0 pallets.
     bool builtNoStacks = false;
