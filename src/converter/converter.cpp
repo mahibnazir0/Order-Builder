@@ -58,13 +58,14 @@ double Converter::to_pallets(double trans,
     return 0.0;
 }
 
-double Converter::to_weight_lb(double pallets, const ProductRecord& product) {
+double Converter::to_weight_lb(double pallets, const ProductRecord& product,
+                               const std::vector<PalletSpec>& palletSpecs) {
     // Weight in the master is per CASE, so a unit load is the case weight
     // times the number of cases on it.
     const double unit_load_lb =
         product.weight_lb * static_cast<double>(product.cases_unit_load);
 
-    const PalletSpec* pallet = palletSpecFor(confirmedPalletSpecs(), product.pallet_id);
+    const PalletSpec* pallet = palletSpecFor(palletSpecs, product.pallet_id);
     const double palletAddedWeightLb = pallet != nullptr ? pallet->addedWeightLb : 0.0;
 
     return pallets * (unit_load_lb + palletAddedWeightLb);

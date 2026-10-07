@@ -101,11 +101,14 @@ std::vector<UnstackedLine> unstackedLines(const PipelineResult& result, const Tr
 }
 
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
-    result.params = loadParams(inputs.paramsPath);
-    if (result.params.trailers.empty()) throw std::runtime_error("params file lists no trailers");
-    result.trailer = inputs.trailerCode.empty()
-        ? result.params.trailers.front()
-        : selectTrailer(result.params.trailers, result.params.sourcePath, inputs.trailerCode);
+    if (inputs.trailerCode.empty()) {
+        result.trailer = largestTrailer(result.params.trailers, result.params.sourcePath);
+        result.trailerChoice = TrailerChoice::Largest;
+    } else {
+        result.trailer =
+            selectTrailer(result.params.trailers, result.params.sourcePath, inputs.trailerCode);
+        result.trailerChoice = TrailerChoice::Named;
+    }
     const TrailerSpec& trailer = result.trailer;
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
@@ -137,11 +140,21 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.ranMilestone2 = true;
 }
 
+// Non-empty demand of which the rule took nothing is far more often a mistyped planning date
+// than a day with nothing to ship, so it never reads as a complete run.
+bool selectsNothing(const PipelineResult& result) {
+    return !result.demand.str.empty() && result.demandSelection.selectedLines == 0;
+}
+
 void runFloor(const DemandSelector& selector, PipelineResult& result) {
     result.demandSelection = selectDemand(result.demand.str, selector);
     result.floorPlan = planFloor(result.segregation, result.join.lines, result.demandSelection,
                                  result.params, result.trailer);
     const string ruleText = describeDemandSelector(selector);
+    if (selectsNothing(result)) {
+        LOG_WARN(ruleText + " selected none of the " + to_string(result.demand.str.size())
+                 + " demand line(s); check the planning date");
+    }
     if (!result.demandSelection.undatedLines.empty()) {
         LOG_WARN(to_string(result.demandSelection.undatedLines.size())
                  + " demand line(s) have a date " + ruleText
@@ -156,7 +169,8 @@ void runFloor(const DemandSelector& selector, PipelineResult& result) {
 }
 
 bool isFloorComplete(const PipelineResult& result) {
-    return result.demandSelection.undatedLines.empty() && result.floorPlan.excludedLines.empty();
+    return !selectsNothing(result) && result.demandSelection.undatedLines.empty()
+        && result.floorPlan.excludedLines.empty();
 }
 
 } // namespace
@@ -184,6 +198,11 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     LOG_DEBUG("Reading placeholders: " + inputs.placeholder_path);
     result.placeholders = PlaceholderImporter::load(inputs.placeholder_path);
 
+    // Read before conversion, so Milestone 1 weighs pallets from the same table as the floor.
+    if (!inputs.paramsPath.empty()) result.params = loadParams(inputs.paramsPath);
+    const vector<PalletSpec>& palletSpecs =
+        inputs.paramsPath.empty() ? confirmedPalletSpecs() : result.params.pallets;
+
     // ── 2. Join demand to the product master ────────────────────────────────
     result.index = Joiner::build_index(result.products.products);
     result.join  = Joiner::join(result.demand.str, result.index);
@@ -204,13 +223,16 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
                                                      jl.str->unitofmeas,
                                                      *jl.product);
         result.pallets_per_line.push_back(pallets);
-        result.weight_per_line.push_back(Converter::to_weight_lb(pallets, *jl.product));
+        result.weight_per_line.push_back(
+            Converter::to_weight_lb(pallets, *jl.product, palletSpecs));
     }
 
     // ── 4. Validate ─────────────────────────────────────────────────────────
+    ValidationConfig validationConfig = inputs.validation;
+    if (!inputs.paramsPath.empty()) validationConfig.pallets = palletSpecs;
     result.validation = Validator::validate(result.join,
                                             result.pallets_per_line,
-                                            inputs.validation);
+                                            validationConfig);
     Validator::validate_placeholders(result.placeholders.placeholders, result.validation,
                                      inputs.validation);
     Validator::validate_do_not_mix(result.demand.dnm, result.demand.str, result.validation);

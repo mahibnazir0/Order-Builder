@@ -46,7 +46,7 @@ struct PipelineInputs {
 
     // Milestone 2 runs only when this is set; leave it empty for the M1 summary alone.
     std::string paramsPath;
-    // Trailer to plan against, by params trailerCode; empty picks the first one listed.
+    // Trailer to plan against, by params trailerCode; empty picks the largest one listed.
     std::string trailerCode;
     // Milestone 3 runs only when this is set, and needs paramsPath. Never defaulted: which
     // demand counts toward the day is open with the client (M3 question 1).
@@ -94,8 +94,9 @@ struct PipelineResult {
     BindingResult binding;
     StackingResult stacking;
     StackReport stackReport;
-    // The trailer M2 and the floor were planned against.
+    // The trailer M2 and the floor were planned against, and how it was chosen.
     TrailerSpec trailer;
+    TrailerChoice trailerChoice = TrailerChoice::Largest;
 
     // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
     bool ranFloor = false;
@@ -104,8 +105,9 @@ struct PipelineResult {
 };
 
 // True when the run covered all of its demand: no validation errors; when M2 ran, every
-// demand line ended up in a stack; and when the floor ran, the demand rule could judge every
-// line's date and no selected line was left out of the floor. main() exits 1 otherwise.
+// demand line ended up in a stack; and when the floor ran, the demand rule selected at least
+// one line of a non-empty extract, could judge every line's date, and no selected line was
+// left out of the floor. main() exits 1 otherwise.
 bool isRunComplete(const PipelineResult& result);
 
 class Pipeline {

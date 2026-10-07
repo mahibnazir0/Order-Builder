@@ -16,7 +16,8 @@
 //   1  ran, but the result does not cover all of the demand: validation found
 //      errors, or (with --params) a line that passed validation is in no stack
 //      (no unit load, taller than the ceiling, bad quantity) or no stack was built,
-//      or the floor left out a selected line or could not judge a line's date
+//      or the floor left out a selected line or could not judge a line's date,
+//      or the demand rule selected no line of a non-empty extract
 //   2  could not run (missing argument, unreadable file, invalid demand rule)
 // ============================================================================
 
@@ -56,7 +57,7 @@ void print_usage(std::ostream& out) {
         "                          dueBy:YYYY-MM-DD       DATTO_TA on or before the date\n"
         "                          availableBy:YYYY-MM-DD DATFR_TA on or before the date\n"
         "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
-        "  --trailer <code>      Trailer code from the params file (default: the first listed)\n"
+        "  --trailer <code>      Trailer code from the params file (default: the largest listed)\n"
         "  --groups N            Print only the N largest groups (default: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
         "  --lanes N             Print only the N largest lanes, in the summary and the\n"
@@ -67,7 +68,8 @@ void print_usage(std::ostream& out) {
         "Exit codes:\n"
         "  0  success, no validation errors\n"
         "  1  incomplete: validation errors, or a line is in no stack (see Result),\n"
-        "     or left out of the floor or undated under the demand rule (see section B)\n"
+        "     or left out of the floor or undated under the demand rule, or the rule\n"
+        "     selected no line at all (see section B)\n"
         "  2  could not run\n";
 }
 
@@ -179,7 +181,7 @@ int main(int argc, char** argv) {
         }
         if (result.ranFloor) {
             ob::printFloorReport(cout, result.floorPlan, result.demandSelection, result.params,
-                                 result.trailer, inputs.demand_path,
+                                 result.trailer, result.trailerChoice, inputs.demand_path,
                                  static_cast<size_t>(max(max_lanes, 0)));
         }
 

@@ -24,17 +24,20 @@
 // plus the pallet itself where the pallet is physical wood.
 //
 // PALLET WEIGHT
-// What a pallet adds is read from the confirmed palletSpec table, the one home
-// for that figure. PTL and PGM are wood and add their own weight; TLD and GMA
+// What a pallet adds is read from the pallet table the caller passes: the params
+// file's pallets when the run has one, the confirmed palletSpec table otherwise,
+// so one run never weighs the same pallet two ways. PTL and PGM are wood and add their own weight; TLD and GMA
 // add nothing. 10,659 of the 20,201 master rows are wood (verified against the
 // real file), and the pallet is ~9.5% of a median unit load, so it is not
 // negligible. A pallet type with no spec adds nothing here; the Validator
 // warns about it.
 // ============================================================================
 
+#include "palletSpec.hpp"
 #include "product_types.hpp"
 
 #include <string>
+#include <vector>
 
 namespace ob {
 
@@ -107,7 +110,8 @@ public:
     // fractions being summed across the lane rather than rounded up to a
     // physical pallet. Load building (Milestone 2) is where a part pallet
     // becomes a whole one.
-    static double to_weight_lb(double pallets, const ProductRecord& product);
+    static double to_weight_lb(double pallets, const ProductRecord& product,
+                               const std::vector<PalletSpec>& palletSpecs);
 };
 
 }  // namespace ob

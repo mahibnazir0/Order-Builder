@@ -42,8 +42,9 @@ struct UnitLoadMetrics {
 UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const std::vector<PalletSpec>& pallets,
                                    DeckHeightRule deckHeight);
 
-// Strictly taller than the trailer ceiling. A unit load exactly at the ceiling fits:
-// 155 real products sit exactly at the ceiling, so this must never become >=.
+// Taller than the trailer ceiling by more than kQuantityEpsilon. A unit load exactly at the
+// ceiling fits: 155 real products sit exactly at it, and a case height that is not exact in
+// binary (36/7 in x 21 layers) computes one ULP above, so this must never become a bare > or >=.
 bool exceedsCeiling(const UnitLoadMetrics& metrics, const TrailerSpec& trailer);
 
 // Stable plain-ASCII name for error messages and reports.

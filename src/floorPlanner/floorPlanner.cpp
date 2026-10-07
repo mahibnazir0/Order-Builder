@@ -85,6 +85,8 @@ FloorPlan planFloor(const SegregationResult& segregation, const vector<JoinedLin
         addTotals(lane.totals, floor.totals);
         lane.boundTrucks += floor.bound.boundTrucks;
         lane.noStackingBaselineTrucks += floor.bound.noStackingBaselineRounded;
+        lane.linesSelected += floor.linesSelected;
+        lane.linesCounted += floor.linesCounted;
         if (plan.roundingPoint == FloorRoundingPoint::Group) {
             lane.floorTrucks += floor.bound.floorTrucks;
         }

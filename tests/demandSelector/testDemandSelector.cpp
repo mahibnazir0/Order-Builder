@@ -76,6 +76,26 @@ TEST_CASE("demandSelector: a line with a blank or malformed date is listed, not 
     CHECK(selection.undatedLines == vector<size_t>{1, 2, 3});
 }
 
+TEST_CASE("demandSelector: dueBy counts selected lines due before the planning date as overdue") {
+    const DemandSelection selection =
+        selectDemand(octoberLines(), parseDemandSelector("dueBy:2026-10-04"));
+    CHECK(selection.selectedLines == 2);
+    CHECK(selection.overdueLines == 1);
+}
+
+TEST_CASE("demandSelector: availableBy counts selected lines whose latest arrival has passed") {
+    const DemandSelection selection =
+        selectDemand(octoberLines(), parseDemandSelector("availableBy:2026-10-04"));
+    CHECK(selection.selectedLines == 3);
+    CHECK(selection.overdueLines == 1);
+}
+
+TEST_CASE("demandSelector: wholeExtract and window count nothing as overdue") {
+    CHECK(selectDemand(octoberLines(), parseDemandSelector("wholeExtract")).overdueLines == 0);
+    CHECK(selectDemand(octoberLines(), parseDemandSelector("window:2026-10-03:2026-10-05"))
+              .overdueLines == 0);
+}
+
 TEST_CASE("demandSelector: availableBy reads only the earliest arrival date") {
     const vector<STRRecord> demand{line("2026-10-01", "")};
     const DemandSelection selection =
