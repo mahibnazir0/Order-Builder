@@ -114,14 +114,31 @@ TEST_CASE("product headers: synthetic duplicate columns keep the first occurrenc
     CHECK(logText.find("using first occurrence at column 5") != string::npos);
 }
 
-// August ships "PlaceHolder-1.json", September "Placeholder-N.json", both inside a
-// "PlaceHolder" directory. A case-sensitive filesystem only opens the exact name.
+TEST_CASE("product rows without a unit load are reported as info, not as a warning") {
+    const SyntheticProductFile fixture;
+    {
+        ofstream output(fixture.path);
+        REQUIRE(output.is_open());
+        output << "ID,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,Layers_Unit_Load,"
+                  "Cases_Unit_Load,Pallet_ID\n"
+               << "SHELL,,,,,,,,,,\n"
+               << "GOOD,48,40,50,3,PAL,100,9,4,15,TLD\n";
+    }
+    string logText;
+    const auto loaded = loadWithLog(fixture.path, logText);
+    CHECK(loaded.rowsWithoutUnitLoad == 1);
+    CHECK(occurrences(logText, "[INFO] 1 product rows have Cases_Unit_Load at or below zero") == 1);
+    CHECK(occurrences(logText, "[WARN]") == 0);
+}
+
+// The client's placeholder filename changes between extracts ("PlaceHolder-1.json",
+// "Placeholder-N.json", UUID-named from 29 Sep), so no naming pattern is asserted. What
+// matters is that a case-sensitive filesystem opens the exact name shipped.
 TEST_CASE("placeholders: each day loads by the exact filename the client shipped" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         const DayFiles& day = dayFiles()[dayIndex];
         CAPTURE(day.label);
         const bool isAugust = dayIndex == 0;
-        CHECK(day.placeholderFileName.rfind(isAugust ? "PlaceHolder-" : "Placeholder-", 0) == 0);
         if (!isAugust) {
             const filesystem::path directory(day.placeholderDirectory);
             CHECK(directoryListsExactly(directory.parent_path(), "PlaceHolder"));

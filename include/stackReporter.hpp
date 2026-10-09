@@ -33,8 +33,8 @@ struct StackReportRow {
     std::map<std::size_t, double> palletsByStackHeight;
 };
 
-// A demand line that ended up in no stack, and why.
-struct UnstackedLine {
+// A demand line the stack report names individually, and why.
+struct ReportedLine {
     std::size_t lineIndex = 0;
     std::string matnr;
     std::string reason;
@@ -62,7 +62,9 @@ struct StackReport {
     bool builtNoStacks = false;
     // Every demand line in no stack, validator rejections included, with its reason. Filled
     // by the caller, which holds the lines and the validation report; build() cannot.
-    std::vector<UnstackedLine> unstackedLines;
+    std::vector<ReportedLine> unstackedLines;
+    // The lines behind ownCriExceededLines, for listing. Filled by the caller, like unstackedLines.
+    std::vector<ReportedLine> ownCriExceeded;
 
     // Business rules the customer has not confirmed, printed so no figure is read as settled.
     std::size_t ambiguousPalletLines = 0;   // filled by the caller from the validation report

@@ -920,13 +920,18 @@ TEST_CASE("every issue carries a traceable line index and rule name") {
     }
 }
 
-TEST_CASE("a CS line for product 106052500, real dimensions but zero case counts, is rejected") {
+TEST_CASE("a line for product 106052500, real dimensions but zero case counts, is rejected in every unit") {
+    string unitOfMeasure;
+    SUBCASE("CS") { unitOfMeasure = "CS"; }
+    SUBCASE("PAL") { unitOfMeasure = "PAL"; }
+    SUBCASE("DIS") { unitOfMeasure = "DIS"; }
+    CAPTURE(unitOfMeasure);
     const ProductLoadResult loaded = ProductImporter::load(PRODUCT_PATH);
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE_FALSE(demand.str.empty());
     vector<STRRecord> demandLines{demand.str[0]};
     demandLines[0].matnr = "106052500";
-    demandLines[0].unitofmeas = "CS";
+    demandLines[0].unitofmeas = unitOfMeasure;
 
     const ProductIndex index = Joiner::build_index(loaded.products);
     const JoinResult j = Joiner::join(demandLines, index);

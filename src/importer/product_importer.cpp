@@ -54,6 +54,26 @@ void split_csv(const string& line, vector<string>& cells) {
     cells.push_back(trim(cell));
 }
 
+// Read one CSV record, which spans several lines when a quoted cell holds a newline. A
+// record is still open while it has an odd number of quotes; a doubled quote adds two, so
+// it never changes that parity. A quote left open at end of file would otherwise swallow
+// every row after it into one record, so it is an error rather than a short master.
+bool readCsvRecord(istream& in, string& record) {
+    if (!getline(in, record)) return false;
+    size_t quoteCount = count(record.begin(), record.end(), '"');
+    string continuation;
+    while (quoteCount % 2 == 1) {
+        if (!getline(in, continuation)) {
+            throw runtime_error("Product file has an unterminated quote in the record starting: "
+                                + record.substr(0, record.find('\n')).substr(0, 80));
+        }
+        quoteCount += count(continuation.begin(), continuation.end(), '"');
+        record += '\n';
+        record += continuation;
+    }
+    return true;
+}
+
 // Safe numeric parse: return fallback if the cell is blank or not a number,
 // rather than throwing. Weight and the dimensions pass a NaN fallback so the
 // Validator can't mistake an unreadable cell for a real 0 (a 0 weight passes
@@ -96,7 +116,7 @@ ProductLoadResult ProductImporter::load(const string& csv_path) {
     }
 
     string header_line;
-    if (!getline(in, header_line)) {
+    if (!readCsvRecord(in, header_line)) {
         throw runtime_error("Product file is empty: " + csv_path);
     }
 
@@ -141,7 +161,7 @@ ProductLoadResult ProductImporter::load(const string& csv_path) {
     string line;
     vector<string> c;
     c.reserve(headers.size());
-    while (getline(in, line)) {
+    while (readCsvRecord(in, line)) {
         if (trim(line).empty()) continue;
         split_csv(line, c);
         ++result.rows_read;
@@ -181,8 +201,10 @@ ProductLoadResult ProductImporter::load(const string& csv_path) {
 
     // Product_Master_Available is 't' on these rows too, so the master cannot filter them
     // out itself. They load so the master stays whole; validation rejects any demand for one.
+    // Info, not a warning: every 29 Sep - 5 Oct master carries ~900 of them, so a warning
+    // would fire on every run. A demanded one is still an error from the Validator.
     if (result.rowsWithoutUnitLoad > 0) {
-        LOG_WARN(to_string(result.rowsWithoutUnitLoad)
+        LOG_INFO(to_string(result.rowsWithoutUnitLoad)
                  + " product rows have Cases_Unit_Load at or below zero and cannot form a"
                    " unit load; demand for any of them is rejected by validation");
     }

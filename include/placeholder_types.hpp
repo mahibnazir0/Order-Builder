@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================================
-// placeholder_types.hpp — Structure for PlaceHolder-1.json
+// placeholder_types.hpp — Structure for a placeholder file (PlaceHolder-1.json in August)
 //
 // Verified against the real file (189 entries, 8 fields, single PHOLDER array):
 //   LOCFRNO, LOCTONO, SHIP_COND, DATFR_TA, DATTO_TA,

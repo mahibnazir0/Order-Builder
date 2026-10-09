@@ -318,3 +318,26 @@ TEST_CASE("the 17 Aug master has exactly one row without a unit load and no misa
     CHECK(loaded.rowsWithoutUnitLoad == 1);
     CHECK(loaded.misalignedRows == 0);
 }
+
+TEST_CASE("a quoted cell containing a newline stays one record") {
+    const auto loaded = loadCsvText(
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"two\nlines\",10,20,30,5,CS,9,4,2,8,PTL\n"
+        "T2,plain,10,20,30,5,CS,9,4,2,8,TLD\n");
+    REQUIRE(loaded.products.size() == 2);
+    CHECK(loaded.rows_read == 2);
+    CHECK(loaded.misalignedRows == 0);
+    CHECK(loaded.rowsWithoutUnitLoad == 0);
+    CHECK(loaded.products[0].description == "two\nlines");
+    CHECK(loaded.products[0].pallet_id == "PTL");
+    CHECK(loaded.products[1].id == "T2");
+}
+
+TEST_CASE("a quote left open at end of file is rejected, not read as one long record") {
+    CHECK_THROWS_AS(loadCsvText(
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"never closed,10,20,30,5,CS,9,4,2,8,PTL\n"
+        "T2,plain,10,20,30,5,CS,9,4,2,8,TLD\n"), runtime_error);
+}

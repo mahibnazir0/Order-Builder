@@ -195,3 +195,25 @@ TEST_CASE("stackReporter: lines over their own CRI limit are printed as a warnin
     CHECK(report.isComplete());
     CHECK(contains(printed(inputs), "Over own CRI lines        1  (warning:"));
 }
+
+TEST_CASE("stackReporter: lines over their own CRI limit are listed, capped at twenty") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    StackReport report = StackReporter::build(
+        inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
+    for (size_t lineIndex = 0; lineIndex < 25; ++lineIndex) {
+        report.ownCriExceeded.push_back({lineIndex, "OVERBUILT", "exceeds its own CRI limit"});
+    }
+    ostringstream out;
+    StackReporter::print(report, out);
+    const string text = out.str();
+    CHECK(contains(text, "      line 19, material OVERBUILT: exceeds its own CRI limit\n"));
+    CHECK_FALSE(contains(text, "line 20, material OVERBUILT"));
+    CHECK(contains(text, "      ... and 5 more (not listed individually)\n"));
+}
+
+TEST_CASE("stackReporter: a weight-bound row keeps a space between Limit and Method") {
+    const string text = printed(oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0,
+                                         BindingConstraint::Weight));
+    CHECK(contains(text, "  Weight Base & Top"));
+    CHECK_FALSE(contains(text, "WeightBase"));
+}

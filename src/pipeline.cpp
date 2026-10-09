@@ -62,6 +62,9 @@ string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     return "unknown";
 }
 
+const char* const kOwnCriExceededReason =
+    "exceeds its own CRI limit; it ships single-high and carries nothing";
+
 string zeroPalletReason(const JoinedLine& line) {
     if (!Converter::isConvertibleUom(line.str->unitofmeas)) {
         return "unit of measure '" + line.str->unitofmeas
@@ -73,7 +76,7 @@ string zeroPalletReason(const JoinedLine& line) {
 // Every joined line must end up in a stack or on this list with a reason; the list is built
 // from which lines the stacks actually hold, so a line dropped anywhere upstream (validator,
 // segregation, conversion, stacking) cannot pass unreported.
-vector<UnstackedLine> unstackedLines(const PipelineResult& result, const TrailerSpec& trailer) {
+vector<ReportedLine> unstackedLines(const PipelineResult& result, const TrailerSpec& trailer) {
     const auto& lines = result.join.lines;
     vector<string> reasons(lines.size());
     for (const auto& issue : result.validation.issues) {
@@ -99,7 +102,7 @@ vector<UnstackedLine> unstackedLines(const PipelineResult& result, const Trailer
     }
 
     const vector<bool> stacked = stackedLineFlags(stacking, lines.size());
-    vector<UnstackedLine> unstacked;
+    vector<ReportedLine> unstacked;
     for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         if (stacked[lineIndex]) continue;
         string reason = reasons[lineIndex].empty() ? "is in no stack" : std::move(reasons[lineIndex]);
@@ -133,10 +136,17 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
     result.stackReport.unstackedLines = unstackedLines(result, trailer);
-    for (const size_t lineIndex : result.stacking.ownCriExceededLines) {
-        LOG_WARN("Demand line " + to_string(lineIndex) + " (MATNR "
-                 + result.join.lines[lineIndex].str->matnr
-                 + ") exceeds its own CRI limit; it ships single-high and carries nothing");
+    const vector<size_t>& ownCriExceededLines = result.stacking.ownCriExceededLines;
+    result.stackReport.ownCriExceeded.reserve(ownCriExceededLines.size());
+    for (const size_t lineIndex : ownCriExceededLines) {
+        result.stackReport.ownCriExceeded.push_back(
+            {lineIndex, result.join.lines[lineIndex].str->matnr, kOwnCriExceededReason});
+    }
+    // One summary line, not one per demand line: a single product can span hundreds of lines.
+    if (!ownCriExceededLines.empty()) {
+        LOG_WARN(to_string(ownCriExceededLines.size())
+                 + " demand line(s) exceed their own CRI limit and ship single-high;"
+                   " the stack report lists them");
     }
     for (const auto& line : result.stackReport.unstackedLines) {
         LOG_WARN("Demand line " + to_string(line.lineIndex) + " (MATNR " + line.matnr

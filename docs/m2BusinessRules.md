@@ -182,8 +182,9 @@ the same greedy builder; they differ only in the order in which bases and tops a
 - A product whose own upper layers already exceed its CRI limit — `(layers − 1) × cases per
   layer × case weight` above the table value — cannot carry anything. It still ships
   single-high and is reported as `Over own CRI lines`, a warning that does not make the run
-  incomplete. 32 to 33 products per master are like this; on 17 August two demand lines
-  (MATNR 106005500) name one.
+  incomplete. The stack report lists the first 20 such lines and counts the rest; the log
+  carries one summary line, however many lines one product spans. 32 to 33 products per
+  master are like this; on 17 August two demand lines (MATNR 106005500) name one.
 - Stacks are at most `maxStackHeight` high (2 for this customer).
 - Taking each base in base order, the builder adds the first top in top order that fits, then
   commits as many identical stacks as the scarcest line allows.
