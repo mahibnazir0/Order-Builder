@@ -37,7 +37,9 @@ string selectionErrorMessage(const M2Params& params, const string& trailerCode) 
 
 TEST_CASE("trailerSpec: the shipped trailer is selected by code with every confirmed figure") {
     const M2Params params = loadParams(kShippedParamsPath);
-    const TrailerSpec& trailer = selectTrailer(params.trailers, params.sourcePath, "53FT_NA");
+    // Copied, not bound by reference: the code literal becomes a temporary string, and GCC's
+    // -Wdangling-reference cannot see that the result points into params.trailers instead.
+    const TrailerSpec trailer = selectTrailer(params.trailers, params.sourcePath, "53FT_NA");
     CHECK(trailer.trailerCode == "53FT_NA");
     CHECK(trailer.weightLimitLb == 45000);
     CHECK(trailer.stackHeightCeilingIn == 108);
@@ -84,7 +86,7 @@ TEST_CASE("trailerSpec: with several trailers the named one is returned, not the
     secondTrailer["maxStackDepth"] = 3;
     root["trailers"].push_back(secondTrailer);
     const M2Params params = parseParams(root);
-    const TrailerSpec& trailer = selectTrailer(params.trailers, params.sourcePath, "48FT");
+    const TrailerSpec trailer = selectTrailer(params.trailers, params.sourcePath, "48FT");
     CHECK(trailer.trailerCode == "48FT");
     CHECK(trailer.stackPositions == 28);
     CHECK(trailer.maxStackDepth == 3);

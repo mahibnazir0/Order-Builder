@@ -124,6 +124,7 @@ const std::string kLaneTable = "PER-LANE SUMMARY";
 const std::string kGroupTable = "PER-GROUP SUMMARY";
 const std::string kM3Floor = "ORDER BUILDER - MILESTONE 3 TRUCK FLOOR";
 const std::string kFloorByLane = "C. FLOOR BY LANE";
+const string kFloorNotComputed = "Truck floor: NOT COMPUTED. No --params was given";
 
 bool contains(const std::string& text, const std::string& needle) {
     return text.find(needle) != std::string::npos;
@@ -253,14 +254,17 @@ TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure") {
     CHECK(withoutDebugLines == fullNormalised);
 }
 
-TEST_CASE("cli: without --params only the Milestone 1 report is printed") {
+TEST_CASE("cli: without --params only the Milestone 1 report is printed, and it says no floor was computed") {
     const CliRun run = runCli(realDayArguments(false));
     CHECK(run.exitCode == 0);
     CHECK(section(run.output, kM1Summary) == section(fullRealRun().output, kM1Summary));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
-    CHECK_FALSE(contains(run.output, "MILESTONE 2"));
-    CHECK_FALSE(contains(run.output, "MILESTONE 3"));
+    CHECK_FALSE(contains(run.output, kM2Summary));
+    CHECK_FALSE(contains(run.output, kM3Floor));
     CHECK_FALSE(contains(run.output, kGroupTable));
+    CHECK(contains(run.output, kFloorNotComputed));
+    CHECK(contains(run.output, "Pass --params <json> --demand-rule <rule>"));
+    CHECK_FALSE(contains(fullRealRun().output, kFloorNotComputed));
 }
 
 TEST_CASE("cli: validation errors exit 1 and the report is still printed") {
@@ -386,6 +390,11 @@ TEST_CASE("cli: argument mistakes exit 2 with a message") {
         {{"--product"}, "--product needs a value"},
         {{"--groups", "abc"}, "--groups needs a number, got 'abc'"},
         {{"--lanes", "abc"}, "--lanes needs a number, got 'abc'"},
+        {{"--groups", "5x"}, "--groups needs a number, got '5x'"},
+        {{"--lanes", "7.5"}, "--lanes needs a number, got '7.5'"},
+        {{"--groups", "99999999999"}, "--groups needs a number, got '99999999999'"},
+        {{"--groups", "-3"}, "--groups must be 0 (all) or more, got '-3'"},
+        {{"--lanes", "-3"}, "--lanes must be 0 (all) or more, got '-3'"},
         {{"--demand-rule"}, "--demand-rule needs a value"},
     };
     for (const auto& bad : cases) {

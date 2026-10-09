@@ -11,6 +11,7 @@
 #include <map>
 #include <unordered_set>
 
+using namespace std;
 using namespace ob;
 using Reason = StackFeasibility::Reason;
 
@@ -69,7 +70,7 @@ TEST_CASE("stackRules: unit load uses cases per unit and the pallet spec, not ca
     const ProductRecord record = product();
     const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
     REQUIRE(unitLoad.error == UnitLoadError::None);
-    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3 + 5.5));
+    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3));
     CHECK(unitLoad.weightLb == doctest::Approx(9.0 * 12 + 60.0));
     CHECK(unitLoad.ownWeightAboveLb == doctest::Approx((3 - 1) * 4 * 9.0));
     CHECK(unitLoad.footprintLengthIn == 48.0);
@@ -255,8 +256,19 @@ TEST_CASE("stackRules: canStack rejects out-of-range CRI and loads that failed c
     CHECK(canStack(failed, load(20, 10, 0, 5), params, kCeilingIn).reason == Reason::InvalidData);
 }
 
+TEST_CASE("stackRules: the deck counts toward unit-load height only when floorDeckHeight says so") {
+    const ProductRecord record = product();
+    M2Params params = testParams();
+    params.floorDeckHeight = DeckHeightRule::Excluded;
+    CHECK(buildUnitLoad(matchedLine(record), params).heightIn == doctest::Approx(10.0 * 3));
+    params.floorDeckHeight = DeckHeightRule::Included;
+    CHECK(buildUnitLoad(matchedLine(record), params).heightIn == doctest::Approx(10.0 * 3 + 5.5));
+    // The pallet's weight counts under either reading; only its height is in question.
+    CHECK(buildUnitLoad(matchedLine(record), params).weightLb == doctest::Approx(9.0 * 12 + 60.0));
+}
+
 TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling") {
-    const M2Params params = loadParams("config/orderBuilderParams.json");
+    M2Params params = loadParams("config/orderBuilderParams.json");
     const DemandFile file = Importer::load_demand("tests/importer/Demand-1.json");
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
     const ProductIndex index = Joiner::build_index(products.products);
@@ -264,25 +276,37 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
 
     CHECK(missingPalletIds(join.lines, params).empty());
 
-    std::unordered_set<std::string> seenProducts;
-    std::vector<UnitLoad> loads;
-    for (const auto& line : join.lines) {
-        if (!seenProducts.insert(line.product->id).second) continue;
-        loads.push_back(buildUnitLoad(line, params));
-    }
-
-    std::size_t pairs = 0, passHeight = 0, passBoth = 0;
-    for (const auto& base : loads) {
-        for (const auto& top : loads) {
-            ++pairs;
-            const auto result = canStack(base, top, params, kCeilingIn);
-            if (result.reason != Reason::HeightCeiling) ++passHeight;
-            if (result.isFeasible) ++passBoth;
+    // Included is the 27 Sep baseline, measured when the deck always counted; Excluded is the
+    // shipped reading. The deck is the only difference between the two.
+    struct Expected {
+        DeckHeightRule deckHeight;
+        size_t passHeight;
+        size_t passBoth;
+    };
+    for (const Expected& expected : {Expected{DeckHeightRule::Included, 65295, 43021},
+                                     Expected{DeckHeightRule::Excluded, 66445, 43683}}) {
+        CAPTURE(expected.deckHeight == DeckHeightRule::Included ? "Included" : "Excluded");
+        params.floorDeckHeight = expected.deckHeight;
+        unordered_set<string> seenProducts;
+        vector<UnitLoad> loads;
+        for (const auto& line : join.lines) {
+            if (!seenProducts.insert(line.product->id).second) continue;
+            loads.push_back(buildUnitLoad(line, params));
         }
+
+        size_t pairs = 0, passHeight = 0, passBoth = 0;
+        for (const auto& base : loads) {
+            for (const auto& top : loads) {
+                ++pairs;
+                const auto result = canStack(base, top, params, kCeilingIn);
+                if (result.reason != Reason::HeightCeiling) ++passHeight;
+                if (result.isFeasible) ++passBoth;
+            }
+        }
+        CHECK(pairs == 2016400);
+        CHECK(passHeight == expected.passHeight);
+        CHECK(passBoth == expected.passBoth);
     }
-    CHECK(pairs == 2016400);
-    CHECK(passHeight == 65295);
-    CHECK(passBoth == 43021);
 }
 
 namespace {
@@ -324,20 +348,29 @@ PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2P
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     constexpr std::size_t everyNth = 10;
-    // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
+    // Measured by this test on 27 Sep 2026 with the deck counted (Included), and on 10 Oct
+    // 2026 under the shipped Excluded; 17 Aug is also anchored exhaustively above.
     const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<std::size_t> passHeight{484, 625, 484, 841};
-    const crossDayTests::PerDay<std::size_t> passBoth{308, 408, 334, 531};
+    const crossDayTests::PerDay<std::size_t> passHeight{492, 625, 494, 853};
+    const crossDayTests::PerDay<std::size_t> passBoth{313, 408, 341, 537};
+    const crossDayTests::PerDay<size_t> passHeightWithDeck{484, 625, 484, 841};
+    const crossDayTests::PerDay<size_t> passBothWithDeck{308, 408, 334, 531};
     for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
         REQUIRE(run.params.trailers.front().stackHeightCeilingIn == kCeilingIn);
+        REQUIRE(run.params.floorDeckHeight == DeckHeightRule::Excluded);
         const PairPassCounts counts = sampledPairCounts(run.join.lines, run.params, everyNth);
         CHECK(counts.sampledProducts == sampledProducts[dayIndex]);
         CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
         CHECK(counts.passHeight == passHeight[dayIndex]);
         CHECK(counts.passBoth == passBoth[dayIndex]);
+        M2Params withDeck = run.params;
+        withDeck.floorDeckHeight = DeckHeightRule::Included;
+        const PairPassCounts deckCounts = sampledPairCounts(run.join.lines, withDeck, everyNth);
+        CHECK(deckCounts.passHeight == passHeightWithDeck[dayIndex]);
+        CHECK(deckCounts.passBoth == passBothWithDeck[dayIndex]);
         std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs

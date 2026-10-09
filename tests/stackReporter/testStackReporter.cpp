@@ -90,6 +90,14 @@ TEST_CASE("stackReporter: over-height lines are counted and printed") {
     CHECK(contains(printed(inputs), "Over-height lines         2  (one pallet exceeds the trailer ceiling)"));
 }
 
+TEST_CASE("stackReporter: the deck-height reading is printed, the same one the floor states") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    inputs.params.floorDeckHeight = DeckHeightRule::Excluded;
+    CHECK(contains(printed(inputs), "Deck height               not added to unit-load height (floorDeckHeight = Excluded)"));
+    inputs.params.floorDeckHeight = DeckHeightRule::Included;
+    CHECK(contains(printed(inputs), "Deck height               added to unit-load height (floorDeckHeight = Included)"));
+}
+
 TEST_CASE("stackReporter: config warnings are printed") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.params.warnings = {"footprint defaulted to 48x40"};

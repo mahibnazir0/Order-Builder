@@ -67,6 +67,7 @@ struct StackReport {
     std::size_t ambiguousPalletLines = 0;   // filled by the caller from the validation report
     SegregationReading doNotMixReading = SegregationReading::Strict;
     bool stackWholePallets = true;
+    DeckHeightRule deckHeight = DeckHeightRule::Excluded;
 
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> paramWarnings;

@@ -55,7 +55,10 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
 
     load.footprintLengthIn = pallet->footprintLengthIn;
     load.footprintWidthIn = pallet->footprintWidthIn;
-    load.heightIn = product.height_in * product.layers_unit_load + pallet->addedHeightIn;
+    // The deck counts only when the params file says so, exactly as in the floor
+    // (unitLoadMetricsFor): one reading for both milestones, never one each.
+    load.heightIn = product.height_in * product.layers_unit_load
+        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet->addedHeightIn : 0.0);
     load.weightLb = product.weight_lb * product.cases_unit_load + pallet->addedWeightLb;
     load.ownWeightAboveLb = suppliedWeightAboveLb.value_or(
         static_cast<double>(product.layers_unit_load - 1) * product.cases_layer * product.weight_lb);

@@ -43,7 +43,9 @@ struct M2Params {
     // part pallet takes a real position. False keeps the fractional estimate, which can report
     // 0.5 floor positions for one pallet and so understates floor use in small groups.
     bool stackWholePallets = true;
-    // Required key: the floor never picks a deck-height reading on silence.
+    // Required key: no deck-height reading is picked on silence. Despite the name it
+    // governs unit-load height in both milestones, the Milestone 2 stacks and over-height
+    // check as well as the floor, so the two can never disagree about whether a line fits.
     DeckHeightRule floorDeckHeight = DeckHeightRule::Excluded;
     // Required key, like floorDeckHeight.
     FloorRoundingPoint floorRoundingPoint = FloorRoundingPoint::Group;

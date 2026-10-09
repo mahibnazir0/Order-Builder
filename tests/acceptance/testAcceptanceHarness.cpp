@@ -38,20 +38,23 @@ constexpr array<size_t, 3> kSolutionFiles{41, 40, 40};
 constexpr array<size_t, 3> kLaneDays{150, 140, 150};
 constexpr array<size_t, 3> kAchievedLoads{290, 271, 319};
 
-// Lane-days on which a bound exceeds Truck Builder's achieved loads, measured 7 Oct 2026.
-// The floor should exceed none; these are the open validity failures (M3 section 2.5, edge
-// case 31), pinned so a change in either direction is seen rather than drifting.
-constexpr array<size_t, 3> kFloorExceedsAt32{10, 18, 12};
-constexpr array<size_t, 3> kFloorExceedsAt34{5, 8, 4};
+// Lane-days on which the no-stacking baseline exceeds Truck Builder's achieved loads,
+// measured 7 Oct 2026.
 constexpr array<size_t, 3> kBaselineExceedsAt32{62, 69, 75};
 
-bool solvedDaysPresent() {
-    if (!allExtractsPresent()) return false;
+// Truck Builder solution folders a solved-day test needs and cannot find. Like the extracts
+// they are confidential and gitignored.
+vector<string> missingSolutionFolders() {
+    vector<string> missing;
     for (const SolvedDay& day : kSolvedDays) {
-        if (!filesystem::is_directory(day.solutionDirectory)) return false;
+        if (!filesystem::is_directory(day.solutionDirectory)) {
+            missing.push_back(day.solutionDirectory + " not found");
+        }
     }
-    return true;
+    return missing;
 }
+
+bool solvedDaysPresent() { return allExtractsPresent() && missingSolutionFolders().empty(); }
 
 const TrailerSpec& shippedTrailer() {
     static const M2Params params = loadParams(kStrictParamsPath);
@@ -118,6 +121,13 @@ string readErrorMessage(const string& solutionJson) {
 }
 
 } // namespace
+
+// The solved-day tests are skipped without the solution folders, so this one fails instead.
+TEST_CASE("acceptanceHarness: the Truck Builder solution fixtures are present, so the validity tests ran") {
+    for (const string& problem : missingSolutionFolders()) {
+        FAIL_CHECK(problem << " (confidential and gitignored; see README, Test data)");
+    }
+}
 
 TEST_CASE("acceptanceHarness: a solution's TF and TL loads and shipped lines are read") {
     const SolutionFolder folder(solutionWithLines(
@@ -217,23 +227,21 @@ TEST_CASE("acceptanceHarness: a lane-day floored above its achieved loads is cou
     CHECK(after.floorExceedsAchieved == before.floorExceedsAchieved + 1);
 }
 
-// The validity criterion itself. It fails today (see kFloorExceedsAt32); should_fail keeps the
-// suite green while it does, and turns red the day it passes so the marker is removed.
-TEST_CASE("acceptanceHarness: the floor never exceeds Truck Builder's achieved loads" * doctest::skip(!solvedDaysPresent()) * doctest::should_fail()) {
-    for (size_t index = 0; index < kSolvedDays.size(); ++index) {
-        CAPTURE(dayFiles()[kSolvedDays[index].dayIndex].label);
-        CHECK(validityFor(index, shippedTrailer()).floorExceedsAchieved == 0);
-    }
-}
-
-TEST_CASE("acceptanceHarness: the open validity failures are pinned at their measured counts" * doctest::skip(!solvedDaysPresent())) {
+// The validity criterion itself: the floor is a lower bound, so no lane-day may need more
+// trucks than Truck Builder used. It is not marked as expected to fail. While the bound is
+// invalid (M3 section 2.5, edge case 31) this test fails, and the suite with it. The counts
+// at 32 and 34 positions are printed on every run, pass or fail, so the defect is tracked.
+TEST_CASE("acceptanceHarness: the floor never exceeds Truck Builder's achieved loads" * doctest::skip(!solvedDaysPresent())) {
     const TrailerSpec alternativePositions = trailerWithPositions(kAlternativeStackPositions);
     for (size_t index = 0; index < kSolvedDays.size(); ++index) {
-        CAPTURE(dayFiles()[kSolvedDays[index].dayIndex].label);
-        CHECK(validityFor(index, shippedTrailer()).floorExceedsAchieved
-              == kFloorExceedsAt32[index]);
-        CHECK(validityFor(index, alternativePositions).floorExceedsAchieved
-              == kFloorExceedsAt34[index]);
+        const string& label = dayFiles()[kSolvedDays[index].dayIndex].label;
+        CAPTURE(label);
+        const size_t exceedsAt32 = validityFor(index, shippedTrailer()).floorExceedsAchieved;
+        const size_t exceedsAt34 = validityFor(index, alternativePositions).floorExceedsAchieved;
+        MESSAGE(label << ": floor exceeds achieved loads on " << exceedsAt32 << " of "
+                      << kLaneDays[index] << " lane-days at " << shippedTrailer().stackPositions
+                      << " positions, " << exceedsAt34 << " at " << kAlternativeStackPositions);
+        CHECK(exceedsAt32 == 0);
     }
 }
 

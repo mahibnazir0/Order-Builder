@@ -248,7 +248,9 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.excludedLines.push_back({lineIndex, load.error});
                 continue;
             }
-            if (load.heightIn > trailer.stackHeightCeilingIn) {
+            // The floor's test (exceedsCeiling): a load on the ceiling, or a ULP above it
+            // from inexact case heights, fits. Milestones 2 and 3 never disagree on a line.
+            if (load.heightIn > trailer.stackHeightCeilingIn + kQuantityEpsilon) {
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }

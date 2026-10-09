@@ -11,6 +11,9 @@
 // truck floor for the demand the rule selects (Milestone 3). --params needs
 // --demand-rule: which demand counts toward the day has no default.
 //
+// Without --params only Milestone 1 runs: the report then says no truck floor
+// was computed, so a forgotten --params is never read as a floor of nothing.
+//
 // Exit codes:
 //   0  ran successfully, no validation errors
 //   1  ran, but the result does not cover all of the demand: validation found
@@ -18,7 +21,8 @@
 //      (no unit load, taller than the ceiling, bad quantity) or no stack was built,
 //      or the floor left out a selected line or could not judge a line's date,
 //      or the demand rule selected no line of a non-empty extract
-//   2  could not run (missing argument, unreadable file, invalid demand rule)
+//   2  could not run (missing argument, unreadable file, invalid demand rule,
+//      a --groups or --lanes value that is not a whole number of 0 or more)
 // ============================================================================
 
 #include "demandSelector.hpp"
@@ -26,7 +30,6 @@
 #include "logger.hpp"
 #include "pipeline.hpp"
 
-#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <string>
@@ -58,10 +61,10 @@ void print_usage(std::ostream& out) {
         "                          availableBy:YYYY-MM-DD DATFR_TA on or before the date\n"
         "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
         "  --trailer <code>      Trailer code from the params file (default: the largest listed)\n"
-        "  --groups N            Print only the N largest groups (default: all)\n"
+        "  --groups N            Print only the N largest groups (0 or absent: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
         "  --lanes N             Print only the N largest lanes, in the summary and the\n"
-        "                        floor by lane (default: all)\n"
+        "                        floor by lane (0 or absent: all)\n"
         "  --debug               Verbose logging\n"
         "  --help                Show this message\n"
         "\n"
@@ -82,6 +85,34 @@ bool take_value(int argc, char** argv, int& i, const char* flag, std::string& ou
     }
     out = argv[++i];
     return true;
+}
+
+// Reads the row count of --groups or --lanes. The whole value must be a whole number of 0 or
+// more: "-3" or "5x" is an error, never quietly read as "all" or as 5.
+bool parse_count(const char* flag, const string& value, int& out) {
+    size_t consumed = 0;
+    int parsed = 0;
+    try {
+        parsed = stoi(value, &consumed);
+    } catch (const exception&) {
+        consumed = 0;
+    }
+    if (consumed == 0 || consumed != value.size()) {
+        LOG_ERROR(string(flag) + " needs a number, got '" + value + "'");
+        return false;
+    }
+    if (parsed < 0) {
+        LOG_ERROR(string(flag) + " must be 0 (all) or more, got '" + value + "'");
+        return false;
+    }
+    out = parsed;
+    return true;
+}
+
+void print_floor_not_computed(ostream& out) {
+    out << "\n"
+           "Truck floor: NOT COMPUTED. No --params was given, so only Milestone 1 ran: no\n"
+           "groups, stacks or floor. Pass --params <json> --demand-rule <rule> for them.\n";
 }
 
 } // anonymous namespace
@@ -118,25 +149,15 @@ int main(int argc, char** argv) {
         } else if (arg == "--trailer") {
             if (!take_value(argc, argv, i, "--trailer", inputs.trailerCode)) return 2;
         } else if (arg == "--groups") {
-            std::string value;
+            string value;
             if (!take_value(argc, argv, i, "--groups", value)) return 2;
-            try {
-                max_groups = std::stoi(value);
-            } catch (const std::exception&) {
-                LOG_ERROR("--groups needs a number, got '" + value + "'");
-                return 2;
-            }
+            if (!parse_count("--groups", value, max_groups)) return 2;
         } else if (arg == "--day") {
             if (!take_value(argc, argv, i, "--day", inputs.planning_day)) return 2;
         } else if (arg == "--lanes") {
-            std::string value;
+            string value;
             if (!take_value(argc, argv, i, "--lanes", value)) return 2;
-            try {
-                max_lanes = std::stoi(value);
-            } catch (const std::exception&) {
-                LOG_ERROR("--lanes needs a number, got '" + value + "'");
-                return 2;
-            }
+            if (!parse_count("--lanes", value, max_lanes)) return 2;
         } else {
             LOG_ERROR("unrecognised option '" + arg + "'");
             print_usage(std::cerr);
@@ -177,12 +198,14 @@ int main(int argc, char** argv) {
         ob::Reporter::print_warnings(result.validation, std::cout);
         if (result.ranMilestone2) {
             ob::StackReporter::print(result.stackReport, std::cout,
-                                     static_cast<std::size_t>(std::max(max_groups, 0)));
+                                     static_cast<size_t>(max_groups));
         }
         if (result.ranFloor) {
             ob::printFloorReport(cout, result.floorPlan, result.demandSelection, result.params,
                                  result.trailer, result.trailerChoice, inputs.demand_path,
-                                 static_cast<size_t>(max(max_lanes, 0)));
+                                 static_cast<size_t>(max_lanes));
+        } else {
+            print_floor_not_computed(cout);
         }
 
         return ob::isRunComplete(result) ? 0 : 1;
