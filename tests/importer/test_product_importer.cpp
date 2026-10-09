@@ -7,6 +7,8 @@
 #include <fstream>
 #include <stdexcept>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* PRODUCT_PATH = "tests/importer/Customer2-Product-Data.csv";
@@ -218,4 +220,124 @@ TEST_CASE("Cases_Unit_Load available for CS->pallets conversion") {
     int positive = 0;
     for (const auto& p : r.products) if (p.cases_unit_load > 0) ++positive;
     CHECK(positive > 20000);
+}
+
+namespace {
+
+// Writes `text` to a scratch CSV, loads it with the real importer, then removes it.
+ProductLoadResult loadCsvText(const string& text) {
+    const string path = "tests/importer/_tmp_product_text.csv";
+    {
+        ofstream out(path);
+        out << text;
+    }
+    try {
+        ProductLoadResult loaded = ProductImporter::load(path);
+        remove(path.c_str());
+        return loaded;
+    } catch (...) {
+        remove(path.c_str());
+        throw;
+    }
+}
+
+const string kEightyEightColumnStyleHeader =
+    "ID,Product_Master_Available,Length,Width,Height,Strength,UoM,Weight,"
+    "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID,Notes\n";
+
+} // namespace
+
+TEST_CASE("a master without Cases_Layer or Layers_Unit_Load is rejected, not read as all zeros") {
+    string missingColumn;
+    SUBCASE("Cases_Layer") { missingColumn = "Cases_Layer,"; }
+    SUBCASE("Layers_Unit_Load") { missingColumn = "Layers_Unit_Load,"; }
+    string header = kEightyEightColumnStyleHeader;
+    header.erase(header.find(missingColumn), missingColumn.size());
+    CHECK_THROWS_AS(loadCsvText(header + "T1,t,10,10,10,5,CS,9,4,8,TLD,\n"), runtime_error);
+}
+
+TEST_CASE("a master with no Description column and extra columns loads every field by name") {
+    const auto loaded = loadCsvText(kEightyEightColumnStyleHeader
+                                    + "T1,t,36,6.29,7.2,1,CS,21.7,4,3,12,TLD,note\n");
+    REQUIRE(loaded.products.size() == 1);
+    const ProductRecord& record = loaded.products[0];
+    CHECK(record.description.empty());
+    CHECK(record.length_in == doctest::Approx(36.0));
+    CHECK(record.height_in == doctest::Approx(7.2));
+    CHECK(record.strength == 1);
+    CHECK(record.weight_lb == doctest::Approx(21.7));
+    CHECK(record.cases_layer == 4);
+    CHECK(record.layers_unit_load == 3);
+    CHECK(record.cases_unit_load == 12);
+    CHECK(record.pallet_id == "TLD");
+    CHECK(loaded.misalignedRows == 0);
+}
+
+TEST_CASE("a quoted comma inside a cell does not shift the columns after it") {
+    const auto loaded = loadCsvText(
+        "ID,Notes,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"box, large\",10,20,30,5,CS,9,4,2,8,PTL\n");
+    REQUIRE(loaded.products.size() == 1);
+    CHECK(loaded.products[0].length_in == doctest::Approx(10.0));
+    CHECK(loaded.products[0].cases_unit_load == 8);
+    CHECK(loaded.products[0].pallet_id == "PTL");
+    CHECK(loaded.misalignedRows == 0);
+}
+
+TEST_CASE("a doubled quote inside a quoted cell reads as one quote") {
+    const auto loaded = loadCsvText(
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"6\"\" pipe\",10,20,30,5,CS,9,4,2,8,PTL\n");
+    REQUIRE(loaded.products.size() == 1);
+    CHECK(loaded.products[0].description == "6\" pipe");
+    CHECK(loaded.products[0].pallet_id == "PTL");
+}
+
+TEST_CASE("a row with fewer cells than the header is counted as misaligned") {
+    const auto loaded = loadCsvText(kEightyEightColumnStyleHeader
+                                    + "T1,t,10,10,10,5,CS,9,4,2,8,TLD,note\n"
+                                    + "T2,t,10,10,10,5,CS,9,4,2\n");
+    CHECK(loaded.products.size() == 2);
+    CHECK(loaded.misalignedRows == 1);
+}
+
+TEST_CASE("shell rows and zero-count rows load but are counted as having no unit load") {
+    const auto loaded = loadCsvText(kEightyEightColumnStyleHeader
+                                    + "SHELL,t,,,,,,,,,,,\n"
+                                    + "ZEROCOUNTS,t,36,6.29,7.2,1,CS,21.7,0,0,0,TLD,\n"
+                                    + "NEGATIVE,t,10,10,10,5,CS,9,4,2,-3,TLD,\n"
+                                    + "GOOD,t,10,10,10,5,CS,9,4,2,8,TLD,\n");
+    CHECK(loaded.products.size() == 4);
+    CHECK(loaded.rowsWithoutUnitLoad == 3);
+}
+
+TEST_CASE("the 17 Aug master has exactly one row without a unit load and no misaligned rows") {
+    const ProductLoadResult loaded = ProductImporter::load(PRODUCT_PATH);
+    CHECK(loaded.rowsWithoutUnitLoad == 1);
+    CHECK(loaded.misalignedRows == 0);
+}
+
+TEST_CASE("a quoted cell containing a newline stays one record") {
+    const auto loaded = loadCsvText(
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"two\nlines\",10,20,30,5,CS,9,4,2,8,PTL\n"
+        "T2,plain,10,20,30,5,CS,9,4,2,8,TLD\n");
+    REQUIRE(loaded.products.size() == 2);
+    CHECK(loaded.rows_read == 2);
+    CHECK(loaded.misalignedRows == 0);
+    CHECK(loaded.rowsWithoutUnitLoad == 0);
+    CHECK(loaded.products[0].description == "two\nlines");
+    CHECK(loaded.products[0].pallet_id == "PTL");
+    CHECK(loaded.products[1].id == "T2");
+}
+
+TEST_CASE("a quote left open at end of file is rejected, not read as one long record") {
+    CHECK_THROWS_AS(loadCsvText(
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "T1,\"never closed,10,20,30,5,CS,9,4,2,8,PTL\n"
+        "T2,plain,10,20,30,5,CS,9,4,2,8,TLD\n"), runtime_error);
 }

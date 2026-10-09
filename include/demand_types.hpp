@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================================
-// demand_types.hpp — Structures for Demand-1.json
+// demand_types.hpp — Structures for a demand file (Demand-1.json in August)
 //
 // Field names and types verified against the real file (24,357 STR records).
 // Every STR field is present in every record with no nulls — so no optionals

@@ -11,6 +11,8 @@
 #include <sys/wait.h>
 #endif
 
+using namespace std;
+
 // Drives the built order_builder executable, as a user would, so argument parsing,
 // report printing and exit codes are tested together. OB_CLI_PATH comes from CMake.
 
@@ -290,6 +292,29 @@ TEST_CASE("cli: a line with no unit load exits 1 and the report says incomplete"
         CHECK(contains(run.output, "was not stacked"));
         CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
     }
+}
+
+TEST_CASE("cli: a line for the zero-count product 106052500 exits 1 in every unit") {
+    const SyntheticInputs inputs;
+    for (const string unitOfMeasure : {"CS", "PAL", "DIS"}) {
+        CAPTURE(unitOfMeasure);
+        const string demandPath = inputs.write("zeroCountDemand.json",
+            R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1","LOCTONO":"2",)"
+            R"("MATNR":"106052500","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":4.0,)"
+            R"("UNITOFMEAS":")" + unitOfMeasure + R"("}]})");
+        const CliRun run = runCli(inputs.arguments(kProduct, demandPath, inputs.placeholder, kParams));
+        CHECK(run.exitCode == 1);
+        CHECK(contains(run.output, "zero_unit_load"));
+        CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
+    }
+}
+
+TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in the stack report") {
+    const CliRun& run = fullRealRun();
+    CHECK(contains(run.output, "[WARN] 2 demand line(s) exceed their own CRI limit"));
+    CHECK(contains(run.output, "line 3519, material 106005500: exceeds its own CRI limit"));
+    CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
+    CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
 }
 
 TEST_CASE("cli: a valid PAL line beside an EA line exits 1 and names the EA line") {
