@@ -8,6 +8,8 @@
 #include <fstream>
 #include <stdexcept>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* PH_PATH = "tests/importer/PlaceHolder-1.json";
@@ -224,4 +226,33 @@ TEST_CASE("a placeholder file whose root is a number throws instead of loading a
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
                          doctest::Contains("root must be a JSON object"), std::runtime_error);
     std::remove(path.c_str());
+}
+
+namespace {
+
+PlaceholderLoadResult loadPlaceholderEntries(const string& entriesJson) {
+    const string path = "tests/importer/_tmp_pholder_entries.json";
+    {
+        ofstream out(path);
+        out << R"({"PHOLDER":[)" << entriesJson << "]}";
+    }
+    PlaceholderLoadResult result = PlaceholderImporter::load(path);
+    remove(path.c_str());
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("repeated placeholder lanes are counted and their trucks summed, not overwritten") {
+    const auto loaded = loadPlaceholderEntries(
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":2},)"
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":3},)"
+        R"({"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TF","NO_OF_LOADS":1})");
+    CHECK(loaded.placeholders.size() == 3);
+    CHECK(loaded.duplicateLaneEntries == 1);
+    CHECK(loaded.total_loads == 6);
+}
+
+TEST_CASE("the 17 Aug placeholder file repeats no lane") {
+    CHECK(PlaceholderImporter::load(PH_PATH).duplicateLaneEntries == 0);
 }

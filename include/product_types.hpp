@@ -5,6 +5,8 @@
 // Columns verified against the real file (20,201 rows, 12 columns):
 //   ID, Description, Length, Width, Height, Strength, UoM, Weight,
 //   Cases_Layer, Layers_Unit_Load, Cases_Unit_Load, Pallet_ID
+// From 29 Sep the master has 88 columns and no Description; the other eleven
+// names survive and are read by name, so description is simply left blank.
 //
 // ID is kept as std::string — it is the join key against STR.MATNR, and
 // parsing it as an int would risk losing formatting. Same discipline as
@@ -21,7 +23,7 @@ constexpr int kUnreadableStrength = -1;
 
 struct ProductRecord {
     std::string id;                 // join key (matches STR.MATNR) — string
-    std::string description;
+    std::string description;      // blank when the master has no Description column
     double      length_in = 0.0;    // inches
     double      width_in  = 0.0;    // inches
     double      height_in = 0.0;    // inches

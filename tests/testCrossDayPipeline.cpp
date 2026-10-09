@@ -8,6 +8,8 @@
 #include <sstream>
 #include <string>
 
+using namespace std;
+
 using namespace ob;
 using namespace crossDayTests;
 
@@ -65,7 +67,7 @@ TEST_CASE("pipeline: cross-day Milestone 2 groups, binding split and single-high
         CHECK(run.params.doNotMixReading == SegregationReading::Strict);
         CHECK(run.segregation.lanesIn == expectedM2::lanesWithDemand[dayIndex]);
         CHECK(run.segregation.groups.size() == expectedM2::strictGroups[dayIndex]);
-        CHECK(run.segregation.lanesSplit == expectedM2::strictLanesSplit);
+        CHECK(run.segregation.lanesSplit == expectedM2::strictLanesSplit[dayIndex]);
         CHECK(run.segregation.linesSegregated == expectedM2::linesSegregated[dayIndex]);
         CHECK(run.stackReport.groupsAllSingleHigh == expectedM2::groupsAllSingleHigh[dayIndex]);
         std::cout << "Cross-day " << dayFiles()[dayIndex].label << " M2: lanes="

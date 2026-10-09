@@ -11,6 +11,8 @@
 #include <limits>
 #include <map>
 
+using namespace std;
+
 using namespace ob;
 
 namespace {
@@ -382,4 +384,20 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
             CHECK(best.floorPositions <= outcome.floorPositions + 1e-9);
         }
     }
+}
+
+TEST_CASE("stackBuilder: a product over its own CRI limit is warned about and still ships single-high") {
+    ProductRecord overBuilt = product("OVERBUILT", 30, 400, 2);
+    overBuilt.layers_unit_load = 2;
+    Scenario scenario({overBuilt}, {2});
+    const auto result = scenario.build();
+    CHECK(result.ownCriExceededLines == vector<size_t>{0});
+    CHECK(result.linesNotStacked() == 0);
+    CHECK(stackedLineFlags(result, 1)[0]);
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
+}
+
+TEST_CASE("stackBuilder: a product within its own CRI limit raises no warning") {
+    Scenario scenario({product("A", 30, 10, 9)}, {2});
+    CHECK(scenario.build().ownCriExceededLines.empty());
 }

@@ -7,6 +7,8 @@
 #include <numeric>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 namespace {
 
@@ -254,6 +256,7 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }
+            if (exceedsOwnCri(load, params)) result.ownCriExceededLines.push_back(lineIndex);
             items.push_back(Item{lineIndex, std::move(load), stackedQuantity});
         }
 

@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================================
-// placeholder_types.hpp — Structure for PlaceHolder-1.json
+// placeholder_types.hpp — Structure for a placeholder file (PlaceHolder-1.json in August)
 //
 // Verified against the real file (189 entries, 8 fields, single PHOLDER array):
 //   LOCFRNO, LOCTONO, SHIP_COND, DATFR_TA, DATTO_TA,
@@ -10,7 +10,10 @@
 //   - EBELN is blank in all 189 records. Kept because it is in the schema.
 //   - ZZNA_EQUIP_SIZE is blank in 43 of 189; the rest are "53F".
 //     Blank appears to mean "any trailer" — to confirm with Tom.
-//   - No duplicate LOCFRNO/LOCTONO/SHIP_COND triplets, so no de-dup needed.
+//   - No duplicate LOCFRNO/LOCTONO/SHIP_COND triplets in August, but every
+//     29 Sep - 5 Oct extract repeats lanes (4 to 100 extra entries a day).
+//     Repeats are summed per lane, never de-duplicated or overwritten, and
+//     counted in duplicateLaneEntries so the summing is visible.
 // ============================================================================
 
 #include <string>
@@ -39,6 +42,8 @@ struct PlaceholderLoadResult {
     // Sum of in-range no_of_loads only (0..kMaxLoadsPerPlaceholder), matching the
     // placeholders the Reporter counts — 372 in the supplied file.
     long long total_loads = 0;
+    // Entries whose LOCFRNO/LOCTONO/SHIP_COND lane appeared earlier in the file.
+    int duplicateLaneEntries = 0;
 };
 
 } // namespace ob

@@ -3,6 +3,8 @@
 #include <cmath>
 #include <set>
 
+using namespace std;
+
 namespace ob {
 namespace {
 
@@ -77,6 +79,11 @@ std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
         if (palletSpecFor(params, palletId) == nullptr) missing.push_back(palletId);
     }
     return missing;
+}
+
+bool exceedsOwnCri(const UnitLoad& load, const M2Params& params) noexcept {
+    if (load.cri <= 0 || !isCriInRange(load.cri, params)) return false;
+    return load.ownWeightAboveLb > params.cri.safeLimitLb[static_cast<size_t>(load.cri)];
 }
 
 StackFeasibility canStack(const UnitLoad& base, const UnitLoad& top,

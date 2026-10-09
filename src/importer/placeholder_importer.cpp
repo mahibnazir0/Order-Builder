@@ -6,6 +6,9 @@
 
 #include <fstream>
 #include <stdexcept>
+#include <unordered_set>
+
+using namespace std;
 
 namespace ob {
 
@@ -55,17 +58,28 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
     // get_optional_array.
     if (const auto* pholder = get_optional_array(root, "PHOLDER", "Placeholder file")) {
         result.placeholders.reserve(pholder->size());
+        unordered_set<string> lanesSeen;
+        lanesSeen.reserve(pholder->size());
         for (const auto& item : *pholder) {
             PlaceholderRecord p = parse_placeholder(item);
             if (p.no_of_loads >= 0 && p.no_of_loads <= kMaxLoadsPerPlaceholder) {
                 result.total_loads += p.no_of_loads;
             }
-            result.placeholders.push_back(p);
+            // '\x1f' cannot occur in a location code, so distinct lanes never share a key.
+            if (!lanesSeen.insert(p.locfrno + '\x1f' + p.loctono + '\x1f' + p.ship_cond).second) {
+                ++result.duplicateLaneEntries;
+            }
+            result.placeholders.push_back(std::move(p));
         }
     }
 
     LOG_INFO("Loaded placeholders: " + std::to_string(result.placeholders.size())
              + " entries, " + std::to_string(result.total_loads) + " trucks requested");
+    if (result.duplicateLaneEntries > 0) {
+        LOG_WARN(to_string(result.duplicateLaneEntries)
+                 + " placeholder entries repeat a lane listed earlier; their NO_OF_LOADS are"
+                   " added to that lane's trucks, not overwritten");
+    }
 
     return result;
 }
