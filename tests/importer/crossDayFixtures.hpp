@@ -140,7 +140,9 @@ constexpr PerDay<size_t> uniqueProductIds{20183, 20299, 20299, 20299};
 namespace expectedM2 {
 constexpr PerDay<size_t> lanesWithDemand{360, 368, 367, 369};
 constexpr PerDay<size_t> strictGroups{387, 395, 394, 397};
-constexpr size_t strictLanesSplit = 17;
+// A per-day measurement, not a property of the customer: 17 on each of these four days,
+// but 19 or 20 on every extract from 29 Sep to 5 Oct.
+constexpr PerDay<size_t> strictLanesSplit{17, 17, 17, 17};
 constexpr PerDay<size_t> linesSegregated{2849, 2289, 2283, 2279};
 // Pass 1 cube/weight split. Depends on the trailer's stackPositions, which was 30
 // until the client corrected it to 32; these figures hold only at 32.

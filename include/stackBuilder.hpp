@@ -57,6 +57,9 @@ struct StackingResult {
     // Lines whose quantity converted to 0 pallets, e.g. a unit of measure the Converter
     // does not handle. They hold demand that no stack carries, so they count as unstacked.
     std::vector<std::size_t> zeroQuantityLines;
+    // Lines whose product's own build exceeds its CRI limit (see exceedsOwnCri). They are
+    // stacked like any other line, single-high in practice, and reported as a warning.
+    std::vector<std::size_t> ownCriExceededLines;
 
     // Demand lines that reached stacking but are in no stack. Any of them means the result
     // does not cover the whole demand, so the run must not report success.

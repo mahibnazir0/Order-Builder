@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 
+using namespace std;
+
 using namespace ob;
 using namespace crossDayTests;
 
@@ -62,7 +64,7 @@ void checkDay(std::size_t dayIndex, SegregationReading reading) {
     CHECK(result.linesSegregated == expectedM2::linesSegregated[dayIndex]);
     CHECK(result.groups.size() == (strict ? expectedM2::strictGroups[dayIndex]
                                           : expectedM2::flaggedVsNormalGroups[dayIndex]));
-    CHECK(result.lanesSplit == (strict ? expectedM2::strictLanesSplit
+    CHECK(result.lanesSplit == (strict ? expectedM2::strictLanesSplit[dayIndex]
                                        : expectedM2::flaggedVsNormalLanesSplit[dayIndex]));
 
     std::vector<bool> seen(run.join.lines.size(), false);
@@ -190,7 +192,7 @@ TEST_CASE("segregation: cross-day site 2028 has no unsegregated demand on any da
     }
 }
 
-TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despite different lane counts" * doctest::skip(!crossDayTests::allExtractsPresent())) {
+TEST_CASE("segregation: cross-day Strict splits each day's measured number of lanes" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     std::set<std::size_t> distinctLaneCounts;
     for (std::size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
@@ -199,7 +201,7 @@ TEST_CASE("segregation: cross-day Strict splits exactly 17 lanes every day despi
                                       std::vector<bool>(run.join.lines.size(), false));
         distinctLaneCounts.insert(result.lanesIn);
         CHECK(result.lanesIn == expectedM2::lanesWithDemand[dayIndex]);
-        CHECK(result.lanesSplit == expectedM2::strictLanesSplit);
+        CHECK(result.lanesSplit == expectedM2::strictLanesSplit[dayIndex]);
     }
     CHECK(distinctLaneCounts.size() == kDayCount);
 }

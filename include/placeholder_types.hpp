@@ -13,9 +13,11 @@
 //   - ZZNA_EQUIP_SIZE is "53F" or blank, and blank is common, not rare: 43 of 189
 //     on 17 Aug, 95 of 228 on 2 Oct, 45 of 88 on 6 Oct. Blank appears to mean
 //     "any trailer" — to confirm with Tom.
-//   - A LOCFRNO/LOCTONO/SHIP_COND triplet can repeat with different
-//     DATFR_TA/DATTO_TA windows (89 repeated triplets on 5 Oct); no record repeats
-//     all five, so the records are not de-duplicated.
+//   - No duplicate LOCFRNO/LOCTONO/SHIP_COND triplets in August, but every
+//     29 Sep - 5 Oct extract repeats lanes (4 to 100 extra entries a day), each
+//     repeat with its own DATFR_TA/DATTO_TA window. Repeats are summed per lane,
+//     never de-duplicated or overwritten, and counted in duplicateLaneEntries so
+//     the summing is visible.
 // ============================================================================
 
 #include <string>
@@ -44,6 +46,8 @@ struct PlaceholderLoadResult {
     // Sum of in-range no_of_loads only (0..kMaxLoadsPerPlaceholder), matching the
     // placeholders the Reporter counts — 372 in the supplied file.
     long long total_loads = 0;
+    // Entries whose LOCFRNO/LOCTONO/SHIP_COND lane appeared earlier in the file.
+    int duplicateLaneEntries = 0;
 };
 
 } // namespace ob

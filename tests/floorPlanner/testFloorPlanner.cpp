@@ -282,7 +282,7 @@ TEST_CASE("floorPlanner: the plan on every extract reconciles with Milestone 1 a
             if (lane.groupIndices.size() > 1) ++lanesSplit;
             laneFloorSum += lane.floorTrucks;
         }
-        CHECK(lanesSplit == expectedM2::strictLanesSplit);
+        CHECK(lanesSplit == expectedM2::strictLanesSplit[dayIndex]);
         long long groupFloorSum = 0;
         for (const GroupFloor& floor : plan.groups) {
             CHECK(floor.linesCounted > 0);

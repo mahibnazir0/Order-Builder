@@ -1,7 +1,7 @@
 ---
 name: robustness-review
-description: Audit Order Builder changes for the defect classes past reviews and the customer design documents exposed — bad external input read as absent or unvalidated, lines or pallets lost while the run exits 0, copy-unsafe pointer structs, hard-coded limits, invalid truck floors, unbounded or silently-exhausted loops, hard rules not held end to end, Truck Builder or Pallet Builder failures read as approval, repairs that worsen a load or oscillate, planner/Truck Builder coupling, non-deterministic or non-replayable runs, solver guarantees, date/key/platform input quirks, and acceptance figures not pinned by tests. Runs the build and test suite. Use before merging any change under src/, include/, config/, tests/ or CMakeLists.txt.
-allowed-tools: Read, Grep, Glob, Bash(grep *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(cmake --build *), Bash(ctest *)
+description: Audit Order Builder changes for the defect classes past reviews and the customer design documents exposed — bad external input read as absent or unvalidated, lines or pallets lost while the run exits 0, copy-unsafe pointer structs, hard-coded limits, invalid truck floors, unbounded or silently-exhausted loops, hard rules not held end to end, Truck Builder or Pallet Builder failures read as approval, repairs that worsen a load or oscillate, planner/Truck Builder coupling, non-deterministic or non-replayable runs, solver guarantees, date/key/platform input quirks, acceptance figures not pinned by tests, and PRs missing the team's required plan, self-critique and explanation or whose code drifts from that plan. Runs the build and test suite. Use before merging any change under src/, include/, config/, tests/ or CMakeLists.txt.
+allowed-tools: Read, Grep, Glob, Bash(grep *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(gh pr view *), Bash(cmake --build *), Bash(ctest *)
 ---
 
 # Robustness review
@@ -166,6 +166,22 @@ that Check 1 had called `get_or` safe for scalars, and it is not. It added:
 - `PLANNER_TRANS_NMIX` and other keep-apart attributes that are read and
   never used (Check 32).
 
+A seventh pass read the team's AI coding workflow (*AI Coding V2*, see
+**Source documents**). It asks for a written plan before any code, a
+self-critique from a separate prompt, a block-by-block explanation before
+merge, and tests, and it rejects a PR that lacks any of them. It also names
+areas where AI should not make the decision. This pass added:
+
+- the PR carries its plan, self-critique and explanation, and the code
+  matches them. Review becomes "does the code match the plan?" instead of
+  reverse-engineering intent from the diff (Check 37);
+- a change to the architecture, or to security or credentials, names the
+  person who made that decision (Check 38);
+- this review is itself the separate critique, so it notes when it runs in
+  the session that wrote the code (Scope);
+- a defect class no check covers goes back into this skill or `CLAUDE.md`,
+  the shared context every session loads (Reporting).
+
 Changes that touch only `tests/` or `CMakeLists.txt` are also in scope now.
 Weakening a test, or dropping a warning flag, is a regression that no source
 diff shows.
@@ -210,6 +226,16 @@ below points back to.
 4. Otherwise build and run the suite first (Check 33). A build or test
    failure is itself a finding, and the checks below read more reliably
    against code that compiles.
+5. Find the PR's plan, self-critique and explanation (Check 37). For a PR,
+   read its description with `gh pr view <number> --json title,body,files`
+   and any file it links to. For a working-tree or branch review with no PR,
+   look in the user's message and in a plan file the branch adds. Read the
+   plan **before** the code, so the code is judged against what it was meant
+   to do, not against what it happens to do.
+6. The workflow keeps generating and critiquing in separate prompts, because
+   a model reviewing its own fresh output tends to confirm it. If this
+   session wrote or edited the code under review, say so at the top of the
+   report and recommend re-running the review in a fresh session.
 
 ## Check 1 — a present-but-wrong-type JSON block must not read as absent
 
@@ -1699,11 +1725,117 @@ fixes can alternate until the budget runs out without the load being
 reported, a dropped row loses its pallets, or a restart happens without a
 logged reason.
 
+## Check 37 — the PR carries its plan, self-critique and explanation, and the code matches them
+
+The team's PR policy (*AI Coding V2*) rejects any AI-assisted PR that lacks
+one of four parts. Small bug fixes are exempt. Here, "small" means the change
+stays inside one function, and adds no new type, field, setting, module or
+test file. Anything bigger is not exempt, even if it is labelled `fix:`.
+
+| Part | What it must contain | Not enough |
+|---|---|---|
+| Plan | the goal; the assumptions; the edge cases; how errors are handled; what a passing test looks like | a restated title; "handle edge cases" without naming them |
+| Self-critique | answers from a **separate** prompt: assumptions that might be wrong, where it could fail, tradeoffs, best practices it breaks, missing tests, whether this is the best approach | "looks good"; a critique with no specific risk; one written in the same prompt as the code |
+| Explanation | the code explained block by block, with every non-obvious decision named | a summary of the diff; a list of files changed |
+| Tests | tests for the plan's edge cases, including the invalid ones (Check 5) | only the fixture happy path |
+
+A missing part is a finding on its own, and it blocks the merge. Then use
+the plan to review the code. Every item in the plan must be traced to the
+code:
+
+- **every edge case in the plan** is handled in the code **and** has a test.
+  A case the plan names that has no test is the Check 5 gap, and the plan
+  already shows that the author knew about it;
+- **every assumption** is either checked in code (the Check 2/3 validation
+  owner) or listed as provisional in the output (Check 9). An assumption
+  that is only written in the PR text disappears once the PR is merged;
+- **the error handling the plan describes** is what the code does. If the
+  plan says "reject the line" and the code skips it, that is the Check 6
+  defect, and the plan is the proof;
+- **the plan's "passing test"** exists as a real test that would fail if the
+  behaviour broke, not as a manual check;
+- **the explanation matches the code.** When the explanation says a block
+  does X and the code does Y, the code has a hidden assumption. Report it
+  as a correctness finding, not as a documentation problem;
+- **the code does nothing the plan leaves out.** A new setting, rule or
+  fallback that the plan never mentions has had no review against the
+  plan. Ask for the plan to be updated, or the code to be removed;
+- **the self-critique's risks are answered.** Each risk it raises is either
+  fixed or explicitly accepted in the PR. A risk raised there that this
+  review then confirms in the code is a finding at that check's severity.
+
+The workflow asks for code to be generated in small units (one function,
+one transformation, one interface), because AI drifts architecturally at
+scale. Report a PR that changes several pipeline stages for unrelated
+reasons (an importer, a solver and the reporter, each for its own purpose)
+as one that should be split. A PR that is too large to trace back to its
+plan cannot be reviewed against it.
+
+The explanation belongs in the PR, not in the source. Stage 5 asks the AI
+to "add documentation". That does not override `CLAUDE.md` § Comments: only
+the non-obvious decisions the explanation names (a business rule, a
+workaround, a hidden invariant) become code comments. A block-by-block
+narration pasted into the source as comments is a finding.
+
+**Fails if:** a non-exempt PR lacks the plan, the self-critique, the
+explanation or the tests; the self-critique is generic or came from the
+generating prompt; a plan edge case has no handling or no test; a plan
+assumption is neither checked in code nor surfaced as provisional; the code
+handles errors differently from the plan; the explanation contradicts the
+code; the code adds behaviour the plan does not mention; or the explanation
+was pasted into the source as narrating comments.
+
+## Check 38 — architecture and security decisions name a human owner
+
+The workflow names three areas where AI must not make the decision: security
+logic, authentication, and core architecture. An undetected flaw there costs
+too much. AI may still write the code. A person must make the decision,
+and the PR must say who.
+
+In this repo those areas are:
+
+- **core architecture**: adding, merging or removing one of the seven parts
+  of Design §9; changing an interface between them (planner → repair
+  controller → Truck Builder / Pallet Builder client, Check 35); changing a
+  record type that crosses stages (`include/*_types.hpp`,
+  `include/*Types.hpp`); changing ownership or copy rules for a shared
+  aggregate such as `PipelineResult` (Check 4); and changing the replay
+  record format (Check 15);
+- **security and authentication**: anything the Truck Builder or Pallet
+  Builder client sends or receives that identifies the caller (keys,
+  tokens, endpoints, TLS settings), and anything that reads such values
+  from the environment or from `config/`.
+
+```bash
+grep -rn 'token\|Token\|apiKey\|API_KEY\|secret\|password\|auth\|Auth\|getenv\|https\?://' src include config
+```
+
+Confirm, for a change in either area:
+
+- the PR names the person who made the decision, and the plan records the
+  options that were considered (Check 37). "AI suggested it" is not a
+  decision owner;
+- no credential, key or token is written in source, in `config/*.json`, in
+  a test fixture, or in a replay record (Check 15). These records are kept
+  and compared against later, so a secret in one stays in the repo
+  history;
+- a failed authentication is an error that reaches the exit code
+  (Checks 6, 27). It must never be treated as "the service is unavailable,
+  carry on without it".
+
+**Fails if:** an architecture or security change has no named human
+decision owner; a credential appears in source, config, fixtures or replay
+records; or a failed authentication is not reported as an error.
+
 ## Reporting
 
 Use the `ReportFindings` tool if available in this session, one entry per
 concrete gap found (not per file scanned), ranked most-severe first:
-a failing build or test (Check 33), copy-safety (Check 4), silent numeric
+a failing build or test (Check 33), a PR missing its plan, self-critique,
+explanation or tests, code that contradicts its plan or explanation, and an
+architecture or security decision with no human owner (Checks 37, 38) — each
+of these blocks the merge under the team's PR policy — then copy-safety
+(Check 4), silent numeric
 corruption (Checks 2, 17), pallets
 lost or duplicated between stages (Checks 16, 29), incomplete runs that exit 0
 (Check 6), a Truck Builder or Pallet Builder failure read as approval
@@ -1745,9 +1877,25 @@ fix back:
 - the test(s) to add alongside it, matching the style of the existing test
   for that same rule family
 
+- one unit of work per prompt — one function, one transformation, or one
+  interface. Split a finding that needs changes in several stages into
+  one prompt per stage, in dependency order;
+- an instruction to build and run `ctest` after the change and to iterate
+  on any failure. The workflow expects 3–5 fix cycles, not one;
+- an instruction to finish by writing a short plan of the fix and a
+  block-by-block explanation for the PR (Check 37), unless the fix is
+  small enough to be exempt.
+
 Do not soften this into "you may want to consider..." — write it as a direct
 instruction, the way you would brief someone picking up the fix cold. Order
 the fix prompts to match the findings' severity order above.
+
+Finally, keep the shared context current (the workflow's team practice).
+If a finding belongs to a defect class that no check above covers, or a
+check had to be stretched to cover it, end the report with a proposed
+addition: a new check or edge case for this skill, or a new anti-pattern
+line for `CLAUDE.md`, which every session loads. Propose it, do not apply
+it. This skill only reads.
 
 If every check passes, say so plainly — do not invent findings, and do not
 manufacture fix prompts, to justify the review.
@@ -1755,7 +1903,8 @@ manufacture fix prompts, to justify the review.
 ## Source documents
 
 Checks 8–36 cite these customer documents, kept in `../docs/` beside the
-repo (outside git). When a later revision changes one of them, update the
+repo (outside git). Checks 37–38 cite the team's workflow document, kept in
+`../` beside the repo (outside git). When a later revision changes one of them, update the
 check that cites it. Several figures exist only as images in the PDFs:
 the flow and its two loops (Algorithms Fig. 1), the Pass 1 formulas and
 strategies A–C (Fig. 2), the selector (Fig. 4), and the row patterns and
@@ -1788,3 +1937,11 @@ revision fills it in, check it against Check 31.
   patterns, 21 positions in a 40 ft container; M7: unrepairable loads
   reported; M8: deterministic, under 10 s per shipment). Every milestone:
   builds clean and its tests pass.
+- *AI Coding V2* (4-26), the team's AI coding workflow. Five stages: plan
+  (goal, assumptions, edge cases, error handling, passing test), generate in
+  small units, critique in a separate prompt, test and fix in a 3–5 cycle
+  loop, explain before merge. The PR policy requires a plan, a
+  self-critique, an explanation and tests, with only small bug fixes exempt.
+  AI does not decide security, authentication or core architecture. The team
+  keeps a shared context file (here, `CLAUDE.md`) and adds to it what
+  reviews find.

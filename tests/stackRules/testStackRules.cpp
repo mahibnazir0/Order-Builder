@@ -377,3 +377,22 @@ TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 i
                   << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';
     }
 }
+
+TEST_CASE("stackRules: a load whose own upper layers outweigh its CRI limit exceeds its own CRI") {
+    CHECK(exceedsOwnCri(load(50.0, 500.0, 300.0, 2), testParams()));
+}
+
+TEST_CASE("stackRules: a load exactly at its own CRI limit does not exceed it") {
+    CHECK_FALSE(exceedsOwnCri(load(50.0, 500.0, 299.0, 2), testParams()));
+}
+
+TEST_CASE("stackRules: a blank CRI has no limit for its own build to exceed") {
+    CHECK_FALSE(exceedsOwnCri(load(50.0, 500.0, 1e6, 0), testParams()));
+}
+
+TEST_CASE("stackRules: a load over its own CRI limit cannot carry even the lightest top") {
+    const UnitLoad base = load(50.0, 500.0, 300.0, 2);
+    const auto result = canStack(base, load(10.0, 0.1, 0.0, 2), testParams(), kCeilingIn);
+    CHECK_FALSE(result.isFeasible);
+    CHECK(result.reason == Reason::CriExceeded);
+}

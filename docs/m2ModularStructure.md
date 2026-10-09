@@ -256,9 +256,11 @@ Ambiguity drops from 144 lines to 36 on 17 August.
 | FlaggedVsNormal groups / split | 365 / 5 | 374 / 6 | 373 / 6 | 375 / 6 |
 | Site 2028 unflagged lines | **0** | **0** | **0** | **0** |
 
-Three properties hold on every day and are therefore properties of the customer:
-the same four pairs carry demand; site 2028 has no unsegregated stock; exactly 17 lanes
-split under `Strict` despite the lane count moving.
+Two properties hold on every day and are therefore properties of the customer:
+the same four pairs carry demand; site 2028 has no unsegregated stock. The 17 lanes split
+under `Strict` is a per-day measurement, not a third property: it held on these four days,
+but the 29 September to 5 October extracts split 19 or 20 lanes under the same reading.
+Tests pin the lanes split per day and must not assert 17 as an invariant.
 
 **The 18 idle pairs are not idle planners.** Nineteen of the twenty planners named in the
 list ship heavily — S23 moves around 900 lines from site 2027, S97 nearly 1,800 across

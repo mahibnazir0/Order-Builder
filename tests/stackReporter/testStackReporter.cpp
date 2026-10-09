@@ -7,6 +7,8 @@
 
 #include <sstream>
 
+using namespace std;
+
 using namespace ob;
 
 namespace {
@@ -190,4 +192,36 @@ TEST_CASE("stackReporter: real demand report states the segregation and binding 
     CHECK(contains(text, "Cube-bound groups         383"));
     CHECK(contains(text, "Weight-bound groups       4"));
     CHECK(contains(text, "top 10 of 387"));
+}
+
+TEST_CASE("stackReporter: lines over their own CRI limit are printed as a warning, not as incomplete") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    inputs.stacking.ownCriExceededLines = {0};
+    const StackReport report = StackReporter::build(
+        inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
+    CHECK(report.ownCriExceededLines == 1);
+    CHECK(report.isComplete());
+    CHECK(contains(printed(inputs), "Over own CRI lines        1  (warning:"));
+}
+
+TEST_CASE("stackReporter: lines over their own CRI limit are listed, capped at twenty") {
+    Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
+    StackReport report = StackReporter::build(
+        inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
+    for (size_t lineIndex = 0; lineIndex < 25; ++lineIndex) {
+        report.ownCriExceeded.push_back({lineIndex, "OVERBUILT", "exceeds its own CRI limit"});
+    }
+    ostringstream out;
+    StackReporter::print(report, out);
+    const string text = out.str();
+    CHECK(contains(text, "      line 19, material OVERBUILT: exceeds its own CRI limit\n"));
+    CHECK_FALSE(contains(text, "line 20, material OVERBUILT"));
+    CHECK(contains(text, "      ... and 5 more (not listed individually)\n"));
+}
+
+TEST_CASE("stackReporter: a weight-bound row keeps a space between Limit and Method") {
+    const string text = printed(oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0,
+                                         BindingConstraint::Weight));
+    CHECK(contains(text, "  Weight Base & Top"));
+    CHECK_FALSE(contains(text, "WeightBase"));
 }

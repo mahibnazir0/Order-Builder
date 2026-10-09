@@ -4,12 +4,13 @@
 
 #include <fstream>
 #include <limits>
-#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
 #include <cctype>
+
+using namespace std;
 
 namespace ob {
 
@@ -23,15 +24,54 @@ std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
-// Split one CSV line on commas. The product file has no quoted/embedded commas,
-// so a simple split is correct here; if that ever changes this is the one place
-// to upgrade to a quote-aware parse.
-std::vector<std::string> split_csv(const std::string& line) {
-    std::vector<std::string> out;
+// Split one CSV line into `cells`, reusing its storage across rows. Quote-aware: the
+// 88-column master (29 Sep onward) carries free-text columns, and one quoted comma split
+// naively would shift every later column of that row onto the wrong name.
+void split_csv(const string& line, vector<string>& cells) {
+    cells.clear();
     std::string cell;
-    std::stringstream ss(line);
-    while (std::getline(ss, cell, ',')) out.push_back(trim(cell));
-    return out;
+    bool inQuotes = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        const char c = line[i];
+        if (inQuotes) {
+            if (c != '"') {
+                cell += c;
+            } else if (i + 1 < line.size() && line[i + 1] == '"') {
+                cell += '"';
+                ++i;
+            } else {
+                inQuotes = false;
+            }
+        } else if (c == '"') {
+            inQuotes = true;
+        } else if (c == ',') {
+            cells.push_back(trim(cell));
+            cell.clear();
+        } else {
+            cell += c;
+        }
+    }
+    cells.push_back(trim(cell));
+}
+
+// Read one CSV record, which spans several lines when a quoted cell holds a newline. A
+// record is still open while it has an odd number of quotes; a doubled quote adds two, so
+// it never changes that parity. A quote left open at end of file would otherwise swallow
+// every row after it into one record, so it is an error rather than a short master.
+bool readCsvRecord(istream& in, string& record) {
+    if (!getline(in, record)) return false;
+    size_t quoteCount = count(record.begin(), record.end(), '"');
+    string continuation;
+    while (quoteCount % 2 == 1) {
+        if (!getline(in, continuation)) {
+            throw runtime_error("Product file has an unterminated quote in the record starting: "
+                                + record.substr(0, record.find('\n')).substr(0, 80));
+        }
+        quoteCount += count(continuation.begin(), continuation.end(), '"');
+        record += '\n';
+        record += continuation;
+    }
+    return true;
 }
 
 // Safe numeric parse: return fallback if the cell is blank or not a number,
@@ -76,13 +116,14 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
     }
 
     std::string header_line;
-    if (!std::getline(in, header_line)) {
+    if (!readCsvRecord(in, header_line)) {
         throw std::runtime_error("Product file is empty: " + csv_path);
     }
 
     // Map expected column name -> its index in this file, so column order
     // changes in the source do not break the reader.
-    std::vector<std::string> headers = split_csv(header_line);
+    vector<string> headers;
+    split_csv(header_line, headers);
     std::unordered_map<std::string, int> col;
     col.reserve(headers.size());
     for (int i = 0; i < static_cast<int>(headers.size()); ++i) {
@@ -95,8 +136,11 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
         }
     }
 
-    const char* required[] = {"id", "length", "width", "height", "strength",
-                              "uom", "weight", "cases_unit_load", "pallet_id"};
+    // Description is deliberately not required: the 88-column master (29 Sep onward)
+    // dropped it. Cases_Layer and Layers_Unit_Load are, since a missing column would
+    // read as 0 on every row and reject the whole day as invalid_layer_data.
+    const char* required[] = {"id", "length", "width", "height", "strength", "uom", "weight",
+                              "cases_layer", "layers_unit_load", "cases_unit_load", "pallet_id"};
     for (const char* r : required) {
         if (col.find(r) == col.end()) {
             throw std::runtime_error("Product file missing required column: " + std::string(r));
@@ -115,10 +159,13 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
 
     constexpr double unreadableMeasurement = std::numeric_limits<double>::quiet_NaN();
     std::string line;
-    while (std::getline(in, line)) {
+    vector<string> c;
+    c.reserve(headers.size());
+    while (readCsvRecord(in, line)) {
         if (trim(line).empty()) continue;
-        std::vector<std::string> c = split_csv(line);
+        split_csv(line, c);
         ++result.rows_read;
+        if (c.size() != headers.size()) ++result.misalignedRows;
 
         ProductRecord p;
         p.id               = at(c, "id");
@@ -134,6 +181,7 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
         p.layers_unit_load = to_int(at(c, "layers_unit_load"));
         p.cases_unit_load  = to_int(at(c, "cases_unit_load"));
         p.pallet_id        = at(c, "pallet_id");
+        if (p.cases_unit_load <= 0) ++result.rowsWithoutUnitLoad;
 
         // Rows sharing an ID are pallet-type variants (TLD / PTL / PGM / GMA),
         // not data errors: same product, different Cases_Unit_Load. They are
@@ -144,12 +192,26 @@ ProductLoadResult ProductImporter::load(const std::string& csv_path) {
         } else {
             id_to_index[p.id] = result.products.size();
         }
-        result.products.push_back(p);
+        result.products.push_back(std::move(p));
     }
 
     LOG_INFO("Loaded product master: " + std::to_string(result.rows_read)
              + " rows, " + std::to_string(id_to_index.size()) + " unique IDs, "
              + std::to_string(result.duplicate_ids) + " pallet-type variants");
+
+    // Product_Master_Available is 't' on these rows too, so the master cannot filter them
+    // out itself. They load so the master stays whole; validation rejects any demand for one.
+    // Info, not a warning: every 29 Sep - 5 Oct master carries ~900 of them, so a warning
+    // would fire on every run. A demanded one is still an error from the Validator.
+    if (result.rowsWithoutUnitLoad > 0) {
+        LOG_INFO(to_string(result.rowsWithoutUnitLoad)
+                 + " product rows have Cases_Unit_Load at or below zero and cannot form a"
+                   " unit load; demand for any of them is rejected by validation");
+    }
+    if (result.misalignedRows > 0) {
+        LOG_WARN(to_string(result.misalignedRows) + " product rows do not have the header's "
+                 + to_string(headers.size()) + " cells; their columns may be misread");
+    }
 
     return result;
 }

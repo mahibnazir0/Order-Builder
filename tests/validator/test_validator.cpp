@@ -11,6 +11,8 @@
 #include <fstream>
 #include <limits>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* DEMAND_PATH  = "tests/importer/Demand-1.json";
@@ -1009,4 +1011,51 @@ TEST_CASE("every issue carries a traceable line index and rule name") {
         REQUIRE_FALSE(i.rule.empty());
         REQUIRE_FALSE(i.message.empty());
     }
+}
+
+TEST_CASE("a line for product 106052500, real dimensions but zero case counts, is rejected in every unit") {
+    string unitOfMeasure;
+    SUBCASE("CS") { unitOfMeasure = "CS"; }
+    SUBCASE("PAL") { unitOfMeasure = "PAL"; }
+    SUBCASE("DIS") { unitOfMeasure = "DIS"; }
+    CAPTURE(unitOfMeasure);
+    const ProductLoadResult loaded = ProductImporter::load(PRODUCT_PATH);
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "106052500";
+    demandLines[0].unitofmeas = unitOfMeasure;
+
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    REQUIRE(j.lines[0].product != nullptr);
+    REQUIRE(j.lines[0].product->cases_unit_load == 0);
+
+    const ValidationReport r = Validator::validate(j);
+    CHECK(r.zero_unit_load == 1);
+    CHECK(r.invalid_layer_data == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("a line for a blank shell product row is rejected") {
+    const string path = "tests/importer/_tmp_validator_shell.csv";
+    {
+        ofstream out(path);
+        out << "ID,Product_Master_Available,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+               "SHELL,t,,,,,,,,,,\n";
+    }
+    const ProductLoadResult loaded = ProductImporter::load(path);
+    remove(path.c_str());
+
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "SHELL";
+
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    const ValidationReport r = Validator::validate(j);
+    CHECK(r.errors > 0);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
