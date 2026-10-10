@@ -2,6 +2,7 @@
 // tests/importer/test_product_importer.cpp. Every other test TU just includes
 // the header.
 #include "doctest.h"
+#include "crossDayFixtures.hpp"
 #include "importer.hpp"
 #include <cstdio>
 #include <fstream>
@@ -12,7 +13,7 @@ using namespace ob;
 // Path to the real sample file, relative to where the test binary runs.
 static const char* DEMAND_PATH = "tests/importer/Demand-1.json";
 
-TEST_CASE("demand file loads with correct record counts") {
+TEST_CASE("demand file loads with correct record counts" * doctest::skip(!crossDayTests::august17Present())) {
     DemandFile d = Importer::load_demand(DEMAND_PATH);
 
     // These numbers are the M1 acceptance check — verified against Tom's file.
@@ -22,7 +23,7 @@ TEST_CASE("demand file loads with correct record counts") {
     CHECK(d.request_id == "#STR_PA4400_20260817164454#");
 }
 
-TEST_CASE("first STR record parses field-for-field") {
+TEST_CASE("first STR record parses field-for-field" * doctest::skip(!crossDayTests::august17Present())) {
     DemandFile d = Importer::load_demand(DEMAND_PATH);
     REQUIRE(d.str.size() > 0);
     const STRRecord& r = d.str[0];
@@ -38,7 +39,7 @@ TEST_CASE("first STR record parses field-for-field") {
     CHECK(r.planner_snp == "S23");   // the field that links to DNM
 }
 
-TEST_CASE("CTL and DNM blocks parse") {
+TEST_CASE("CTL and DNM blocks parse" * doctest::skip(!crossDayTests::august17Present())) {
     DemandFile d = Importer::load_demand(DEMAND_PATH);
 
     // Find the FRIDAY level-load entry
@@ -135,7 +136,7 @@ TEST_CASE("STR genuinely absent still loads cleanly with zero demand lines") {
     std::remove(path.c_str());
 }
 
-TEST_CASE("UNITOFMEAS only ever CS, DIS or PAL in this file") {
+TEST_CASE("UNITOFMEAS only ever CS, DIS or PAL in this file" * doctest::skip(!crossDayTests::august17Present())) {
     DemandFile d = Importer::load_demand(DEMAND_PATH);
     for (const auto& r : d.str) {
         bool ok = (r.unitofmeas == "CS" || r.unitofmeas == "DIS" || r.unitofmeas == "PAL");

@@ -54,15 +54,16 @@ std::string parseErrorMessage(const json& root) {
     return "";
 }
 
+// The pallet table as the pipeline fills it from --pallets; the params file never holds it.
+M2Params paramsWithPalletTable() {
+    M2Params params;
+    params.pallets = {{"PTL", 65.0, 6.0, 48.0, 40.0}, {"TLD", 1.0, 0.1, 48.0, 40.0}};
+    return params;
+}
+
 json completeParams() {
     return json::parse(R"({
         "criSafeLimitLb": [5,299,549,799,1149,1499,1849,2199,3099,3599],
-        "pallets": [
-            {"palletId":"PTL","addedWeightLb":60,"addedHeightIn":5.5,"footprintLengthIn":48,"footprintWidthIn":40},
-            {"palletId":"PGM","addedWeightLb":60,"addedHeightIn":5.5,"footprintLengthIn":48,"footprintWidthIn":40},
-            {"palletId":"TLD","addedWeightLb":0,"addedHeightIn":0,"footprintLengthIn":48,"footprintWidthIn":40},
-            {"palletId":"GMA","addedWeightLb":0,"addedHeightIn":0,"footprintLengthIn":48,"footprintWidthIn":40}
-        ],
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
@@ -73,16 +74,7 @@ json completeParams() {
 void checkCompleteParams(const M2Params& params) {
     const std::array<double, 11> expectedLimits{0,5,299,549,799,1149,1499,1849,2199,3099,3599};
     CHECK(params.cri.safeLimitLb == expectedLimits);
-    REQUIRE(params.pallets.size() == 4);
-    const std::array<std::string, 4> expectedIds{"PTL", "PGM", "TLD", "GMA"};
-    for (std::size_t index = 0; index < params.pallets.size(); ++index) {
-        const auto& pallet = params.pallets[index];
-        CHECK(pallet.palletId == expectedIds[index]);
-        CHECK(pallet.addedWeightLb == (index < 2 ? 60.0 : 0.0));
-        CHECK(pallet.addedHeightIn == (index < 2 ? 5.5 : 0.0));
-        CHECK(pallet.footprintLengthIn == 48);
-        CHECK(pallet.footprintWidthIn == 40);
-    }
+    CHECK(params.pallets.empty());
     REQUIRE(params.trailers.size() == 1);
     const auto& trailer = params.trailers[0];
     CHECK(trailer.trailerCode == "53FT_NA");
@@ -164,12 +156,13 @@ TEST_CASE("params missing CRI limits are rejected") {
     CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("criSafeLimitLb"), std::runtime_error);
 }
 
-TEST_CASE("params missing pallets block is rejected") {
-    auto root = completeParams();
-    root.erase("pallets");
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets"), std::runtime_error);
+TEST_CASE("params file carrying pallet figures is refused, since they come from the supplied data") {
+    for (const auto& value : std::vector<json>{json::array(), json::object(), nullptr}) {
+        auto root = completeParams();
+        root["pallets"] = value;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallet table"), std::runtime_error);
+    }
 }
-
 TEST_CASE("params missing trailers block is rejected") {
     auto root = completeParams();
     root.erase("trailers");
@@ -177,17 +170,16 @@ TEST_CASE("params missing trailers block is rejected") {
 }
 
 TEST_CASE("params pallet lookup returns matching specs or nullptr") {
-    const auto params = parseParams(completeParams());
+    const auto params = paramsWithPalletTable();
     const auto* ptl = palletSpecFor(params, "PTL");
     const auto* tld = palletSpecFor(params, "TLD");
     REQUIRE(ptl != nullptr);
     REQUIRE(tld != nullptr);
     CHECK(ptl == &params.pallets[0]);
-    CHECK(ptl->addedWeightLb == 60);
-    CHECK(tld->addedWeightLb == 0);
+    CHECK(ptl->addedWeightLb == 65);
+    CHECK(tld->addedWeightLb == 1);
     CHECK(palletSpecFor(params, "ZZZ") == nullptr);
 }
-
 TEST_CASE("params CRI requires exactly ten limits") {
     auto root = completeParams();
     root["criSafeLimitLb"].erase(9);
@@ -237,25 +229,6 @@ TEST_CASE("params trailer interior length must be positive finite and present") 
 
 TEST_CASE("params trailer interior width must be positive finite and present") {
     checkInvalidQuantities("trailers", "interiorWidthIn", false);
-}
-
-TEST_CASE("params pallet footprint length must be positive finite and present") {
-    checkInvalidQuantities("pallets", "footprintLengthIn", false);
-    auto root = completeParams();
-    root["pallets"][0]["footprintLengthIn"] = -1e-300;
-    CHECK(parseErrorMessage(root).find("-1e-300") != std::string::npos);
-}
-
-TEST_CASE("params pallet footprint width must be positive finite and present") {
-    checkInvalidQuantities("pallets", "footprintWidthIn", false);
-}
-
-TEST_CASE("params pallet added weight permits zero but rejects invalid quantities") {
-    checkInvalidQuantities("pallets", "addedWeightLb", true);
-}
-
-TEST_CASE("params pallet added height permits zero but rejects invalid quantities") {
-    checkInvalidQuantities("pallets", "addedHeightIn", true);
 }
 
 TEST_CASE("params stack positions require a positive integer within int range") {
@@ -343,7 +316,7 @@ TEST_CASE("params max stack height rejects a value above the maximum") {
 }
 
 TEST_CASE("params present blocks must be non-empty arrays") {
-    for (const std::string block : {"pallets", "trailers", "criSafeLimitLb"}) {
+    for (const std::string block : {"trailers", "criSafeLimitLb"}) {
         for (const auto& value : std::vector<json>{json::object(), "bad", nullptr, true, 5, json::array()}) {
             auto root = completeParams();
             root[block] = value;
@@ -363,28 +336,8 @@ TEST_CASE("params root must be an object") {
     }
 }
 
-TEST_CASE("params pallet IDs must be non-empty strings") {
-    for (const auto& value : std::vector<json>{"", " ", "\t", nullptr, 1, true}) {
-        auto root = completeParams();
-        root["pallets"][0]["palletId"] = value;
-        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[0].palletId"), std::runtime_error);
-    }
-    auto root = completeParams();
-    root["pallets"][0].erase("palletId");
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[0].palletId"), std::runtime_error);
-    root = completeParams();
-    root["pallets"][0]["palletId"] = "EPAL";
-    CHECK(parseParams(root).pallets[0].palletId == "EPAL");
-}
-
-TEST_CASE("params duplicate pallet IDs are rejected") {
-    auto root = completeParams();
-    root["pallets"][1]["palletId"] = "PTL";
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[1].palletId"), std::runtime_error);
-}
-
 TEST_CASE("params array records must be objects") {
-    for (const std::string block : {"pallets", "trailers"}) {
+    for (const std::string block : {"trailers"}) {
         for (const auto& value : std::vector<json>{nullptr, "bad", 1, json::array()}) {
             auto root = completeParams();
             root[block][0] = value;
@@ -532,7 +485,7 @@ TEST_CASE("params deeply nested file is rejected without exhausting the stack") 
 }
 
 TEST_CASE("params present block with wrong type reports differently from an absent block") {
-    for (const std::string block : {"criSafeLimitLb", "pallets", "trailers"}) {
+    for (const std::string block : {"criSafeLimitLb", "trailers"}) {
         auto root = completeParams();
         root[block] = json::object();
         const std::string wrongTypeMessage = parseErrorMessage(root);
@@ -564,20 +517,9 @@ TEST_CASE("params attempt cap written as -0 is an explicit zero") {
 
 TEST_CASE("params negative zero quantity is treated the same as zero") {
     auto root = completeParams();
-    root["pallets"][2]["addedWeightLb"] = -0.0;
-    CHECK(parseParams(root).pallets[2].addedWeightLb == 0.0);
-    root["pallets"][2]["footprintLengthIn"] = -0.0;
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[2].footprintLengthIn"), std::runtime_error);
+    root["trailers"][0]["interiorLengthIn"] = -0.0;
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("trailers[0].interiorLengthIn"), std::runtime_error);
 }
-
-TEST_CASE("params pallet ids with surrounding whitespace are preserved") {
-    for (const std::string value : {"PTL ", " PTL", "PTL\n"}) {
-        auto root = completeParams();
-        root["pallets"][0]["palletId"] = value;
-        CHECK(parseParams(root).pallets[0].palletId == value);
-    }
-}
-
 TEST_CASE("params very long trailer code is kept intact") {
     auto root = completeParams();
     const std::string longCode(1000000, 'T');
@@ -595,16 +537,15 @@ TEST_CASE("params misspelled policy key falls back to the default and is recorde
 }
 
 TEST_CASE("params pallet lookup on a copy points into the copy's own storage") {
-    const auto original = parseParams(completeParams());
+    const auto original = paramsWithPalletTable();
     const PalletSpec* originalSpec = palletSpecFor(original, "PTL");
     {
         const M2Params copy = original;
         CHECK(palletSpecFor(copy, "PTL") == &copy.pallets[0]);
     }
     CHECK(originalSpec == &original.pallets[0]);
-    CHECK(originalSpec->addedWeightLb == 60);
+    CHECK(originalSpec->addedWeightLb == 65);
 }
-
 TEST_CASE("params number in an error message is shown as written") {
     auto root = completeParams();
     root["trailers"][0]["weightLimitLb"] = -0.1;
@@ -630,29 +571,14 @@ TEST_CASE("params pallet lookup cannot be called on a temporary params object") 
     CHECK_FALSE(std::is_invocable_v<decltype(lookup), M2Params>);
 }
 
-TEST_CASE("params pallet id made only of non-breaking spaces is rejected") {
-    auto root = completeParams();
-    root["pallets"][0]["palletId"] = "\xC2\xA0\xC2\xA0";
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[0].palletId"), std::runtime_error);
-}
-
 TEST_CASE("params trailer code made only of non-breaking spaces is rejected") {
     auto root = completeParams();
     root["trailers"][0]["trailerCode"] = "\xC2\xA0";
     CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("trailers[0].trailerCode"), std::runtime_error);
 }
 
-TEST_CASE("params pallet id mixing non-ASCII and printable ASCII loads") {
-    auto root = completeParams();
-    root["pallets"][0]["palletId"] = "EP\xC3\x84L";
-    CHECK(parseParams(root).pallets[0].palletId == "EP\xC3\x84L");
-}
-
 TEST_CASE("params numeric errors name the failing record index") {
     auto root = completeParams();
-    root["pallets"][3]["footprintWidthIn"] = 0;
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("pallets[3].footprintWidthIn"), std::runtime_error);
-    root = completeParams();
     root["trailers"].push_back(root["trailers"][0]);
     root["trailers"][1]["trailerCode"] = "48FT";
     root["trailers"][1]["weightLimitLb"] = 0;
@@ -682,14 +608,12 @@ TEST_CASE("params attempt cap written as -0.0 is an explicit zero") {
     CHECK(params.defaultedKeys.empty());
 }
 
-TEST_CASE("params pallet ids that differ only by whitespace load as distinct entries") {
-    auto root = completeParams();
-    root["pallets"][1]["palletId"] = "PTL ";
-    const auto params = parseParams(root);
+TEST_CASE("params pallet ids that differ only by whitespace are distinct entries") {
+    auto params = paramsWithPalletTable();
+    params.pallets[1].palletId = "PTL ";
     CHECK(palletSpecFor(params, "PTL") == &params.pallets[0]);
     CHECK(palletSpecFor(params, "PTL ") == &params.pallets[1]);
 }
-
 TEST_CASE("params parse error message is capped and marks the truncation") {
     const std::string path = writeParamsFile("_tmp_long_token.json", "{\"a\": \"" + std::string(1000000, 'A'));
     const std::string message = loadErrorMessage(path);

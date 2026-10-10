@@ -1,6 +1,7 @@
 // NOTE: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN here — main lives in one
 // implementing translation unit only (see tests/importer/test_importer.cpp).
 #include "doctest.h"
+#include "crossDayFixtures.hpp"
 #include "placeholder_importer.hpp"
 #include "validator.hpp"
 #include <algorithm>
@@ -14,7 +15,7 @@ using namespace ob;
 
 static const char* PH_PATH = "tests/importer/PlaceHolder-1.json";
 
-TEST_CASE("placeholder file loads with correct counts") {
+TEST_CASE("placeholder file loads with correct counts" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
 
     // Verified against the real file.
@@ -22,7 +23,7 @@ TEST_CASE("placeholder file loads with correct counts") {
     CHECK(r.total_loads == 372);
 }
 
-TEST_CASE("first placeholder record parses field-for-field") {
+TEST_CASE("first placeholder record parses field-for-field" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     REQUIRE(!r.placeholders.empty());
     const PlaceholderRecord& p = r.placeholders[0];
@@ -37,7 +38,7 @@ TEST_CASE("first placeholder record parses field-for-field") {
     CHECK(p.ebeln           == "");      // blank in every record of this file
 }
 
-TEST_CASE("ship condition is only TL or TF") {
+TEST_CASE("ship condition is only TL or TF" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     int tl = 0, tf = 0;
     for (const auto& p : r.placeholders) {
@@ -48,7 +49,7 @@ TEST_CASE("ship condition is only TL or TF") {
     CHECK(tf == 84);
 }
 
-TEST_CASE("equipment size is 53F or blank") {
+TEST_CASE("equipment size is 53F or blank" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     int blank = 0, f53 = 0;
     for (const auto& p : r.placeholders) {
@@ -59,61 +60,61 @@ TEST_CASE("equipment size is 53F or blank") {
     CHECK(f53 == 146);
 }
 
-TEST_CASE("every entry requests at least one truck") {
+TEST_CASE("every entry requests at least one truck" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     for (const auto& p : r.placeholders) {
         REQUIRE(p.no_of_loads >= 1);
     }
 }
 
-TEST_CASE("lane triplets are unique — no de-dup needed") {
+TEST_CASE("lane triplets are unique — no de-dup needed" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
-    std::vector<std::string> keys;
+    vector<string> keys;
     keys.reserve(r.placeholders.size());
     for (const auto& p : r.placeholders) {
         keys.push_back(p.locfrno + "|" + p.loctono + "|" + p.ship_cond);
     }
-    std::sort(keys.begin(), keys.end());
-    CHECK(std::adjacent_find(keys.begin(), keys.end()) == keys.end());
+    sort(keys.begin(), keys.end());
+    CHECK(adjacent_find(keys.begin(), keys.end()) == keys.end());
 }
 
 TEST_CASE("missing file throws, does not crash") {
-    CHECK_THROWS_AS(PlaceholderImporter::load("does/not/exist.json"), std::runtime_error);
+    CHECK_THROWS_AS(PlaceholderImporter::load("does/not/exist.json"), runtime_error);
 }
 
 TEST_CASE("PHOLDER present but the wrong JSON type throws") {
-    const std::string path = "tests/importer/_tmp_pholder_wrong_type.json";
+    const string path = "tests/importer/_tmp_pholder_wrong_type.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":{"LOCFRNO":"2023"}})";
     }
-    CHECK_THROWS_AS(PlaceholderImporter::load(path), std::runtime_error);
-    std::remove(path.c_str());
+    CHECK_THROWS_AS(PlaceholderImporter::load(path), runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
-    const std::string path = "tests/importer/_tmp_pholder_absent.json";
+    const string path = "tests/importer/_tmp_pholder_absent.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({})";
     }
     PlaceholderLoadResult r = PlaceholderImporter::load(path);
     CHECK(r.placeholders.empty());
     CHECK(r.total_loads == 0);
-    std::remove(path.c_str());
+    remove(path.c_str());
 }
 
 namespace {
 
 // Loads a one-entry placeholder file whose entry is the given JSON object text.
-PlaceholderLoadResult loadOnePlaceholder(const std::string& entryJson) {
-    const std::string path = "tests/importer/_tmp_pholder_entry.json";
+PlaceholderLoadResult loadOnePlaceholder(const string& entryJson) {
+    const string path = "tests/importer/_tmp_pholder_entry.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[)" << entryJson << "]}";
     }
     PlaceholderLoadResult result = PlaceholderImporter::load(path);
-    std::remove(path.c_str());
+    remove(path.c_str());
     return result;
 }
 
@@ -150,14 +151,14 @@ TEST_CASE("the unreadable sentinel is left out of total_loads") {
 
 TEST_CASE("a NO_OF_LOADS above the maximum is left out of total_loads") {
     const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
-                                      + std::to_string(kMaxLoadsPerPlaceholder + 1) + "}");
+                                      + to_string(kMaxLoadsPerPlaceholder + 1) + "}");
     REQUIRE(r.placeholders.size() == 1);
     CHECK(r.total_loads == 0);
 }
 
 TEST_CASE("a NO_OF_LOADS of exactly the maximum is still counted in total_loads") {
     const auto r = loadOnePlaceholder(R"({"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":)"
-                                      + std::to_string(kMaxLoadsPerPlaceholder) + "}");
+                                      + to_string(kMaxLoadsPerPlaceholder) + "}");
     CHECK(r.total_loads == kMaxLoadsPerPlaceholder);
 }
 
@@ -196,36 +197,36 @@ TEST_CASE("a whole-number float NO_OF_LOADS loads as that count") {
 }
 
 TEST_CASE("a NO_OF_LOADS too large for a double is rejected at load as a runtime_error") {
-    const std::string path = "tests/importer/_tmp_pholder_overflow.json";
+    const string path = "tests/importer/_tmp_pholder_overflow.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","NO_OF_LOADS":1e999}]})";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path), doctest::Contains("number overflow"),
-                         std::runtime_error);
-    std::remove(path.c_str());
+                         runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("a placeholder file whose root is an array throws instead of loading as empty") {
-    const std::string path = "tests/importer/_tmp_ph_root_array.json";
+    const string path = "tests/importer/_tmp_ph_root_array.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << R"([{"PHOLDER":[]}])";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
-                         doctest::Contains("root must be a JSON object"), std::runtime_error);
-    std::remove(path.c_str());
+                         doctest::Contains("root must be a JSON object"), runtime_error);
+    remove(path.c_str());
 }
 
 TEST_CASE("a placeholder file whose root is a number throws instead of loading as empty") {
-    const std::string path = "tests/importer/_tmp_ph_root_number.json";
+    const string path = "tests/importer/_tmp_ph_root_number.json";
     {
-        std::ofstream out(path);
+        ofstream out(path);
         out << "42";
     }
     CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
-                         doctest::Contains("root must be a JSON object"), std::runtime_error);
-    std::remove(path.c_str());
+                         doctest::Contains("root must be a JSON object"), runtime_error);
+    remove(path.c_str());
 }
 
 namespace {
@@ -253,6 +254,6 @@ TEST_CASE("repeated placeholder lanes are counted and their trucks summed, not o
     CHECK(loaded.total_loads == 6);
 }
 
-TEST_CASE("the 17 Aug placeholder file repeats no lane") {
+TEST_CASE("the 17 Aug placeholder file repeats no lane" * doctest::skip(!crossDayTests::august17Present())) {
     CHECK(PlaceholderImporter::load(PH_PATH).duplicateLaneEntries == 0);
 }

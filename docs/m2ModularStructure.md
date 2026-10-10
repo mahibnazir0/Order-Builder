@@ -56,7 +56,7 @@ can be built at the same time by different people.
 |---|---|---|---|
 | 0 | `params` | nothing | — (done) |
 | 1 | `segregation` | `params` (one enum), M1 joiner output | — (done) |
-| 1 | `stackRules` | `params` (CRI table, pallet specs, ceiling) | now |
+| 1 | `stackRules` | `params` (CRI table, ceiling), product `Pallet_*` columns and the pallet table | now |
 | 2 | `bindingConstraint` | `segregation` (groups), `stackTypes.hpp` (`UnitLoad`) | after tier 1 |
 | 3 | `stackBuilder` | all of the above | after tier 2 |
 | 4 | `stackReporter` | outputs of all above | after tier 3 |
@@ -146,6 +146,11 @@ demand files, placeholder files, product masters and pushed solutions in the 30 
 per pallet type. The only equipment field is `ZZNA_EQUIP_SIZE`, which reads `53F` on all 371
 loads, and the product master's Length and Width are case dimensions. The 18 duplicated
 products carry identical values there. Until the data arrives the 48x40 default stays.
+
+*Update, 3 October:* the footprints arrived. Every extract from 29 September carries
+`Customer2-Pallet-Data.csv` (footprint, height and weight for 12 pallet types) and per-row
+`Pallet_*` columns in the master. Order Builder now reads pallet weight, height and footprint
+from those, and the params file holds no pallet figures.
 
 **Maximum weight above** is still awaited, unchanged.
 

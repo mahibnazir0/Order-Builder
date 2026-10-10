@@ -10,13 +10,20 @@
 
 namespace ob {
 
+// The pallet a product rides on. Each figure comes from the product row when the master
+// supplies it, otherwise from the pallet table row for its Pallet_ID; nullopt when some figure
+// has neither source. A placeholder deck height (0.1 in) comes back as 0. Figures are not
+// range-checked here: buildUnitLoad rejects a negative or non-finite one as InvalidData.
+std::optional<PalletSpec> resolvePalletSpec(const ProductRecord& product, const M2Params& params);
+
 // Never throws; a bad line comes back with UnitLoad::error set. The product master
 // has no weight-above column yet, so callers normally omit suppliedWeightAboveLb and
 // the value is derived; a supplied value (including 0) always wins over derivation.
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
                        std::optional<double> suppliedWeightAboveLb = std::nullopt);
 
-// Exact pallet ids on matched lines that have no spec in params, sorted and unique.
+// Pallet ids of matched lines whose pallet figures neither the product row nor the pallet
+// table supplies, sorted and unique.
 // Call once over the joined demand and report every id, before building unit loads.
 std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
                                           const M2Params& params);

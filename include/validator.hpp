@@ -48,6 +48,11 @@ struct ValidationConfig {
 
     // Ship conditions seen in the demand and placeholder files. Anything else is a warning.
     std::vector<std::string> allowed_ship_cond = {"TL", "TF"};
+
+    // Placeholder ZZNA_EQUIP_SIZE values seen in every extract; blank means any trailer.
+    // Anything else is a warning: Order Builder plans every lane on one trailer, so a lane
+    // asking for different equipment needs a planner's eye.
+    std::vector<std::string> allowedEquipSizes = {"53F"};
 };
 
 struct ValidationIssue {
@@ -96,8 +101,12 @@ struct ValidationReport {
     int negative_load_count     = 0; // placeholder's NO_OF_LOADS is missing, malformed or negative
     int excessive_load_count    = 0; // placeholder's NO_OF_LOADS exceeds kMaxLoadsPerPlaceholder
     int missing_lane_identifier = 0; // placeholder has a blank LOCFRNO or LOCTONO
+    int unknownEquipSize        = 0; // placeholder ZZNA_EQUIP_SIZE outside allowedEquipSizes
     int invalid_do_not_mix_pair = 0; // DNM entry has a blank PLANNER_SNP or LOCFRNO
     int blankPlannerAtDoNotMixSite = 0; // demand line with a blank PLANNER_SNP at a DNM LOCFRNO
+    // Raised by Milestone 2, not by validate(): the line's own upper layers outweigh its CRI
+    // limit, so it ships single-high. Zero when Milestone 2 did not run.
+    int exceedsOwnCri = 0;
 };
 
 class Validator {

@@ -18,8 +18,8 @@ using Reason = StackFeasibility::Reason;
 
 namespace {
 
-const double kNaN = std::numeric_limits<double>::quiet_NaN();
-const double kInf = std::numeric_limits<double>::infinity();
+const double kNaN = numeric_limits<double>::quiet_NaN();
+const double kInf = numeric_limits<double>::infinity();
 constexpr double kCeilingIn = 108.0;
 
 M2Params testParams() {
@@ -77,6 +77,89 @@ TEST_CASE("stackRules: unit load uses cases per unit and the pallet spec, not ca
     CHECK(unitLoad.footprintLengthIn == 48.0);
     CHECK(unitLoad.footprintWidthIn == 40.0);
     CHECK(unitLoad.cri == 5);
+}
+
+TEST_CASE("stackRules: a product row's own pallet figures win over the pallet table") {
+    ProductRecord record = product();
+    record.palletWeightLb = 65.0;
+    record.palletHeightIn = 6.0;
+    record.palletFootprintLengthIn = 45.0;
+    record.palletFootprintWidthIn = 34.0;
+    const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
+    REQUIRE(unitLoad.error == UnitLoadError::None);
+    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3 + 6.0));
+    CHECK(unitLoad.weightLb == doctest::Approx(9.0 * 12 + 65.0));
+    CHECK(unitLoad.footprintLengthIn == 45.0);
+    CHECK(unitLoad.footprintWidthIn == 34.0);
+}
+
+TEST_CASE("stackRules: a figure the product row leaves blank comes from the pallet table") {
+    ProductRecord record = product();
+    record.palletWeightLb = 65.0;
+    const optional<PalletSpec> pallet = resolvePalletSpec(record, testParams());
+    REQUIRE(pallet);
+    CHECK(pallet->addedWeightLb == 65.0);
+    CHECK(pallet->addedHeightIn == 5.5);
+    CHECK(pallet->footprintLengthIn == 48.0);
+}
+
+TEST_CASE("stackRules: product rows with their own pallet figures need no pallet table") {
+    ProductRecord record = product();
+    record.pallet_id = "WOOD";
+    record.palletWeightLb = 60.0;
+    record.palletHeightIn = 5.0;
+    record.palletFootprintLengthIn = 48.0;
+    record.palletFootprintWidthIn = 40.0;
+    M2Params noTable = testParams();
+    noTable.pallets.clear();
+    CHECK(buildUnitLoad(matchedLine(record), noTable).error == UnitLoadError::None);
+    CHECK(missingPalletIds({matchedLine(record)}, noTable).empty());
+    record.palletHeightIn.reset();
+    CHECK(buildUnitLoad(matchedLine(record), noTable).error == UnitLoadError::MissingPalletSpec);
+    CHECK(missingPalletIds({matchedLine(record)}, noTable) == vector<string>{"WOOD"});
+}
+
+TEST_CASE("stackRules: the 0.1 in placeholder pallet height adds nothing to the stack height") {
+    // As the client's file carries it: 0.1 stored as a float.
+    const double placeholderHeight = 0.10000000149011612;
+    ProductRecord fromRow = product();
+    fromRow.palletHeightIn = placeholderHeight;
+    CHECK(buildUnitLoad(matchedLine(fromRow), testParams()).heightIn == doctest::Approx(30.0));
+
+    M2Params params = testParams();
+    params.pallets[1].addedHeightIn = placeholderHeight;
+    ProductRecord fromTable = product();
+    fromTable.pallet_id = "TLD";
+    CHECK(buildUnitLoad(matchedLine(fromTable), params).heightIn == doctest::Approx(30.0));
+
+    // A product built to exactly the ceiling stays shippable on a placeholder deck.
+    fromTable.height_in = 36.0;
+    CHECK(buildUnitLoad(matchedLine(fromTable), params).heightIn == 108.0);
+
+    ProductRecord realDeck = product();
+    realDeck.palletHeightIn = 0.2;
+    CHECK(buildUnitLoad(matchedLine(realDeck), testParams()).heightIn == doctest::Approx(30.2));
+}
+
+TEST_CASE("stackRules: an unreadable or negative pallet figure is rejected, not replaced by the table") {
+    for (double bad : {kNaN, kInf, -1.0}) {
+        CAPTURE(bad);
+        ProductRecord weightBad = product();
+        weightBad.palletWeightLb = bad;
+        CHECK(buildError(weightBad) == UnitLoadError::InvalidData);
+        ProductRecord heightBad = product();
+        heightBad.palletHeightIn = bad;
+        CHECK(buildError(heightBad) == UnitLoadError::InvalidData);
+        ProductRecord footprintBad = product();
+        footprintBad.palletFootprintWidthIn = bad;
+        CHECK(buildError(footprintBad) == UnitLoadError::InvalidData);
+    }
+    ProductRecord zeroFootprint = product();
+    zeroFootprint.palletFootprintLengthIn = 0.0;
+    CHECK(buildError(zeroFootprint) == UnitLoadError::InvalidData);
+    M2Params params = testParams();
+    params.pallets[0].addedWeightLb = kNaN;
+    CHECK(buildUnitLoad(matchedLine(product()), params).error == UnitLoadError::InvalidData);
 }
 
 TEST_CASE("stackRules: a single-layer unit load carries no weight above itself") {
@@ -167,9 +250,9 @@ TEST_CASE("stackRules: missing pallet ids are exact, distinct, sorted and collec
     spaced.pallet_id = "PTL ";
     ProductRecord unknown = product();
     unknown.pallet_id = "ABC";
-    const std::vector<JoinedLine> lines{matchedLine(good), matchedLine(spaced),
+    const vector<JoinedLine> lines{matchedLine(good), matchedLine(spaced),
                                         matchedLine(unknown), matchedLine(spaced), JoinedLine{}};
-    const std::vector<std::string> expected{"ABC", "PTL "};
+    const vector<string> expected{"ABC", "PTL "};
     CHECK(missingPalletIds(lines, testParams()) == expected);
 }
 
@@ -257,8 +340,9 @@ TEST_CASE("stackRules: canStack rejects out-of-range CRI and loads that failed c
     CHECK(canStack(failed, load(20, 10, 0, 5), params, kCeilingIn).reason == Reason::InvalidData);
 }
 
-TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling") {
-    const M2Params params = loadParams("config/orderBuilderParams.json");
+TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    M2Params params = loadParams("config/orderBuilderParams.json");
+    params.pallets = ProductImporter::loadPalletTable(crossDayTests::kPalletTableForOlderMasters);
     const DemandFile file = Importer::load_demand("tests/importer/Demand-1.json");
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
     const ProductIndex index = Joiner::build_index(products.products);
@@ -266,14 +350,14 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
 
     CHECK(missingPalletIds(join.lines, params).empty());
 
-    std::unordered_set<std::string> seenProducts;
-    std::vector<UnitLoad> loads;
+    unordered_set<string> seenProducts;
+    vector<UnitLoad> loads;
     for (const auto& line : join.lines) {
         if (!seenProducts.insert(line.product->id).second) continue;
         loads.push_back(buildUnitLoad(line, params));
     }
 
-    std::size_t pairs = 0, passHeight = 0, passBoth = 0;
+    size_t pairs = 0, passHeight = 0, passBoth = 0;
     for (const auto& base : loads) {
         for (const auto& top : loads) {
             ++pairs;
@@ -282,30 +366,32 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
             if (result.isFeasible) ++passBoth;
         }
     }
+    // With the supplied 6.0 in / 65 lb wood deck. The configured 5.5 in / 60 lb gave 65,295
+    // and 43,021; no group, stack or binding figure moved with it.
     CHECK(pairs == 2016400);
-    CHECK(passHeight == 65295);
-    CHECK(passBoth == 43021);
+    CHECK(passHeight == 65261);
+    CHECK(passBoth == 42854);
 }
 
 namespace {
 
 struct PairPassCounts {
-    std::size_t sampledProducts = 0;
-    std::size_t pairs = 0;
-    std::size_t passHeight = 0;
-    std::size_t passBoth = 0;
+    size_t sampledProducts = 0;
+    size_t pairs = 0;
+    size_t passHeight = 0;
+    size_t passBoth = 0;
 };
 
 // Every Nth distinct demanded product in ID order, then every ordered pair within it.
 // Sorting by ID keeps the sample independent of demand line order.
-PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2Params& params,
-                                 std::size_t everyNth) {
-    std::map<std::string, const JoinedLine*> firstLineByProduct;
+PairPassCounts sampledPairCounts(const vector<JoinedLine>& lines, const M2Params& params,
+                                 size_t everyNth) {
+    map<string, const JoinedLine*> firstLineByProduct;
     for (const auto& line : lines) {
         if (line.product != nullptr) firstLineByProduct.emplace(line.product->id, &line);
     }
-    std::vector<UnitLoad> loads;
-    std::size_t position = 0;
+    vector<UnitLoad> loads;
+    size_t position = 0;
     for (const auto& entry : firstLineByProduct) {
         if (position++ % everyNth == 0) loads.push_back(buildUnitLoad(*entry.second, params));
     }
@@ -325,12 +411,12 @@ PairPassCounts sampledPairCounts(const std::vector<JoinedLine>& lines, const M2P
 } // namespace
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
-    constexpr std::size_t everyNth = 10;
+    constexpr size_t everyNth = 10;
     // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
-    const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<std::size_t> passHeight{484, 625, 484, 841};
-    const crossDayTests::PerDay<std::size_t> passBoth{308, 408, 334, 531};
-    for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
+    const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
+    const crossDayTests::PerDay<size_t> passHeight{484, 625, 484, 841};
+    const crossDayTests::PerDay<size_t> passBoth{308, 408, 334, 531};
+    for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
@@ -340,7 +426,7 @@ TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 i
         CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
         CHECK(counts.passHeight == passHeight[dayIndex]);
         CHECK(counts.passBoth == passBoth[dayIndex]);
-        std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
+        cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs
                   << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';

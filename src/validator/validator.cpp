@@ -275,6 +275,13 @@ void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& plac
                     + p.locfrno + "->" + p.loctono, "", -1, idx);
         }
 
+        if (!is_blank(p.zzna_equip_size) && !is_allowed(p.zzna_equip_size, config.allowedEquipSizes)) {
+            ++rep.unknownEquipSize;
+            add(rep, ValidationIssue::Severity::Warning, "unknown_equip_size",
+                "Equipment size '" + p.zzna_equip_size + "' is outside the expected set for lane "
+                    + p.locfrno + "->" + p.loctono, "", -1, idx);
+        }
+
         if (p.no_of_loads < 0) {
             ++rep.negative_load_count;
             add(rep, ValidationIssue::Severity::Error, "negative_load_count",

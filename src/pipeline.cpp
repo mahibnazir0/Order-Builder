@@ -15,34 +15,34 @@ namespace ob {
 
 namespace {
 
-const TrailerSpec& selectTrailer(const M2Params& params, const std::string& trailerCode) {
-    if (params.trailers.empty()) throw std::runtime_error("params file lists no trailers");
+const TrailerSpec& selectTrailer(const M2Params& params, const string& trailerCode) {
+    if (params.trailers.empty()) throw runtime_error("params file lists no trailers");
     if (trailerCode.empty()) return params.trailers.front();
     for (const auto& trailer : params.trailers) {
         if (trailer.trailerCode == trailerCode) return trailer;
     }
-    throw std::runtime_error("params file has no trailer '" + trailerCode + "'");
+    throw runtime_error("params file has no trailer '" + trailerCode + "'");
 }
 
-std::vector<double> zeroExcluded(const std::vector<double>& figures, const std::vector<bool>& excluded) {
-    std::vector<double> kept = figures;
-    for (std::size_t i = 0; i < kept.size(); ++i) {
+vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& excluded) {
+    vector<double> kept = figures;
+    for (size_t i = 0; i < kept.size(); ++i) {
         if (excluded[i]) kept[i] = 0.0;
     }
     return kept;
 }
 
 // M1 weights use the Converter's fixed wood-pallet weight so the published M1 totals stay
-// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the configured
-// pallet spec, or binding and reporting disagree with the stacks. A line with no buildable
+// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the product row's
+// pallet figures or the pallet table, or binding and reporting disagree with the stacks. A line with no buildable
 // unit load keeps its M1 weight: it still occupies the trailer, and that is the only
 // estimate there is for it.
-std::vector<double> configuredWeightPerLine(const std::vector<JoinedLine>& lines,
-                                            const std::vector<double>& palletsForStacking,
-                                            const std::vector<double>& m1WeightForStacking,
+vector<double> configuredWeightPerLine(const vector<JoinedLine>& lines,
+                                            const vector<double>& palletsForStacking,
+                                            const vector<double>& m1WeightForStacking,
                                             const M2Params& params) {
-    std::vector<double> weights = m1WeightForStacking;
-    for (std::size_t i = 0; i < lines.size(); ++i) {
+    vector<double> weights = m1WeightForStacking;
+    for (size_t i = 0; i < lines.size(); ++i) {
         if (palletsForStacking[i] == 0.0) continue;
         const UnitLoad load = buildUnitLoad(lines[i], params);
         if (load.error == UnitLoadError::None) weights[i] = palletsForStacking[i] * load.weightLb;
@@ -50,11 +50,12 @@ std::vector<double> configuredWeightPerLine(const std::vector<JoinedLine>& lines
     return weights;
 }
 
-std::string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
+string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     switch (error) {
     case UnitLoadError::MissingProduct: return "product is not in the master";
     case UnitLoadError::MissingPalletSpec:
-        return "params file has no spec for pallet type '" + line.product->pallet_id + "'";
+        return "neither the product master nor the pallet table gives the weight, height and"
+               " footprint of pallet type '" + line.product->pallet_id + "'";
     case UnitLoadError::InvalidData:
         return "product height, weight, layer, case or strength data cannot form a unit load";
     case UnitLoadError::None: break;
@@ -65,7 +66,7 @@ std::string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
 const char* const kOwnCriExceededReason =
     "exceeds its own CRI limit; it ships single-high and carries nothing";
 
-std::string zeroPalletReason(const JoinedLine& line) {
+string zeroPalletReason(const JoinedLine& line) {
     if (!Converter::isConvertibleUom(line.str->unitofmeas)) {
         return "unit of measure '" + line.str->unitofmeas
              + "' cannot be converted to pallets (supported: CS, PAL, DIS)";
@@ -76,12 +77,12 @@ std::string zeroPalletReason(const JoinedLine& line) {
 // Every joined line must end up in a stack or on this list with a reason; the list is built
 // from which lines the stacks actually hold, so a line dropped anywhere upstream (validator,
 // segregation, conversion, stacking) cannot pass unreported.
-std::vector<ReportedLine> unstackedLines(const PipelineResult& result, const TrailerSpec& trailer) {
+vector<ReportedLine> unstackedLines(const PipelineResult& result, const TrailerSpec& trailer) {
     const auto& lines = result.join.lines;
-    std::vector<std::string> reasons(lines.size());
+    vector<string> reasons(lines.size());
     for (const auto& issue : result.validation.issues) {
-        if (issue.line_index < 0 || static_cast<std::size_t>(issue.line_index) >= lines.size()) continue;
-        std::string& reason = reasons[static_cast<std::size_t>(issue.line_index)];
+        if (issue.line_index < 0 || static_cast<size_t>(issue.line_index) >= lines.size()) continue;
+        string& reason = reasons[static_cast<size_t>(issue.line_index)];
         if (reason.empty() && Validator::excludesLine(issue)) {
             reason = "rejected by validation (" + issue.rule + "): " + issue.message;
         }
@@ -90,22 +91,22 @@ std::vector<ReportedLine> unstackedLines(const PipelineResult& result, const Tra
     for (const auto& excludedLine : stacking.excludedLines) {
         reasons[excludedLine.lineIndex] = unitLoadErrorText(excludedLine.error, lines[excludedLine.lineIndex]);
     }
-    for (const std::size_t lineIndex : stacking.overHeightLines) {
+    for (const size_t lineIndex : stacking.overHeightLines) {
         reasons[lineIndex] = "one pallet is taller than the trailer's "
                            + fixed(trailer.stackHeightCeilingIn, 0) + " in ceiling";
     }
-    for (const std::size_t lineIndex : stacking.invalidQuantityLines) {
+    for (const size_t lineIndex : stacking.invalidQuantityLines) {
         reasons[lineIndex] = "pallet quantity is negative or not a finite number";
     }
-    for (const std::size_t lineIndex : stacking.zeroQuantityLines) {
+    for (const size_t lineIndex : stacking.zeroQuantityLines) {
         reasons[lineIndex] = zeroPalletReason(lines[lineIndex]);
     }
 
-    const std::vector<bool> stacked = stackedLineFlags(stacking, lines.size());
-    std::vector<ReportedLine> unstacked;
-    for (std::size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+    const vector<bool> stacked = stackedLineFlags(stacking, lines.size());
+    vector<ReportedLine> unstacked;
+    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         if (stacked[lineIndex]) continue;
-        std::string reason = reasons[lineIndex].empty() ? "is in no stack" : std::move(reasons[lineIndex]);
+        string reason = reasons[lineIndex].empty() ? "is in no stack" : std::move(reasons[lineIndex]);
         unstacked.push_back({lineIndex, lines[lineIndex].str->matnr, std::move(reason)});
     }
     return unstacked;
@@ -113,14 +114,18 @@ std::vector<ReportedLine> unstackedLines(const PipelineResult& result, const Tra
 
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
+    if (!inputs.palletPath.empty()) {
+        result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
+    }
     const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
     for (const auto& palletId : result.missingPalletIds) {
-        LOG_WARN("Demand uses pallet type '" + palletId + "' but the params file has no spec for it");
+        LOG_WARN("Demand uses pallet type '" + palletId + "' but neither the product master nor"
+                 " the pallet table gives its weight, height and footprint");
     }
 
-    const std::vector<bool> excluded =
+    const vector<bool> excluded =
         Validator::excludedLineFlags(result.validation, result.join.lines.size());
     result.palletsForStacking = zeroExcluded(result.pallets_per_line, excluded);
     result.weightForStacking = configuredWeightPerLine(
@@ -136,12 +141,22 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
     result.stackReport.unstackedLines = unstackedLines(result, trailer);
+    // Over-own-CRI lines are found only once unit loads are built, but they are warnings like
+    // any other, so they join the validation tally and its WARNINGS section as well.
     const vector<size_t>& ownCriExceededLines = result.stacking.ownCriExceededLines;
     result.stackReport.ownCriExceeded.reserve(ownCriExceededLines.size());
     for (const size_t lineIndex : ownCriExceededLines) {
-        result.stackReport.ownCriExceeded.push_back(
-            {lineIndex, result.join.lines[lineIndex].str->matnr, kOwnCriExceededReason});
+        const string& matnr = result.join.lines[lineIndex].str->matnr;
+        result.stackReport.ownCriExceeded.push_back({lineIndex, matnr, kOwnCriExceededReason});
+        ValidationIssue issue;
+        issue.rule = "exceeds_own_cri";
+        issue.message = string("Unit load ") + kOwnCriExceededReason;
+        issue.matnr = matnr;
+        issue.line_index = static_cast<int>(lineIndex);
+        result.validation.issues.push_back(std::move(issue));
     }
+    result.validation.exceedsOwnCri = static_cast<int>(ownCriExceededLines.size());
+    result.validation.warnings += result.validation.exceedsOwnCri;
     // One summary line, not one per demand line: a single product can span hundreds of lines.
     if (!ownCriExceededLines.empty()) {
         LOG_WARN(to_string(ownCriExceededLines.size())
@@ -149,10 +164,10 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
                    " the stack report lists them");
     }
     for (const auto& line : result.stackReport.unstackedLines) {
-        LOG_WARN("Demand line " + std::to_string(line.lineIndex) + " (MATNR " + line.matnr
+        LOG_WARN("Demand line " + to_string(line.lineIndex) + " (MATNR " + line.matnr
                  + ") was not stacked: " + line.reason);
     }
-    result.stackReport.ambiguousPalletLines = static_cast<std::size_t>(result.validation.ambiguous_pallet);
+    result.stackReport.ambiguousPalletLines = static_cast<size_t>(result.validation.ambiguous_pallet);
     result.ranMilestone2 = true;
 }
 

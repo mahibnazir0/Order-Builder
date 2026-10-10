@@ -16,25 +16,33 @@ using json = nlohmann::json;
 
 namespace {
 
+// A non-string value is kept as its JSON text, so the Validator reports it as an unknown
+// size rather than it reading as blank, which means "any trailer".
+string equipSize(const json& j) {
+    const auto it = j.find("ZZNA_EQUIP_SIZE");
+    if (it == j.end() || it->is_null()) return "";
+    return it->is_string() ? it->get<string>() : it->dump();
+}
+
 PlaceholderRecord parse_placeholder(const json& j) {
     PlaceholderRecord p;
-    p.locfrno         = get_or<std::string>(j, "LOCFRNO", "");
-    p.loctono         = get_or<std::string>(j, "LOCTONO", "");
-    p.ship_cond       = get_or<std::string>(j, "SHIP_COND", "");
-    p.datfr_ta        = get_or<std::string>(j, "DATFR_TA", "");
-    p.datto_ta        = get_or<std::string>(j, "DATTO_TA", "");
-    p.zzna_equip_size = get_or<std::string>(j, "ZZNA_EQUIP_SIZE", "");
+    p.locfrno         = get_or<string>(j, "LOCFRNO", "");
+    p.loctono         = get_or<string>(j, "LOCTONO", "");
+    p.ship_cond       = get_or<string>(j, "SHIP_COND", "");
+    p.datfr_ta        = get_or<string>(j, "DATFR_TA", "");
+    p.datto_ta        = get_or<string>(j, "DATTO_TA", "");
+    p.zzna_equip_size = equipSize(j);
     p.no_of_loads     = getIntegerOr(j, "NO_OF_LOADS", kUnreadableLoadCount);
-    p.ebeln           = get_or<std::string>(j, "EBELN", "");
+    p.ebeln           = get_or<string>(j, "EBELN", "");
     return p;
 }
 
 } // anonymous namespace
 
-PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
-    std::ifstream in(json_path);
+PlaceholderLoadResult PlaceholderImporter::load(const string& json_path) {
+    ifstream in(json_path);
     if (!isRegularFile(json_path) || !in) {
-        throw std::runtime_error("Cannot open placeholder file: " + json_path);
+        throw runtime_error("Cannot open placeholder file: " + json_path);
     }
 
     json root;
@@ -42,13 +50,13 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
         in >> root;
     } catch (const json::exception& e) {
         // parse_error for bad syntax, out_of_range for a number too large for a double.
-        throw std::runtime_error("Placeholder file is not valid JSON: " + std::string(e.what()));
+        throw runtime_error("Placeholder file is not valid JSON: " + string(e.what()));
     }
 
     // find() on an array or scalar root returns end(), so get_optional_array would
     // read PHOLDER as absent and the file would load as zero trucks.
     if (!root.is_object()) {
-        throw std::runtime_error("Placeholder file: root must be a JSON object");
+        throw runtime_error("Placeholder file: root must be a JSON object");
     }
 
     PlaceholderLoadResult result;
@@ -73,8 +81,8 @@ PlaceholderLoadResult PlaceholderImporter::load(const std::string& json_path) {
         }
     }
 
-    LOG_INFO("Loaded placeholders: " + std::to_string(result.placeholders.size())
-             + " entries, " + std::to_string(result.total_loads) + " trucks requested");
+    LOG_INFO("Loaded placeholders: " + to_string(result.placeholders.size())
+             + " entries, " + to_string(result.total_loads) + " trucks requested");
     if (result.duplicateLaneEntries > 0) {
         LOG_WARN(to_string(result.duplicateLaneEntries)
                  + " placeholder entries repeat a lane listed earlier; their NO_OF_LOADS are"

@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -67,8 +68,8 @@ std::vector<std::string> realDayArguments(bool withParams) {
     std::vector<std::string> arguments{"--product", kProduct, "--demand", kDemand,
                                        "--placeholder", kPlaceholder, "--day", "2026-08-17"};
     if (withParams) {
-        arguments.push_back("--params");
-        arguments.push_back(kParams);
+        arguments.insert(arguments.end(),
+                         {"--params", kParams, "--pallets", crossDayTests::kPalletTableForOlderMasters});
     }
     return arguments;
 }
@@ -135,6 +136,7 @@ struct SyntheticInputs {
     std::string demand = (directory / "demand.json").string();
     std::string unmatchedDemand = (directory / "unmatchedDemand.json").string();
     std::string placeholder = (directory / "placeholder.json").string();
+    string pallets = (directory / "pallets.csv").string();
 
     SyntheticInputs() {
         fs::create_directories(directory);
@@ -150,6 +152,8 @@ struct SyntheticInputs {
                                        << lineStart << "NOT_IN_MASTER" << lineEnd << "]}";
         std::ofstream(placeholder)
             << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","SHIP_COND":"TL","NO_OF_LOADS":1}]})";
+        ofstream(pallets) << "ID,Footprint_Length,Footprint_Width,Height,Weight\n"
+                             "PTL,48,40,6,65\nTLD,48,40,0.10000000149011612,1\n";
     }
     SyntheticInputs(const SyntheticInputs&) = delete;
     SyntheticInputs& operator=(const SyntheticInputs&) = delete;
@@ -164,14 +168,16 @@ struct SyntheticInputs {
         return path;
     }
 
+    // With params, the synthetic pallet table goes along unless `palletPath` names another.
     std::vector<std::string> arguments(const std::string& productPath, const std::string& demandPath,
                                        const std::string& placeholderPath,
-                                       const std::string& paramsPath) const {
+                                       const std::string& paramsPath,
+                                       const string& palletPath = "") const {
         std::vector<std::string> result{"--product", productPath, "--demand", demandPath,
                                         "--placeholder", placeholderPath};
         if (!paramsPath.empty()) {
-            result.push_back("--params");
-            result.push_back(paramsPath);
+            result.insert(result.end(), {"--params", paramsPath, "--pallets",
+                                         palletPath.empty() ? pallets : palletPath});
         }
         return result;
     }
@@ -179,7 +185,7 @@ struct SyntheticInputs {
 
 } // namespace
 
-TEST_CASE("cli: a clean run on the real day exits 0 and prints both milestones") {
+TEST_CASE("cli: a clean run on the real day exits 0 and prints both milestones" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun& run = fullRealRun();
     CHECK(run.exitCode == 0);
     CHECK(contains(run.output, kM1Summary));
@@ -188,7 +194,7 @@ TEST_CASE("cli: a clean run on the real day exits 0 and prints both milestones")
     CHECK(tableRows(section(run.output, kGroupTable)) == 387);
 }
 
-TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries unchanged") {
+TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries unchanged" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun& full = fullRealRun();
     const CliRun truncated = runCli(withExtra(realDayArguments(true), {"--groups", "5", "--lanes", "7"}));
     CHECK(truncated.exitCode == 0);
@@ -200,7 +206,7 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
     CHECK(contains(truncated.output, "(top 5 of 387 by floor use)"));
 }
 
-TEST_CASE("cli: --trailer 53FT_NA gives exactly the default output") {
+TEST_CASE("cli: --trailer 53FT_NA gives exactly the default output" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun named = runCli(withExtra(realDayArguments(true), {"--trailer", "53FT_NA"}));
     CHECK(named.exitCode == 0);
     CHECK(named.output == fullRealRun().output);
@@ -217,7 +223,7 @@ TEST_CASE("cli: an unknown trailer exits 2 and names the code") {
     CHECK_FALSE(contains(run.output, kM1Summary));
 }
 
-TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure") {
+TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun debug = runCli(withExtra(realDayArguments(true), {"--debug"}));
     CHECK(debug.exitCode == 0);
     std::string withoutDebugLines;
@@ -235,7 +241,7 @@ TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure") {
     CHECK(withoutDebugLines == fullNormalised);
 }
 
-TEST_CASE("cli: without --params only the Milestone 1 report is printed") {
+TEST_CASE("cli: without --params only the Milestone 1 report is printed" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli(realDayArguments(false));
     CHECK(run.exitCode == 0);
     CHECK(section(run.output, kM1Summary) == section(fullRealRun().output, kM1Summary));
@@ -262,6 +268,18 @@ TEST_CASE("cli: the synthetic inputs alone run clean, so the bad-input cases iso
     const CliRun run = runCli(inputs.arguments(inputs.product, inputs.demand, inputs.placeholder, kParams));
     CHECK(run.exitCode == 0);
     CHECK_FALSE(contains(run.output, "[ERROR]"));
+}
+
+TEST_CASE("cli: a product row's own Pallet_* figures stack it without the pallet table") {
+    const SyntheticInputs inputs;
+    const string ownPallet = inputs.write("ownPallet.csv",
+        "ID,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,"
+        "Pallet_ID,Pallet_Weight,Pallet_Height,Pallet_Footprint_Length,Pallet_Footprint_Width\n"
+        "GOOD,10,10,10,5,CS,2,4,2,8,WOOD,60,5,48,40\n");
+    const string emptyTable = inputs.write("noPallets.csv", "ID,Footprint_Length,Footprint_Width,Height,Weight\n");
+    const CliRun run = runCli(inputs.arguments(ownPallet, inputs.demand, inputs.placeholder, kParams, emptyTable));
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "complete: every demand line is in a stack"));
 }
 
 TEST_CASE("cli: a pallet taller than the trailer ceiling exits 1 and is reported") {
@@ -294,7 +312,7 @@ TEST_CASE("cli: a line with no unit load exits 1 and the report says incomplete"
     }
 }
 
-TEST_CASE("cli: a line for the zero-count product 106052500 exits 1 in every unit") {
+TEST_CASE("cli: a line for the zero-count product 106052500 exits 1 in every unit" * doctest::skip(!crossDayTests::august17Present())) {
     const SyntheticInputs inputs;
     for (const string unitOfMeasure : {"CS", "PAL", "DIS"}) {
         CAPTURE(unitOfMeasure);
@@ -309,12 +327,15 @@ TEST_CASE("cli: a line for the zero-count product 106052500 exits 1 in every uni
     }
 }
 
-TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in the stack report") {
+TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in the stack report" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun& run = fullRealRun();
     CHECK(contains(run.output, "[WARN] 2 demand line(s) exceed their own CRI limit"));
     CHECK(contains(run.output, "line 3519, material 106005500: exceeds its own CRI limit"));
     CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
     CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
+    CHECK(contains(run.output, "0 error(s), 163 warning(s)"));
+    CHECK(contains(run.output, "  exceeds_own_cri  (2)\n"));
+    CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }
 
 TEST_CASE("cli: a valid PAL line beside an EA line exits 1 and names the EA line") {
@@ -363,6 +384,10 @@ TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming th
         {"directory as params", "params", directory, "params: cannot open file"},
         {"empty params", "params", emptyFile, "params: invalid JSON"},
         {"malformed params", "params", malformedJson, "params: invalid JSON"},
+        {"missing pallets", "pallets", missing, "Cannot open pallet file"},
+        {"directory as pallets", "pallets", directory, "Cannot open pallet file"},
+        {"empty pallets", "pallets", emptyCsv, "Pallet file is empty"},
+        {"malformed pallets header", "pallets", malformedCsv, "Pallet file missing required column"},
     };
     for (const auto& bad : cases) {
         CAPTURE(bad.description);
@@ -370,7 +395,8 @@ TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming th
             bad.role == "product" ? bad.path : inputs.product,
             bad.role == "demand" ? bad.path : inputs.demand,
             bad.role == "placeholder" ? bad.path : inputs.placeholder,
-            bad.role == "params" ? bad.path : kParams));
+            bad.role == "params" ? bad.path : kParams,
+            bad.role == "pallets" ? bad.path : ""));
         CAPTURE(run.output);
         CHECK(run.exitCode == 2);
         CHECK(contains(run.output, "[ERROR]"));
@@ -403,7 +429,7 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     const CliRun run = runCli({"--help"});
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params",
-                                          "--trailer", "--groups", "--day", "--lanes", "--debug",
+                                          "--pallets", "--trailer", "--groups", "--day", "--lanes", "--debug",
                                           "0  success", "1  incomplete: validation errors, or a line is in no stack",
                                           "2  could not run"}) {
         CAPTURE(documented);

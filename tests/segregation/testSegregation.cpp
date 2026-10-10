@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
 #include "segregation.hpp"
@@ -170,7 +171,7 @@ TEST_CASE("segregation: a copied result is independent of the original") {
     CHECK(copy.groups[0].lineIndices == std::vector<std::size_t>{0});
 }
 
-TEST_CASE("segregation: real demand partitions every line into a group") {
+TEST_CASE("segregation: real demand partitions every line into a group" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile file = Importer::load_demand("tests/importer/Demand-1.json");
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
     const ProductIndex index = Joiner::build_index(products.products);
