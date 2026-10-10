@@ -3,6 +3,7 @@
 #include "pipeline.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -22,26 +23,34 @@
 // extracts are in newExtracts at the end of this file.
 namespace crossDayTests {
 
-using namespace std;
-
 constexpr std::size_t kDayCount = 4;
 
 // The masters before 29 Sep carry no Pallet_* columns and those extracts shipped no pallet
 // table, so the 29 Sep table stands in for them. It is byte-identical on every day from
 // 29 Sep to 5 Oct.
-const string kPalletTableForOlderMasters =
+//
+// Every namespace-scope constant in this header is `inline`: the skip decorators read them
+// during static initialisation, and a plain `const` gives each test file its own copy, which
+// another file's decorator can read before it is constructed.
+inline const std::string kPalletTableForOlderMasters =
     "tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv";
 
 // True when every path is a file. Otherwise names the first missing one, so a skipped test
 // reads as skipped rather than as a pass.
-inline bool filesPresent(initializer_list<string> paths, const string& skippedWhat) {
-    for (const string& path : paths) {
-        if (!filesystem::is_regular_file(path)) {
-            cerr << "[fixtures] " << path << " not found: " << skippedWhat << " skipped\n";
+inline bool filesPresent(std::initializer_list<std::string> paths, const std::string& skippedWhat) {
+    for (const std::string& path : paths) {
+        if (!std::filesystem::is_regular_file(path)) {
+            std::cerr << "[fixtures] " << path << " not found: " << skippedWhat << " skipped\n";
             return false;
         }
     }
     return true;
+}
+
+// The measured figures were read off the printed report, which rounds pallets to one
+// decimal and weight to whole pounds.
+inline bool matchesPrinted(double actual, double printed, double printedStep) {
+    return std::fabs(actual - printed) <= printedStep / 2.0;
 }
 
 // The 17 Aug files, for tests that read them directly. Confidential and gitignored, so a fresh
@@ -161,7 +170,7 @@ constexpr PerDay<std::size_t> distinctPlanners{50, 51, 50, 50};
 constexpr PerDay<std::size_t> strictLargestGroup{478, 501, 567, 476};
 } // namespace expectedRecovered
 
-const std::string kStrictParamsPath = "config/orderBuilderParams.json";
+inline const std::string kStrictParamsPath = "config/orderBuilderParams.json";
 
 inline ob::PipelineInputs dayInputs(std::size_t dayIndex, const std::string& paramsPath) {
     const DayFiles& day = dayFiles()[dayIndex];
@@ -223,57 +232,65 @@ inline const PerDay<ob::PipelineResult>& flaggedVsNormalRuns() {
 // machine holding only some of them still tests those.
 namespace newExtracts {
 
-constexpr size_t kDayCount = 5;
+constexpr std::size_t kDayCount = 5;
 
 template <typename T>
-using PerDay = array<T, kDayCount>;
+using PerDay = std::array<T, kDayCount>;
 
-const PerDay<string> labels{"29 Sep", "30 Sep", "01 Oct", "02 Oct", "05 Oct"};
-const PerDay<string> directories{
+inline const PerDay<std::string> labels{"29 Sep", "30 Sep", "01 Oct", "02 Oct", "05 Oct"};
+inline const PerDay<std::string> directories{
     "tests/importer/crossDay/20260929", "tests/importer/crossDay/20260930",
     "tests/importer/crossDay/20261001", "tests/importer/crossDay/20261002",
     "tests/importer/crossDay/20261005"};
 
 // Measured independently from the raw JSON and CSV (M2 open items, 13 Oct 2026).
 namespace expected {
-constexpr PerDay<size_t> demandLines{21832, 21746, 20659, 18236, 22287};
-constexpr PerDay<size_t> lanesWithDemand{361, 372, 372, 361, 358};
-constexpr PerDay<size_t> strictGroups{389, 401, 401, 391, 387};
-constexpr PerDay<size_t> lanesSplit{19, 20, 20, 20, 20};
-constexpr PerDay<size_t> linesSegregated{2765, 2875, 2766, 2536, 3053};
-constexpr PerDay<size_t> placeholderEntries{181, 283, 275, 228, 299};
+constexpr PerDay<std::size_t> demandLines{21832, 21746, 20659, 18236, 22287};
+constexpr PerDay<std::size_t> lanesWithDemand{361, 372, 372, 361, 358};
+constexpr PerDay<std::size_t> strictGroups{389, 401, 401, 391, 387};
+constexpr PerDay<std::size_t> lanesSplit{19, 20, 20, 20, 20};
+constexpr PerDay<std::size_t> linesSegregated{2765, 2875, 2766, 2536, 3053};
+constexpr PerDay<std::size_t> placeholderEntries{181, 283, 275, 228, 299};
 constexpr PerDay<long long> trucksRequested{339, 604, 527, 411, 618};
 constexpr PerDay<int> productRows{21319, 21319, 21351, 21351, 21355};
+// Milestone 1 totals and the pass 1 cube/weight split (round 4 verification, 10 Oct 2026):
+// the figures people check by hand. The M1 weight uses the converter's fixed wood-pallet
+// weight, not the pallet table, so it does not move with the pallet data.
+constexpr PerDay<double> hashTotal{7358530, 7395210, 6767583, 6116067, 7546177};
+constexpr PerDay<double> palletEquivalents{141697.0, 143118.8, 133623.2, 123367.0, 148004.3};
+constexpr PerDay<double> totalWeightLb{94052648, 95418783, 88943337, 81696332, 99787983};
+constexpr PerDay<std::size_t> cubeBoundGroups{387, 399, 397, 390, 386};
+constexpr PerDay<std::size_t> weightBoundGroups{2, 2, 4, 1, 1};
 // The same on every day.
-constexpr size_t masterColumns = 88;
+constexpr std::size_t masterColumns = 88;
 constexpr int duplicatedProductIds = 18;
-constexpr size_t doNotMixPairs = 22;
-constexpr size_t doNotMixPairsWithDemand = 4;
+constexpr std::size_t doNotMixPairs = 22;
+constexpr std::size_t doNotMixPairsWithDemand = 4;
 } // namespace expected
 
 // The one file in `directory` whose name starts with `prefix`; empty if there is none.
 // More than one is an error: the test would otherwise pick one silently.
-inline string singleFileStartingWith(const string& directory, const string& prefix) {
-    string found;
-    if (!filesystem::is_directory(directory)) return found;
-    for (const auto& entry : filesystem::directory_iterator(directory)) {
-        const string name = entry.path().filename().string();
+inline std::string singleFileStartingWith(const std::string& directory, const std::string& prefix) {
+    std::string found;
+    if (!std::filesystem::is_directory(directory)) return found;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        const std::string name = entry.path().filename().string();
         if (!entry.is_regular_file() || name.rfind(prefix, 0) != 0) continue;
-        if (!found.empty()) throw runtime_error("newExtracts: two " + prefix + " files in " + directory);
+        if (!found.empty()) throw std::runtime_error("newExtracts: two " + prefix + " files in " + directory);
         found = entry.path().generic_string();
     }
     return found;
 }
 
-inline string productPath(size_t day) {
+inline std::string productPath(std::size_t day) {
     return directories[day] + "/Product-Data/Customer2-Product-Data.csv";
 }
-inline string palletPath(size_t day) {
+inline std::string palletPath(std::size_t day) {
     return directories[day] + "/Product-Data/Customer2-Pallet-Data.csv";
 }
 
 // Inputs for one day; the demand and placeholder paths are empty when it is not on this machine.
-inline ob::PipelineInputs inputsFor(size_t day) {
+inline ob::PipelineInputs inputsFor(std::size_t day) {
     ob::PipelineInputs inputs;
     inputs.product_path = productPath(day);
     inputs.demand_path = singleFileStartingWith(directories[day] + "/Demands", "100-STR-");
@@ -284,16 +301,16 @@ inline ob::PipelineInputs inputsFor(size_t day) {
     return inputs;
 }
 
-inline bool dayPresent(size_t day) {
+inline bool dayPresent(std::size_t day) {
     static const PerDay<bool> present = [] {
         PerDay<bool> flags{};
-        for (size_t index = 0; index < kDayCount; ++index) {
+        for (std::size_t index = 0; index < kDayCount; ++index) {
             const ob::PipelineInputs inputs = inputsFor(index);
             flags[index] = !inputs.demand_path.empty() && !inputs.placeholder_path.empty()
                 && filesPresent({inputs.product_path, inputs.palletPath},
                                 "the " + labels[index] + " extract is");
             if (inputs.demand_path.empty() || inputs.placeholder_path.empty()) {
-                cerr << "[fixtures] " << directories[index]
+                std::cerr << "[fixtures] " << directories[index]
                      << " has no 100-STR / 100-PLACEHOLDER file: the " << labels[index]
                      << " extract is skipped\n";
             }
@@ -304,19 +321,19 @@ inline bool dayPresent(size_t day) {
 }
 
 inline bool anyDayPresent() {
-    for (size_t day = 0; day < kDayCount; ++day) {
+    for (std::size_t day = 0; day < kDayCount; ++day) {
         if (dayPresent(day)) return true;
     }
     return false;
 }
 
 // One Strict run per present day, shared by every test; null for a day not on this machine.
-inline const ob::PipelineResult* run(size_t day) {
+inline const ob::PipelineResult* run(std::size_t day) {
     static const auto runs = [] {
-        PerDay<unique_ptr<ob::PipelineResult>> results;
-        for (size_t index = 0; index < kDayCount; ++index) {
+        PerDay<std::unique_ptr<ob::PipelineResult>> results;
+        for (std::size_t index = 0; index < kDayCount; ++index) {
             if (dayPresent(index)) {
-                results[index] = make_unique<ob::PipelineResult>(ob::Pipeline::run(inputsFor(index)));
+                results[index] = std::make_unique<ob::PipelineResult>(ob::Pipeline::run(inputsFor(index)));
             }
         }
         return results;

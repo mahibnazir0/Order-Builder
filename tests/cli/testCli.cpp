@@ -282,6 +282,28 @@ TEST_CASE("cli: a product row's own Pallet_* figures stack it without the pallet
     CHECK(contains(run.output, "complete: every demand line is in a stack"));
 }
 
+TEST_CASE("cli: a master without Pallet_* columns and no --pallets exits 2 with one error naming the fix") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "[ERROR] the product master gives no weight, height and footprint for"
+                               " pallet type(s) TLD and no pallet table was given; pass --pallets <csv>"));
+    CHECK_FALSE(contains(run.output, "was not stacked"));
+}
+
+TEST_CASE("cli: a master whose rows carry their own Pallet_* figures needs no --pallets") {
+    const SyntheticInputs inputs;
+    const string ownPallet = inputs.write("ownPallet.csv",
+        "ID,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,"
+        "Pallet_ID,Pallet_Weight,Pallet_Height,Pallet_Footprint_Length,Pallet_Footprint_Width\n"
+        "GOOD,10,10,10,5,CS,2,4,2,8,WOOD,60,5,48,40\n");
+    const CliRun run = runCli({"--product", ownPallet, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams});
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "complete: every demand line is in a stack"));
+}
+
 TEST_CASE("cli: a pallet taller than the trailer ceiling exits 1 and is reported") {
     const SyntheticInputs inputs;
     const std::string tallProduct = inputs.write("tallProducts.csv",
@@ -334,7 +356,8 @@ TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in 
     CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
     CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
     CHECK(contains(run.output, "0 error(s), 163 warning(s)"));
-    CHECK(contains(run.output, "  exceeds_own_cri  (2)\n"));
+    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 163 warnings across 24357 demand lines"));
+    CHECK(contains(run.output, "  exceeds_own_cri  (2)"));
     CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }
 

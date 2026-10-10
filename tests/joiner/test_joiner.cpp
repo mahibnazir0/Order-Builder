@@ -1,5 +1,6 @@
 // NOTE: no doctest main define here — main lives in one implementing TU only.
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "joiner.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
@@ -24,7 +25,7 @@ struct Fixture {
 };
 } // namespace
 
-TEST_CASE("index groups variants rather than dropping them") {
+TEST_CASE("index groups variants rather than dropping them" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     // 20,183 unique IDs in the master.
     CHECK(f.index.size() == 20183);
@@ -35,7 +36,7 @@ TEST_CASE("index groups variants rather than dropping them") {
     CHECK(multi == 18);
 }
 
-TEST_CASE("every demand line matches a product") {
+TEST_CASE("every demand line matches a product" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult r = Joiner::join(f.demand.str, f.index);
 
@@ -45,7 +46,7 @@ TEST_CASE("every demand line matches a product") {
     CHECK(r.unmatched_matnrs.empty());
 }
 
-TEST_CASE("ambiguous pallet-type matches are counted, not hidden") {
+TEST_CASE("ambiguous pallet-type matches are counted, not hidden" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult r = Joiner::join(f.demand.str, f.index);
 
@@ -55,7 +56,7 @@ TEST_CASE("ambiguous pallet-type matches are counted, not hidden") {
     CHECK(r.ambiguous_matnrs.size() == 6);
 }
 
-TEST_CASE("preference order decides which variant is chosen") {
+TEST_CASE("preference order decides which variant is chosen" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
 
     // ID 105553001 exists as GMA (84 cases/unit load) and TLD (168).
@@ -85,7 +86,7 @@ TEST_CASE("preference order decides which variant is chosen") {
     }
 }
 
-TEST_CASE("unmatched lines are kept with a null product, never dropped") {
+TEST_CASE("unmatched lines are kept with a null product, never dropped" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
 
     // Inject a demand line for a material that is not in the master.
@@ -107,7 +108,7 @@ TEST_CASE("unmatched lines are kept with a null product, never dropped") {
     CHECK(last.str     != nullptr);              // the demand line survives
 }
 
-TEST_CASE("every matched line points at a real product") {
+TEST_CASE("every matched line points at a real product" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult r = Joiner::join(f.demand.str, f.index);
     for (const auto& l : r.lines) {

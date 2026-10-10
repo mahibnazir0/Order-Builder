@@ -87,6 +87,21 @@ TEST_CASE("new extracts: lanes, groups, split lanes and segregated lines" * doct
     });
 }
 
+TEST_CASE("new extracts: hash total, pallet-equivalents and Milestone 1 weight match the measured figures" * doctest::skip(kNoNewExtracts)) {
+    forEachPresentDay([](size_t day, const PipelineResult& result) {
+        CHECK(result.summary.hash_total == expected::hashTotal[day]);
+        CHECK(crossDayTests::matchesPrinted(result.summary.total_pallet_equiv, expected::palletEquivalents[day], 0.1));
+        CHECK(crossDayTests::matchesPrinted(result.summary.total_weight_lb, expected::totalWeightLb[day], 1.0));
+    });
+}
+
+TEST_CASE("new extracts: cube/weight split matches the measured figures" * doctest::skip(kNoNewExtracts)) {
+    forEachPresentDay([](size_t day, const PipelineResult& result) {
+        CHECK(result.binding.cubeBoundGroups == expected::cubeBoundGroups[day]);
+        CHECK(result.binding.weightBoundGroups == expected::weightBoundGroups[day]);
+    });
+}
+
 TEST_CASE("new extracts: every demand line is stacked, none over-height or over its own CRI" * doctest::skip(kNoNewExtracts)) {
     forEachPresentDay([](size_t, const PipelineResult& result) {
         CHECK(isRunComplete(result));
