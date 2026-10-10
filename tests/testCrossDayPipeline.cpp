@@ -17,12 +17,6 @@ using namespace crossDayTests;
 
 namespace {
 
-// The measured figures were read off the printed report, which rounds pallets to one
-// decimal and weight to whole pounds.
-bool matchesPrinted(double actual, double printed, double printedStep) {
-    return fabs(actual - printed) <= printedStep / 2.0;
-}
-
 string oneDecimal(double value) {
     ostringstream formatted;
     formatted << fixed << setprecision(1) << value;

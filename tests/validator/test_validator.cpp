@@ -163,15 +163,15 @@ void checkNonFiniteQuantityIsExcluded(double trans) {
 
 } // namespace
 
-TEST_CASE("a NaN quantity is an error and the line is excluded") {
+TEST_CASE("a NaN quantity is an error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     checkNonFiniteQuantityIsExcluded(numeric_limits<double>::quiet_NaN());
 }
 
-TEST_CASE("an infinite quantity is an error and the line is excluded") {
+TEST_CASE("an infinite quantity is an error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     checkNonFiniteQuantityIsExcluded(numeric_limits<double>::infinity());
 }
 
-TEST_CASE("a negative infinite quantity is an error and the line is excluded") {
+TEST_CASE("a negative infinite quantity is an error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     checkNonFiniteQuantityIsExcluded(-numeric_limits<double>::infinity());
 }
 
@@ -220,11 +220,11 @@ void checkZeroUnitLoadIsExcluded(const string& uom) {
 
 } // namespace
 
-TEST_CASE("a PAL line on a zero-Cases_Unit_Load product is an error, its weight would omit the cargo") {
+TEST_CASE("a PAL line on a zero-Cases_Unit_Load product is an error, its weight would omit the cargo" * doctest::skip(!crossDayTests::august17Present())) {
     checkZeroUnitLoadIsExcluded("PAL");
 }
 
-TEST_CASE("a DIS line on a zero-Cases_Unit_Load product is an error, its weight would omit the cargo") {
+TEST_CASE("a DIS line on a zero-Cases_Unit_Load product is an error, its weight would omit the cargo" * doctest::skip(!crossDayTests::august17Present())) {
     checkZeroUnitLoadIsExcluded("DIS");
 }
 

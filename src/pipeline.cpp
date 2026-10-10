@@ -116,6 +116,17 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     const TrailerSpec& trailer = result.trailer;
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
+    // Masters before 29 Sep carry no Pallet_* columns, so without a table every line using them
+    // would go unstacked with one warning each. Stop with one message instead.
+    if (inputs.palletPath.empty() && !result.missingPalletIds.empty()) {
+        string palletIds;
+        for (const auto& palletId : result.missingPalletIds) {
+            palletIds += (palletIds.empty() ? "" : ", ") + palletId;
+        }
+        throw runtime_error("the product master gives no weight, height and footprint for pallet"
+                            " type(s) " + palletIds + " and no pallet table was given;"
+                            " pass --pallets <csv>");
+    }
     for (const auto& palletId : result.missingPalletIds) {
         LOG_WARN("Demand uses pallet type '" + palletId + "' but neither the product master nor"
                  " the pallet table gives its weight, height and footprint");
@@ -278,6 +289,11 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
 
     // ── 7. Milestone 3: select demand, floor ────────────────────────────────
     if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
+
+    // Logged only now so the count includes the warnings Milestone 2 adds and matches the report.
+    LOG_INFO("Validation: " + to_string(result.validation.errors) + " errors, "
+             + to_string(result.validation.warnings) + " warnings across "
+             + to_string(result.join.lines.size()) + " demand lines");
 
     return result;
 }

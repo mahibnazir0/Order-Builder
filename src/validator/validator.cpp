@@ -1,7 +1,6 @@
 #include "validator.hpp"
 #include "converter.hpp"
 #include "isoDate.hpp"
-#include "logger.hpp"
 #include "palletSpec.hpp"
 
 #include <algorithm>
@@ -234,10 +233,6 @@ ValidationReport Validator::validate(const JoinResult& join,
                 s.matnr, idx);
         }
     }
-
-    LOG_INFO("Validation: " + std::to_string(rep.errors) + " errors, "
-             + std::to_string(rep.warnings) + " warnings across "
-             + std::to_string(join.lines.size()) + " demand lines");
 
     return rep;
 }
