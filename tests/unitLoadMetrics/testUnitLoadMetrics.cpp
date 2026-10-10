@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "../importer/crossDayFixtures.hpp"
 #include "paramsLoader.hpp"
+#include "stackRules.hpp"
 #include "unitLoadMetrics.hpp"
 #include "validator.hpp"
 
@@ -354,5 +355,45 @@ TEST_CASE("unitLoadMetrics: reproduces the M1 pallet-equivalents and the M2 stac
         CHECK(fabs(totalUnitLoads - expectedM1::palletEquivalents[dayIndex]) <= 0.05);
         // M1 keeps the confirmed pallet weights; the floor weighs pallets as the stacks do.
         CHECK(fabs(totalWeightLb - stackingWeightLb) <= 0.5);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: a 106.25 in PTL unit load has the same height in Milestone 2 under either deck rule") {
+    const ProductRecord tallPtl = product("PTL", 106.25, 9.0, 1, 1, 1);
+    const STRRecord oneUnitLoad = demand(1.0, "PAL");
+    JoinedLine line;
+    line.str = &oneUnitLoad;
+    line.product = &tallPtl;
+    line.matched = true;
+    for (const DeckHeightRule deckHeight : {DeckHeightRule::Excluded, DeckHeightRule::Included}) {
+        M2Params params = shippedParams();
+        params.floorDeckHeight = deckHeight;
+        const UnitLoad stackingLoad = buildUnitLoad(line, params);
+        const UnitLoadMetrics floorMetrics = unitLoadMetricsFor(line, params);
+        REQUIRE(stackingLoad.error == UnitLoadError::None);
+        REQUIRE(floorMetrics.error == UnitLoadMetricsError::None);
+        CHECK(stackingLoad.heightIn == floorMetrics.unitLoadHeightIn);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: every extract line has the same unit-load height in Milestone 2 under either deck rule" * doctest::skip(!crossDayTests::allExtractsPresent())) {
+    for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
+        CAPTURE(dayFiles()[dayIndex].label);
+        const PipelineResult& run = pipelineRuns()[dayIndex];
+        for (const DeckHeightRule deckHeight : {DeckHeightRule::Excluded, DeckHeightRule::Included}) {
+            M2Params params = run.params;
+            params.floorDeckHeight = deckHeight;
+            size_t disagreeingLines = 0;
+            for (const JoinedLine& line : run.join.lines) {
+                const UnitLoad stackingLoad = buildUnitLoad(line, params);
+                const UnitLoadMetrics floorMetrics = unitLoadMetricsFor(line, params);
+                if (stackingLoad.error != UnitLoadError::None
+                    || floorMetrics.error != UnitLoadMetricsError::None) {
+                    continue;
+                }
+                if (stackingLoad.heightIn != floorMetrics.unitLoadHeightIn) ++disagreeingLines;
+            }
+            CHECK(disagreeingLines == 0);
+        }
     }
 }

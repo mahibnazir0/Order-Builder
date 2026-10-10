@@ -61,6 +61,12 @@ optional<PalletSpec> resolvePalletSpec(const ProductRecord& product, const M2Par
     return PalletSpec{product.pallet_id, *weightLb, effectivePalletHeight(*heightIn), *lengthIn, *widthIn};
 }
 
+double unitLoadHeightIn(const ProductRecord& product, const PalletSpec& pallet,
+                        const M2Params& params) noexcept {
+    return product.height_in * product.layers_unit_load
+        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet.addedHeightIn : 0.0);
+}
+
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
                        optional<double> suppliedWeightAboveLb) {
     UnitLoad load;
@@ -85,10 +91,7 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
 
     load.footprintLengthIn = pallet->footprintLengthIn;
     load.footprintWidthIn = pallet->footprintWidthIn;
-    // The deck counts only when the params file says so, exactly as in the floor
-    // (unitLoadMetricsFor): one reading for both milestones, never one each.
-    load.heightIn = product.height_in * product.layers_unit_load
-        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet->addedHeightIn : 0.0);
+    load.heightIn = unitLoadHeightIn(product, *pallet, params);
     load.weightLb = product.weight_lb * product.cases_unit_load + pallet->addedWeightLb;
     load.ownWeightAboveLb = suppliedWeightAboveLb.value_or(
         static_cast<double>(product.layers_unit_load - 1) * product.cases_layer * product.weight_lb);

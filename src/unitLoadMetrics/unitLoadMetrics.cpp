@@ -58,8 +58,7 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& param
     metrics.unitLoads = Converter::to_pallets(demand.trans, demand.unitofmeas, product);
     metrics.weightLb = metrics.unitLoads
         * (product.weight_lb * product.cases_unit_load + pallet->addedWeightLb);
-    metrics.unitLoadHeightIn = product.height_in * product.layers_unit_load
-        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet->addedHeightIn : 0.0);
+    metrics.unitLoadHeightIn = unitLoadHeightIn(product, *pallet, params);
     metrics.stackedInches = metrics.unitLoads * metrics.unitLoadHeightIn;
     metrics.casesPerUnitLoadMismatch = static_cast<long long>(product.cases_layer)
         * product.layers_unit_load != product.cases_unit_load;
