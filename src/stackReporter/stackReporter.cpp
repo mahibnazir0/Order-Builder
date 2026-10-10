@@ -70,8 +70,12 @@ void printProvisionalRules(const StackReport& report, ostream& out) {
            " equivalence to T3 not demonstrated\n";
     out << "  Stacking basis            "
         << (report.stackWholePallets
-                ? "whole pallets (stackWholePallets = true)\n\n"
-                : "fractional estimate, not a physical count (stackWholePallets = false)\n\n");
+                ? "whole pallets (stackWholePallets = true)\n"
+                : "fractional estimate, not a physical count (stackWholePallets = false)\n");
+    out << "  Deck height               "
+        << (report.deckHeight == DeckHeightRule::Included
+                ? "added to unit-load height (floorDeckHeight = Included), as in the floor\n\n"
+                : "not added to unit-load height (floorDeckHeight = Excluded), as in the floor\n\n");
 }
 
 } // namespace
@@ -99,6 +103,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.linesNotStacked = stacking.linesNotStacked();
     report.doNotMixReading = params.doNotMixReading;
     report.stackWholePallets = params.stackWholePallets;
+    report.deckHeight = params.floorDeckHeight;
     report.defaultedKeys = params.defaultedKeys;
     report.paramWarnings = params.warnings;
     report.rows.reserve(report.groups);

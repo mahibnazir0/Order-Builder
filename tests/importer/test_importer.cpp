@@ -179,3 +179,46 @@ TEST_CASE("a demand file whose root is a string throws instead of loading as emp
                          std::runtime_error);
     std::remove(path.c_str());
 }
+
+namespace {
+
+STRRecord loadOneLine(const std::string& lineJson) {
+    const std::string path = "tests/importer/_tmp_str_integer_fields.json";
+    {
+        std::ofstream out(path);
+        out << R"({"REQUEST_ID":"X","STR":[)" << lineJson << "]}";
+    }
+    const DemandFile demand = Importer::load_demand(path);
+    std::remove(path.c_str());
+    REQUIRE(demand.str.size() == 1);
+    return demand.str[0];
+}
+
+} // namespace
+
+TEST_CASE("a missing TPRIO loads as the unreadable sentinel, never as priority 0") {
+    CHECK(loadOneLine(R"({"LOCFRNO":"2027"})").tprio == kUnreadablePriority);
+}
+
+TEST_CASE("a fractional TPRIO loads as the unreadable sentinel, not truncated") {
+    CHECK(loadOneLine(R"({"TPRIO":2.9})").tprio == kUnreadablePriority);
+}
+
+TEST_CASE("a boolean or string TPRIO loads as the unreadable sentinel") {
+    CHECK(loadOneLine(R"({"TPRIO":true})").tprio == kUnreadablePriority);
+    CHECK(loadOneLine(R"({"TPRIO":"3"})").tprio == kUnreadablePriority);
+}
+
+TEST_CASE("an integer TPRIO of 0 loads as 0") {
+    CHECK(loadOneLine(R"({"TPRIO":0})").tprio == 0);
+}
+
+TEST_CASE("a missing or fractional AVAIL_QTY loads as the unreadable sentinel") {
+    CHECK(loadOneLine(R"({"LOCFRNO":"2027"})").avail_qty == kUnreadableAvailableQuantity);
+    CHECK(loadOneLine(R"({"AVAIL_QTY":12.5})").avail_qty == kUnreadableAvailableQuantity);
+}
+
+TEST_CASE("a fractional BNFPO falls back to 0 rather than truncating") {
+    CHECK(loadOneLine(R"({"BNFPO":10.5})").bnfpo == 0);
+    CHECK(loadOneLine(R"({"BNFPO":20})").bnfpo == 20);
+}

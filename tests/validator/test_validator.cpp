@@ -581,6 +581,99 @@ TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning" * doctes
     CHECK(r.unrecognized_pallet_id == 1);
 }
 
+TEST_CASE("a demand line whose ship window ends before it starts is an error") {
+    Fixture f;
+    REQUIRE(!f.demand.str.empty());
+    f.demand.str[0].datfr_ta = "2026-10-09";
+    f.demand.str[0].datto_ta = "2026-10-01";
+
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.invertedShipWindow == 1);
+    CHECK(count_rule(r, "inverted_ship_window") == 1);
+    CHECK(Validator::excludedLineFlags(r, f.join.lines.size())[0]);
+}
+
+TEST_CASE("an unreadable or out-of-range TPRIO is a warning that keeps the line") {
+    for (const int priority : {kUnreadablePriority, -5, kMaxPriority + 1}) {
+        CAPTURE(priority);
+        Fixture f;
+        f.demand.str[0].tprio = priority;
+        ValidationReport r = Validator::validate(f.join);
+        CHECK(r.unreadablePriority == 1);
+        CHECK(count_rule(r, "unreadable_priority") == 1);
+        CHECK(r.errors == 0);
+    }
+}
+
+TEST_CASE("TPRIO at either end of its range is accepted") {
+    for (const int priority : {0, kMaxPriority}) {
+        CAPTURE(priority);
+        Fixture f;
+        f.demand.str[0].tprio = priority;
+        CHECK(Validator::validate(f.join).unreadablePriority == 0);
+    }
+}
+
+TEST_CASE("an unreadable or negative AVAIL_QTY is a warning") {
+    Fixture f;
+    f.demand.str[0].avail_qty = kUnreadableAvailableQuantity;
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.unreadableAvailableQuantity == 1);
+    CHECK(count_rule(r, "unreadable_available_quantity") == 1);
+}
+
+TEST_CASE("the supplied fixtures have no unreadable priority or availability") {
+    Fixture f;
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.unreadablePriority == 0);
+    CHECK(r.unreadableAvailableQuantity == 0);
+}
+
+TEST_CASE("a one-day ship window is not inverted") {
+    Fixture f;
+    REQUIRE(!f.demand.str.empty());
+    f.demand.str[0].datfr_ta = "2026-10-01";
+    f.demand.str[0].datto_ta = "2026-10-01";
+
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.invertedShipWindow == 0);
+}
+
+TEST_CASE("the supplied fixtures have no inverted ship window") {
+    Fixture f;
+    CHECK(Validator::validate(f.join).invertedShipWindow == 0);
+}
+
+TEST_CASE("a pallet type listed only in the configured pallet table is not unrecognized") {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord eurProduct = *j.lines[0].product;
+    eurProduct.pallet_id = "EUR";
+    j.lines[0].product = &eurProduct;
+
+    ValidationConfig config;
+    config.pallets.push_back({"EUR", 55.0, 5.7, 47.2, 31.5});
+    ValidationReport r = Validator::validate(j, {}, config);
+    CHECK(r.unrecognized_pallet_id == 0);
+}
+
+TEST_CASE("a confirmed pallet type missing from the configured pallet table is unrecognized") {
+    Fixture f;
+    REQUIRE(f.join.lines[0].product != nullptr);
+    const std::string palletId = f.join.lines[0].product->pallet_id;
+
+    ValidationConfig config;
+    config.pallets.erase(std::remove_if(config.pallets.begin(), config.pallets.end(),
+                                        [&](const PalletSpec& pallet) {
+                                            return pallet.palletId == palletId;
+                                        }),
+                         config.pallets.end());
+    ValidationReport r = Validator::validate(f.join, {}, config);
+    CHECK(r.unrecognized_pallet_id > 0);
+}
+
 TEST_CASE("a placeholder with a negative NO_OF_LOADS is an error") {
     vector<PlaceholderRecord> placeholders(1);
     placeholders[0].locfrno    = "2023";

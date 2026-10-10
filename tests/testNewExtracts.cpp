@@ -54,6 +54,17 @@ map<PlannerSite, size_t> flaggedLinesByPair(const PipelineResult& result) {
 
 } // namespace
 
+// The tests below skip a day whose confidential files are absent, so this one fails instead:
+// a clone without them must never pass a suite that ran none of them.
+TEST_CASE("new extracts: every day's fixtures are present, so the extract tests ran") {
+    for (size_t day = 0; day < kDayCount; ++day) {
+        if (!dayPresent(day)) {
+            FAIL_CHECK(labels[day] << ": " << directories[day]
+                       << " is incomplete (confidential and gitignored; see README, Test data)");
+        }
+    }
+}
+
 TEST_CASE("new extracts: each day's files load with the measured shape" * doctest::skip(kNoNewExtracts)) {
     forEachPresentDay([](size_t day, const PipelineResult& result) {
         CHECK(headerColumns(productPath(day)) == expected::masterColumns);

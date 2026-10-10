@@ -167,7 +167,7 @@ TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and
         join.lines.push_back(JoinedLine{&line, &product, true, false});
         const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
         pallets.push_back(linePallets);
-        weights.push_back(Converter::to_weight_lb(linePallets, product));
+        weights.push_back(Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs()));
     }
 
     const ValidationReport rep = Validator::validate(join);
@@ -234,7 +234,7 @@ TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite" * doctest::s
     join.lines.push_back(JoinedLine{&line, &product, true, false});
     const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
     const std::vector<double> pallets{linePallets};
-    const std::vector<double> weights{Converter::to_weight_lb(linePallets, product)};
+    const std::vector<double> weights{Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs())};
     REQUIRE_FALSE(std::isfinite(weights[0]));
 
     const ValidationReport rep = Validator::validate(join);

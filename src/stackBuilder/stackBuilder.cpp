@@ -1,6 +1,7 @@
 #include "stackBuilder.hpp"
 
 #include "stackRules.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -11,9 +12,6 @@ using namespace std;
 
 namespace ob {
 namespace {
-
-// Below this a quantity is floating-point residue, not a real fraction of a pallet.
-constexpr double kQuantityEpsilon = 1e-9;
 
 struct Item {
     size_t lineIndex = 0;
@@ -252,7 +250,9 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.excludedLines.push_back({lineIndex, load.error});
                 continue;
             }
-            if (load.heightIn > trailer.stackHeightCeilingIn) {
+            // The floor's test (exceedsCeiling): a load on the ceiling, or a ULP above it
+            // from inexact case heights, fits. Milestones 2 and 3 never disagree on a line.
+            if (load.heightIn > trailer.stackHeightCeilingIn + kQuantityEpsilon) {
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }

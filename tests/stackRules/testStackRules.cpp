@@ -12,7 +12,6 @@
 #include <unordered_set>
 
 using namespace std;
-
 using namespace ob;
 using Reason = StackFeasibility::Reason;
 
@@ -71,7 +70,7 @@ TEST_CASE("stackRules: unit load uses cases per unit and the pallet spec, not ca
     const ProductRecord record = product();
     const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
     REQUIRE(unitLoad.error == UnitLoadError::None);
-    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3 + 5.5));
+    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3));
     CHECK(unitLoad.weightLb == doctest::Approx(9.0 * 12 + 60.0));
     CHECK(unitLoad.ownWeightAboveLb == doctest::Approx((3 - 1) * 4 * 9.0));
     CHECK(unitLoad.footprintLengthIn == 48.0);
@@ -85,7 +84,9 @@ TEST_CASE("stackRules: a product row's own pallet figures win over the pallet ta
     record.palletHeightIn = 6.0;
     record.palletFootprintLengthIn = 45.0;
     record.palletFootprintWidthIn = 34.0;
-    const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
+    M2Params params = testParams();
+    params.floorDeckHeight = DeckHeightRule::Included;
+    const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), params);
     REQUIRE(unitLoad.error == UnitLoadError::None);
     CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3 + 6.0));
     CHECK(unitLoad.weightLb == doctest::Approx(9.0 * 12 + 65.0));
@@ -122,11 +123,12 @@ TEST_CASE("stackRules: product rows with their own pallet figures need no pallet
 TEST_CASE("stackRules: the 0.1 in placeholder pallet height adds nothing to the stack height") {
     // As the client's file carries it: 0.1 stored as a float.
     const double placeholderHeight = 0.10000000149011612;
+    M2Params params = testParams();
+    params.floorDeckHeight = DeckHeightRule::Included;
     ProductRecord fromRow = product();
     fromRow.palletHeightIn = placeholderHeight;
-    CHECK(buildUnitLoad(matchedLine(fromRow), testParams()).heightIn == doctest::Approx(30.0));
+    CHECK(buildUnitLoad(matchedLine(fromRow), params).heightIn == doctest::Approx(30.0));
 
-    M2Params params = testParams();
     params.pallets[1].addedHeightIn = placeholderHeight;
     ProductRecord fromTable = product();
     fromTable.pallet_id = "TLD";
@@ -138,7 +140,7 @@ TEST_CASE("stackRules: the 0.1 in placeholder pallet height adds nothing to the 
 
     ProductRecord realDeck = product();
     realDeck.palletHeightIn = 0.2;
-    CHECK(buildUnitLoad(matchedLine(realDeck), testParams()).heightIn == doctest::Approx(30.2));
+    CHECK(buildUnitLoad(matchedLine(realDeck), params).heightIn == doctest::Approx(30.2));
 }
 
 TEST_CASE("stackRules: an unreadable or negative pallet figure is rejected, not replaced by the table") {
@@ -340,6 +342,17 @@ TEST_CASE("stackRules: canStack rejects out-of-range CRI and loads that failed c
     CHECK(canStack(failed, load(20, 10, 0, 5), params, kCeilingIn).reason == Reason::InvalidData);
 }
 
+TEST_CASE("stackRules: the deck counts toward unit-load height only when floorDeckHeight says so") {
+    const ProductRecord record = product();
+    M2Params params = testParams();
+    params.floorDeckHeight = DeckHeightRule::Excluded;
+    CHECK(buildUnitLoad(matchedLine(record), params).heightIn == doctest::Approx(10.0 * 3));
+    params.floorDeckHeight = DeckHeightRule::Included;
+    CHECK(buildUnitLoad(matchedLine(record), params).heightIn == doctest::Approx(10.0 * 3 + 5.5));
+    // The pallet's weight counts under either reading; only its height is in question.
+    CHECK(buildUnitLoad(matchedLine(record), params).weightLb == doctest::Approx(9.0 * 12 + 60.0));
+}
+
 TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     M2Params params = loadParams("config/orderBuilderParams.json");
     params.pallets = ProductImporter::loadPalletTable(crossDayTests::kPalletTableForOlderMasters);
@@ -350,27 +363,38 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
 
     CHECK(missingPalletIds(join.lines, params).empty());
 
-    unordered_set<string> seenProducts;
-    vector<UnitLoad> loads;
-    for (const auto& line : join.lines) {
-        if (!seenProducts.insert(line.product->id).second) continue;
-        loads.push_back(buildUnitLoad(line, params));
-    }
-
-    size_t pairs = 0, passHeight = 0, passBoth = 0;
-    for (const auto& base : loads) {
-        for (const auto& top : loads) {
-            ++pairs;
-            const auto result = canStack(base, top, params, kCeilingIn);
-            if (result.reason != Reason::HeightCeiling) ++passHeight;
-            if (result.isFeasible) ++passBoth;
+    // With the supplied 6.0 in / 65 lb wood deck. Included is the reading in force before
+    // floorDeckHeight governed M2 (the configured 5.5 in / 60 lb deck gave 65,295 and 43,021
+    // there); Excluded is the shipped reading.
+    struct Expected {
+        DeckHeightRule deckHeight;
+        size_t passHeight;
+        size_t passBoth;
+    };
+    for (const Expected& expected : {Expected{DeckHeightRule::Included, 65261, 42854},
+                                     Expected{DeckHeightRule::Excluded, 66445, 43535}}) {
+        CAPTURE(expected.deckHeight == DeckHeightRule::Included ? "Included" : "Excluded");
+        params.floorDeckHeight = expected.deckHeight;
+        unordered_set<string> seenProducts;
+        vector<UnitLoad> loads;
+        for (const auto& line : join.lines) {
+            if (!seenProducts.insert(line.product->id).second) continue;
+            loads.push_back(buildUnitLoad(line, params));
         }
+
+        size_t pairs = 0, passHeight = 0, passBoth = 0;
+        for (const auto& base : loads) {
+            for (const auto& top : loads) {
+                ++pairs;
+                const auto result = canStack(base, top, params, kCeilingIn);
+                if (result.reason != Reason::HeightCeiling) ++passHeight;
+                if (result.isFeasible) ++passBoth;
+            }
+        }
+        CHECK(pairs == 2016400);
+        CHECK(passHeight == expected.passHeight);
+        CHECK(passBoth == expected.passBoth);
     }
-    // With the supplied 6.0 in / 65 lb wood deck. The configured 5.5 in / 60 lb gave 65,295
-    // and 43,021; no group, stack or binding figure moved with it.
-    CHECK(pairs == 2016400);
-    CHECK(passHeight == 65261);
-    CHECK(passBoth == 42854);
 }
 
 namespace {
@@ -411,22 +435,32 @@ PairPassCounts sampledPairCounts(const vector<JoinedLine>& lines, const M2Params
 } // namespace
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
-    constexpr size_t everyNth = 10;
-    // Baseline measured by this test on 27 Sep 2026; 17 Aug is also anchored exhaustively above.
-    const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<size_t> passHeight{484, 625, 484, 841};
-    const crossDayTests::PerDay<size_t> passBoth{308, 408, 334, 531};
-    for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
+    constexpr std::size_t everyNth = 10;
+    // Measured by this test on 27 Sep 2026 with the deck counted (Included), and on 10 Oct
+    // 2026 under the shipped Excluded; 17 Aug is also anchored exhaustively above. The
+    // pallet table's 65 lb wood deck moved 03 Sep's Excluded passBoth from 537 (at 60 lb).
+    const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
+    const crossDayTests::PerDay<std::size_t> passHeight{492, 625, 494, 853};
+    const crossDayTests::PerDay<std::size_t> passBoth{313, 408, 341, 536};
+    const crossDayTests::PerDay<size_t> passHeightWithDeck{484, 625, 484, 841};
+    const crossDayTests::PerDay<size_t> passBothWithDeck{308, 408, 334, 531};
+    for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
         REQUIRE(run.params.trailers.front().stackHeightCeilingIn == kCeilingIn);
+        REQUIRE(run.params.floorDeckHeight == DeckHeightRule::Excluded);
         const PairPassCounts counts = sampledPairCounts(run.join.lines, run.params, everyNth);
         CHECK(counts.sampledProducts == sampledProducts[dayIndex]);
         CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
         CHECK(counts.passHeight == passHeight[dayIndex]);
         CHECK(counts.passBoth == passBoth[dayIndex]);
-        cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
+        M2Params withDeck = run.params;
+        withDeck.floorDeckHeight = DeckHeightRule::Included;
+        const PairPassCounts deckCounts = sampledPairCounts(run.join.lines, withDeck, everyNth);
+        CHECK(deckCounts.passHeight == passHeightWithDeck[dayIndex]);
+        CHECK(deckCounts.passBoth == passBothWithDeck[dayIndex]);
+        std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs
                   << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';

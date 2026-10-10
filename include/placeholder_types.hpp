@@ -1,19 +1,23 @@
 #pragma once
 // ============================================================================
-// placeholder_types.hpp — Structure for a placeholder file (PlaceHolder-1.json in August)
+// placeholder_types.hpp — Structure for the placeholder file
+// (PlaceHolder-1.json in August, Placeholder-N.json in early September,
+// 100-PLACEHOLDER-<uuid>.json since late September)
 //
-// Verified against the real file (189 entries, 8 fields, single PHOLDER array):
+// One PHOLDER array of records with 8 fields:
 //   LOCFRNO, LOCTONO, SHIP_COND, DATFR_TA, DATTO_TA,
 //   ZZNA_EQUIP_SIZE, NO_OF_LOADS, EBELN
 //
-// Notes from the real data:
-//   - EBELN is blank in all 189 records. Kept because it is in the schema.
-//   - ZZNA_EQUIP_SIZE is blank in 43 of 189; the rest are "53F".
-//     Blank appears to mean "any trailer" — to confirm with Tom.
+// Notes from the real data (17 Aug to 6 Oct extracts, 170 to 299 records each):
+//   - EBELN is blank in every record. Kept because it is in the schema.
+//   - ZZNA_EQUIP_SIZE is "53F" or blank, and blank is common, not rare: 43 of 189
+//     on 17 Aug, 95 of 228 on 2 Oct, 45 of 88 on 6 Oct. Blank appears to mean
+//     "any trailer" — to confirm with Tom.
 //   - No duplicate LOCFRNO/LOCTONO/SHIP_COND triplets in August, but every
-//     29 Sep - 5 Oct extract repeats lanes (4 to 100 extra entries a day).
-//     Repeats are summed per lane, never de-duplicated or overwritten, and
-//     counted in duplicateLaneEntries so the summing is visible.
+//     29 Sep - 5 Oct extract repeats lanes (4 to 100 extra entries a day), each
+//     repeat with its own DATFR_TA/DATTO_TA window. Repeats are summed per lane,
+//     never de-duplicated or overwritten, and counted in duplicateLaneEntries so
+//     the summing is visible.
 // ============================================================================
 
 #include <string>

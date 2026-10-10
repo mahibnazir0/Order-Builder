@@ -2,11 +2,14 @@
   "criSafeLimitLb": [5, 299, 549, 799, 1149, 1499, 1849, 2199, 3099, 3599],
   "trailers": [
     { "trailerCode": "53FT_NA", "interiorLengthIn": 630, "interiorWidthIn": 100,
-      "stackHeightCeilingIn": 108, "weightLimitLb": 45000, "stackPositions": 32 }
+      "stackHeightCeilingIn": 108, "weightLimitLb": 45000, "stackPositions": 32,
+      "maxStackDepth": null }
   ],
   "doNotMixReading": "Strict",
   "pass2AttemptCap": 4,
   "maxStackHeight": 2,
   "blankCriIsStackable": false,
-  "stackWholePallets": true
+  "stackWholePallets": true,
+  "floorDeckHeight": "Excluded",
+  "floorRoundingPoint": "Group"
 }

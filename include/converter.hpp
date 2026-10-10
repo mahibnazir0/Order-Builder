@@ -23,17 +23,21 @@
 // unit load. One pallet therefore weighs (case weight x Cases_Unit_Load),
 // plus the pallet itself where the pallet is physical wood.
 //
-// WOOD PALLETS
-// PTL and PGM are wood and add their own weight; TLD and GMA add nothing.
-// 10,659 of the 20,201 master rows are wood (verified against the real file),
-// and the pallet is ~9.5% of a median unit load, so it is not negligible.
-// The 60 lb is a PARAMETER, not a literal, because it is an assumption Tom has
-// not yet confirmed.
+// PALLET WEIGHT
+// What a pallet adds is read from the pallet table the caller passes. The
+// pipeline passes the confirmed palletSpec table, so the published Milestone 1
+// totals stay reproducible. PTL and PGM are wood and add their own weight; TLD and GMA
+// add nothing. 10,659 of the 20,201 master rows are wood (verified against the
+// real file), and the pallet is ~9.5% of a median unit load, so it is not
+// negligible. A pallet type with no spec adds nothing here; the Validator
+// warns about it.
 // ============================================================================
 
+#include "palletSpec.hpp"
 #include "product_types.hpp"
 
 #include <string>
+#include <vector>
 
 namespace ob {
 
@@ -58,9 +62,6 @@ public:
     // 1 inch = 2.54 cm, exactly, by definition.
     static constexpr double kCmPerInch = 2.54;
 
-    // Assumed weight of a wood pallet. Documented assumption, not Tom's figure.
-    static constexpr double kWoodPalletWeightLb = 60.0;
-
     // Neither inches_to_cm/cm_to_inches nor to_cm is called by the M1
     // pipeline — no stage needs a product's dimensions in centimetres yet.
     // Kept (and tested) for Milestone 2 load building, where dimensions
@@ -77,9 +78,6 @@ public:
     // leaving centimetres sitting in a field called "_in" would be a trap for
     // the next reader. Renaming them belongs with product_types.hpp, not here.
     static DimensionsCm to_cm(const ProductRecord& product);
-
-    // True for pallet types that are physical wood and carry their own weight.
-    static bool pallet_has_wood(const std::string& pallet_id);
 
     // Convert a demand quantity to pallet-equivalents.
     //
@@ -106,15 +104,14 @@ public:
 
     // Weight in pounds of the given number of pallet-equivalents.
     //
-    //   one pallet = (case weight x Cases_Unit_Load) + wood pallet, if wood
+    //   one pallet = (case weight x Cases_Unit_Load) + the pallet's added weight
     //
-    // Fractional pallets scale the wood pallet linearly, consistent with
+    // Fractional pallets scale the pallet weight linearly, consistent with
     // fractions being summed across the lane rather than rounded up to a
     // physical pallet. Load building (Milestone 2) is where a part pallet
     // becomes a whole one.
-    static double to_weight_lb(double pallets,
-                               const ProductRecord& product,
-                               double wood_pallet_weight_lb = kWoodPalletWeightLb);
+    static double to_weight_lb(double pallets, const ProductRecord& product,
+                               const std::vector<PalletSpec>& palletSpecs);
 };
 
 }  // namespace ob

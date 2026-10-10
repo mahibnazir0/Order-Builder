@@ -1,5 +1,7 @@
 #include "validator.hpp"
 #include "converter.hpp"
+#include "isoDate.hpp"
+#include "palletSpec.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -71,6 +73,17 @@ ValidationReport Validator::validate(const JoinResult& join,
             continue;   // nothing further is meaningful for this line
         }
 
+        // ── Ship window ─────────────────────────────────────────────────────
+        // The demand rules read one end of the window each, so an inverted window would
+        // otherwise be selected as if it were real.
+        if (isIsoDate(s.datfr_ta) && isIsoDate(s.datto_ta) && s.datfr_ta > s.datto_ta) {
+            ++rep.invertedShipWindow;
+            add(rep, ValidationIssue::Severity::Error, "inverted_ship_window",
+                "Demand line's DATFR_TA (" + s.datfr_ta + ") is after its DATTO_TA ("
+                    + s.datto_ta + ")",
+                s.matnr, idx);
+        }
+
         // ── Quantity ────────────────────────────────────────────────────────
         if (!std::isfinite(s.trans) || s.trans <= 0.0) {
             ++rep.non_positive_qty;
@@ -82,6 +95,23 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Demand quantity exceeds "
                     + std::to_string(static_cast<long long>(kMaxDemandQuantity)),
                 s.matnr, idx);
+        }
+
+        // ── Priority and availability ───────────────────────────────────────
+        // Warnings, not Errors: no stage reads either field yet, and an Error would drop
+        // the line from every total. They must become Errors once priority or availability
+        // decides what ships; until then the sentinel keeps a bad value from passing as 0.
+        if (s.tprio < 0 || s.tprio > kMaxPriority) {
+            ++rep.unreadablePriority;
+            add(rep, ValidationIssue::Severity::Warning, "unreadable_priority",
+                "Demand line's TPRIO is missing, not an integer, or outside 0.."
+                    + std::to_string(kMaxPriority),
+                s.matnr, idx);
+        }
+        if (s.avail_qty < 0) {
+            ++rep.unreadableAvailableQuantity;
+            add(rep, ValidationIssue::Severity::Warning, "unreadable_available_quantity",
+                "Demand line's AVAIL_QTY is missing, not an integer, or negative", s.matnr, idx);
         }
 
         // ── Unit of measure ─────────────────────────────────────────────────
@@ -182,15 +212,10 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product master row has no unit of measure", s.matnr, idx);
         }
 
-        // Converter::pallet_has_wood only recognises the same set the Joiner
-        // already treats as the known pallet types. Anything else (blank, a
-        // typo, a new type not yet added here) silently reads as "not wood"
-        // and understates weight by kWoodPalletWeightLb with nothing to flag
-        // it — checked against Joiner's list rather than a second literal set
-        // that could drift out of sync with it.
-        const auto& known_pallet_types = Joiner::default_pallet_preference();
-        if (std::find(known_pallet_types.begin(), known_pallet_types.end(), p.pallet_id)
-                == known_pallet_types.end()) {
+        // The Converter adds nothing for a pallet type the run's table has no
+        // spec for (blank, a typo, a new type), which understates weight with
+        // nothing else to flag it.
+        if (palletSpecFor(config.pallets, p.pallet_id) == nullptr) {
             ++rep.unrecognized_pallet_id;
             add(rep, ValidationIssue::Severity::Warning, "unrecognized_pallet_id",
                 "Product's Pallet_ID '" + p.pallet_id + "' is not one of the known types",

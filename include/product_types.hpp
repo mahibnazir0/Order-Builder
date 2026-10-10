@@ -13,6 +13,8 @@
 // the demand reader.
 // ============================================================================
 
+#include "palletSpec.hpp"
+
 #include <optional>
 #include <string>
 
@@ -42,16 +44,6 @@ struct ProductRecord {
     std::optional<double> palletHeightIn;
     std::optional<double> palletFootprintLengthIn;
     std::optional<double> palletFootprintWidthIn;
-};
-
-// One pallet type's physical figures: a row of Customer2-Pallet-Data.csv, or the figures
-// a product row carries for its own pallet.
-struct PalletSpec {
-    std::string palletId;
-    double addedWeightLb = 0.0;
-    double addedHeightIn = 0.0;
-    double footprintLengthIn = 0.0;
-    double footprintWidthIn = 0.0;
 };
 
 } // namespace ob

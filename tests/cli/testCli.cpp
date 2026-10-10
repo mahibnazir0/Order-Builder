@@ -68,8 +68,9 @@ std::vector<std::string> realDayArguments(bool withParams) {
     std::vector<std::string> arguments{"--product", kProduct, "--demand", kDemand,
                                        "--placeholder", kPlaceholder, "--day", "2026-08-17"};
     if (withParams) {
-        arguments.insert(arguments.end(),
-                         {"--params", kParams, "--pallets", crossDayTests::kPalletTableForOlderMasters});
+        arguments.insert(arguments.end(), {"--params", kParams, "--pallets",
+                                           crossDayTests::kPalletTableForOlderMasters,
+                                           "--demand-rule", "wholeExtract"});
     }
     return arguments;
 }
@@ -124,9 +125,21 @@ const std::string kM1Summary = "ORDER BUILDER - MILESTONE 1 SUMMARY";
 const std::string kM2Summary = "ORDER BUILDER - MILESTONE 2 GROUPS AND STACKS";
 const std::string kLaneTable = "PER-LANE SUMMARY";
 const std::string kGroupTable = "PER-GROUP SUMMARY";
+const std::string kM3Floor = "ORDER BUILDER - MILESTONE 3 TRUCK FLOOR";
+const std::string kFloorByLane = "C. FLOOR BY LANE";
+const string kFloorNotComputed = "Truck floor: NOT COMPUTED. No --params was given";
 
 bool contains(const std::string& text, const std::string& needle) {
     return text.find(needle) != std::string::npos;
+}
+
+// Floor-by-lane rows are indented like its notes; a row is the one that names a lane.
+size_t floorLaneRows(const vector<string>& sectionLines) {
+    size_t rows = 0;
+    for (const string& line : sectionLines) {
+        if (contains(line, " -> ")) ++rows;
+    }
+    return rows;
 }
 
 // Small valid inputs, so the bad-input cases fail on the one file under test and run fast.
@@ -177,7 +190,8 @@ struct SyntheticInputs {
                                         "--placeholder", placeholderPath};
         if (!paramsPath.empty()) {
             result.insert(result.end(), {"--params", paramsPath, "--pallets",
-                                         palletPath.empty() ? pallets : palletPath});
+                                         palletPath.empty() ? pallets : palletPath,
+                                         "--demand-rule", "wholeExtract"});
         }
         return result;
     }
@@ -185,11 +199,13 @@ struct SyntheticInputs {
 
 } // namespace
 
-TEST_CASE("cli: a clean run on the real day exits 0 and prints both milestones" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: a clean run on the real day exits 0 and prints all three milestones" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun& run = fullRealRun();
     CHECK(run.exitCode == 0);
     CHECK(contains(run.output, kM1Summary));
     CHECK(contains(run.output, kM2Summary));
+    CHECK(contains(run.output, kM3Floor));
+    CHECK(run.output.find(kM2Summary) < run.output.find(kM3Floor));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
     CHECK(tableRows(section(run.output, kGroupTable)) == 387);
 }
@@ -202,14 +218,21 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
     CHECK(section(truncated.output, kM2Summary) == section(full.output, kM2Summary));
     CHECK(tableRows(section(truncated.output, kLaneTable)) == 7);
     CHECK(tableRows(section(truncated.output, kGroupTable)) == 5);
+    CHECK(floorLaneRows(section(truncated.output, kFloorByLane)) == 7);
     CHECK(contains(truncated.output, "(top 7 of 371 by volume)"));
     CHECK(contains(truncated.output, "(top 5 of 387 by floor use)"));
 }
 
-TEST_CASE("cli: --trailer 53FT_NA gives exactly the default output" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: --trailer 53FT_NA differs from the default output only in how the trailer was chosen" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun named = runCli(withExtra(realDayArguments(true), {"--trailer", "53FT_NA"}));
     CHECK(named.exitCode == 0);
-    CHECK(named.output == fullRealRun().output);
+    const std::string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, positions and depth)";
+    const std::string namedTrailerLine = "53FT_NA  (named with --trailer)";
+    std::string defaultOutput = fullRealRun().output;
+    const size_t at = defaultOutput.find(defaultTrailerLine);
+    REQUIRE(at != std::string::npos);
+    defaultOutput.replace(at, defaultTrailerLine.size(), namedTrailerLine);
+    CHECK(named.output == defaultOutput);
 }
 
 TEST_CASE("cli: an unknown trailer exits 2 and names the code") {
@@ -241,13 +264,17 @@ TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure" * doctest::
     CHECK(withoutDebugLines == fullNormalised);
 }
 
-TEST_CASE("cli: without --params only the Milestone 1 report is printed" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: without --params only the Milestone 1 report is printed, and it says no floor was computed" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli(realDayArguments(false));
     CHECK(run.exitCode == 0);
     CHECK(section(run.output, kM1Summary) == section(fullRealRun().output, kM1Summary));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
-    CHECK_FALSE(contains(run.output, "MILESTONE 2"));
+    CHECK_FALSE(contains(run.output, kM2Summary));
+    CHECK_FALSE(contains(run.output, kM3Floor));
     CHECK_FALSE(contains(run.output, kGroupTable));
+    CHECK(contains(run.output, kFloorNotComputed));
+    CHECK(contains(run.output, "Pass --params <json> --demand-rule <rule>"));
+    CHECK_FALSE(contains(fullRealRun().output, kFloorNotComputed));
 }
 
 TEST_CASE("cli: validation errors exit 1 and the report is still printed") {
@@ -285,7 +312,8 @@ TEST_CASE("cli: a product row's own Pallet_* figures stack it without the pallet
 TEST_CASE("cli: a master without Pallet_* columns and no --pallets exits 2 with one error naming the fix") {
     const SyntheticInputs inputs;
     const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
-                               "--placeholder", inputs.placeholder, "--params", kParams});
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--demand-rule", "wholeExtract"});
     CHECK(run.exitCode == 2);
     CHECK(contains(run.output, "[ERROR] the product master gives no weight, height and footprint for"
                                " pallet type(s) TLD and no pallet table was given; pass --pallets <csv>"));
@@ -299,7 +327,8 @@ TEST_CASE("cli: a master whose rows carry their own Pallet_* figures needs no --
         "Pallet_ID,Pallet_Weight,Pallet_Height,Pallet_Footprint_Length,Pallet_Footprint_Width\n"
         "GOOD,10,10,10,5,CS,2,4,2,8,WOOD,60,5,48,40\n");
     const CliRun run = runCli({"--product", ownPallet, "--demand", inputs.demand,
-                               "--placeholder", inputs.placeholder, "--params", kParams});
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--demand-rule", "wholeExtract"});
     CHECK(run.exitCode == 0);
     CHECK(contains(run.output, "complete: every demand line is in a stack"));
 }
@@ -439,6 +468,12 @@ TEST_CASE("cli: argument mistakes exit 2 with a message") {
         {{"--product"}, "--product needs a value"},
         {{"--groups", "abc"}, "--groups needs a number, got 'abc'"},
         {{"--lanes", "abc"}, "--lanes needs a number, got 'abc'"},
+        {{"--groups", "5x"}, "--groups needs a number, got '5x'"},
+        {{"--lanes", "7.5"}, "--lanes needs a number, got '7.5'"},
+        {{"--groups", "99999999999"}, "--groups needs a number, got '99999999999'"},
+        {{"--groups", "-3"}, "--groups must be 0 (all) or more, got '-3'"},
+        {{"--lanes", "-3"}, "--lanes must be 0 (all) or more, got '-3'"},
+        {{"--demand-rule"}, "--demand-rule needs a value"},
     };
     for (const auto& bad : cases) {
         CAPTURE(bad.expectedMessage);
@@ -451,11 +486,72 @@ TEST_CASE("cli: argument mistakes exit 2 with a message") {
 TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     const CliRun run = runCli({"--help"});
     CHECK(run.exitCode == 0);
-    for (const char* documented : {"--product", "--demand", "--placeholder", "--params",
+    for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
                                           "--pallets", "--trailer", "--groups", "--day", "--lanes", "--debug",
                                           "0  success", "1  incomplete: validation errors, or a line is in no stack",
                                           "2  could not run"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
+}
+
+TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and plans nothing") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "--demand-rule: is required; there is no default"));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: a demand rule that selects no line of the real day exits 1" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    const CliRun run = runCli({"--product", kProduct, "--demand", kDemand, "--placeholder",
+                               kPlaceholder, "--params", kParams, "--pallets",
+                               crossDayTests::kPalletTableForOlderMasters, "--demand-rule",
+                               "dueBy:2020-01-01"});
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "selected none of the"));
+}
+
+TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {
+    const SyntheticInputs inputs;
+    for (const char* rule : {"", "tomorrow", "dueBy", "dueBy:2026-02-30",
+                                   "window:2026-08-19:2026-08-17"}) {
+        CAPTURE(rule);
+        const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                                   "--placeholder", inputs.placeholder, "--params", kParams,
+                                   "--demand-rule", rule});
+        CHECK(run.exitCode == 2);
+        CHECK(contains(run.output, "[ERROR] --demand-rule: "));
+        CHECK_FALSE(contains(run.output, kM1Summary));
+    }
+}
+
+TEST_CASE("cli: --demand-rule without --params exits 2") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--demand-rule", "wholeExtract"});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "--demand-rule needs --params"));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: the floor prints the demand rule it was planned under" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    const CliRun run = runCli(withExtra(realDayArguments(false),
+                                        {"--params", kParams, "--pallets",
+                                         crossDayTests::kPalletTableForOlderMasters,
+                                         "--demand-rule", "dueBy:2026-08-19"}));
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "Demand rule               dueBy(2026-08-19)"));
+    CHECK(contains(run.output, "FLOOR                     53 trucks  (dueBy(2026-08-19)"));
+}
+
+TEST_CASE("cli: a line the demand rule cannot date exits 1 and is reported") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--pallets", inputs.pallets, "--demand-rule", "dueBy:2026-08-19"});
+    CHECK(run.exitCode == 1);
+    CHECK(contains(run.output, "1 demand line(s) have a date dueBy(2026-08-19) cannot judge"));
+    CHECK(contains(run.output, "undated                 1"));
 }

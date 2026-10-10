@@ -1,8 +1,7 @@
-# Build output
-build/
+# Build output: any build directory (build/, build-asan/, build-m3-trailerSpec/, ...)
+build*/
 out/
 cmake-build-*/
-build-linux/
 
 # IDE / editor files
 .vs/

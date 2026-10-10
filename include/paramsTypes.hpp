@@ -1,6 +1,7 @@
 #pragma once
 
-#include "product_types.hpp"
+#include "palletSpec.hpp"
+#include "trailerSpec.hpp"
 
 #include <array>
 #include <string>
@@ -9,6 +10,12 @@
 namespace ob {
 
 enum class SegregationReading { Strict, FlaggedVsNormal };
+
+// Where the floor rounds fractional trucks up. Group is the client's ruling (1 October):
+// segregated groups cannot share trucks, so each group's bound is rounded before summing.
+// Lane sums each lane's fractional group bounds and rounds once, so the ruling can be
+// re-read without a rewrite.
+enum class FloorRoundingPoint { Group, Lane };
 
 // Upper bound for pass2AttemptCap. Try Hard re-runs the whole greedy build once per
 // attempt per group. The shipped config uses 4; 64 is generous while bounding runtime.
@@ -21,15 +28,6 @@ constexpr int kMaxStackHeight = 16;
 struct CriTable {
     // Index 0 is unused so callers can index by CRI 1..10 directly.
     std::array<double, 11> safeLimitLb{};
-};
-
-struct TrailerSpec {
-    std::string trailerCode;
-    double interiorLengthIn = 0.0;
-    double interiorWidthIn = 0.0;
-    double stackHeightCeilingIn = 0.0;
-    double weightLimitLb = 0.0;
-    int stackPositions = 0;
 };
 
 struct M2Params {
@@ -49,6 +47,14 @@ struct M2Params {
     // part pallet takes a real position. False keeps the fractional estimate, which can report
     // 0.5 floor positions for one pallet and so understates floor use in small groups.
     bool stackWholePallets = true;
+    // Required key: no deck-height reading is picked on silence. Despite the name it
+    // governs unit-load height in both milestones, the Milestone 2 stacks and over-height
+    // check as well as the floor, so the two can never disagree about whether a line fits.
+    DeckHeightRule floorDeckHeight = DeckHeightRule::Excluded;
+    // Required key, like floorDeckHeight.
+    FloorRoundingPoint floorRoundingPoint = FloorRoundingPoint::Group;
+    // Printable path of the file these params came from; empty when parsed from memory.
+    std::string sourcePath;
     std::vector<std::string> defaultedKeys;
     std::vector<std::string> warnings;
 };

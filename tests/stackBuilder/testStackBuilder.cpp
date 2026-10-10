@@ -13,7 +13,6 @@
 #include <map>
 
 using namespace std;
-
 using namespace ob;
 
 namespace {
@@ -306,14 +305,35 @@ TEST_CASE("stackBuilder: a single load taller than the ceiling is reported, not 
     }
 }
 
-TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height") {
+// 104810501 on real data: 106.25 in of product, 111.75 in with the 5.5 in deck. The floor
+// counts it under Excluded and leaves it out under Included; the stacks must agree.
+TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height only when floorDeckHeight says so") {
     M2Params params = testParams();
     params.pallets.push_back({"PTL", 60.0, 5.5, 48.0, 40.0});
     Scenario scenario({product("DECKED", 105, 10, 9)}, {1});
     scenario.products[0].pallet_id = "PTL";
+
+    params.floorDeckHeight = DeckHeightRule::Included;
+    const auto withDeck = scenario.build(params);
+    CHECK(withDeck.overHeightLines == vector<size_t>{0});
+    CHECK(withDeck.groups[0].best.stacks.empty());
+
+    params.floorDeckHeight = DeckHeightRule::Excluded;
+    const auto withoutDeck = scenario.build(params);
+    CHECK(withoutDeck.overHeightLines.empty());
+    REQUIRE(withoutDeck.groups[0].best.stacks.size() == 1);
+}
+
+TEST_CASE("stackBuilder: a single load on the ceiling, or a ULP above it, is not over-height") {
+    M2Params params = testParams();
+    // 36/7 in x 21 layers is 108 in on paper and one ULP above it in binary, as on real data.
+    Scenario scenario({product("SEVENTHS", 36.0 / 7.0, 10, 9)}, {1});
+    scenario.products[0].layers_unit_load = 21;
+    scenario.products[0].cases_unit_load = 21;
+    REQUIRE(36.0 / 7.0 * 21 > 108.0);
     const auto result = scenario.build(params);
-    CHECK(result.overHeightLines == vector<size_t>{0});
-    CHECK(result.groups[0].best.stacks.empty());
+    CHECK(result.overHeightLines.empty());
+    CHECK(result.groups[0].best.stacks.size() == 1);
 }
 
 TEST_CASE("stackBuilder: a single load exactly at the ceiling ships single-high") {

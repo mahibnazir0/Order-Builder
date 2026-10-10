@@ -20,6 +20,7 @@
 // ============================================================================
 
 #include "joiner.hpp"
+#include "palletSpec.hpp"
 #include "placeholder_types.hpp"
 #include <string>
 #include <vector>
@@ -48,6 +49,10 @@ struct ValidationConfig {
 
     // Ship conditions seen in the demand and placeholder files. Anything else is a warning.
     std::vector<std::string> allowed_ship_cond = {"TL", "TF"};
+
+    // Pallet types Milestone 1 can weigh: the confirmed table the Converter reads, so the
+    // warning names exactly the types the M1 totals weigh as 0.
+    std::vector<PalletSpec> pallets = confirmedPalletSpecs();
 
     // Placeholder ZZNA_EQUIP_SIZE values seen in every extract; blank means any trailer.
     // Anything else is a warning: Order Builder plans every lane on one trailer, so a lane
@@ -79,11 +84,14 @@ struct ValidationReport {
     // Per-rule counts, so the summary can say "12 lines skipped: raw material"
     // without the caller walking the whole list.
     int missing_fields      = 0;
+    int invertedShipWindow  = 0;   // DATFR_TA after DATTO_TA, both real dates
     int unmatched_product   = 0;
     int unknown_ship_cond   = 0;   // SHIP_COND outside allowed_ship_cond (demand or placeholder)
     int unknown_uom         = 0;
     int non_positive_qty    = 0;
     int excessive_quantity  = 0;   // TRANS above kMaxDemandQuantity
+    int unreadablePriority  = 0;   // TPRIO missing, not an integer, or outside 0..kMaxPriority
+    int unreadableAvailableQuantity = 0; // AVAIL_QTY missing, not an integer, or negative
     int zero_unit_load      = 0;   // CS, PAL or DIS line whose product has Cases_Unit_Load == 0
     int negative_unit_load  = 0;   // product's Cases_Unit_Load is negative
     int invalid_weight      = 0;   // product's Weight is negative, non-finite or above kMaxCaseWeightLb
@@ -92,7 +100,7 @@ struct ValidationReport {
     int invalid_strength    = 0;   // product's Strength is unreadable or outside 0..10
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
-    int unrecognized_pallet_id = 0; // not one of Joiner's known pallet types
+    int unrecognized_pallet_id = 0; // no spec in ValidationConfig::pallets
     int ambiguous_pallet    = 0;   // variant chosen by preference, not by data
     int over_pallet_threshold = 0; // the phantom-truck warning
 

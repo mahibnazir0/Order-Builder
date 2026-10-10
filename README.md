@@ -60,7 +60,7 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--placeholder <path>` | yes | Placeholder JSON (trucks requested per lane) |
 | `--params <path>` | no | Params JSON (for example `config/orderBuilderParams.json`). Turns on the Milestone 2 report: segregation groups, cube/weight limit per group, and stacks |
 | `--pallets <path>` | with `--params`, for masters without `Pallet_*` columns | Pallet table CSV (`Customer2-Pallet-Data.csv`): weight, height and footprint per pallet type. A product row's own `Pallet_Weight`, `Pallet_Height` and `Pallet_Footprint_*` win over it |
-| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the first one listed |
+| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the one largest on payload, interior height, stack positions and depth (the run stops if no single trailer is) |
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
@@ -96,18 +96,29 @@ lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
 
 ## Test data
 
-The three input fixtures are **not in the repository**. They are confidential
-customer data and are excluded by `.gitignore`:
+The input fixtures are **not in the repository**. They are confidential customer
+data and are excluded by `.gitignore`:
 
-- `tests/importer/Demand-1.json`
-- `tests/importer/Customer2-Product-Data.csv`
-- `tests/importer/PlaceHolder-1.json`
+- `tests/importer/Demand-1.json`, `tests/importer/Customer2-Product-Data.csv` and
+  `tests/importer/PlaceHolder-1.json` (17 Aug)
+- `tests/importer/crossDay/<yyyymmdd>/` for 2 and 3 September, in the client's own
+  layout: `Demands/`, `PlaceHolder/`, `Product-Data/` and `Pushed-Solutions/`
 
-After cloning, place your own copies at exactly those three paths. Most of the
-test suite reads them directly, so without them a large number of tests fail with
-`Cannot open demand file: tests/importer/Demand-1.json` or similar. This is the
-single most likely thing to trip up a new clone — if the tests fail immediately
-after a clean build, check this first.
+After cloning, copy them to exactly those paths. Each day's demand file is found
+by its `REQUEST_ID`, not its name (`Demand-N.json` and `100-STR-<uuid>.json` both
+work), so a mislabelled day fails rather than loading another day's data. The
+placeholder file is opened by the exact name the client shipped.
+
+Without them, the tests that open the 17 Aug files directly fail with
+`Cannot open demand file: ...` or similar. The cross-day tests are skipped instead,
+and two tests fail on purpose, listing every missing file:
+
+- `crossDay: the extract fixtures are present, so the extract tests ran`
+- `acceptanceHarness: the Truck Builder solution fixtures are present, so the validity tests ran`
+
+So a clone without the data never shows a green suite that ran none of the
+extract tests. If you know the data is missing and want to run only the unit tests,
+exclude those two tests yourself with `--test-case-exclude`.
 
 ## Tests
 
@@ -125,10 +136,12 @@ CTest is configured to run the binary from the repository root, so the fixture
 paths above resolve either way. Run the executable directly if you want the
 per-test-case output, or want to pass doctest flags such as `--test-case=<name>`.
 
-Current status: **80 test cases, all passing** (155,938 assertions). That covers
-the module unit tests plus 8 end-to-end acceptance tests in
-`tests/test_end_to_end.cpp`, which run the real pipeline against the real files
-and assert the exact published figures.
+Current status: every test passes except one, which fails on purpose.
+`acceptanceHarness: the floor never exceeds Truck Builder's achieved loads` is
+the M3 validity criterion, and it fails until the floor is a valid lower bound on
+the September solutions. It prints the number of lane-days exceeded on every run.
+It is not marked as expected to fail, so the suite does not report green while the
+defect is open.
 
 ## Project layout
 
