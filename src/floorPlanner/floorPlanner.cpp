@@ -34,8 +34,7 @@ GroupFloor groupFloor(const SegregatedGroup& group, const vector<JoinedLine>& li
             continue;
         }
         ++floor.linesSelected;
-        const UnitLoadMetrics metrics =
-            unitLoadMetricsFor(lines[lineIndex], params.pallets, params.floorDeckHeight);
+        const UnitLoadMetrics metrics = unitLoadMetricsFor(lines[lineIndex], params);
         if (metrics.error != UnitLoadMetricsError::None) {
             plan.excludedLines.push_back({lineIndex, metrics.error, false});
             continue;

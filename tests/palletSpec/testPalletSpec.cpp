@@ -27,20 +27,6 @@ TEST_CASE("palletSpec: wood pallets weigh Tom's confirmed 60 lb and the others a
     CHECK(confirmedSpec("GMA").addedWeightLb == 0.0);
 }
 
-TEST_CASE("palletSpec: the shipped params file lists exactly the confirmed pallet table") {
-    const M2Params params = loadParams("config/orderBuilderParams.json");
-    const auto& confirmed = confirmedPalletSpecs();
-    REQUIRE(params.pallets.size() == confirmed.size());
-    for (size_t index = 0; index < confirmed.size(); ++index) {
-        CAPTURE(confirmed[index].palletId);
-        CHECK(params.pallets[index].palletId == confirmed[index].palletId);
-        CHECK(params.pallets[index].addedWeightLb == confirmed[index].addedWeightLb);
-        CHECK(params.pallets[index].addedHeightIn == confirmed[index].addedHeightIn);
-        CHECK(params.pallets[index].footprintLengthIn == confirmed[index].footprintLengthIn);
-        CHECK(params.pallets[index].footprintWidthIn == confirmed[index].footprintWidthIn);
-    }
-}
-
 TEST_CASE("palletSpec: every confirmed spec is a physical pallet with a unique id") {
     unordered_set<string> seenIds;
     for (const auto& pallet : confirmedPalletSpecs()) {
@@ -72,10 +58,10 @@ TEST_CASE("palletSpec: lookup is an exact match and an unknown type has no spec"
     }
 }
 
-TEST_CASE("palletSpec: params lookup reads the params file's pallets, not the confirmed table") {
+TEST_CASE("palletSpec: params lookup reads the run's pallet table, not the confirmed table") {
     M2Params params = loadParams("config/orderBuilderParams.json");
-    params.pallets[0].addedWeightLb = 65.0;
-    const PalletSpec* pallet = palletSpecFor(params, params.pallets[0].palletId);
+    params.pallets = {{"PTL", 65.0, 6.0, 48.0, 40.0}};
+    const PalletSpec* pallet = palletSpecFor(params, "PTL");
     REQUIRE(pallet != nullptr);
     CHECK(pallet->addedWeightLb == 65.0);
     CHECK(pallet == &params.pallets[0]);

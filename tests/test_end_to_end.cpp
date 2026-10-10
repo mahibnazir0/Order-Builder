@@ -8,6 +8,7 @@
 // isolation, so a regression anywhere in the chain fails here.
 
 #include "doctest.h"
+#include "importer/crossDayFixtures.hpp"
 #include "pipeline.hpp"
 
 #include <sstream>
@@ -34,7 +35,7 @@ PipelineInputs real_inputs() {
 // "Reads the product master, demand extract and placeholder file for a chosen
 //  day, and prints a validated summary you can check against your own figures."
 
-TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed") {
+TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
     // Inputs read correctly
@@ -69,7 +70,7 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed") {
     CHECK(r.validation.missing_ship_cond == 0);
 }
 
-TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks") {
+TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
     std::ostringstream out;
@@ -86,7 +87,7 @@ TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks") {
     CHECK(s.find("not a count of physical pallets") != std::string::npos);
 }
 
-TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule") {
+TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
     // Weight must be case weight x cases per unit load, plus 60 lb for a wooden
@@ -117,7 +118,7 @@ TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule"
 // "Wrong UOM rejected — including the case that generates hundreds of phantom
 //  trucks." Tom's example: a line sent in eaches but tagged as cases.
 
-TEST_CASE("ACCEPTANCE: a wrong unit of measure is caught and named") {
+TEST_CASE("ACCEPTANCE: a wrong unit of measure is caught and named" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
     // Inject a line tagged with a unit the system does not recognise.
@@ -144,7 +145,7 @@ TEST_CASE("ACCEPTANCE: a wrong unit of measure is caught and named") {
     CHECK(found);
 }
 
-TEST_CASE("ACCEPTANCE: an unrecognised unit produces no phantom pallets") {
+TEST_CASE("ACCEPTANCE: an unrecognised unit produces no phantom pallets" * doctest::skip(!crossDayTests::august17Present())) {
     // The failure Tom described is a wrong unit inflating the truck count.
     // An unrecognised unit must convert to zero pallets rather than being
     // silently treated as cases or pallets.
@@ -167,7 +168,7 @@ TEST_CASE("ACCEPTANCE: an unrecognised unit produces no phantom pallets") {
     CHECK(rep.errors == 0);                // a warning, never a silent pass
 }
 
-TEST_CASE("ACCEPTANCE: a large line is flagged for review, not rejected") {
+TEST_CASE("ACCEPTANCE: a large line is flagged for review, not rejected" * doctest::skip(!crossDayTests::august17Present())) {
     // No hard rule distinguishes a mistagged line from a genuinely large order:
     // legitimate lines in this data reach 1,010 pallets. So the guard is a
     // configurable review threshold that warns and never blocks a run.
@@ -183,7 +184,7 @@ TEST_CASE("ACCEPTANCE: a large line is flagged for review, not rejected") {
 
 // ─── Failure handling ───────────────────────────────────────────────────────
 
-TEST_CASE("ACCEPTANCE: a missing input file fails cleanly, naming the file") {
+TEST_CASE("ACCEPTANCE: a missing input file fails cleanly, naming the file" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineInputs in = real_inputs();
     in.demand_path = "does/not/exist.json";
 
@@ -212,7 +213,7 @@ TEST_CASE("PipelineResult is move-only: a copy can never dangle-reference the or
     CHECK(true);   // the assertions above are the actual test
 }
 
-TEST_CASE("ACCEPTANCE: a placeholder with a negative NO_OF_LOADS is flagged and excluded") {
+TEST_CASE("ACCEPTANCE: a placeholder with a negative NO_OF_LOADS is flagged and excluded" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
     REQUIRE(!r.placeholders.placeholders.empty());
     REQUIRE(r.placeholders.placeholders[0].no_of_loads > 0);
@@ -232,7 +233,7 @@ TEST_CASE("ACCEPTANCE: a placeholder with a negative NO_OF_LOADS is flagged and 
     CHECK(summary.trucks_requested == r.summary.trucks_requested - original_loads);
 }
 
-TEST_CASE("ACCEPTANCE: pipeline stages agree with each other") {
+TEST_CASE("ACCEPTANCE: pipeline stages agree with each other" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
     // The parallel arrays the Validator and Reporter rely on must line up.

@@ -8,18 +8,30 @@ using namespace std;
 namespace ob {
 namespace {
 
-bool isPositiveFinite(double value) noexcept { return std::isfinite(value) && value > 0.0; }
+bool isPositiveFinite(double value) noexcept { return isfinite(value) && value > 0.0; }
 
-bool isNonNegativeFinite(double value) noexcept { return std::isfinite(value) && value >= 0.0; }
+bool isNonNegativeFinite(double value) noexcept { return isfinite(value) && value >= 0.0; }
 
 bool isCriInRange(int cri, const M2Params& params) noexcept {
-    return cri >= 0 && static_cast<std::size_t>(cri) < params.cri.safeLimitLb.size();
+    return cri >= 0 && static_cast<size_t>(cri) < params.cri.safeLimitLb.size();
 }
 
 bool isStackableData(const UnitLoad& load, const M2Params& params) noexcept {
     return load.error == UnitLoadError::None && isPositiveFinite(load.heightIn)
         && isPositiveFinite(load.weightLb) && isNonNegativeFinite(load.ownWeightAboveLb)
         && isCriInRange(load.cri, params);
+}
+
+// The client's pallet data gives TLD and GMA a 0.1 in deck. That is a placeholder, not a
+// measured height (client, 3 Oct): it adds nothing to the stack height, or the products built
+// to exactly 108.00 in would read as over the ceiling. The figure arrives as a float, so
+// 0.10000000149011612.
+constexpr double kPlaceholderPalletHeightIn = 0.1;
+constexpr double kPlaceholderHeightTolerance = 1e-6;
+
+double effectivePalletHeight(double heightIn) noexcept {
+    return heightIn <= kPlaceholderPalletHeightIn + kPlaceholderHeightTolerance && heightIn >= 0.0
+        ? 0.0 : heightIn;
 }
 
 bool isBuildableProduct(const ProductRecord& product, const PalletSpec& pallet,
@@ -33,8 +45,24 @@ bool isBuildableProduct(const ProductRecord& product, const PalletSpec& pallet,
 
 } // namespace
 
+optional<PalletSpec> resolvePalletSpec(const ProductRecord& product, const M2Params& params) {
+    const PalletSpec* tableRow = palletSpecFor(params, product.pallet_id);
+    auto pick = [tableRow](const optional<double>& fromProduct,
+                           double PalletSpec::*field) -> optional<double> {
+        if (fromProduct) return fromProduct;
+        if (tableRow != nullptr) return tableRow->*field;
+        return nullopt;
+    };
+    const optional<double> weightLb = pick(product.palletWeightLb, &PalletSpec::addedWeightLb);
+    const optional<double> heightIn = pick(product.palletHeightIn, &PalletSpec::addedHeightIn);
+    const optional<double> lengthIn = pick(product.palletFootprintLengthIn, &PalletSpec::footprintLengthIn);
+    const optional<double> widthIn = pick(product.palletFootprintWidthIn, &PalletSpec::footprintWidthIn);
+    if (!weightLb || !heightIn || !lengthIn || !widthIn) return nullopt;
+    return PalletSpec{product.pallet_id, *weightLb, effectivePalletHeight(*heightIn), *lengthIn, *widthIn};
+}
+
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
-                       std::optional<double> suppliedWeightAboveLb) {
+                       optional<double> suppliedWeightAboveLb) {
     UnitLoad load;
     if (!line.matched || line.product == nullptr) {
         load.error = UnitLoadError::MissingProduct;
@@ -44,8 +72,8 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
     load.id = product.id;
     load.cri = product.strength;
 
-    const PalletSpec* pallet = palletSpecFor(params, product.pallet_id);
-    if (pallet == nullptr) {
+    const optional<PalletSpec> pallet = resolvePalletSpec(product, params);
+    if (!pallet) {
         load.error = UnitLoadError::MissingPalletSpec;
         return load;
     }
@@ -64,24 +92,22 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
     load.weightLb = product.weight_lb * product.cases_unit_load + pallet->addedWeightLb;
     load.ownWeightAboveLb = suppliedWeightAboveLb.value_or(
         static_cast<double>(product.layers_unit_load - 1) * product.cases_layer * product.weight_lb);
-    if (!std::isfinite(load.heightIn) || !std::isfinite(load.weightLb)
-        || !std::isfinite(load.ownWeightAboveLb)) {
+    if (!isfinite(load.heightIn) || !isfinite(load.weightLb)
+        || !isfinite(load.ownWeightAboveLb)) {
         load.error = UnitLoadError::InvalidData;
     }
     return load;
 }
 
-std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
+vector<string> missingPalletIds(const vector<JoinedLine>& lines,
                                           const M2Params& params) {
-    std::set<std::string> palletIds;
+    set<string> missing;
     for (const auto& line : lines) {
-        if (line.matched && line.product != nullptr) palletIds.insert(line.product->pallet_id);
+        if (line.matched && line.product != nullptr && !resolvePalletSpec(*line.product, params)) {
+            missing.insert(line.product->pallet_id);
+        }
     }
-    std::vector<std::string> missing;
-    for (const auto& palletId : palletIds) {
-        if (palletSpecFor(params, palletId) == nullptr) missing.push_back(palletId);
-    }
-    return missing;
+    return {missing.begin(), missing.end()};
 }
 
 bool exceedsOwnCri(const UnitLoad& load, const M2Params& params) noexcept {
@@ -106,7 +132,7 @@ StackFeasibility canStack(const UnitLoad& base, const UnitLoad& top,
         if (!params.blankCriIsStackable) return {false, Reason::BlankCri, 0.0};
         return {true, Reason::Ok, ceilingIn - combinedHeightIn};
     }
-    const double safeLimitLb = params.cri.safeLimitLb[static_cast<std::size_t>(base.cri)];
+    const double safeLimitLb = params.cri.safeLimitLb[static_cast<size_t>(base.cri)];
     if (weightAboveLb > safeLimitLb) return {false, Reason::CriExceeded, weightAboveLb - safeLimitLb};
     return {true, Reason::Ok, ceilingIn - combinedHeightIn};
 }

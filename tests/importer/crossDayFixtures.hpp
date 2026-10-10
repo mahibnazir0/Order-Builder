@@ -7,6 +7,9 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
+#include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -17,12 +20,48 @@
 // Every file is confidential client data and gitignored; none is ever committed.
 //
 // Each expectation below is one figure across the four days, in dayFiles() order,
-// so it reads the same way as the measured table it was taken from.
+// so it reads the same way as the measured table it was taken from. The 29 Sep - 5 Oct
+// extracts are in newExtracts at the end of this file.
 namespace crossDayTests {
 
 using namespace std;
 
 constexpr size_t kDayCount = 4;
+
+// The masters before 29 Sep carry no Pallet_* columns and those extracts shipped no pallet
+// table, so the 29 Sep table stands in for them. It is byte-identical on every day from
+// 29 Sep to 5 Oct.
+const string kPalletTableForOlderMasters =
+    "tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv";
+
+// True when every path is a file. Otherwise names the first missing one, so a skipped test
+// reads as skipped rather than as a pass.
+inline bool filesPresent(initializer_list<string> paths, const string& skippedWhat) {
+    for (const string& path : paths) {
+        if (!filesystem::is_regular_file(path)) {
+            cerr << "[fixtures] " << path << " not found: " << skippedWhat << " skipped\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+// The 17 Aug files, for tests that read them directly. Confidential and gitignored, so a fresh
+// clone skips these tests rather than failing them.
+inline bool august17Present() {
+    static const bool present = filesPresent(
+        {"tests/importer/Customer2-Product-Data.csv", "tests/importer/Demand-1.json",
+         "tests/importer/PlaceHolder-1.json"},
+        "17 Aug tests are");
+    return present;
+}
+
+// 17 Aug plus the pallet table its stacks are built with.
+inline bool august17StackingPresent() {
+    static const bool present = august17Present()
+        && filesPresent({kPalletTableForOlderMasters}, "17 Aug stacking tests are");
+    return present;
+}
 
 template <typename T>
 using PerDay = array<T, kDayCount>;
@@ -102,6 +141,9 @@ inline const PerDay<DayFiles>& dayFiles() {
 inline const vector<string>& missingExtracts() {
     static const vector<string> missing = [] {
         vector<string> problems;
+        if (!filesystem::is_regular_file(kPalletTableForOlderMasters)) {
+            problems.push_back("pallet table: " + kPalletTableForOlderMasters + " not found");
+        }
         for (const DayFiles& day : dayFiles()) {
             for (const string& path : {day.productPath, day.placeholderPath()}) {
                 if (!filesystem::is_regular_file(path)) {
@@ -130,6 +172,8 @@ constexpr PerDay<double> totalWeightLb{103005833, 98793082, 95668859, 91591555};
 constexpr PerDay<int> lanesUnion{371, 380, 383, 377};
 constexpr PerDay<int> validationErrors{0, 0, 0, 0};
 constexpr PerDay<int> validationWarnings{161, 204, 207, 169};
+// Added to the tally by Milestone 2: lines whose product exceeds its own CRI limit.
+constexpr PerDay<int> exceedsOwnCriWarnings{2, 0, 0, 0};
 constexpr PerDay<size_t> placeholderEntries{189, 170, 181, 200};
 constexpr PerDay<long long> trucksRequested{372, 329, 349, 397};
 constexpr PerDay<int> productRows{20201, 20317, 20317, 20317};
@@ -141,7 +185,7 @@ namespace expectedM2 {
 constexpr PerDay<size_t> lanesWithDemand{360, 368, 367, 369};
 constexpr PerDay<size_t> strictGroups{387, 395, 394, 397};
 // A per-day measurement, not a property of the customer: 17 on each of these four days,
-// but 19 or 20 on every extract from 29 Sep to 5 Oct.
+// but 19 or 20 on every extract from 29 Sep to 5 Oct (newExtracts::lanesSplit).
 constexpr PerDay<size_t> strictLanesSplit{17, 17, 17, 17};
 constexpr PerDay<size_t> linesSegregated{2849, 2289, 2283, 2279};
 // Pass 1 cube/weight split. Depends on the trailer's stackPositions, which was 30
@@ -177,6 +221,7 @@ inline ob::PipelineInputs dayInputs(size_t dayIndex, const string& paramsPath) {
     inputs.placeholder_path = day.placeholderPath();
     inputs.planning_day = day.label;
     inputs.paramsPath = paramsPath;
+    inputs.palletPath = kPalletTableForOlderMasters;
     return inputs;
 }
 
@@ -221,5 +266,114 @@ inline const PerDay<ob::PipelineResult>& flaggedVsNormalRuns() {
     }();
     return results;
 }
+
+// The five extracts of 29 Sep - 5 Oct, in the client's layout: crossDay/<yyyymmdd>/ with
+// Demands/100-STR-<uuid>.json, PlaceHolder/100-PLACEHOLDER-<uuid>.json and Product-Data/
+// holding the 88-column master and the pallet table. Each day is checked on its own, so a
+// machine holding only some of them still tests those.
+namespace newExtracts {
+
+constexpr size_t kDayCount = 5;
+
+template <typename T>
+using PerDay = array<T, kDayCount>;
+
+const PerDay<string> labels{"29 Sep", "30 Sep", "01 Oct", "02 Oct", "05 Oct"};
+const PerDay<string> directories{
+    "tests/importer/crossDay/20260929", "tests/importer/crossDay/20260930",
+    "tests/importer/crossDay/20261001", "tests/importer/crossDay/20261002",
+    "tests/importer/crossDay/20261005"};
+
+// Measured independently from the raw JSON and CSV (M2 open items, 13 Oct 2026).
+namespace expected {
+constexpr PerDay<size_t> demandLines{21832, 21746, 20659, 18236, 22287};
+constexpr PerDay<size_t> lanesWithDemand{361, 372, 372, 361, 358};
+constexpr PerDay<size_t> strictGroups{389, 401, 401, 391, 387};
+constexpr PerDay<size_t> lanesSplit{19, 20, 20, 20, 20};
+constexpr PerDay<size_t> linesSegregated{2765, 2875, 2766, 2536, 3053};
+constexpr PerDay<size_t> placeholderEntries{181, 283, 275, 228, 299};
+constexpr PerDay<long long> trucksRequested{339, 604, 527, 411, 618};
+constexpr PerDay<int> productRows{21319, 21319, 21351, 21351, 21355};
+// The same on every day.
+constexpr size_t masterColumns = 88;
+constexpr int duplicatedProductIds = 18;
+constexpr size_t doNotMixPairs = 22;
+constexpr size_t doNotMixPairsWithDemand = 4;
+} // namespace expected
+
+// The one file in `directory` whose name starts with `prefix`; empty if there is none.
+// More than one is an error: the test would otherwise pick one silently.
+inline string singleFileStartingWith(const string& directory, const string& prefix) {
+    string found;
+    if (!filesystem::is_directory(directory)) return found;
+    for (const auto& entry : filesystem::directory_iterator(directory)) {
+        const string name = entry.path().filename().string();
+        if (!entry.is_regular_file() || name.rfind(prefix, 0) != 0) continue;
+        if (!found.empty()) throw runtime_error("newExtracts: two " + prefix + " files in " + directory);
+        found = entry.path().generic_string();
+    }
+    return found;
+}
+
+inline string productPath(size_t day) {
+    return directories[day] + "/Product-Data/Customer2-Product-Data.csv";
+}
+inline string palletPath(size_t day) {
+    return directories[day] + "/Product-Data/Customer2-Pallet-Data.csv";
+}
+
+// Inputs for one day; the demand and placeholder paths are empty when it is not on this machine.
+inline ob::PipelineInputs inputsFor(size_t day) {
+    ob::PipelineInputs inputs;
+    inputs.product_path = productPath(day);
+    inputs.demand_path = singleFileStartingWith(directories[day] + "/Demands", "100-STR-");
+    inputs.placeholder_path = singleFileStartingWith(directories[day] + "/PlaceHolder", "100-PLACEHOLDER-");
+    inputs.planning_day = labels[day];
+    inputs.paramsPath = kStrictParamsPath;
+    inputs.palletPath = palletPath(day);
+    return inputs;
+}
+
+inline bool dayPresent(size_t day) {
+    static const PerDay<bool> present = [] {
+        PerDay<bool> flags{};
+        for (size_t index = 0; index < kDayCount; ++index) {
+            const ob::PipelineInputs inputs = inputsFor(index);
+            flags[index] = !inputs.demand_path.empty() && !inputs.placeholder_path.empty()
+                && filesPresent({inputs.product_path, inputs.palletPath},
+                                "the " + labels[index] + " extract is");
+            if (inputs.demand_path.empty() || inputs.placeholder_path.empty()) {
+                cerr << "[fixtures] " << directories[index]
+                     << " has no 100-STR / 100-PLACEHOLDER file: the " << labels[index]
+                     << " extract is skipped\n";
+            }
+        }
+        return flags;
+    }();
+    return present[day];
+}
+
+inline bool anyDayPresent() {
+    for (size_t day = 0; day < kDayCount; ++day) {
+        if (dayPresent(day)) return true;
+    }
+    return false;
+}
+
+// One Strict run per present day, shared by every test; null for a day not on this machine.
+inline const ob::PipelineResult* run(size_t day) {
+    static const auto runs = [] {
+        PerDay<unique_ptr<ob::PipelineResult>> results;
+        for (size_t index = 0; index < kDayCount; ++index) {
+            if (dayPresent(index)) {
+                results[index] = make_unique<ob::PipelineResult>(ob::Pipeline::run(inputsFor(index)));
+            }
+        }
+        return results;
+    }();
+    return runs[day].get();
+}
+
+} // namespace newExtracts
 
 } // namespace crossDayTests

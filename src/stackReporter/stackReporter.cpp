@@ -11,7 +11,7 @@ using namespace std;
 namespace ob {
 namespace {
 
-constexpr std::size_t kLinesListed = 20;
+constexpr size_t kLinesListed = 20;
 
 const char* methodName(StackMethod method) {
     switch (method) {
@@ -24,22 +24,22 @@ const char* methodName(StackMethod method) {
     return "?";
 }
 
-std::string streamLabel(const GroupKey& key) {
+string streamLabel(const GroupKey& key) {
     if (!key.isSegregated) return "normal";
     return key.segregant.empty() ? "flagged (all planners)" : key.segregant;
 }
 
-std::string stackHeightSummary(const std::map<std::size_t, double>& palletsByStackHeight) {
-    std::string text;
+string stackHeightSummary(const map<size_t, double>& palletsByStackHeight) {
+    string text;
     for (const auto& [height, pallets] : palletsByStackHeight) {
         if (!text.empty()) text += ", ";
-        text += std::to_string(height) + "-high " + fixed(pallets, 1);
+        text += to_string(height) + "-high " + fixed(pallets, 1);
     }
     return text.empty() ? "-" : text;
 }
 
-std::string joined(const std::vector<std::string>& values) {
-    std::string text;
+string joined(const vector<string>& values) {
+    string text;
     for (const auto& value : values) text += (text.empty() ? "" : ", ") + value;
     return text;
 }
@@ -55,7 +55,7 @@ void printLineList(const vector<ReportedLine>& lines, const string& whereTheRest
     }
 }
 
-void printProvisionalRules(const StackReport& report, std::ostream& out) {
+void printProvisionalRules(const StackReport& report, ostream& out) {
     out << "----------------------------------------------------------------\n";
     out << " PROVISIONAL BUSINESS RULES (not yet confirmed by the customer)\n";
     out << "----------------------------------------------------------------\n";
@@ -84,7 +84,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
                                  const StackingResult& stacking, const M2Params& params) {
     if (binding.groups.size() != segregation.groups.size()
         || stacking.groups.size() != segregation.groups.size()) {
-        throw std::invalid_argument("stackReporter: results do not describe the same groups");
+        throw invalid_argument("stackReporter: results do not describe the same groups");
     }
 
     StackReport report;
@@ -108,7 +108,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.paramWarnings = params.warnings;
     report.rows.reserve(report.groups);
 
-    for (std::size_t i = 0; i < report.groups; ++i) {
+    for (size_t i = 0; i < report.groups; ++i) {
         const GroupKey& key = segregation.groups[i].key;
         const StackSet& best = stacking.groups[i].best;
         StackReportRow row;
@@ -134,13 +134,13 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     }
     const bool demandReachedStacking = segregation.linesIn + segregation.linesExcluded > 0;
     report.builtNoStacks = demandReachedStacking && report.totalPalletsStacked == 0.0;
-    std::stable_sort(report.rows.begin(), report.rows.end(),
+    stable_sort(report.rows.begin(), report.rows.end(),
                      [](const StackReportRow& a, const StackReportRow& b) {
                          return a.floorPositions > b.floorPositions; });
     return report;
 }
 
-void StackReporter::print(const StackReport& report, std::ostream& out, std::size_t maxRows) {
+void StackReporter::print(const StackReport& report, ostream& out, size_t maxRows) {
     out << "\n================================================================\n";
     out << " ORDER BUILDER - MILESTONE 2 GROUPS AND STACKS\n";
     out << "================================================================\n\n";
@@ -148,7 +148,7 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
     // Printed even when empty, so a misspelled config key shows up as a visible line.
     out << "  Config keys defaulted     ";
     if (report.defaultedKeys.empty()) out << "none";
-    for (std::size_t i = 0; i < report.defaultedKeys.size(); ++i) {
+    for (size_t i = 0; i < report.defaultedKeys.size(); ++i) {
         out << (i ? ", " : "") << report.defaultedKeys[i];
     }
     out << "\n";
@@ -208,7 +208,7 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
 
     out << "----------------------------------------------------------------\n";
     out << " PER-GROUP SUMMARY";
-    const std::size_t shown = (maxRows > 0 && maxRows < report.rows.size()) ? maxRows : report.rows.size();
+    const size_t shown = (maxRows > 0 && maxRows < report.rows.size()) ? maxRows : report.rows.size();
     if (shown < report.rows.size()) out << "  (top " << shown << " of " << report.rows.size() << " by floor use)";
     out << "\n----------------------------------------------------------------\n";
 
@@ -221,7 +221,7 @@ void StackReporter::print(const StackReport& report, std::ostream& out, std::siz
     pad_right(out, "Method", 14);
     pad_left(out, "Floor", 9);
     out << "  Stacks\n";
-    for (std::size_t i = 0; i < shown; ++i) {
+    for (size_t i = 0; i < shown; ++i) {
         const StackReportRow& row = report.rows[i];
         pad_right(out, row.lane, 20);
         pad_right(out, row.stream, 24);

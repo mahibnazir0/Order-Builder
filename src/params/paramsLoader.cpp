@@ -128,34 +128,6 @@ void requireNonEmptyArray(const json& value, const std::string& key) {
     }
 }
 
-PalletSpec readPallet(const json& record, std::size_t index,
-                      const M2Params& params) {
-    const std::string recordName = "pallets[" + std::to_string(index) + "]";
-    PalletSpec pallet;
-    pallet.palletId = readString(
-        requiredField(record, "palletId", recordName), recordName + ".palletId");
-    if (!containsPrintableAscii(pallet.palletId)) {
-        throw std::runtime_error("params: " + recordName
-            + ".palletId must contain a printable ASCII character");
-    }
-    if (palletSpecFor(params.pallets, pallet.palletId) != nullptr) {
-        throw std::runtime_error("params: " + recordName + ".palletId is duplicated");
-    }
-    pallet.addedWeightLb = readQuantity(
-        requiredField(record, "addedWeightLb", recordName),
-        recordName + ".addedWeightLb", ZeroAllowed::Yes);
-    pallet.addedHeightIn = readQuantity(
-        requiredField(record, "addedHeightIn", recordName),
-        recordName + ".addedHeightIn", ZeroAllowed::Yes);
-    pallet.footprintLengthIn = readQuantity(
-        requiredField(record, "footprintLengthIn", recordName),
-        recordName + ".footprintLengthIn");
-    pallet.footprintWidthIn = readQuantity(
-        requiredField(record, "footprintWidthIn", recordName),
-        recordName + ".footprintWidthIn");
-    return pallet;
-}
-
 TrailerSpec readTrailer(const json& record, std::size_t index,
                         const std::vector<TrailerSpec>& trailers) {
     const std::string recordName = "trailers[" + std::to_string(index) + "]";
@@ -218,11 +190,13 @@ M2Params parseParams(const json& root) {
         previousLimit = limit;
     }
 
-    const auto& pallets = requiredBlock(root, "pallets");
-    requireNonEmptyArray(pallets, "pallets");
-    params.pallets.reserve(pallets.size());
-    for (std::size_t index = 0; index < pallets.size(); ++index) {
-        params.pallets.push_back(readPallet(pallets[index], index, params));
+    // Pallet weight, height and footprint come from the product master and the pallet table
+    // (client, 3 Oct). A params file still carrying them would be a second source of truth
+    // that silently stops mattering, so it is refused rather than ignored.
+    if (root.contains("pallets")) {
+        throw runtime_error("params: 'pallets' is no longer read; pallet weight, height and"
+                            " footprint come from the product master and the pallet table"
+                            " (--pallets)");
     }
 
     const auto& trailers = requiredBlock(root, "trailers");

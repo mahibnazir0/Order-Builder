@@ -13,6 +13,9 @@
 // the demand reader.
 // ============================================================================
 
+#include "palletSpec.hpp"
+
+#include <optional>
 #include <string>
 
 namespace ob {
@@ -34,6 +37,13 @@ struct ProductRecord {
     int         layers_unit_load = 0;
     int         cases_unit_load = 0; // divisor for CS->pallets; 1 row is 0 (bad record)
     std::string pallet_id;          // PTL|TLD|PGM|GMA etc.
+    // The pallet this row rides on, from the 88-column master (29 Sep onward). Empty when
+    // the cell is blank or the master has no such column; NaN when the cell is unreadable,
+    // so a bad cell is rejected rather than replaced by the pallet table's figure.
+    std::optional<double> palletWeightLb;
+    std::optional<double> palletHeightIn;
+    std::optional<double> palletFootprintLengthIn;
+    std::optional<double> palletFootprintWidthIn;
 };
 
 } // namespace ob

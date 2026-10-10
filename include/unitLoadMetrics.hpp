@@ -1,7 +1,7 @@
 #pragma once
 
 #include "joiner.hpp"
-#include "palletSpec.hpp"
+#include "paramsTypes.hpp"
 #include "trailerSpec.hpp"
 
 #include <vector>
@@ -13,7 +13,8 @@ namespace ob {
 enum class UnitLoadMetricsError {
     None,
     MissingProduct,           // demand line has no product in the master
-    MissingPalletSpec,        // blank or unknown Pallet_ID: no weight, deck or footprint
+    MissingPalletSpec,        // neither the product row nor the pallet table gives the pallet
+    InvalidPalletSpec,        // pallet weight or deck height negative or non-finite
     UnconvertibleUom,         // unit of measure is not CS, PAL or DIS
     InvalidQuantity,          // negative or non-finite demand quantity
     InvalidCasesPerUnitLoad,  // Cases_Unit_Load zero or negative
@@ -38,9 +39,9 @@ struct UnitLoadMetrics {
 // The three quantities the floor needs from one demand line. Weight is per case in the
 // master, so a unit load weighs Weight x Cases_Unit_Load plus its pallet. PAL and DIS
 // quantities are already unit loads. Length and Width are case dimensions and are never
-// used here; footprint comes from palletSpec. Never throws.
-UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const std::vector<PalletSpec>& pallets,
-                                   DeckHeightRule deckHeight);
+// used here. The pallet is resolved exactly as Milestone 2 resolves it (resolvePalletSpec),
+// and its deck counts as params.floorDeckHeight says. Never throws.
+UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& params);
 
 // Taller than the trailer ceiling by more than kQuantityEpsilon. A unit load exactly at the
 // ceiling fits: 155 real products sit exactly at it, and a case height that is not exact in

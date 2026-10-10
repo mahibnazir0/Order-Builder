@@ -1,5 +1,6 @@
 // NOTE: no doctest main define here — main lives in one implementing TU only.
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "converter.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
@@ -236,7 +237,7 @@ TEST_CASE("weight scales linearly with fractional pallets") {
 
 // ─── Against the real files ────────────────────────────────────────────────
 
-TEST_CASE("converter reproduces the pallet-equivalent total for the whole file") {
+TEST_CASE("converter reproduces the pallet-equivalent total for the whole file" * doctest::skip(!crossDayTests::august17Present())) {
     DemandFile        demand   = Importer::load_demand(DEMAND_PATH);
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
     ProductIndex      index    = Joiner::build_index(products.products);
@@ -259,7 +260,7 @@ TEST_CASE("converter reproduces the pallet-equivalent total for the whole file")
     CHECK(total_weight == doctest::Approx(103005832.85).epsilon(1e-9));
 }
 
-TEST_CASE("the two variants of an ambiguous product convert differently") {
+TEST_CASE("the two variants of an ambiguous product convert differently" * doctest::skip(!crossDayTests::august17Present())) {
     // This is why the joiner flags 144 lines: 105553001 is 84 cases per unit
     // load as GMA and 168 as TLD, so the same demand line is worth twice as
     // many pallets depending on which variant is chosen.
@@ -347,7 +348,7 @@ TEST_CASE("round_pallets can round a summed lane total") {
     CHECK(Converter::round_pallets(2.7, PalletRounding::Ceil)  == doctest::Approx(3.0));
 }
 
-TEST_CASE("the default rounding mode leaves the whole-file total unchanged") {
+TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * doctest::skip(!crossDayTests::august17Present())) {
     // The guard that matters: adding the switch must not move the 152,911.2
     // figure Tom checks against his own numbers.
     DemandFile        demand   = Importer::load_demand(DEMAND_PATH);
@@ -400,7 +401,7 @@ TEST_CASE("to_cm converts a whole master row in one call") {
     CHECK(cm.height == doctest::Approx(Converter::inches_to_cm(p.height_in)));
 }
 
-TEST_CASE("to_cm round-trips back to the master's inches") {
+TEST_CASE("to_cm round-trips back to the master's inches" * doctest::skip(!crossDayTests::august17Present())) {
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
     const ProductRecord p = find_product(products.products, "100802205", "PTL");
 
@@ -421,7 +422,7 @@ TEST_CASE("to_cm leaves a zero-dimension row at zero") {
     CHECK(cm.height == doctest::Approx(0.0));
 }
 
-TEST_CASE("to_cm works across every row in the real master") {
+TEST_CASE("to_cm works across every row in the real master" * doctest::skip(!crossDayTests::august17Present())) {
     // The conversion is the same arithmetic for all 20,201 rows; this checks
     // it holds on the real spread rather than on three hand-picked rows.
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);

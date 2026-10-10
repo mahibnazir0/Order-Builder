@@ -5,8 +5,9 @@
 
 namespace ob {
 
-// The only home for what a pallet weighs, how tall its deck is and what footprint it
-// occupies. Nothing outside this module may carry these figures as literals.
+// One pallet type's physical figures: a row of the pallet table (Customer2-Pallet-Data.csv),
+// or the figures a product row carries for its own pallet. Nothing outside this module may
+// carry these figures as literals.
 struct PalletSpec {
     std::string palletId;
     double addedWeightLb = 0.0;
@@ -20,9 +21,9 @@ struct PalletSpec {
 // params file must state which reading runs (floorDeckHeight).
 enum class DeckHeightRule { Excluded, Included };
 
-// The confirmed pallet table, used where no params file is supplied (the Milestone 1
-// weights). The shipped params file must list exactly these specs; a test holds the two
-// together so a corrected figure cannot land in one and not the other.
+// The confirmed pallet weights behind the Milestone 1 totals, which stay on these figures so
+// the published M1 report is reproducible. Milestone 2 and the floor weigh each pallet from
+// the product row and the pallet table instead (resolvePalletSpec).
 const std::vector<PalletSpec>& confirmedPalletSpecs();
 
 // Exact match ("PTL" and "PTL " differ), nullptr if absent.

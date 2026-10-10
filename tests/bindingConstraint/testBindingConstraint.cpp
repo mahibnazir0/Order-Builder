@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "bindingConstraint.hpp"
+#include "../importer/crossDayFixtures.hpp"
 #include "paramsLoader.hpp"
 #include "pipeline.hpp"
 #include "segregation.hpp"
@@ -94,7 +95,7 @@ TEST_CASE("bindingConstraint: mismatched vectors and out-of-range indices are re
     CHECK_THROWS_AS(assessBinding(groupsOf({{1}}), {1}, {1}, trailer()), std::invalid_argument);
 }
 
-TEST_CASE("bindingConstraint: real demand under strict segregation is almost all cube-bound") {
+TEST_CASE("bindingConstraint: real demand under strict segregation is almost all cube-bound" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineInputs inputs;
     inputs.product_path = "tests/importer/Customer2-Product-Data.csv";
     inputs.demand_path = "tests/importer/Demand-1.json";

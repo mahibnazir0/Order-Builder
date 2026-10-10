@@ -3,8 +3,9 @@
 //
 // Usage:
 //   order_builder --product <csv> --demand <json> --placeholder <json>
-//                 [--params <json> --demand-rule <rule>] [--trailer <code>]
-//                 [--groups N] [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
+//                 [--params <json> --demand-rule <rule>] [--pallets <csv>]
+//                 [--trailer <code>] [--groups N] [--day <YYYY-MM-DD>] [--lanes N]
+//                 [--debug] [--help]
 //
 // Reads one planning day, validates it, and prints a summary. With --params it
 // also groups the demand, reports the stacks (Milestone 2) and prints the
@@ -44,8 +45,9 @@ void print_usage(std::ostream& out) {
         "\n"
         "Usage:\n"
         "  order_builder --product <csv> --demand <json> --placeholder <json>\n"
-        "                [--params <json> --demand-rule <rule>] [--trailer <code>]\n"
-        "                [--groups N] [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]\n"
+        "                [--params <json> --demand-rule <rule>] [--pallets <csv>]\n"
+        "                [--trailer <code>] [--groups N] [--day <YYYY-MM-DD>] [--lanes N]\n"
+        "                [--debug] [--help]\n"
         "\n"
         "Required:\n"
         "  --product <path>      Product master CSV\n"
@@ -60,6 +62,8 @@ void print_usage(std::ostream& out) {
         "                          dueBy:YYYY-MM-DD       DATTO_TA on or before the date\n"
         "                          availableBy:YYYY-MM-DD DATFR_TA on or before the date\n"
         "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
+        "  --pallets <path>      Pallet table CSV (weight, height, footprint per pallet type);\n"
+        "                        needed with --params when the master has no Pallet_* columns\n"
         "  --trailer <code>      Trailer code from the params file (default: the largest listed)\n"
         "  --groups N            Print only the N largest groups (0 or absent: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
@@ -146,6 +150,8 @@ int main(int argc, char** argv) {
         } else if (arg == ob::kDemandRuleArgument) {
             if (!take_value(argc, argv, i, ob::kDemandRuleArgument, demandRuleText)) return 2;
             demandRuleGiven = true;
+        } else if (arg == "--pallets") {
+            if (!take_value(argc, argv, i, "--pallets", inputs.palletPath)) return 2;
         } else if (arg == "--trailer") {
             if (!take_value(argc, argv, i, "--trailer", inputs.trailerCode)) return 2;
         } else if (arg == "--groups") {
@@ -184,11 +190,14 @@ int main(int argc, char** argv) {
         }
     } else if (demandRuleGiven) {
         LOG_ERROR(string(ob::kDemandRuleArgument) + " needs --params: the floor is planned "
-                  "against the params file's trailer and pallet specs");
+                  "against the params file's trailer");
         return 2;
     }
 
     ob::Logger::instance().set_debug(debug);
+    if (!inputs.palletPath.empty() && inputs.paramsPath.empty()) {
+        LOG_WARN("--pallets is used only by Milestones 2 and 3; without --params it is ignored");
+    }
 
     // ── Run ─────────────────────────────────────────────────────────────────
     try {

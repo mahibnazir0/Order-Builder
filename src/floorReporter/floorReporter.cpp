@@ -51,7 +51,8 @@ string palletWeights(const M2Params& params) {
         if (!text.empty()) text += ", ";
         text += printable(pallet.palletId) + " " + measure(pallet.addedWeightLb) + " lb";
     }
-    return text.empty() ? "none listed" : text;
+    return text.empty() ? "the product row's Pallet_Weight (no pallet table given)"
+                        : "the product row's Pallet_Weight, else the pallet table: " + text;
 }
 
 string roundingPointText(FloorRoundingPoint roundingPoint) {
@@ -90,7 +91,7 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
         out << "no limit configured\n";
     }
     printLabel(out, "Pallet weight");
-    out << palletWeights(params) << "  (open: question 5)\n";
+    out << palletWeights(params) << "\n";
     printLabel(out, "  source");
     out << (params.sourcePath.empty() ? "params not read from a file"
                                       : printable(params.sourcePath))

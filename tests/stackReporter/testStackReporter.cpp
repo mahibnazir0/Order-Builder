@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "paramsLoader.hpp"
 #include "pipeline.hpp"
 #include "segregation.hpp"
@@ -21,7 +22,7 @@ struct Inputs {
 };
 
 // One group per entry: key, best stacks (heights as line-index lists) and floor use.
-Inputs oneGroup(GroupKey key, std::vector<BuiltStack> stacks, double floorPositions,
+Inputs oneGroup(GroupKey key, vector<BuiltStack> stacks, double floorPositions,
                 BindingConstraint bound = BindingConstraint::Cube) {
     Inputs inputs;
     SegregatedGroup group;
@@ -42,8 +43,8 @@ Inputs oneGroup(GroupKey key, std::vector<BuiltStack> stacks, double floorPositi
     return inputs;
 }
 
-GroupKey key(const std::string& from, const std::string& to, bool segregated = false,
-             const std::string& segregant = "") {
+GroupKey key(const string& from, const string& to, bool segregated = false,
+             const string& segregant = "") {
     GroupKey groupKey;
     groupKey.locationFrom = from;
     groupKey.locationTo = to;
@@ -53,15 +54,15 @@ GroupKey key(const std::string& from, const std::string& to, bool segregated = f
     return groupKey;
 }
 
-std::string printed(const Inputs& inputs, std::size_t maxRows = 0) {
-    std::ostringstream out;
+string printed(const Inputs& inputs, size_t maxRows = 0) {
+    ostringstream out;
     StackReporter::print(StackReporter::build(inputs.segregation, inputs.binding, inputs.stacking,
                                               inputs.params), out, maxRows);
     return out.str();
 }
 
-bool contains(const std::string& text, const std::string& part) {
-    return text.find(part) != std::string::npos;
+bool contains(const string& text, const string& part) {
+    return text.find(part) != string::npos;
 }
 
 } // namespace
@@ -76,7 +77,7 @@ TEST_CASE("stackReporter: defaulted config keys are printed, and none is stated 
 TEST_CASE("stackReporter: validator exclusions are counted and printed") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.segregation.linesExcluded = 2;
-    inputs.stacking.excludedLines = std::vector<ExcludedLine>(5);
+    inputs.stacking.excludedLines = vector<ExcludedLine>(5);
     const StackReport report = StackReporter::build(
         inputs.segregation, inputs.binding, inputs.stacking, inputs.params);
     CHECK(report.linesExcludedByValidator == 2);
@@ -107,7 +108,7 @@ TEST_CASE("stackReporter: config warnings are printed") {
 }
 
 TEST_CASE("stackReporter: group rows name the lane, stream, limit and method") {
-    const std::string text = printed(oneGroup(key("2027", "2500", true, "S1"), {{{0}, 6.0}}, 6.0,
+    const string text = printed(oneGroup(key("2027", "2500", true, "S1"), {{{0}, 6.0}}, 6.0,
                                               BindingConstraint::Weight));
     CHECK(contains(text, "2027 -> 2500 TL"));
     CHECK(contains(text, "S1"));
@@ -122,13 +123,13 @@ TEST_CASE("stackReporter: normal and all-planner flagged streams are labelled") 
 }
 
 TEST_CASE("stackReporter: a group with no stacks says every group ships single-high") {
-    const std::string text = printed(oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0));
+    const string text = printed(oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0));
     CHECK(contains(text, "every group ships single-high"));
     CHECK(contains(text, "1-high 6.0"));
 }
 
 TEST_CASE("stackReporter: stack heights are broken down by pallets riding at each height") {
-    const std::string text = printed(oneGroup(key("2027", "2500"),
+    const string text = printed(oneGroup(key("2027", "2500"),
                                               {{{0}, 2.0}, {{0, 1}, 2.0}}, 4.0));
     CHECK(contains(text, "1-high 2.0, 2-high 4.0"));
     CHECK(contains(text, "0 of 1 groups ship entirely single-high"));
@@ -150,7 +151,7 @@ TEST_CASE("stackReporter: the group table can be truncated") {
     inputs.segregation.groups.push_back(second.segregation.groups[0]);
     inputs.binding.groups.push_back(second.binding.groups[0]);
     inputs.stacking.groups.push_back(second.stacking.groups[0]);
-    const std::string text = printed(inputs, 1);
+    const string text = printed(inputs, 1);
     CHECK(contains(text, "top 1 of 2"));
     CHECK(contains(text, "1 more groups"));
     CHECK(contains(text, "2027 -> 2500"));
@@ -159,7 +160,7 @@ TEST_CASE("stackReporter: the group table can be truncated") {
 
 TEST_CASE("stackReporter: an empty result prints without failing") {
     Inputs inputs;
-    const std::string text = printed(inputs);
+    const string text = printed(inputs);
     CHECK(contains(text, "Groups                    0"));
 }
 
@@ -167,26 +168,27 @@ TEST_CASE("stackReporter: results for different groups are rejected") {
     Inputs inputs = oneGroup(key("2027", "2500"), {{{0}, 6.0}}, 6.0);
     inputs.binding.groups.clear();
     CHECK_THROWS_AS(StackReporter::build(inputs.segregation, inputs.binding, inputs.stacking,
-                                         inputs.params), std::invalid_argument);
+                                         inputs.params), invalid_argument);
 }
 
-TEST_CASE("stackReporter: real demand report states the segregation and binding counts") {
+TEST_CASE("stackReporter: real demand report states the segregation and binding counts" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs pipelineInputs;
     pipelineInputs.product_path = "tests/importer/Customer2-Product-Data.csv";
     pipelineInputs.demand_path = "tests/importer/Demand-1.json";
     pipelineInputs.placeholder_path = "tests/importer/PlaceHolder-1.json";
     const PipelineResult run = Pipeline::run(pipelineInputs);
-    const M2Params params = loadParams("config/orderBuilderParams.json");
+    M2Params params = loadParams("config/orderBuilderParams.json");
+    params.pallets = ProductImporter::loadPalletTable(crossDayTests::kPalletTableForOlderMasters);
     const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
-                                       std::vector<bool>(run.join.lines.size(), false));
+                                       vector<bool>(run.join.lines.size(), false));
     const auto binding = assessBinding(segregation, run.pallets_per_line, run.weight_per_line,
                                        params.trailers[0]);
     const auto stacking = buildStacks(segregation, run.join.lines, run.pallets_per_line, binding,
                                       params, params.trailers[0]);
 
-    std::ostringstream out;
+    ostringstream out;
     StackReporter::print(StackReporter::build(segregation, binding, stacking, params), out, 10);
-    const std::string text = out.str();
+    const string text = out.str();
     CHECK(contains(text, "Groups                    387"));
     CHECK(contains(text, "split into groups       17"));
     CHECK(contains(text, "Cube-bound groups         383"));

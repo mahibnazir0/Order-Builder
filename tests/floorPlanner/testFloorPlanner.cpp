@@ -292,7 +292,10 @@ TEST_CASE("floorPlanner: the plan on every extract reconciles with Milestone 1 a
         CHECK(plan.floorTrucks == groupFloorSum);
         CHECK(plan.floorTrucks == laneFloorSum);
         CHECK(fabs(plan.totals.unitLoads - expectedM1::palletEquivalents[dayIndex]) <= 0.05);
-        CHECK(fabs(plan.totals.totalWeightLb - expectedM1::totalWeightLb[dayIndex]) <= 0.5);
+        // M1 keeps the confirmed pallet weights; the floor weighs pallets as the stacks do.
+        double stackingWeightLb = 0.0;
+        for (const double lineWeightLb : run.weightForStacking) stackingWeightLb += lineWeightLb;
+        CHECK(fabs(plan.totals.totalWeightLb - stackingWeightLb) <= 0.5);
     }
 }
 

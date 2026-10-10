@@ -17,8 +17,13 @@ namespace {
 const double kNaN = numeric_limits<double>::quiet_NaN();
 const double kInfinity = numeric_limits<double>::infinity();
 
+// The shipped params carry no pallets, so the confirmed table stands in for the pallet table.
 const M2Params& shippedParams() {
-    static const M2Params params = loadParams(kStrictParamsPath);
+    static const M2Params params = [] {
+        M2Params loaded = loadParams(kStrictParamsPath);
+        loaded.pallets = confirmedPalletSpecs();
+        return loaded;
+    }();
     return params;
 }
 
@@ -63,7 +68,9 @@ UnitLoadMetrics metricsFor(const ProductRecord& productRecord, const STRRecord& 
     line.str = &demandRecord;
     line.product = &productRecord;
     line.matched = true;
-    return unitLoadMetricsFor(line, shippedParams().pallets, deckHeight);
+    M2Params params = shippedParams();
+    params.floorDeckHeight = deckHeight;
+    return unitLoadMetricsFor(line, params);
 }
 
 UnitLoadMetricsError errorFor(const ProductRecord& productRecord, const STRRecord& demandRecord) {
@@ -198,7 +205,7 @@ TEST_CASE("unitLoadMetrics: an unmatched line is missing its product") {
     const STRRecord demandRecord = demand(1.0, "PAL");
     JoinedLine line;
     line.str = &demandRecord;
-    CHECK(unitLoadMetricsFor(line, shippedParams().pallets, DeckHeightRule::Excluded).error
+    CHECK(unitLoadMetricsFor(line, shippedParams()).error
           == UnitLoadMetricsError::MissingProduct);
 }
 
@@ -207,6 +214,48 @@ TEST_CASE("unitLoadMetrics: a blank or unknown pallet type has no spec, never a 
         CAPTURE(palletId);
         CHECK(errorFor(product(palletId, 10.0, 9.0, 12, 4, 48), demand(1.0, "PAL"))
               == UnitLoadMetricsError::MissingPalletSpec);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: a product row's own pallet figures win over the pallet table's") {
+    ProductRecord record = ptlProduct();
+    record.palletWeightLb = 100.0;
+    record.palletHeightIn = 7.0;
+    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0, "PAL"), DeckHeightRule::Included);
+    REQUIRE(metrics.error == UnitLoadMetricsError::None);
+    CHECK(metrics.weightLb == doctest::Approx(9.0 * 48 + 100.0));
+    CHECK(metrics.unitLoadHeightIn == doctest::Approx(40.0 + 7.0));
+}
+
+TEST_CASE("unitLoadMetrics: a product row's pallet figures stand in for a pallet type the table lacks") {
+    ProductRecord record = product("XYZ", 10.0, 9.0, 12, 4, 48);
+    record.palletWeightLb = 50.0;
+    record.palletHeightIn = 5.0;
+    record.palletFootprintLengthIn = 48.0;
+    record.palletFootprintWidthIn = 40.0;
+    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0, "PAL"));
+    REQUIRE(metrics.error == UnitLoadMetricsError::None);
+    CHECK(metrics.weightLb == doctest::Approx(9.0 * 48 + 50.0));
+}
+
+TEST_CASE("unitLoadMetrics: a negative or non-finite pallet weight is rejected") {
+    for (const double palletWeightLb : {-60.0, kNaN, kInfinity}) {
+        CAPTURE(palletWeightLb);
+        ProductRecord record = ptlProduct();
+        record.palletWeightLb = palletWeightLb;
+        CHECK(errorFor(record, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: a negative or non-finite deck height is rejected under either deck rule") {
+    for (const double palletHeightIn : {-5.5, kNaN, kInfinity}) {
+        for (const DeckHeightRule deckHeight : {DeckHeightRule::Excluded, DeckHeightRule::Included}) {
+            CAPTURE(palletHeightIn);
+            ProductRecord record = ptlProduct();
+            record.palletHeightIn = palletHeightIn;
+            CHECK(metricsFor(record, demand(1.0, "PAL"), deckHeight).error
+                  == UnitLoadMetricsError::InvalidPalletSpec);
+        }
     }
 }
 
@@ -276,9 +325,11 @@ TEST_CASE("unitLoadMetrics: every error has a distinct plain-ASCII name") {
           == "invalid_cases_per_unit_load");
     CHECK(string(unitLoadMetricsErrorName(UnitLoadMetricsError::MissingPalletSpec))
           == "missing_pallet_spec");
+    CHECK(string(unitLoadMetricsErrorName(UnitLoadMetricsError::InvalidPalletSpec))
+          == "invalid_pallet_spec");
 }
 
-TEST_CASE("unitLoadMetrics: reproduces the published Milestone 1 pallet-equivalents and weight on every extract" * doctest::skip(!crossDayTests::allExtractsPresent())) {
+TEST_CASE("unitLoadMetrics: reproduces the M1 pallet-equivalents and the M2 stacking weight on every extract" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
@@ -286,20 +337,22 @@ TEST_CASE("unitLoadMetrics: reproduces the published Milestone 1 pallet-equivale
             Validator::excludedLineFlags(run.validation, run.join.lines.size());
         double totalUnitLoads = 0.0;
         double totalWeightLb = 0.0;
+        double stackingWeightLb = 0.0;
         size_t rejectedLines = 0;
         for (size_t lineIndex = 0; lineIndex < run.join.lines.size(); ++lineIndex) {
             if (excluded[lineIndex]) continue;
-            const UnitLoadMetrics metrics = unitLoadMetricsFor(
-                run.join.lines[lineIndex], run.params.pallets, DeckHeightRule::Excluded);
+            const UnitLoadMetrics metrics = unitLoadMetricsFor(run.join.lines[lineIndex], run.params);
             if (metrics.error != UnitLoadMetricsError::None) {
                 ++rejectedLines;
                 continue;
             }
             totalUnitLoads += metrics.unitLoads;
             totalWeightLb += metrics.weightLb;
+            stackingWeightLb += run.weightForStacking[lineIndex];
         }
         CHECK(rejectedLines == 0);
         CHECK(fabs(totalUnitLoads - expectedM1::palletEquivalents[dayIndex]) <= 0.05);
-        CHECK(fabs(totalWeightLb - expectedM1::totalWeightLb[dayIndex]) <= 0.5);
+        // M1 keeps the confirmed pallet weights; the floor weighs pallets as the stacks do.
+        CHECK(fabs(totalWeightLb - stackingWeightLb) <= 0.5);
     }
 }

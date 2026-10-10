@@ -1,5 +1,6 @@
 #include "unitLoadMetrics.hpp"
 #include "converter.hpp"
+#include "stackRules.hpp"
 #include "tolerance.hpp"
 
 #include <cmath>
@@ -30,16 +31,20 @@ UnitLoadMetricsError productDataError(const ProductRecord& product) {
 
 } // anonymous namespace
 
-UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const vector<PalletSpec>& pallets,
-                                   DeckHeightRule deckHeight) {
+UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& params) {
     if (!line.matched || line.product == nullptr || line.str == nullptr) {
         return rejected(UnitLoadMetricsError::MissingProduct);
     }
     const ProductRecord& product = *line.product;
     const STRRecord& demand = *line.str;
 
-    const PalletSpec* pallet = palletSpecFor(pallets, product.pallet_id);
-    if (pallet == nullptr) return rejected(UnitLoadMetricsError::MissingPalletSpec);
+    const optional<PalletSpec> pallet = resolvePalletSpec(product, params);
+    if (!pallet) return rejected(UnitLoadMetricsError::MissingPalletSpec);
+    // Pallet figures come from CSV cells, where an unreadable one is kept as NaN.
+    if (!isfinite(pallet->addedWeightLb) || pallet->addedWeightLb < 0.0
+        || !isfinite(pallet->addedHeightIn) || pallet->addedHeightIn < 0.0) {
+        return rejected(UnitLoadMetricsError::InvalidPalletSpec);
+    }
     if (!Converter::isConvertibleUom(demand.unitofmeas)) {
         return rejected(UnitLoadMetricsError::UnconvertibleUom);
     }
@@ -54,7 +59,7 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const vector<PalletSp
     metrics.weightLb = metrics.unitLoads
         * (product.weight_lb * product.cases_unit_load + pallet->addedWeightLb);
     metrics.unitLoadHeightIn = product.height_in * product.layers_unit_load
-        + (deckHeight == DeckHeightRule::Included ? pallet->addedHeightIn : 0.0);
+        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet->addedHeightIn : 0.0);
     metrics.stackedInches = metrics.unitLoads * metrics.unitLoadHeightIn;
     metrics.casesPerUnitLoadMismatch = static_cast<long long>(product.cases_layer)
         * product.layers_unit_load != product.cases_unit_load;
@@ -75,6 +80,7 @@ const char* unitLoadMetricsErrorName(UnitLoadMetricsError error) {
     case UnitLoadMetricsError::None: return "none";
     case UnitLoadMetricsError::MissingProduct: return "missing_product";
     case UnitLoadMetricsError::MissingPalletSpec: return "missing_pallet_spec";
+    case UnitLoadMetricsError::InvalidPalletSpec: return "invalid_pallet_spec";
     case UnitLoadMetricsError::UnconvertibleUom: return "unconvertible_uom";
     case UnitLoadMetricsError::InvalidQuantity: return "invalid_quantity";
     case UnitLoadMetricsError::InvalidCasesPerUnitLoad: return "invalid_cases_per_unit_load";

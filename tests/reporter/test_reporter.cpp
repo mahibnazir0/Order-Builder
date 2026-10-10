@@ -1,5 +1,6 @@
 // NOTE: no doctest main define here — main lives in one implementing TU only.
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "reporter.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
@@ -58,7 +59,7 @@ struct Fixture {
 
 } // namespace
 
-TEST_CASE("day summary reproduces the figures Tom reviewed") {
+TEST_CASE("day summary reproduces the figures Tom reviewed" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights, "2026-08-17");
@@ -79,14 +80,14 @@ TEST_CASE("day summary reproduces the figures Tom reviewed") {
     CHECK(d.trucks_requested       == 372);
 }
 
-TEST_CASE("pallet-equivalent total matches the independent calculation") {
+TEST_CASE("pallet-equivalent total matches the independent calculation" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
     CHECK(d.total_pallet_equiv == doctest::Approx(152911.2).epsilon(0.001));
 }
 
-TEST_CASE("lanes are sorted with the largest first") {
+TEST_CASE("lanes are sorted with the largest first" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
@@ -101,7 +102,7 @@ TEST_CASE("lanes are sorted with the largest first") {
     CHECK(d.lanes[0].demand_lines == 781);
 }
 
-TEST_CASE("lanes present in only one input still appear, with zeroes") {
+TEST_CASE("lanes present in only one input still appear, with zeroes" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
@@ -126,7 +127,7 @@ TEST_CASE("lanes present in only one input still appear, with zeroes") {
     }
 }
 
-TEST_CASE("hash total counts every line, matched or not") {
+TEST_CASE("hash total counts every line, matched or not" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     j.lines[0].matched = false;
@@ -138,7 +139,7 @@ TEST_CASE("hash total counts every line, matched or not") {
     CHECK(d.unmatched_lines == 1);
 }
 
-TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and hash_total finite") {
+TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and hash_total finite" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE(demand.str.size() >= 2);
 
@@ -179,7 +180,7 @@ TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and
     CHECK(d.excluded_lines == 2);
 }
 
-TEST_CASE("two TRANS = -1e308 lines leave hash_total finite") {
+TEST_CASE("two TRANS = -1e308 lines leave hash_total finite" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE(demand.str.size() >= 2);
 
@@ -210,7 +211,7 @@ TEST_CASE("two TRANS = -1e308 lines leave hash_total finite") {
     CHECK(d.excluded_lines == 2);
 }
 
-TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite") {
+TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE_FALSE(demand.str.empty());
 
@@ -241,7 +242,7 @@ TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite") {
     CHECK(std::isfinite(d.total_weight_lb));
 }
 
-TEST_CASE("pallet and weight columns are zero when no figures are supplied") {
+TEST_CASE("pallet and weight columns are zero when no figures are supplied" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders);
     CHECK(d.total_pallet_equiv == doctest::Approx(0.0));
@@ -251,7 +252,7 @@ TEST_CASE("pallet and weight columns are zero when no figures are supplied") {
     CHECK(d.lanes_total        == 371);
 }
 
-TEST_CASE("a line the Validator flags as an error is excluded from pallet and weight totals") {
+TEST_CASE("a line the Validator flags as an error is excluded from pallet and weight totals" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(f.pallets[0] > 0.0);   // the excluded line must actually contribute something
 
@@ -280,7 +281,7 @@ TEST_CASE("a line the Validator flags as an error is excluded from pallet and we
     CHECK(with_error.hash_total         == doctest::Approx(without_error.hash_total));
 }
 
-TEST_CASE("a zero_dimension warning also excludes its line, per Tom's skip-and-warn ruling") {
+TEST_CASE("a zero_dimension warning also excludes its line, per Tom's skip-and-warn ruling" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(f.pallets[0] > 0.0);
 
@@ -302,7 +303,7 @@ TEST_CASE("a zero_dimension warning also excludes its line, per Tom's skip-and-w
           == doctest::Approx(without_flag.total_pallet_equiv - f.pallets[0]));
 }
 
-TEST_CASE("an ordinary warning does not exclude its line from the totals") {
+TEST_CASE("an ordinary warning does not exclude its line from the totals" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport rep;
     ValidationIssue issue;
@@ -321,7 +322,7 @@ TEST_CASE("an ordinary warning does not exclude its line from the totals") {
     CHECK(with_flag.total_pallet_equiv == doctest::Approx(without_flag.total_pallet_equiv));
 }
 
-TEST_CASE("excluded_lines counts the lines dropped from the totals") {
+TEST_CASE("excluded_lines counts the lines dropped from the totals" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
 
     // Three distinct lines rejected as errors, one of them flagged twice:
@@ -353,7 +354,7 @@ TEST_CASE("excluded_lines counts the lines dropped from the totals") {
     CHECK(out.str().find("(validation errors)")         != std::string::npos);
 }
 
-TEST_CASE("printed summary contains the key figures and the pallet-eq note") {
+TEST_CASE("printed summary contains the key figures and the pallet-eq note" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights, "2026-08-17");
@@ -369,7 +370,7 @@ TEST_CASE("printed summary contains the key figures and the pallet-eq note") {
     CHECK(s.find("2028")           != std::string::npos);  // top lane
 }
 
-TEST_CASE("printed summary honours the lane limit") {
+TEST_CASE("printed summary honours the lane limit" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);

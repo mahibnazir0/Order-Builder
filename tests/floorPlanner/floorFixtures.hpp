@@ -13,8 +13,13 @@
 
 namespace floorTests {
 
+// The shipped params carry no pallets, so the confirmed table stands in for the pallet table.
 inline const ob::M2Params& shippedParams() {
-    static const ob::M2Params params = ob::loadParams(crossDayTests::kStrictParamsPath);
+    static const ob::M2Params params = [] {
+        ob::M2Params loaded = ob::loadParams(crossDayTests::kStrictParamsPath);
+        loaded.pallets = ob::confirmedPalletSpecs();
+        return loaded;
+    }();
     return params;
 }
 

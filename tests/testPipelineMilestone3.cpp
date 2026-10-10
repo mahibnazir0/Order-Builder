@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "importer/crossDayFixtures.hpp"
 #include "pipeline.hpp"
 
 #include <cstdio>
@@ -19,6 +20,7 @@ PipelineInputs realInputs(const string& demandRule) {
     inputs.demand_path = "tests/importer/Demand-1.json";
     inputs.placeholder_path = "tests/importer/PlaceHolder-1.json";
     inputs.paramsPath = "config/orderBuilderParams.json";
+    inputs.palletPath = crossDayTests::kPalletTableForOlderMasters;
     if (!demandRule.empty()) inputs.demandSelector = parseDemandSelector(demandRule);
     return inputs;
 }
@@ -43,13 +45,17 @@ string writeEditedParams(const string& path, const string& from, const string& t
     return path;
 }
 
+const string kTldPallet = "TLD,48,40,0.1,1\n";
+
 // One stackable line, 16 cases of 8 per unit load at 2 lb a case, with a DATFR_TA but no
-// DATTO_TA, so dueBy cannot judge it.
+// DATTO_TA, so dueBy cannot judge it. The pallet table holds `palletRows`.
 PipelineResult runOneLine(const string& demandRule, const string& palletId = "TLD",
-                          const string& paramsPath = kShippedParamsPath) {
+                          const string& palletRows = kTldPallet) {
     const string productPath = "tests/importer/_tmp_m3_products.csv";
     const string demandPath = "tests/importer/_tmp_m3_demand.json";
     const string placeholderPath = "tests/importer/_tmp_m3_placeholder.json";
+    const string palletPath = "tests/importer/_tmp_m3_pallets.csv";
+    ofstream(palletPath) << "ID,Footprint_Length,Footprint_Width,Height,Weight\n" << palletRows;
     ofstream(productPath) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
                              "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
                              "GOOD,Good,10,10,10,5,CS,2,4,2,8," << palletId << "\n";
@@ -61,16 +67,17 @@ PipelineResult runOneLine(const string& demandRule, const string& palletId = "TL
     inputs.product_path = productPath;
     inputs.demand_path = demandPath;
     inputs.placeholder_path = placeholderPath;
-    inputs.paramsPath = paramsPath;
+    inputs.paramsPath = kShippedParamsPath;
+    inputs.palletPath = palletPath;
     inputs.demandSelector = parseDemandSelector(demandRule);
     PipelineResult result = Pipeline::run(inputs);
-    for (const auto& path : {productPath, demandPath, placeholderPath}) remove(path.c_str());
+    for (const auto& path : {productPath, demandPath, placeholderPath, palletPath}) remove(path.c_str());
     return result;
 }
 
 } // namespace
 
-TEST_CASE("pipelineM3: without a demand rule no floor is planned") {
+TEST_CASE("pipelineM3: without a demand rule no floor is planned" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult run = Pipeline::run(realInputs(""));
     CHECK(run.ranMilestone2);
     CHECK_FALSE(run.ranFloor);
@@ -84,7 +91,7 @@ TEST_CASE("pipelineM3: a demand rule without a params file throws") {
     CHECK_THROWS_AS(Pipeline::run(inputs), runtime_error);
 }
 
-TEST_CASE("pipelineM3: the floor is planFloor on the run's own groups, lines and trailer") {
+TEST_CASE("pipelineM3: the floor is planFloor on the run's own groups, lines and trailer" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult& run = wholeExtractRun();
     REQUIRE(run.ranFloor);
     const DemandSelection selection =
@@ -97,16 +104,17 @@ TEST_CASE("pipelineM3: the floor is planFloor on the run's own groups, lines and
     CHECK(run.floorPlan.groups.size() == run.segregation.groups.size());
 }
 
-TEST_CASE("pipelineM3: the real day's whole-extract floor is pinned") {
+TEST_CASE("pipelineM3: the real day's whole-extract floor is pinned" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult& run = wholeExtractRun();
     CHECK(run.demandSelection.selectedLines == 24357);
     CHECK(run.floorPlan.lanes.size() == 360);
-    CHECK(run.floorPlan.floorTrucks == 3900);
+    // 3,900 when wood pallets weighed the configured 60 lb; the pallet table's 65 lb adds one.
+    CHECK(run.floorPlan.floorTrucks == 3901);
     CHECK(run.floorPlan.noStackingBaselineTrucks == 4981);
     CHECK(isRunComplete(run));
 }
 
-TEST_CASE("pipelineM3: the floor counts exactly the lines segregation grouped") {
+TEST_CASE("pipelineM3: the floor counts exactly the lines segregation grouped" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult& run = wholeExtractRun();
     size_t groupedLines = 0;
     for (const SegregatedGroup& group : run.segregation.groups) groupedLines += group.lineIndices.size();
@@ -115,7 +123,7 @@ TEST_CASE("pipelineM3: the floor counts exactly the lines segregation grouped") 
     CHECK(selectedInGroups + run.floorPlan.linesNotSelected == groupedLines);
 }
 
-TEST_CASE("pipelineM3: planning the floor changes no Milestone 2 figure") {
+TEST_CASE("pipelineM3: planning the floor changes no Milestone 2 figure" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult withoutFloor = Pipeline::run(realInputs(""));
     const PipelineResult& withFloor = wholeExtractRun();
     CHECK(withFloor.segregation.groups.size() == withoutFloor.segregation.groups.size());
@@ -127,7 +135,7 @@ TEST_CASE("pipelineM3: planning the floor changes no Milestone 2 figure") {
     CHECK(withFloor.stackReport.isComplete() == withoutFloor.stackReport.isComplete());
 }
 
-TEST_CASE("pipelineM3: the floor is planned against the trailer the run selected") {
+TEST_CASE("pipelineM3: the floor is planned against the trailer the run selected" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs inputs = realInputs("dueBy:2026-08-19");
     inputs.trailerCode = "53FT_NA";
     const PipelineResult run = Pipeline::run(inputs);
@@ -135,13 +143,13 @@ TEST_CASE("pipelineM3: the floor is planned against the trailer the run selected
     CHECK(run.floorPlan.floorTrucks == 53);
 }
 
-TEST_CASE("pipelineM3: a narrower demand rule selects fewer lines and a lower floor") {
+TEST_CASE("pipelineM3: a narrower demand rule selects fewer lines and a lower floor" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult dueBy = Pipeline::run(realInputs("dueBy:2026-08-19"));
     CHECK(dueBy.demandSelection.selectedLines == 94);
     CHECK(dueBy.floorPlan.floorTrucks < wholeExtractRun().floorPlan.floorTrucks);
 }
 
-TEST_CASE("pipelineM3: a rule that selects no line of a non-empty extract makes the run incomplete") {
+TEST_CASE("pipelineM3: a rule that selects no line of a non-empty extract makes the run incomplete" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult run = Pipeline::run(realInputs("dueBy:2020-01-01"));
     CHECK(run.demandSelection.selectedLines == 0);
     CHECK(run.demandSelection.undatedLines.empty());
@@ -163,7 +171,7 @@ TEST_CASE("pipelineM3: the same line under wholeExtract is counted and the run i
     CHECK(isRunComplete(run));
 }
 
-TEST_CASE("pipelineM3: with no trailer named, the run plans against the largest one listed") {
+TEST_CASE("pipelineM3: with no trailer named, the run plans against the largest one listed" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const string paramsPath = writeEditedParams(
         "tests/importer/_tmp_m3_two_trailers.json", "\"trailers\": [",
         R"("trailers": [ { "trailerCode": "48FT_NA", "interiorLengthIn": 570,)"
@@ -178,31 +186,23 @@ TEST_CASE("pipelineM3: with no trailer named, the run plans against the largest 
     CHECK(run.floorPlan.floorTrucks == 53);
 }
 
-TEST_CASE("pipelineM3: a trailer named on the command line is recorded as named") {
+TEST_CASE("pipelineM3: a trailer named on the command line is recorded as named" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs inputs = realInputs("dueBy:2026-08-19");
     inputs.trailerCode = "53FT_NA";
     CHECK(Pipeline::run(inputs).trailerChoice == TrailerChoice::Named);
 }
 
-TEST_CASE("pipelineM3: Milestone 1 weighs pallets from the params file's pallet table") {
-    const string paramsPath = writeEditedParams(
-        "tests/importer/_tmp_m3_ptl65.json", R"("palletId": "PTL", "addedWeightLb": 60)",
-        R"("palletId": "PTL", "addedWeightLb": 65)");
-    const PipelineResult run = runOneLine("wholeExtract", "PTL", paramsPath);
-    remove(paramsPath.c_str());
+TEST_CASE("pipelineM3: the floor weighs pallets from the pallet table and Milestone 1 keeps the confirmed weight") {
+    const PipelineResult run = runOneLine("wholeExtract", "PTL", "PTL,48,40,6,65\n");
     REQUIRE(run.weight_per_line.size() == 1);
-    CHECK(run.weight_per_line[0] == doctest::Approx(2.0 * (2.0 * 8.0 + 65.0)));
-    CHECK(run.validation.unrecognized_pallet_id == 0);
+    CHECK(run.weight_per_line[0] == doctest::Approx(2.0 * (2.0 * 8.0 + 60.0)));
+    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(2.0 * (2.0 * 8.0 + 65.0)));
+    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(run.weightForStacking[0]));
 }
 
-TEST_CASE("pipelineM3: a pallet type only the params file lists is not reported as unrecognized") {
-    const string paramsPath = writeEditedParams(
-        "tests/importer/_tmp_m3_eur.json", "\"pallets\": [",
-        R"("pallets": [ { "palletId": "EUR", "addedWeightLb": 55, "addedHeightIn": 5.7,)"
-        R"( "footprintLengthIn": 47.2, "footprintWidthIn": 31.5 },)");
-    const PipelineResult run = runOneLine("wholeExtract", "EUR", paramsPath);
-    remove(paramsPath.c_str());
-    CHECK(run.validation.unrecognized_pallet_id == 0);
-    REQUIRE(run.weight_per_line.size() == 1);
-    CHECK(run.weight_per_line[0] == doctest::Approx(2.0 * (2.0 * 8.0 + 55.0)));
+TEST_CASE("pipelineM3: a pallet type only the pallet table lists reaches the floor") {
+    const PipelineResult run = runOneLine("wholeExtract", "EUR", "EUR,47.2,31.5,5.7,55\n");
+    CHECK(run.floorPlan.excludedLines.empty());
+    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(2.0 * (2.0 * 8.0 + 55.0)));
+    CHECK(run.floorPlan.floorTrucks == 1);
 }
