@@ -42,6 +42,9 @@ struct PipelineInputs {
     std::string paramsPath;
     // Trailer to plan against, by params trailerCode; empty picks the first one listed.
     std::string trailerCode;
+    // Pallet table (Customer2-Pallet-Data.csv). Optional when every demanded product row
+    // carries its own pallet figures, as the 88-column masters do; required for older masters.
+    std::string palletPath;
 };
 
 // Everything the run produced. Held together so a caller (or a test) can
@@ -73,11 +76,11 @@ struct PipelineResult {
     // Milestone 2. Empty unless PipelineInputs::paramsPath was set.
     bool ranMilestone2 = false;
     M2Params params;
-    // Pallet types in the demand that the params file has no spec for.
+    // Pallet types in the demand whose figures neither the master nor the pallet table gives.
     std::vector<std::string> missingPalletIds;
     // pallets_per_line with validator-excluded lines zeroed, so segregation's downstream
     // passes see the same lines the M1 totals do. weightForStacking is zeroed the same way,
-    // but weighs each pallet with the params pallet spec, as the stacks do, rather than
+    // but weighs each pallet with the supplied pallet figures, as the stacks do, rather than
     // the fixed pallet weight behind weight_per_line.
     std::vector<double> palletsForStacking;
     std::vector<double> weightForStacking;

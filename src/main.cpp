@@ -3,7 +3,7 @@
 //
 // Usage:
 //   order_builder --product <csv> --demand <json> --placeholder <json>
-//                 [--params <json>] [--trailer <code>] [--groups N]
+//                 [--params <json>] [--pallets <csv>] [--trailer <code>] [--groups N]
 //                 [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
 //
 // Reads one planning day, validates it, and prints a summary. With --params it
@@ -34,7 +34,7 @@ void print_usage(std::ostream& out) {
         "\n"
         "Usage:\n"
         "  order_builder --product <csv> --demand <json> --placeholder <json>\n"
-        "                [--params <json>] [--trailer <code>] [--groups N]\n"
+        "                [--params <json>] [--pallets <csv>] [--trailer <code>] [--groups N]\n"
         "                [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]\n"
         "\n"
         "Required:\n"
@@ -44,6 +44,8 @@ void print_usage(std::ostream& out) {
         "\n"
         "Optional:\n"
         "  --params <path>       Params JSON; turns on the Milestone 2 groups and stacks report\n"
+        "  --pallets <path>      Pallet table CSV (weight, height, footprint per pallet type);\n"
+        "                        needed with --params when the master has no Pallet_* columns\n"
         "  --trailer <code>      Trailer code from the params file (default: the first listed)\n"
         "  --groups N            Print only the N largest groups (default: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
@@ -94,6 +96,8 @@ int main(int argc, char** argv) {
             if (!take_value(argc, argv, i, "--placeholder", inputs.placeholder_path)) return 2;
         } else if (arg == "--params") {
             if (!take_value(argc, argv, i, "--params", inputs.paramsPath)) return 2;
+        } else if (arg == "--pallets") {
+            if (!take_value(argc, argv, i, "--pallets", inputs.palletPath)) return 2;
         } else if (arg == "--trailer") {
             if (!take_value(argc, argv, i, "--trailer", inputs.trailerCode)) return 2;
         } else if (arg == "--groups") {
@@ -132,6 +136,9 @@ int main(int argc, char** argv) {
     }
 
     ob::Logger::instance().set_debug(debug);
+    if (!inputs.palletPath.empty() && inputs.paramsPath.empty()) {
+        LOG_WARN("--pallets is used only by the Milestone 2 report; without --params it is ignored");
+    }
 
     // ── Run ─────────────────────────────────────────────────────────────────
     try {

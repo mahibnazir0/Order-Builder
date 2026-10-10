@@ -41,7 +41,9 @@ TEST_CASE("pipeline: cross-day Milestone 1 figures for all four extracts" * doct
         CHECK(summary.lanes_total == expectedM1::lanesUnion[dayIndex]);
         CHECK(static_cast<size_t>(summary.lanes_with_demand) == expectedM2::lanesWithDemand[dayIndex]);
         CHECK(run.validation.errors == expectedM1::validationErrors[dayIndex]);
-        CHECK(run.validation.warnings == expectedM1::validationWarnings[dayIndex]);
+        CHECK(run.validation.exceedsOwnCri == expectedM1::exceedsOwnCriWarnings[dayIndex]);
+        CHECK(run.validation.warnings
+              == expectedM1::validationWarnings[dayIndex] + expectedM1::exceedsOwnCriWarnings[dayIndex]);
         CHECK(run.placeholders.placeholders.size() == expectedM1::placeholderEntries[dayIndex]);
         CHECK(summary.trucks_requested == expectedM1::trucksRequested[dayIndex]);
         CHECK(run.products.rows_read == expectedM1::productRows[dayIndex]);

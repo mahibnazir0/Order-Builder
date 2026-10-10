@@ -1,5 +1,7 @@
 #pragma once
 
+#include "product_types.hpp"
+
 #include <array>
 #include <string>
 #include <vector>
@@ -21,14 +23,6 @@ struct CriTable {
     std::array<double, 11> safeLimitLb{};
 };
 
-struct PalletSpec {
-    std::string palletId;
-    double addedWeightLb = 0.0;
-    double addedHeightIn = 0.0;
-    double footprintLengthIn = 0.0;
-    double footprintWidthIn = 0.0;
-};
-
 struct TrailerSpec {
     std::string trailerCode;
     double interiorLengthIn = 0.0;
@@ -40,6 +34,10 @@ struct TrailerSpec {
 
 struct M2Params {
     CriTable cri;
+    // The pallet table (Customer2-Pallet-Data.csv), filled by the pipeline from --pallets.
+    // Never read from the params file: pallet figures come from the supplied data, so a client
+    // with different pallets needs no config change. Product rows that carry their own pallet
+    // figures take precedence over this table.
     std::vector<PalletSpec> pallets;
     std::vector<TrailerSpec> trailers;
     SegregationReading doNotMixReading = SegregationReading::Strict;
@@ -55,7 +53,7 @@ struct M2Params {
     std::vector<std::string> warnings;
 };
 
-// Exact match ("PTL" and "PTL " differ), nullptr if absent; Module 3 checks every joined pallet type has a spec.
+// Pallet table row by exact id ("PTL" and "PTL " differ), nullptr if absent.
 const PalletSpec* palletSpecFor(const M2Params& params, const std::string& palletId);
 // Prevent returning a pointer into a params object destroyed at the end of the call.
 const PalletSpec* palletSpecFor(M2Params&& params, const std::string& palletId) = delete;

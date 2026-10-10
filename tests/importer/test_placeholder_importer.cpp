@@ -1,6 +1,7 @@
 // NOTE: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN here — main lives in one
 // implementing translation unit only (see tests/importer/test_importer.cpp).
 #include "doctest.h"
+#include "crossDayFixtures.hpp"
 #include "placeholder_importer.hpp"
 #include "validator.hpp"
 #include <algorithm>
@@ -14,7 +15,7 @@ using namespace ob;
 
 static const char* PH_PATH = "tests/importer/PlaceHolder-1.json";
 
-TEST_CASE("placeholder file loads with correct counts") {
+TEST_CASE("placeholder file loads with correct counts" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
 
     // Verified against the real file.
@@ -22,7 +23,7 @@ TEST_CASE("placeholder file loads with correct counts") {
     CHECK(r.total_loads == 372);
 }
 
-TEST_CASE("first placeholder record parses field-for-field") {
+TEST_CASE("first placeholder record parses field-for-field" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     REQUIRE(!r.placeholders.empty());
     const PlaceholderRecord& p = r.placeholders[0];
@@ -37,7 +38,7 @@ TEST_CASE("first placeholder record parses field-for-field") {
     CHECK(p.ebeln           == "");      // blank in every record of this file
 }
 
-TEST_CASE("ship condition is only TL or TF") {
+TEST_CASE("ship condition is only TL or TF" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     int tl = 0, tf = 0;
     for (const auto& p : r.placeholders) {
@@ -48,7 +49,7 @@ TEST_CASE("ship condition is only TL or TF") {
     CHECK(tf == 84);
 }
 
-TEST_CASE("equipment size is 53F or blank") {
+TEST_CASE("equipment size is 53F or blank" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     int blank = 0, f53 = 0;
     for (const auto& p : r.placeholders) {
@@ -59,14 +60,14 @@ TEST_CASE("equipment size is 53F or blank") {
     CHECK(f53 == 146);
 }
 
-TEST_CASE("every entry requests at least one truck") {
+TEST_CASE("every entry requests at least one truck" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     for (const auto& p : r.placeholders) {
         REQUIRE(p.no_of_loads >= 1);
     }
 }
 
-TEST_CASE("lane triplets are unique — no de-dup needed") {
+TEST_CASE("lane triplets are unique — no de-dup needed" * doctest::skip(!crossDayTests::august17Present())) {
     PlaceholderLoadResult r = PlaceholderImporter::load(PH_PATH);
     vector<string> keys;
     keys.reserve(r.placeholders.size());
@@ -253,6 +254,6 @@ TEST_CASE("repeated placeholder lanes are counted and their trucks summed, not o
     CHECK(loaded.total_loads == 6);
 }
 
-TEST_CASE("the 17 Aug placeholder file repeats no lane") {
+TEST_CASE("the 17 Aug placeholder file repeats no lane" * doctest::skip(!crossDayTests::august17Present())) {
     CHECK(PlaceholderImporter::load(PH_PATH).duplicateLaneEntries == 0);
 }

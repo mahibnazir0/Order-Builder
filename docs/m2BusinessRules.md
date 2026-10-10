@@ -184,7 +184,20 @@ the same greedy builder; they differ only in the order in which bases and tops a
   single-high and is reported as `Over own CRI lines`, a warning that does not make the run
   incomplete. The stack report lists the first 20 such lines and counts the rest; the log
   carries one summary line, however many lines one product spans. 32 to 33 products per
-  master are like this; on 17 August two demand lines (MATNR 106005500) name one.
+  master are like this; on 17 August two demand lines (MATNR 106005500) name one. The lines
+  are also counted in the validation tally and listed under WARNINGS AND REJECTIONS as
+  `exceeds_own_cri`, like every other warning, so 17 August with `--params` reports 163
+  warnings (161 without).
+- A unit load's pallet weight, deck height and footprint come from the supplied data, never
+  from config (client, 3 October): the product row's `Pallet_Weight`, `Pallet_Height` and
+  `Pallet_Footprint_*` where the master has them (every master from 29 September), otherwise
+  the pallet table (`Customer2-Pallet-Data.csv`, given with `--pallets`) row for its
+  `Pallet_ID`. Each figure is taken separately, so a blank cell falls back to the table; an
+  unreadable or negative one rejects the line rather than falling back. A line whose pallet
+  has a figure in neither source is not stacked.
+- The 0.1 in deck height that TLD and GMA carry is a placeholder, not a measurement (client,
+  3 October), and adds nothing to the stack height. Without that, products built to exactly
+  108.00 in would read as over the ceiling. Their 0.1 lb and 1 lb weights are used as given.
 - Stacks are at most `maxStackHeight` high (2 for this customer).
 - Taking each base in base order, the builder adds the first top in top order that fits, then
   commits as many identical stacks as the scarcest line allows.

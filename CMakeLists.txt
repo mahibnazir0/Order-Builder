@@ -82,10 +82,18 @@ add_executable(ob_tests
   tests/testCrossDayPipeline.cpp
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp
+  tests/testNewExtracts.cpp
   tests/cli/testCli.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
+
+# Set ON for sanitizer or coverage builds, so timing tests scale their budgets. ASan, TSan and
+# Clang's UBSan are detected automatically; GCC's UBSan is not, and needs this.
+option(OB_INSTRUMENTED_TESTS "Tests run under sanitizers or other instrumentation" OFF)
+if(OB_INSTRUMENTED_TESTS)
+  target_compile_definitions(ob_tests PRIVATE OB_INSTRUMENTED_TESTS)
+endif()
 
 # The CLI tests run the real executable, so it must be built first and found by path.
 add_dependencies(ob_tests order_builder)

@@ -33,8 +33,8 @@ vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& e
 }
 
 // M1 weights use the Converter's fixed wood-pallet weight so the published M1 totals stay
-// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the configured
-// pallet spec, or binding and reporting disagree with the stacks. A line with no buildable
+// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the product row's
+// pallet figures or the pallet table, or binding and reporting disagree with the stacks. A line with no buildable
 // unit load keeps its M1 weight: it still occupies the trailer, and that is the only
 // estimate there is for it.
 vector<double> configuredWeightPerLine(const vector<JoinedLine>& lines,
@@ -54,7 +54,8 @@ string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     switch (error) {
     case UnitLoadError::MissingProduct: return "product is not in the master";
     case UnitLoadError::MissingPalletSpec:
-        return "params file has no spec for pallet type '" + line.product->pallet_id + "'";
+        return "neither the product master nor the pallet table gives the weight, height and"
+               " footprint of pallet type '" + line.product->pallet_id + "'";
     case UnitLoadError::InvalidData:
         return "product height, weight, layer, case or strength data cannot form a unit load";
     case UnitLoadError::None: break;
@@ -113,11 +114,15 @@ vector<ReportedLine> unstackedLines(const PipelineResult& result, const TrailerS
 
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.params = loadParams(inputs.paramsPath);
+    if (!inputs.palletPath.empty()) {
+        result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
+    }
     const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
     for (const auto& palletId : result.missingPalletIds) {
-        LOG_WARN("Demand uses pallet type '" + palletId + "' but the params file has no spec for it");
+        LOG_WARN("Demand uses pallet type '" + palletId + "' but neither the product master nor"
+                 " the pallet table gives its weight, height and footprint");
     }
 
     const vector<bool> excluded =
@@ -136,12 +141,22 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.stackReport = StackReporter::build(result.segregation, result.binding,
                                               result.stacking, result.params);
     result.stackReport.unstackedLines = unstackedLines(result, trailer);
+    // Over-own-CRI lines are found only once unit loads are built, but they are warnings like
+    // any other, so they join the validation tally and its WARNINGS section as well.
     const vector<size_t>& ownCriExceededLines = result.stacking.ownCriExceededLines;
     result.stackReport.ownCriExceeded.reserve(ownCriExceededLines.size());
     for (const size_t lineIndex : ownCriExceededLines) {
-        result.stackReport.ownCriExceeded.push_back(
-            {lineIndex, result.join.lines[lineIndex].str->matnr, kOwnCriExceededReason});
+        const string& matnr = result.join.lines[lineIndex].str->matnr;
+        result.stackReport.ownCriExceeded.push_back({lineIndex, matnr, kOwnCriExceededReason});
+        ValidationIssue issue;
+        issue.rule = "exceeds_own_cri";
+        issue.message = string("Unit load ") + kOwnCriExceededReason;
+        issue.matnr = matnr;
+        issue.line_index = static_cast<int>(lineIndex);
+        result.validation.issues.push_back(std::move(issue));
     }
+    result.validation.exceedsOwnCri = static_cast<int>(ownCriExceededLines.size());
+    result.validation.warnings += result.validation.exceedsOwnCri;
     // One summary line, not one per demand line: a single product can span hundreds of lines.
     if (!ownCriExceededLines.empty()) {
         LOG_WARN(to_string(ownCriExceededLines.size())

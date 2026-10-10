@@ -33,6 +33,12 @@ public:
     //     different Cases_Unit_Load, NOT data errors. All rows are kept; the
     //     Joiner groups them and chooses. Nothing is dropped here.
     static ProductLoadResult load(const std::string& csv_path);
+
+    // Read Customer2-Pallet-Data.csv: one row per pallet type, giving its footprint,
+    // height and weight by name (ID, Footprint_Length, Footprint_Width, Height, Weight).
+    // Throws std::runtime_error if the file cannot be read, a required column is missing,
+    // or a pallet ID is blank or listed twice. A blank or unreadable figure is kept as NaN.
+    static std::vector<PalletSpec> loadPalletTable(const std::string& csvPath);
 };
 
 } // namespace ob

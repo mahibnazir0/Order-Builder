@@ -1,10 +1,13 @@
 #include "doctest.h"
+#include "importer/crossDayFixtures.hpp"
 #include "pipeline.hpp"
 #include "validator.hpp"
 
 #include <cstdio>
 #include <fstream>
 #include <sstream>
+
+using namespace std;
 
 using namespace ob;
 
@@ -15,8 +18,18 @@ PipelineInputs realInputs(bool withParams) {
     inputs.product_path = "tests/importer/Customer2-Product-Data.csv";
     inputs.demand_path = "tests/importer/Demand-1.json";
     inputs.placeholder_path = "tests/importer/PlaceHolder-1.json";
-    if (withParams) inputs.paramsPath = "config/orderBuilderParams.json";
+    if (withParams) {
+        inputs.paramsPath = "config/orderBuilderParams.json";
+        inputs.palletPath = crossDayTests::kPalletTableForOlderMasters;
+    }
     return inputs;
+}
+
+const string kPalletTableHeader = "ID,Footprint_Length,Footprint_Width,Height,Weight\n";
+
+string writePalletTable(const string& path, const string& rows) {
+    ofstream(path) << kPalletTableHeader << rows;
+    return path;
 }
 
 ValidationIssue issue(ValidationIssue::Severity severity, const std::string& rule, int lineIndex) {
@@ -27,37 +40,37 @@ ValidationIssue issue(ValidationIssue::Severity severity, const std::string& rul
     return validationIssue;
 }
 
-// Runs the pipeline on one product row and one demand line, written to scratch files.
+// Runs the pipeline on one product row and one demand line, written to scratch files, under
+// the shipped params and a pallet table holding `palletRows`.
+const string kProductHeader = "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+                              "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID";
+
 PipelineResult runOneLine(const std::string& name, const std::string& productRow,
-                          const std::string& demandLine, const std::string& paramsJson) {
+                          const std::string& demandLine, const std::string& palletRows,
+                          const string& productHeader = kProductHeader) {
     const std::string productPath = "tests/importer/_tmp_" + name + "_products.csv";
     const std::string demandPath = "tests/importer/_tmp_" + name + "_demand.json";
     const std::string placeholderPath = "tests/importer/_tmp_" + name + "_placeholder.json";
-    const std::string paramsPath = "tests/importer/_tmp_" + name + "_params.json";
-    std::ofstream(productPath) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
-                                  "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
-                               << productRow << "\n";
+    const string palletPath = writePalletTable("tests/importer/_tmp_" + name + "_pallets.csv", palletRows);
+    std::ofstream(productPath) << productHeader << "\n" << productRow << "\n";
     std::ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)" << demandLine << "]}";
     std::ofstream(placeholderPath) << R"({"PHOLDER":[]})";
-    std::ofstream(paramsPath) << paramsJson;
     PipelineInputs inputs;
     inputs.product_path = productPath;
     inputs.demand_path = demandPath;
     inputs.placeholder_path = placeholderPath;
-    inputs.paramsPath = paramsPath;
+    inputs.paramsPath = "config/orderBuilderParams.json";
+    inputs.palletPath = palletPath;
     PipelineResult result = Pipeline::run(inputs);
-    for (const auto& path : {productPath, demandPath, placeholderPath, paramsPath}) std::remove(path.c_str());
+    for (const auto& path : {productPath, demandPath, placeholderPath, palletPath}) std::remove(path.c_str());
     return result;
 }
 
-std::string paramsWithPtlWeight(int ptlAddedWeightLb) {
-    return R"({"criSafeLimitLb":[5,299,549,799,1149,1499,1849,2199,3099,3599],"pallets":[)"
-           R"({"palletId":"PTL","addedWeightLb":)" + std::to_string(ptlAddedWeightLb)
-         + R"(,"addedHeightIn":5.5,"footprintLengthIn":48,"footprintWidthIn":40}],)"
-           R"("trailers":[{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,)"
-           R"("stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32}],)"
-           R"("doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false})";
+string ptlPalletWeighing(int weightLb) {
+    return "PTL,48,40,5.5," + to_string(weightLb) + "\n";
 }
+
+const string kTldPallet = "TLD,48,40,0.1,1\n";
 
 const std::string kOnePalletLine =
     R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1.0,"UNITOFMEAS":"PAL"})";
@@ -81,7 +94,7 @@ TEST_CASE("validator: excluded flags ignore issues outside the line range") {
     CHECK(Validator::excludedLineFlags(report, 0).empty());
 }
 
-TEST_CASE("pipeline: without a params file only Milestone 1 runs") {
+TEST_CASE("pipeline: without a params file only Milestone 1 runs" * doctest::skip(!crossDayTests::august17Present())) {
     const PipelineResult result = Pipeline::run(realInputs(false));
     CHECK_FALSE(result.ranMilestone2);
     CHECK(result.segregation.groups.empty());
@@ -89,7 +102,7 @@ TEST_CASE("pipeline: without a params file only Milestone 1 runs") {
     CHECK(result.summary.total_demand_lines == 24357);
 }
 
-TEST_CASE("pipeline: with a params file every stage runs on the real day") {
+TEST_CASE("pipeline: with a params file every stage runs on the real day" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult result = Pipeline::run(realInputs(true));
     REQUIRE(result.ranMilestone2);
     CHECK(result.missingPalletIds.empty());
@@ -126,7 +139,9 @@ TEST_CASE("pipeline: a line the validator excluded carries no pallets into stack
     inputs.demand_path = demandPath;
     inputs.placeholder_path = placeholderPath;
     inputs.paramsPath = "config/orderBuilderParams.json";
+    inputs.palletPath = writePalletTable("tests/importer/_tmp_m2_pallets.csv", kTldPallet);
     const PipelineResult result = Pipeline::run(inputs);
+    std::remove(inputs.palletPath.c_str());
     std::remove(productPath.c_str());
     std::remove(demandPath.c_str());
     std::remove(placeholderPath.c_str());
@@ -161,7 +176,9 @@ TEST_CASE("pipeline: a line the validator rejected forms no segregation group") 
     inputs.demand_path = demandPath;
     inputs.placeholder_path = placeholderPath;
     inputs.paramsPath = "config/orderBuilderParams.json";
+    inputs.palletPath = writePalletTable("tests/importer/_tmp_m2_rejected_group_pallets.csv", kTldPallet);
     const PipelineResult result = Pipeline::run(inputs);
+    std::remove(inputs.palletPath.c_str());
     std::remove(productPath.c_str());
     std::remove(demandPath.c_str());
     std::remove(placeholderPath.c_str());
@@ -199,7 +216,9 @@ TEST_CASE("pipeline: rejected lines from different lanes do not merge into one g
     inputs.demand_path = demandPath;
     inputs.placeholder_path = placeholderPath;
     inputs.paramsPath = "config/orderBuilderParams.json";
+    inputs.palletPath = writePalletTable("tests/importer/_tmp_m2_rejected_lanes_pallets.csv", kTldPallet);
     const PipelineResult result = Pipeline::run(inputs);
+    std::remove(inputs.palletPath.c_str());
     std::remove(productPath.c_str());
     std::remove(demandPath.c_str());
     std::remove(placeholderPath.c_str());
@@ -210,7 +229,7 @@ TEST_CASE("pipeline: rejected lines from different lanes do not merge into one g
     CHECK(result.segregation.linesExcluded == 2);
 }
 
-TEST_CASE("pipeline: the trailer can be chosen by code") {
+TEST_CASE("pipeline: the trailer can be chosen by code" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs inputs = realInputs(true);
     inputs.trailerCode = "53FT_NA";
     CHECK(Pipeline::run(inputs).ranMilestone2);
@@ -218,13 +237,13 @@ TEST_CASE("pipeline: the trailer can be chosen by code") {
     CHECK_THROWS_AS(Pipeline::run(inputs), std::runtime_error);
 }
 
-TEST_CASE("pipeline: an unreadable params file stops the run") {
+TEST_CASE("pipeline: an unreadable params file stops the run" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs inputs = realInputs(true);
     inputs.paramsPath = "does/not/exist.json";
     CHECK_THROWS_AS(Pipeline::run(inputs), std::runtime_error);
 }
 
-TEST_CASE("pipeline: the printed Milestone 2 report matches the run") {
+TEST_CASE("pipeline: the printed Milestone 2 report matches the run" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult result = Pipeline::run(realInputs(true));
     std::ostringstream out;
     StackReporter::print(result.stackReport, out, 5);
@@ -232,9 +251,9 @@ TEST_CASE("pipeline: the printed Milestone 2 report matches the run") {
     CHECK(out.str().find("top 5 of 387") != std::string::npos);
 }
 
-TEST_CASE("pipeline: M2 weighs pallets with the configured pallet weight, M1 keeps its own") {
+TEST_CASE("pipeline: M2 weighs pallets with the pallet table's weight, M1 keeps its own") {
     const PipelineResult result = runOneLine("m2_pallet_weight", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(100));
+                                             kOnePalletLine, ptlPalletWeighing(100));
     REQUIRE(result.ranMilestone2);
     CHECK(result.weight_per_line[0] == doctest::Approx(1390.0));
     CHECK(result.weightForStacking[0] == doctest::Approx(1430.0));
@@ -246,16 +265,48 @@ TEST_CASE("pipeline: M2 weighs pallets with the configured pallet weight, M1 kee
     CHECK(result.stackReport.rows[0].binding == BindingConstraint::Weight);
 }
 
-TEST_CASE("pipeline: at the shipped 60 lb pallet weight the same line stays cube-bound") {
+TEST_CASE("pipeline: a master row's own pallet weight wins over the pallet table's") {
+    const PipelineResult result = runOneLine(
+        "m2_row_pallet_weight",
+        "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL,100,5.5,48,40", kOnePalletLine, ptlPalletWeighing(60),
+        kProductHeader + ",Pallet_Weight,Pallet_Height,Pallet_Footprint_Length,Pallet_Footprint_Width");
+    REQUIRE(result.ranMilestone2);
+    CHECK(result.weightForStacking[0] == doctest::Approx(1430.0));
+    CHECK(result.binding.groups[0].binding == BindingConstraint::Weight);
+}
+
+TEST_CASE("pipeline: a params file still listing pallets stops the run") {
+    const string paramsPath = "tests/importer/_tmp_m2_old_params.json";
+    ofstream(paramsPath) << R"({"criSafeLimitLb":[5,299,549,799,1149,1499,1849,2199,3099,3599],)"
+                            R"("pallets":[],"trailers":[{"trailerCode":"53FT_NA","interiorLengthIn":630,)"
+                            R"("interiorWidthIn":100,"stackHeightCeilingIn":108,"weightLimitLb":45000,)"
+                            R"("stackPositions":32}]})";
+    const string productPath = "tests/importer/_tmp_m2_old_params_products.csv";
+    const string demandPath = "tests/importer/_tmp_m2_old_params_demand.json";
+    const string placeholderPath = "tests/importer/_tmp_m2_old_params_placeholder.json";
+    ofstream(productPath) << kProductHeader << "\nP,Good,10,10,10,5,CS,10,1,1,1,PTL\n";
+    ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)" << kOnePalletLine << "]}";
+    ofstream(placeholderPath) << R"({"PHOLDER":[]})";
+    PipelineInputs inputs;
+    inputs.product_path = productPath;
+    inputs.demand_path = demandPath;
+    inputs.placeholder_path = placeholderPath;
+    inputs.paramsPath = paramsPath;
+    CHECK_THROWS_WITH_AS(Pipeline::run(inputs), doctest::Contains("'pallets' is no longer read"),
+                         runtime_error);
+    for (const auto& path : {productPath, demandPath, placeholderPath, paramsPath}) remove(path.c_str());
+}
+
+TEST_CASE("pipeline: at a 60 lb pallet weight the same line stays cube-bound") {
     const PipelineResult result = runOneLine("m2_pallet_weight_default", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.weightForStacking[0] == doctest::Approx(result.weight_per_line[0]));
     CHECK(result.binding.groups[0].binding == BindingConstraint::Cube);
 }
 
 TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and uses no floor") {
     const PipelineResult result = runOneLine("m2_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stacking.overHeightLines == std::vector<std::size_t>{0});
     CHECK(result.stackReport.overHeightLines == 1);
     CHECK(result.stackReport.totalFloorPositions == 0.0);
@@ -263,7 +314,7 @@ TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and us
 
 TEST_CASE("pipeline: a clean one-line run is complete") {
     const PipelineResult result = runOneLine("m2_complete", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stackReport.linesNotStacked == 0);
     CHECK(isRunComplete(result));
 }
@@ -284,7 +335,7 @@ TEST_CASE("pipeline: a line left out of stacking makes the run incomplete") {
     for (const auto& testCase : cases) {
         CAPTURE(testCase.name);
         const PipelineResult result = runOneLine("m2_incomplete_" + testCase.name, testCase.productRow,
-                                                 kOnePalletLine, paramsWithPtlWeight(60));
+                                                 kOnePalletLine, ptlPalletWeighing(60));
         CHECK(result.validation.errors == 0);
         REQUIRE(result.stacking.excludedLines.size() == 1);
         CHECK(result.stacking.excludedLines[0].error == testCase.expectedError);
@@ -296,7 +347,7 @@ TEST_CASE("pipeline: a line left out of stacking makes the run incomplete") {
 
 TEST_CASE("pipeline: an over-height line makes the run incomplete") {
     const PipelineResult result = runOneLine("m2_incomplete_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stackReport.linesNotStacked == 1);
     CHECK_FALSE(isRunComplete(result));
 }
@@ -305,7 +356,7 @@ TEST_CASE("pipeline: demand that converts to no pallets builds no stack and is i
     const std::string eachesLine =
         R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":5.0,"UNITOFMEAS":"EA"})";
     const PipelineResult result = runOneLine("m2_no_stacks", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
-                                             eachesLine, paramsWithPtlWeight(60));
+                                             eachesLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.stacking.zeroQuantityLines == std::vector<std::size_t>{0});
     CHECK(result.stackReport.linesNotStacked == 1);
@@ -318,7 +369,7 @@ const std::string kFiveEachesLine =
 
 TEST_CASE("pipeline: an unsupported unit beside a valid line makes the run incomplete") {
     const PipelineResult result = runOneLine("m2_mixed_units", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine + "," + kFiveEachesLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine + "," + kFiveEachesLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.stackReport.totalFloorPositions == 1.0);
     CHECK_FALSE(result.stackReport.builtNoStacks);
@@ -333,7 +384,7 @@ TEST_CASE("pipeline: an unsupported unit beside a valid line makes the run incom
 
 TEST_CASE("pipeline: an unsupported-unit line is named with its reason in the printed report") {
     const PipelineResult result = runOneLine("m2_mixed_units_report", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine + "," + kFiveEachesLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine + "," + kFiveEachesLine, ptlPalletWeighing(60));
     std::ostringstream out;
     StackReporter::print(result.stackReport, out);
     CHECK(out.str().find("INCOMPLETE: 1 demand line(s) are in no stack") != std::string::npos);
@@ -342,7 +393,7 @@ TEST_CASE("pipeline: an unsupported-unit line is named with its reason in the pr
 
 TEST_CASE("pipeline: a raw-material line the validator skips is reported and makes the run incomplete") {
     const PipelineResult result = runOneLine("m2_raw_material", "P,Raw,0,0,0,5,CS,10,1,1,1,PTL",
-                                             kOnePalletLine, paramsWithPtlWeight(60));
+                                             kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.validation.zero_dimension == 1);
     REQUIRE(result.stackReport.unstackedLines.size() == 1);
@@ -353,7 +404,7 @@ TEST_CASE("pipeline: a raw-material line the validator skips is reported and mak
 TEST_CASE("pipeline: a line rejected by validation is listed among the unstacked lines") {
     const PipelineResult result = runOneLine("m2_rejected_listed", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
         kOnePalletLine + "," + R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"NOT_IN_MASTER","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1.0,"UNITOFMEAS":"PAL"})",
-        paramsWithPtlWeight(60));
+        ptlPalletWeighing(60));
     REQUIRE(result.stackReport.unstackedLines.size() == 1);
     CHECK(result.stackReport.unstackedLines[0].lineIndex == 1);
     CHECK(result.stackReport.unstackedLines[0].matnr == "NOT_IN_MASTER");
@@ -361,7 +412,7 @@ TEST_CASE("pipeline: a line rejected by validation is listed among the unstacked
     CHECK_FALSE(isRunComplete(result));
 }
 
-TEST_CASE("pipeline: the real day is complete and reports its provisional rules") {
+TEST_CASE("pipeline: the real day is complete and reports its provisional rules" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult result = Pipeline::run(realInputs(true));
     CHECK(isRunComplete(result));
     CHECK(result.stackReport.ambiguousPalletLines == 144);

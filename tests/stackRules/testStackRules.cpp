@@ -79,6 +79,89 @@ TEST_CASE("stackRules: unit load uses cases per unit and the pallet spec, not ca
     CHECK(unitLoad.cri == 5);
 }
 
+TEST_CASE("stackRules: a product row's own pallet figures win over the pallet table") {
+    ProductRecord record = product();
+    record.palletWeightLb = 65.0;
+    record.palletHeightIn = 6.0;
+    record.palletFootprintLengthIn = 45.0;
+    record.palletFootprintWidthIn = 34.0;
+    const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
+    REQUIRE(unitLoad.error == UnitLoadError::None);
+    CHECK(unitLoad.heightIn == doctest::Approx(10.0 * 3 + 6.0));
+    CHECK(unitLoad.weightLb == doctest::Approx(9.0 * 12 + 65.0));
+    CHECK(unitLoad.footprintLengthIn == 45.0);
+    CHECK(unitLoad.footprintWidthIn == 34.0);
+}
+
+TEST_CASE("stackRules: a figure the product row leaves blank comes from the pallet table") {
+    ProductRecord record = product();
+    record.palletWeightLb = 65.0;
+    const optional<PalletSpec> pallet = resolvePalletSpec(record, testParams());
+    REQUIRE(pallet);
+    CHECK(pallet->addedWeightLb == 65.0);
+    CHECK(pallet->addedHeightIn == 5.5);
+    CHECK(pallet->footprintLengthIn == 48.0);
+}
+
+TEST_CASE("stackRules: product rows with their own pallet figures need no pallet table") {
+    ProductRecord record = product();
+    record.pallet_id = "WOOD";
+    record.palletWeightLb = 60.0;
+    record.palletHeightIn = 5.0;
+    record.palletFootprintLengthIn = 48.0;
+    record.palletFootprintWidthIn = 40.0;
+    M2Params noTable = testParams();
+    noTable.pallets.clear();
+    CHECK(buildUnitLoad(matchedLine(record), noTable).error == UnitLoadError::None);
+    CHECK(missingPalletIds({matchedLine(record)}, noTable).empty());
+    record.palletHeightIn.reset();
+    CHECK(buildUnitLoad(matchedLine(record), noTable).error == UnitLoadError::MissingPalletSpec);
+    CHECK(missingPalletIds({matchedLine(record)}, noTable) == vector<string>{"WOOD"});
+}
+
+TEST_CASE("stackRules: the 0.1 in placeholder pallet height adds nothing to the stack height") {
+    // As the client's file carries it: 0.1 stored as a float.
+    const double placeholderHeight = 0.10000000149011612;
+    ProductRecord fromRow = product();
+    fromRow.palletHeightIn = placeholderHeight;
+    CHECK(buildUnitLoad(matchedLine(fromRow), testParams()).heightIn == doctest::Approx(30.0));
+
+    M2Params params = testParams();
+    params.pallets[1].addedHeightIn = placeholderHeight;
+    ProductRecord fromTable = product();
+    fromTable.pallet_id = "TLD";
+    CHECK(buildUnitLoad(matchedLine(fromTable), params).heightIn == doctest::Approx(30.0));
+
+    // A product built to exactly the ceiling stays shippable on a placeholder deck.
+    fromTable.height_in = 36.0;
+    CHECK(buildUnitLoad(matchedLine(fromTable), params).heightIn == 108.0);
+
+    ProductRecord realDeck = product();
+    realDeck.palletHeightIn = 0.2;
+    CHECK(buildUnitLoad(matchedLine(realDeck), testParams()).heightIn == doctest::Approx(30.2));
+}
+
+TEST_CASE("stackRules: an unreadable or negative pallet figure is rejected, not replaced by the table") {
+    for (double bad : {kNaN, kInf, -1.0}) {
+        CAPTURE(bad);
+        ProductRecord weightBad = product();
+        weightBad.palletWeightLb = bad;
+        CHECK(buildError(weightBad) == UnitLoadError::InvalidData);
+        ProductRecord heightBad = product();
+        heightBad.palletHeightIn = bad;
+        CHECK(buildError(heightBad) == UnitLoadError::InvalidData);
+        ProductRecord footprintBad = product();
+        footprintBad.palletFootprintWidthIn = bad;
+        CHECK(buildError(footprintBad) == UnitLoadError::InvalidData);
+    }
+    ProductRecord zeroFootprint = product();
+    zeroFootprint.palletFootprintLengthIn = 0.0;
+    CHECK(buildError(zeroFootprint) == UnitLoadError::InvalidData);
+    M2Params params = testParams();
+    params.pallets[0].addedWeightLb = kNaN;
+    CHECK(buildUnitLoad(matchedLine(product()), params).error == UnitLoadError::InvalidData);
+}
+
 TEST_CASE("stackRules: a single-layer unit load carries no weight above itself") {
     ProductRecord record = product();
     record.layers_unit_load = 1;
@@ -257,8 +340,9 @@ TEST_CASE("stackRules: canStack rejects out-of-range CRI and loads that failed c
     CHECK(canStack(failed, load(20, 10, 0, 5), params, kCeilingIn).reason == Reason::InvalidData);
 }
 
-TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling") {
-    const M2Params params = loadParams("config/orderBuilderParams.json");
+TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in ceiling" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    M2Params params = loadParams("config/orderBuilderParams.json");
+    params.pallets = ProductImporter::loadPalletTable(crossDayTests::kPalletTableForOlderMasters);
     const DemandFile file = Importer::load_demand("tests/importer/Demand-1.json");
     const auto products = ProductImporter::load("tests/importer/Customer2-Product-Data.csv");
     const ProductIndex index = Joiner::build_index(products.products);
@@ -282,9 +366,11 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
             if (result.isFeasible) ++passBoth;
         }
     }
+    // With the supplied 6.0 in / 65 lb wood deck. The configured 5.5 in / 60 lb gave 65,295
+    // and 43,021; no group, stack or binding figure moved with it.
     CHECK(pairs == 2016400);
-    CHECK(passHeight == 65295);
-    CHECK(passBoth == 43021);
+    CHECK(passHeight == 65261);
+    CHECK(passBoth == 42854);
 }
 
 namespace {

@@ -1,5 +1,6 @@
 // NOTE: no doctest main define here — main lives in one implementing TU only.
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "validator.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
@@ -38,7 +39,7 @@ int count_rule(const ValidationReport& r, const string& rule) {
 }
 } // namespace
 
-TEST_CASE("clean input produces no errors") {
+TEST_CASE("clean input produces no errors" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
 
@@ -56,7 +57,7 @@ TEST_CASE("clean input produces no errors") {
     CHECK(r.unrecognized_pallet_id == 0);
 }
 
-TEST_CASE("ambiguous pallet-type matches are surfaced as warnings") {
+TEST_CASE("ambiguous pallet-type matches are surfaced as warnings" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
 
@@ -66,7 +67,7 @@ TEST_CASE("ambiguous pallet-type matches are surfaced as warnings") {
     CHECK(r.warnings >= 144);
 }
 
-TEST_CASE("missing mandatory field is an error, and stops further checks") {
+TEST_CASE("missing mandatory field is an error, and stops further checks" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     // Blank out the destination on a copy of a real line.
@@ -80,7 +81,7 @@ TEST_CASE("missing mandatory field is an error, and stops further checks") {
     CHECK(count_rule(r, "missing_fields") == 1);
 }
 
-TEST_CASE("a demand line with a blank SHIP_COND is an error and is excluded") {
+TEST_CASE("a demand line with a blank SHIP_COND is an error and is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     static STRRecord broken = *j.lines[0].str;
@@ -94,7 +95,7 @@ TEST_CASE("a demand line with a blank SHIP_COND is an error and is excluded") {
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("an unrecognised SHIP_COND on a demand line is a warning, not an error") {
+TEST_CASE("an unrecognised SHIP_COND on a demand line is a warning, not an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     static STRRecord odd = *j.lines[0].str;
@@ -108,14 +109,14 @@ TEST_CASE("an unrecognised SHIP_COND on a demand line is a warning, not an error
     CHECK_FALSE(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("the allowed SHIP_COND set is configurable") {
+TEST_CASE("the allowed SHIP_COND set is configurable" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationConfig config;
     config.allowed_ship_cond = {"TL"};
     CHECK(Validator::validate(f.join, {}, config).unknown_ship_cond > 0);   // TF lines now unknown
 }
 
-TEST_CASE("unrecognised unit of measure is a warning, not an error") {
+TEST_CASE("unrecognised unit of measure is a warning, not an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     static STRRecord odd = *j.lines[0].str;
@@ -128,7 +129,7 @@ TEST_CASE("unrecognised unit of measure is a warning, not an error") {
     CHECK(count_rule(r, "unknown_uom") == 1);
 }
 
-TEST_CASE("non-positive quantity is an error") {
+TEST_CASE("non-positive quantity is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     static STRRecord zero = *j.lines[0].str;
@@ -174,7 +175,7 @@ TEST_CASE("a negative infinite quantity is an error and the line is excluded") {
     checkNonFiniteQuantityIsExcluded(-numeric_limits<double>::infinity());
 }
 
-TEST_CASE("a CS line whose product has Cases_Unit_Load 0 is an error") {
+TEST_CASE("a CS line whose product has Cases_Unit_Load 0 is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -227,7 +228,7 @@ TEST_CASE("a DIS line on a zero-Cases_Unit_Load product is an error, its weight 
     checkZeroUnitLoadIsExcluded("DIS");
 }
 
-TEST_CASE("an unknown-UoM line is not also flagged for zero Cases_Unit_Load, it already converts to 0 pallets") {
+TEST_CASE("an unknown-UoM line is not also flagged for zero Cases_Unit_Load, it already converts to 0 pallets" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     static ProductRecord bad_product;
@@ -242,7 +243,7 @@ TEST_CASE("an unknown-UoM line is not also flagged for zero Cases_Unit_Load, it 
     CHECK(Validator::validate(j).zero_unit_load == 0);
 }
 
-TEST_CASE("a negative Cases_Unit_Load is an error, not a silently negative pallet count") {
+TEST_CASE("a negative Cases_Unit_Load is an error, not a silently negative pallet count" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -257,7 +258,7 @@ TEST_CASE("a negative Cases_Unit_Load is an error, not a silently negative palle
     CHECK(count_rule(r, "negative_unit_load") == 1);
 }
 
-TEST_CASE("a non-finite product weight is an error, not a silently NaN total") {
+TEST_CASE("a non-finite product weight is an error, not a silently NaN total" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -272,7 +273,7 @@ TEST_CASE("a non-finite product weight is an error, not a silently NaN total") {
     CHECK(count_rule(r, "invalid_weight") == 1);
 }
 
-TEST_CASE("a negative product weight is an error") {
+TEST_CASE("a negative product weight is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -285,7 +286,7 @@ TEST_CASE("a negative product weight is an error") {
     CHECK(r.invalid_weight == 1);
 }
 
-TEST_CASE("a product weight above the maximum is an invalid_weight error and the line is excluded") {
+TEST_CASE("a product weight above the maximum is an invalid_weight error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -303,7 +304,7 @@ TEST_CASE("a product weight above the maximum is an invalid_weight error and the
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("a product weight exactly at the maximum raises no invalid_weight") {
+TEST_CASE("a product weight exactly at the maximum raises no invalid_weight" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -327,7 +328,7 @@ ValidationReport validateWithFirstProduct(JoinResult& j, const ProductRecord& pr
 
 } // namespace
 
-TEST_CASE("a product with a negative height is an invalid_dimension error") {
+TEST_CASE("a product with a negative height is an invalid_dimension error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -340,7 +341,7 @@ TEST_CASE("a product with a negative height is an invalid_dimension error") {
     CHECK(count_rule(r, "invalid_dimension") == 1);
 }
 
-TEST_CASE("a product with a NaN length is an invalid_dimension error") {
+TEST_CASE("a product with a NaN length is an invalid_dimension error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -353,7 +354,7 @@ TEST_CASE("a product with a NaN length is an invalid_dimension error") {
     CHECK(count_rule(r, "invalid_dimension") == 1);
 }
 
-TEST_CASE("a product with an infinite width is an invalid_dimension error") {
+TEST_CASE("a product with an infinite width is an invalid_dimension error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -366,7 +367,7 @@ TEST_CASE("a product with an infinite width is an invalid_dimension error") {
     CHECK(count_rule(r, "invalid_dimension") == 1);
 }
 
-TEST_CASE("a line with an invalid dimension is excluded by excludedLineFlags") {
+TEST_CASE("a line with an invalid dimension is excluded by excludedLineFlags" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -378,7 +379,7 @@ TEST_CASE("a line with an invalid dimension is excluded by excludedLineFlags") {
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("a zero dimension is still a zero_dimension warning, not invalid_dimension") {
+TEST_CASE("a zero dimension is still a zero_dimension warning, not invalid_dimension" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -392,7 +393,7 @@ TEST_CASE("a zero dimension is still a zero_dimension warning, not invalid_dimen
     CHECK(count_rule(r, "invalid_dimension") == 0);
 }
 
-TEST_CASE("a product with a negative Layers_Unit_Load is an invalid_layer_data error") {
+TEST_CASE("a product with a negative Layers_Unit_Load is an invalid_layer_data error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -405,7 +406,7 @@ TEST_CASE("a product with a negative Layers_Unit_Load is an invalid_layer_data e
     CHECK(count_rule(r, "invalid_layer_data") == 1);
 }
 
-TEST_CASE("a product with a zero Cases_Layer is an invalid_layer_data error") {
+TEST_CASE("a product with a zero Cases_Layer is an invalid_layer_data error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -418,7 +419,7 @@ TEST_CASE("a product with a zero Cases_Layer is an invalid_layer_data error") {
     CHECK(count_rule(r, "invalid_layer_data") == 1);
 }
 
-TEST_CASE("a line with invalid layer data is excluded by excludedLineFlags") {
+TEST_CASE("a line with invalid layer data is excluded by excludedLineFlags" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -430,14 +431,14 @@ TEST_CASE("a line with invalid layer data is excluded by excludedLineFlags") {
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("the supplied fixtures raise no invalid_layer_data") {
+TEST_CASE("the supplied fixtures raise no invalid_layer_data" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
     CHECK(r.invalid_layer_data == 0);
     CHECK(count_rule(r, "invalid_layer_data") == 0);
 }
 
-TEST_CASE("an unreadable Strength raises invalid_strength") {
+TEST_CASE("an unreadable Strength raises invalid_strength" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -450,7 +451,7 @@ TEST_CASE("an unreadable Strength raises invalid_strength") {
     CHECK(count_rule(r, "invalid_strength") == 1);
 }
 
-TEST_CASE("a Strength above 10 raises invalid_strength") {
+TEST_CASE("a Strength above 10 raises invalid_strength" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -463,7 +464,7 @@ TEST_CASE("a Strength above 10 raises invalid_strength") {
     CHECK(count_rule(r, "invalid_strength") == 1);
 }
 
-TEST_CASE("a Strength of 0 and of 10 raise no invalid_strength") {
+TEST_CASE("a Strength of 0 and of 10 raise no invalid_strength" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -477,7 +478,7 @@ TEST_CASE("a Strength of 0 and of 10 raise no invalid_strength") {
     }
 }
 
-TEST_CASE("a product with a blank UoM raises blank_uom_product") {
+TEST_CASE("a product with a blank UoM raises blank_uom_product" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -494,7 +495,7 @@ TEST_CASE("a product with a blank UoM raises blank_uom_product") {
     CHECK(Validator::excludedLineFlags(rep, 1) == vector<bool>{false});
 }
 
-TEST_CASE("a whitespace-only product UoM also raises blank_uom_product") {
+TEST_CASE("a whitespace-only product UoM also raises blank_uom_product" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -524,7 +525,7 @@ ValidationReport validateWithFirstQuantity(JoinResult& j, double trans) {
 
 } // namespace
 
-TEST_CASE("a TRANS above the maximum is an excessive_quantity error and the line is excluded") {
+TEST_CASE("a TRANS above the maximum is an excessive_quantity error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].matched);
@@ -535,7 +536,7 @@ TEST_CASE("a TRANS above the maximum is an excessive_quantity error and the line
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("a TRANS exactly at the maximum raises no excessive_quantity") {
+TEST_CASE("a TRANS exactly at the maximum raises no excessive_quantity" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].matched);
@@ -545,14 +546,14 @@ TEST_CASE("a TRANS exactly at the maximum raises no excessive_quantity") {
     CHECK(count_rule(r, "excessive_quantity") == 0);
 }
 
-TEST_CASE("the supplied fixtures raise no excessive_quantity") {
+TEST_CASE("the supplied fixtures raise no excessive_quantity" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
     CHECK(r.excessive_quantity == 0);
     CHECK(count_rule(r, "excessive_quantity") == 0);
 }
 
-TEST_CASE("an unrecognized Pallet_ID is a warning, not silently 'no wood'") {
+TEST_CASE("an unrecognized Pallet_ID is a warning, not silently 'no wood'" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -567,7 +568,7 @@ TEST_CASE("an unrecognized Pallet_ID is a warning, not silently 'no wood'") {
     CHECK(r.errors == 0);   // a data-quality warning, never blocks the run
 }
 
-TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning") {
+TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -627,7 +628,7 @@ TEST_CASE("a placeholder loaded with a fractional NO_OF_LOADS is flagged by the 
     CHECK(r.negative_load_count == 1);
 }
 
-TEST_CASE("a product whose Weight cell was unreadable is an invalid_weight error and the line is excluded") {
+TEST_CASE("a product whose Weight cell was unreadable is an invalid_weight error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     const string path = "tests/importer/_tmp_validator_weight.csv";
     {
         ofstream out(path);
@@ -746,7 +747,7 @@ TEST_CASE("a DNM entry with a blank LOCFRNO raises invalid_do_not_mix_pair") {
     CHECK(count_rule(r, "invalid_do_not_mix_pair") == 1);
 }
 
-TEST_CASE("the supplied DNM block raises no invalid_do_not_mix_pair") {
+TEST_CASE("the supplied DNM block raises no invalid_do_not_mix_pair" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
     REQUIRE_FALSE(demand.dnm.empty());
 
@@ -823,7 +824,7 @@ TEST_CASE("a demand line loaded with a wrong-type PLANNER_SNP at a do-not-mix si
     CHECK(r.blankPlannerAtDoNotMixSite == 1);
 }
 
-TEST_CASE("the supplied fixtures raise no blank_planner_at_do_not_mix_site") {
+TEST_CASE("the supplied fixtures raise no blank_planner_at_do_not_mix_site" * doctest::skip(!crossDayTests::august17Present())) {
     const DemandFile demand = Importer::load_demand(DEMAND_PATH);
 
     ValidationReport r;
@@ -846,7 +847,7 @@ TEST_CASE("a well-formed placeholder produces no validation issues") {
     CHECK(r.issues.empty());
 }
 
-TEST_CASE("large-line warning message rounds rather than truncates") {
+TEST_CASE("large-line warning message rounds rather than truncates" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     vector<double> pallets(f.join.lines.size(), 300.97);
 
@@ -866,7 +867,7 @@ TEST_CASE("large-line warning message rounds rather than truncates") {
     CHECK(found);
 }
 
-TEST_CASE("unmatched product is an error and the line survives") {
+TEST_CASE("unmatched product is an error and the line survives" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     j.lines[0].matched = false;
@@ -878,13 +879,13 @@ TEST_CASE("unmatched product is an error and the line survives") {
     CHECK(j.lines.size() == f.join.lines.size());   // nothing dropped
 }
 
-TEST_CASE("pallet threshold is skipped when no pallet figures are supplied") {
+TEST_CASE("pallet threshold is skipped when no pallet figures are supplied" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);   // no pallets passed
     CHECK(r.over_pallet_threshold == 0);
 }
 
-TEST_CASE("pallet threshold flags large lines as warnings, never errors") {
+TEST_CASE("pallet threshold flags large lines as warnings, never errors" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     // Give every line a pallet count above any sane threshold.
     vector<double> pallets(f.join.lines.size(), 500.0);
@@ -898,7 +899,7 @@ TEST_CASE("pallet threshold flags large lines as warnings, never errors") {
     CHECK(count_rule(r, "large_line") == static_cast<int>(f.join.lines.size()));
 }
 
-TEST_CASE("pallet threshold is configurable") {
+TEST_CASE("pallet threshold is configurable" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     vector<double> pallets(f.join.lines.size(), 100.0);
 
@@ -910,7 +911,7 @@ TEST_CASE("pallet threshold is configurable") {
     CHECK(Validator::validate(f.join, pallets, high).over_pallet_threshold == 0);
 }
 
-TEST_CASE("every issue carries a traceable line index and rule name") {
+TEST_CASE("every issue carries a traceable line index and rule name" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
     for (const auto& i : r.issues) {
@@ -920,7 +921,7 @@ TEST_CASE("every issue carries a traceable line index and rule name") {
     }
 }
 
-TEST_CASE("a line for product 106052500, real dimensions but zero case counts, is rejected in every unit") {
+TEST_CASE("a line for product 106052500, real dimensions but zero case counts, is rejected in every unit" * doctest::skip(!crossDayTests::august17Present())) {
     string unitOfMeasure;
     SUBCASE("CS") { unitOfMeasure = "CS"; }
     SUBCASE("PAL") { unitOfMeasure = "PAL"; }
@@ -944,7 +945,7 @@ TEST_CASE("a line for product 106052500, real dimensions but zero case counts, i
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
 }
 
-TEST_CASE("a line for a blank shell product row is rejected") {
+TEST_CASE("a line for a blank shell product row is rejected" * doctest::skip(!crossDayTests::august17Present())) {
     const string path = "tests/importer/_tmp_validator_shell.csv";
     {
         ofstream out(path);
@@ -965,4 +966,45 @@ TEST_CASE("a line for a blank shell product row is rejected") {
     const ValidationReport r = Validator::validate(j);
     CHECK(r.errors > 0);
     CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("a placeholder ZZNA_EQUIP_SIZE outside the expected set is a warning; blank and 53F pass") {
+    vector<PlaceholderRecord> placeholders(3);
+    for (auto& placeholder : placeholders) {
+        placeholder.locfrno = "2023";
+        placeholder.loctono = "2528";
+        placeholder.ship_cond = "TL";
+        placeholder.no_of_loads = 1;
+    }
+    placeholders[0].zzna_equip_size = "53F";
+    placeholders[1].zzna_equip_size = "";
+    placeholders[2].zzna_equip_size = "48F";
+
+    ValidationReport r;
+    Validator::validate_placeholders(placeholders, r);
+    CHECK(r.unknownEquipSize == 1);
+    CHECK(r.warnings == 1);
+    CHECK(r.errors == 0);
+    REQUIRE(r.issues.size() == 1);
+    CHECK(r.issues[0].rule == "unknown_equip_size");
+    CHECK(r.issues[0].placeholder_index == 2);
+
+    ValidationConfig config;
+    config.allowedEquipSizes.push_back("48F");
+    ValidationReport configured;
+    Validator::validate_placeholders(placeholders, configured, config);
+    CHECK(configured.unknownEquipSize == 0);
+}
+
+TEST_CASE("a placeholder ZZNA_EQUIP_SIZE of the wrong JSON type is flagged, not read as blank") {
+    const string path = "tests/importer/_tmp_validator_equip.json";
+    ofstream(path) << R"({"PHOLDER":[{"LOCFRNO":"2023","LOCTONO":"2528","SHIP_COND":"TL","NO_OF_LOADS":1,"ZZNA_EQUIP_SIZE":53}]})";
+    const PlaceholderLoadResult loaded = PlaceholderImporter::load(path);
+    remove(path.c_str());
+    REQUIRE(loaded.placeholders.size() == 1);
+    CHECK(loaded.placeholders[0].zzna_equip_size == "53");
+
+    ValidationReport r;
+    Validator::validate_placeholders(loaded.placeholders, r);
+    CHECK(r.unknownEquipSize == 1);
 }

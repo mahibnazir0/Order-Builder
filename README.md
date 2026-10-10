@@ -49,7 +49,7 @@ every module implementation.
 
 ```
 order_builder --product <csv> --demand <json> --placeholder <json>
-              [--params <json>] [--trailer <code>] [--groups N]
+              [--params <json>] [--pallets <csv>] [--trailer <code>] [--groups N]
               [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
 ```
 
@@ -59,6 +59,7 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--demand <path>` | yes | Demand extract JSON (STR / CTL / DNM blocks) |
 | `--placeholder <path>` | yes | Placeholder JSON (trucks requested per lane) |
 | `--params <path>` | no | Params JSON (for example `config/orderBuilderParams.json`). Turns on the Milestone 2 report: segregation groups, cube/weight limit per group, and stacks |
+| `--pallets <path>` | with `--params`, for masters without `Pallet_*` columns | Pallet table CSV (`Customer2-Pallet-Data.csv`): weight, height and footprint per pallet type. A product row's own `Pallet_Weight`, `Pallet_Height` and `Pallet_Footprint_*` win over it |
 | `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the first one listed |
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
@@ -84,13 +85,14 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | 0 | Ran successfully and covered all of the demand |
-| 1 | Ran, but the result is incomplete: validation found errors in the data, or (with `--params`) a line that passed validation is in no stack — it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type with no spec in the params file), a single pallet is taller than the trailer ceiling, or its quantity is invalid — or demand was supplied but no stack was built |
+| 1 | Ran, but the result is incomplete: validation found errors in the data, or (with `--params`) a line that passed validation is in no stack — it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type whose weight, height and footprint neither the product master nor the pallet table gives), a single pallet is taller than the trailer ceiling, or its quantity is invalid — or demand was supplied but no stack was built |
 | 2 | Could not run — a missing argument or an unreadable file |
 
 The Milestone 2 report states the outcome on its `Result` line, and each line left
 out of stacking is logged with its MATNR and the reason. Validation *warnings* do not
 affect the exit code. A clean run of the current
-sample data exits 0 with 161 warnings.
+sample data exits 0 with 161 warnings, or 163 with `--params`: Milestone 2 adds the two
+lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
 
 ## Test data
 
@@ -198,6 +200,9 @@ threshold, defaulting to 300 pallets, which flags lines for review and never
 blocks a run. They appear in the warnings section as `large_line` — 17 lines in
 the current sample. A business rule would replace the threshold.
 
-**Wood pallet weight.** Weight assumes 60 lb for a physical wood pallet (PTL and
-PGM; TLD and GMA add nothing). That figure is a documented assumption rather than
-a supplied one, and is a named parameter so it can be corrected in one place.
+**Wood pallet weight.** The Milestone 1 totals assume 60 lb for a physical wood
+pallet (PTL and PGM; TLD and GMA add nothing), so the published M1 figures stay
+reproducible. Milestone 2 does not use that figure: every stack, CRI check, group
+weight and cube/weight decision weighs the pallet from the supplied data — the
+product row's `Pallet_*` columns, or the pallet table given with `--pallets` — so a
+client with different pallets needs no code or config change.

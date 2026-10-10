@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../importer/crossDayFixtures.hpp"
 #include "paramsLoader.hpp"
 #include "pipeline.hpp"
 #include "segregation.hpp"
@@ -162,13 +163,14 @@ TEST_CASE("stackReporter: results for different groups are rejected") {
                                          inputs.params), invalid_argument);
 }
 
-TEST_CASE("stackReporter: real demand report states the segregation and binding counts") {
+TEST_CASE("stackReporter: real demand report states the segregation and binding counts" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     PipelineInputs pipelineInputs;
     pipelineInputs.product_path = "tests/importer/Customer2-Product-Data.csv";
     pipelineInputs.demand_path = "tests/importer/Demand-1.json";
     pipelineInputs.placeholder_path = "tests/importer/PlaceHolder-1.json";
     const PipelineResult run = Pipeline::run(pipelineInputs);
-    const M2Params params = loadParams("config/orderBuilderParams.json");
+    M2Params params = loadParams("config/orderBuilderParams.json");
+    params.pallets = ProductImporter::loadPalletTable(crossDayTests::kPalletTableForOlderMasters);
     const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
                                        vector<bool>(run.join.lines.size(), false));
     const auto binding = assessBinding(segregation, run.pallets_per_line, run.weight_per_line,

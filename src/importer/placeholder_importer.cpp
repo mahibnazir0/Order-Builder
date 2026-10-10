@@ -16,6 +16,14 @@ using json = nlohmann::json;
 
 namespace {
 
+// A non-string value is kept as its JSON text, so the Validator reports it as an unknown
+// size rather than it reading as blank, which means "any trailer".
+string equipSize(const json& j) {
+    const auto it = j.find("ZZNA_EQUIP_SIZE");
+    if (it == j.end() || it->is_null()) return "";
+    return it->is_string() ? it->get<string>() : it->dump();
+}
+
 PlaceholderRecord parse_placeholder(const json& j) {
     PlaceholderRecord p;
     p.locfrno         = get_or<string>(j, "LOCFRNO", "");
@@ -23,7 +31,7 @@ PlaceholderRecord parse_placeholder(const json& j) {
     p.ship_cond       = get_or<string>(j, "SHIP_COND", "");
     p.datfr_ta        = get_or<string>(j, "DATFR_TA", "");
     p.datto_ta        = get_or<string>(j, "DATTO_TA", "");
-    p.zzna_equip_size = get_or<string>(j, "ZZNA_EQUIP_SIZE", "");
+    p.zzna_equip_size = equipSize(j);
     p.no_of_loads     = getIntegerOr(j, "NO_OF_LOADS", kUnreadableLoadCount);
     p.ebeln           = get_or<string>(j, "EBELN", "");
     return p;
