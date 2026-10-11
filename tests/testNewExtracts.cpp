@@ -115,7 +115,7 @@ TEST_CASE("new extracts: cube/weight split matches the measured figures" * docte
 
 TEST_CASE("new extracts: every demand line is stacked, none over-height or over its own CRI" * doctest::skip(kNoNewExtracts)) {
     forEachPresentDay([](size_t, const PipelineResult& result) {
-        CHECK(isRunComplete(result));
+        CHECK(runOutcome(result) == RunOutcome::FloorNotComputed);
         CHECK(result.missingPalletIds.empty());
         CHECK(result.stackReport.unstackedLines.empty());
         CHECK(result.stacking.overHeightLines.empty());

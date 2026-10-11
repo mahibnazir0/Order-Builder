@@ -258,6 +258,13 @@ TEST_CASE("stackRules: missing pallet ids are exact, distinct, sorted and collec
     CHECK(missingPalletIds(lines, testParams()) == expected);
 }
 
+TEST_CASE("stackRules: a blank pallet id is not a missing pallet type") {
+    ProductRecord blank = product();
+    blank.pallet_id = "";
+    CHECK(missingPalletIds({matchedLine(blank)}, testParams()).empty());
+    CHECK(buildUnitLoad(matchedLine(blank), testParams()).error == UnitLoadError::MissingPalletSpec);
+}
+
 TEST_CASE("stackRules: height exactly at the ceiling passes and just over it fails") {
     const M2Params params = testParams();
     CHECK(canStack(load(54, 10, 0, 5), load(54, 10, 0, 5), params, kCeilingIn).isFeasible);
@@ -435,16 +442,16 @@ PairPassCounts sampledPairCounts(const vector<JoinedLine>& lines, const M2Params
 } // namespace
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
-    constexpr std::size_t everyNth = 10;
+    constexpr size_t everyNth = 10;
     // Measured by this test on 27 Sep 2026 with the deck counted (Included), and on 10 Oct
     // 2026 under the shipped Excluded; 17 Aug is also anchored exhaustively above. The
     // pallet table's 65 lb wood deck moved 03 Sep's Excluded passBoth from 537 (at 60 lb).
-    const crossDayTests::PerDay<std::size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<std::size_t> passHeight{492, 625, 494, 853};
-    const crossDayTests::PerDay<std::size_t> passBoth{313, 408, 341, 536};
+    const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
+    const crossDayTests::PerDay<size_t> passHeight{492, 625, 494, 853};
+    const crossDayTests::PerDay<size_t> passBoth{313, 408, 341, 536};
     const crossDayTests::PerDay<size_t> passHeightWithDeck{484, 625, 484, 841};
     const crossDayTests::PerDay<size_t> passBothWithDeck{308, 408, 334, 531};
-    for (std::size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
+    for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
@@ -460,7 +467,7 @@ TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 i
         const PairPassCounts deckCounts = sampledPairCounts(run.join.lines, withDeck, everyNth);
         CHECK(deckCounts.passHeight == passHeightWithDeck[dayIndex]);
         CHECK(deckCounts.passBoth == passBothWithDeck[dayIndex]);
-        std::cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
+        cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs
                   << " passHeight=" << counts.passHeight << " passBoth=" << counts.passBoth << '\n';

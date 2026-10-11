@@ -3,6 +3,8 @@
 
 #include <cmath>
 
+using namespace std;
+
 namespace ob {
 
 double Converter::inches_to_cm(double inches) {
@@ -23,19 +25,19 @@ DimensionsCm Converter::to_cm(const ProductRecord& product) {
 
 double Converter::round_pallets(double pallets, PalletRounding rounding) {
     switch (rounding) {
-        case PalletRounding::Floor: return std::floor(pallets);
-        case PalletRounding::Ceil:  return std::ceil(pallets);
+        case PalletRounding::Floor: return floor(pallets);
+        case PalletRounding::Ceil:  return ceil(pallets);
         case PalletRounding::None:  break;
     }
     return pallets;
 }
 
-bool Converter::isConvertibleUom(const std::string& uom) {
+bool Converter::isConvertibleUom(const string& uom) {
     return uom == "CS" || uom == "PAL" || uom == "DIS";
 }
 
 double Converter::to_pallets(double trans,
-                             const std::string& uom,
+                             const string& uom,
                              const ProductRecord& product,
                              PalletRounding rounding) {
     if (uom == "CS") {
@@ -59,7 +61,7 @@ double Converter::to_pallets(double trans,
 }
 
 double Converter::to_weight_lb(double pallets, const ProductRecord& product,
-                               const std::vector<PalletSpec>& palletSpecs) {
+                               const vector<PalletSpec>& palletSpecs) {
     // Weight in the master is per CASE, so a unit load is the case weight
     // times the number of cases on it.
     const double unit_load_lb =

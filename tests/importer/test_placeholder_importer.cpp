@@ -104,6 +104,15 @@ TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
     remove(path.c_str());
 }
 
+TEST_CASE("a demand extract read as the placeholder file throws naming the file") {
+    const string path = "tests/importer/_tmp_pholder_is_demand.json";
+    ofstream(path) << R"({"REQUEST_ID":"t","STR":[]})";
+    CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
+                         doctest::Contains((path + " has no PHOLDER block but has an STR block").c_str()),
+                         runtime_error);
+    remove(path.c_str());
+}
+
 namespace {
 
 // Loads a one-entry placeholder file whose entry is the given JSON object text.

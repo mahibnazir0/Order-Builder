@@ -56,7 +56,7 @@ partial pallet should be treated as full height.
 
 **Rule (implemented).** A run is complete only when every demand line is in a stack. Any
 line that is not, for whatever reason, is listed in the report by line number and material
-with its reason, the run is reported `INCOMPLETE`, and the program exits with code 1. This
+with its reason, the run is reported `INCOMPLETE`, and the program exits with code 3. This
 holds even when every other line stacks successfully.
 
 Reasons a line can be left out:
@@ -76,7 +76,7 @@ Reasons a line can be left out:
       line 1, material GOOD: unit of measure 'EA' cannot be converted to pallets (supported: CS, PAL, DIS)
 ```
 
-Exit code 1. The PAL line is still stacked and shown, so the planner sees both the partial
+Exit code 3. The PAL line is still stacked and shown, so the planner sees both the partial
 result and what is missing.
 
 ---
@@ -254,6 +254,6 @@ any method should be added or dropped; the tie-break; and the Try Hard attempt c
 | 5 | DNM reading: `Strict`, with each flagged planner on its own, including the three at site 2028 | `Strict` | Config change (`FlaggedVsNormal`) |
 | 6 | Definitions of the five stacking methods and the tie-break | As in section 5 | Contained to `stackBuilder` |
 | 7 | Try Hard attempt cap | 4 | Config change |
-| 8 | A run with any unstacked demand line is `INCOMPLETE` (exit 1) | Yes | — |
+| 8 | A run with any unstacked demand line is `INCOMPLETE` (exit 3) | Yes | — |
 | 9 | A product over its own CRI limit ships single-high with a warning | Yes | Reject instead: one rule in `stackBuilder` |
 | 10 | Placeholder entries repeating a lane are summed per lane | Yes, counted in the log | De-duplicate or overwrite: placeholder importer |

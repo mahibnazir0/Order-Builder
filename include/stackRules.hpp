@@ -28,8 +28,8 @@ double unitLoadHeightIn(const ProductRecord& product, const PalletSpec& pallet,
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
                        std::optional<double> suppliedWeightAboveLb = std::nullopt);
 
-// Pallet ids of matched lines whose pallet figures neither the product row nor the pallet
-// table supplies, sorted and unique.
+// Non-blank pallet ids of matched lines whose pallet figures neither the product row nor
+// the pallet table supplies, sorted and unique. A blank id is left to the per-line rejection.
 // Call once over the joined demand and report every id, before building unit loads.
 std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
                                           const M2Params& params);

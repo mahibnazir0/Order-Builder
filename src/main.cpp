@@ -13,17 +13,20 @@
 // --demand-rule: which demand counts toward the day has no default.
 //
 // Without --params only Milestone 1 runs: the report then says no truck floor
-// was computed, so a forgotten --params is never read as a floor of nothing.
+// was computed and the run exits 6, so a forgotten --params is never read as a
+// floor of nothing, by a person or by a script.
 //
-// Exit codes:
-//   0  ran successfully, no validation errors
-//   1  ran, but the result does not cover all of the demand: validation found
-//      errors, or (with --params) a line that passed validation is in no stack
-//      (no unit load, taller than the ceiling, bad quantity) or no stack was built,
-//      or the floor left out a selected line or could not judge a line's date,
-//      or the demand rule selected no line of a non-empty extract
+// Exit codes (when several apply, the lowest code wins):
+//   0  ran successfully: every line validated, stacked and counted toward the floor
+//   1  validation found errors
 //   2  could not run (missing argument, unreadable file, invalid demand rule,
-//      a --groups or --lanes value that is not a whole number of 0 or more)
+//      a --groups or --lanes value that is not a whole number of 0 or more,
+//      or --demand and --placeholder naming the same file)
+//   3  a line that passed validation is in no stack (no unit load, taller than
+//      the ceiling, bad quantity), or no stack was built
+//   4  the floor left out a selected line, or could not judge a line's date
+//   5  the demand rule selected no line of a non-empty extract
+//   6  no floor was computed: --params was not given
 // ============================================================================
 
 #include "demandSelector.hpp"
@@ -39,7 +42,7 @@ using namespace std;
 
 namespace {
 
-void print_usage(std::ostream& out) {
+void print_usage(ostream& out) {
     out <<
         "Order Builder - Milestones 1, 2 and 3\n"
         "\n"
@@ -72,19 +75,21 @@ void print_usage(std::ostream& out) {
         "  --debug               Verbose logging\n"
         "  --help                Show this message\n"
         "\n"
-        "Exit codes:\n"
-        "  0  success, no validation errors\n"
-        "  1  incomplete: validation errors, or a line is in no stack (see Result),\n"
-        "     or left out of the floor or undated under the demand rule, or the rule\n"
-        "     selected no line at all (see section B)\n"
-        "  2  could not run\n";
+        "Exit codes (when several apply, the lowest code wins):\n"
+        "  0  success: every line validated, stacked and counted toward the floor\n"
+        "  1  validation errors\n"
+        "  2  could not run\n"
+        "  3  a line is in no stack (see Result)\n"
+        "  4  a line was left out of the floor or undated under the demand rule (see section B)\n"
+        "  5  the demand rule selected no line at all\n"
+        "  6  no floor computed: --params was not given\n";
 }
 
 // Returns the value following `flag`, or an empty string if it is absent.
 // Reports a missing value rather than reading past the end of argv.
-bool take_value(int argc, char** argv, int& i, const char* flag, std::string& out) {
+bool take_value(int argc, char** argv, int& i, const char* flag, string& out) {
     if (i + 1 >= argc) {
-        LOG_ERROR(std::string(flag) + " needs a value");
+        LOG_ERROR(string(flag) + " needs a value");
         return false;
     }
     out = argv[++i];
@@ -132,10 +137,10 @@ int main(int argc, char** argv) {
 
     // ── Parse arguments ─────────────────────────────────────────────────────
     for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
+        const string arg = argv[i];
 
         if (arg == "--help" || arg == "-h") {
-            print_usage(std::cout);
+            print_usage(cout);
             return 0;
         } else if (arg == "--debug") {
             debug = true;
@@ -166,7 +171,7 @@ int main(int argc, char** argv) {
             if (!parse_count("--lanes", value, max_lanes)) return 2;
         } else {
             LOG_ERROR("unrecognised option '" + arg + "'");
-            print_usage(std::cerr);
+            print_usage(cerr);
             return 2;
         }
     }
@@ -175,7 +180,7 @@ int main(int argc, char** argv) {
     if (inputs.product_path.empty() || inputs.demand_path.empty()
         || inputs.placeholder_path.empty()) {
         LOG_ERROR("--product, --demand and --placeholder are all required");
-        print_usage(std::cerr);
+        print_usage(cerr);
         return 2;
     }
 
@@ -203,10 +208,10 @@ int main(int argc, char** argv) {
     try {
         const ob::PipelineResult result = ob::Pipeline::run(inputs);
 
-        ob::Reporter::print_summary(result.summary, std::cout, max_lanes);
-        ob::Reporter::print_warnings(result.validation, std::cout);
+        ob::Reporter::print_summary(result.summary, cout, max_lanes);
+        ob::Reporter::print_warnings(result.validation, cout);
         if (result.ranMilestone2) {
-            ob::StackReporter::print(result.stackReport, std::cout,
+            ob::StackReporter::print(result.stackReport, cout,
                                      static_cast<size_t>(max_groups));
         }
         if (result.ranFloor) {
@@ -217,9 +222,9 @@ int main(int argc, char** argv) {
             print_floor_not_computed(cout);
         }
 
-        return ob::isRunComplete(result) ? 0 : 1;
+        return static_cast<int>(ob::runOutcome(result));
 
-    } catch (const std::exception& e) {
+    } catch (const exception& e) {
         LOG_ERROR(e.what());
         return 2;
     }

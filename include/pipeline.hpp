@@ -107,11 +107,23 @@ struct PipelineResult {
     FloorPlan floorPlan;
 };
 
-// True when the run covered all of its demand: no validation errors; when M2 ran, every
-// demand line ended up in a stack; and when the floor ran, the demand rule selected at least
-// one line of a non-empty extract, could judge every line's date, and no selected line was
-// left out of the floor. main() exits 1 otherwise.
-bool isRunComplete(const PipelineResult& result);
+// How a run that finished turned out; main() exits with the value, so each shortfall has a
+// code of its own. 2 is main's "could not run" and is never returned here. When several
+// shortfalls hold, the lowest code wins.
+enum class RunOutcome {
+    Complete = 0,
+    ValidationErrors = 1,
+    // Milestone 2 ran and a line that passed validation is in no stack, or no stack was built.
+    LinesNotStacked = 3,
+    // The floor left out a selected line, or the rule could not judge a line's date.
+    FloorIncomplete = 4,
+    // The demand rule selected no line of a non-empty extract: usually a mistyped date.
+    NothingSelected = 5,
+    // No floor was planned, so the run says nothing about trucks.
+    FloorNotComputed = 6,
+};
+
+RunOutcome runOutcome(const PipelineResult& result);
 
 class Pipeline {
 public:

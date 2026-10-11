@@ -84,14 +84,20 @@ Exit codes:
 
 | Code | Meaning |
 |---|---|
-| 0 | Ran successfully and covered all of the demand |
-| 1 | Ran, but the result is incomplete: validation found errors in the data, or (with `--params`) a line that passed validation is in no stack — it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type whose weight, height and footprint neither the product master nor the pallet table gives), a single pallet is taller than the trailer ceiling, or its quantity is invalid — or demand was supplied but no stack was built |
-| 2 | Could not run — a missing argument or an unreadable file |
+| 0 | Ran successfully: every line validated, stacked and counted toward the floor |
+| 1 | Validation found errors in the data |
+| 2 | Could not run: a missing argument, an unreadable file, an invalid demand rule, or `--demand` and `--placeholder` naming the same file |
+| 3 | A line that passed validation is in no stack: it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type whose weight, height and footprint neither the product master nor the pallet table gives), a single pallet is taller than the trailer ceiling, or its quantity is invalid; or demand was supplied but no stack was built |
+| 4 | The floor left out a selected line, or the demand rule could not judge a line's date |
+| 5 | The demand rule selected no line of a non-empty extract |
+| 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
+
+When several apply, the lowest code wins.
 
 The Milestone 2 report states the outcome on its `Result` line, and each line left
 out of stacking is logged with its MATNR and the reason. Validation *warnings* do not
-affect the exit code. A clean run of the current
-sample data exits 0 with 161 warnings, or 163 with `--params`: Milestone 2 adds the two
+affect the exit code. The current sample data has 161 warnings without `--params`
+(exit 6) and 163 with it (exit 0): Milestone 2 adds the two
 lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
 
 ## Test data

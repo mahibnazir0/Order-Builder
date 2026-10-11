@@ -4,6 +4,8 @@
 #include <sstream>
 #include <string>
 
+using namespace std;
+
 using namespace ob;
 using namespace crossDayTests;
 
@@ -11,8 +13,8 @@ namespace {
 
 // Exact comparison throughout, doubles included: the same input must give the same
 // bits, not merely close figures. Two different stack sets can share a floor total.
-std::size_t segregationDifferences(const SegregationResult& first, const SegregationResult& second) {
-    std::size_t differences = 0;
+size_t segregationDifferences(const SegregationResult& first, const SegregationResult& second) {
+    size_t differences = 0;
     if (first.linesIn != second.linesIn || first.linesSegregated != second.linesSegregated
         || first.lanesIn != second.lanesIn || first.lanesSplit != second.lanesSplit
         || first.doNotMixPairsLoaded != second.doNotMixPairsLoaded
@@ -20,7 +22,7 @@ std::size_t segregationDifferences(const SegregationResult& first, const Segrega
         || first.groups.size() != second.groups.size()) {
         return 1;
     }
-    for (std::size_t i = 0; i < first.groups.size(); ++i) {
+    for (size_t i = 0; i < first.groups.size(); ++i) {
         const auto& a = first.groups[i];
         const auto& b = second.groups[i];
         if (a.key.locationFrom != b.key.locationFrom || a.key.locationTo != b.key.locationTo
@@ -33,15 +35,15 @@ std::size_t segregationDifferences(const SegregationResult& first, const Segrega
     return differences;
 }
 
-std::size_t bindingDifferences(const BindingResult& first, const BindingResult& second) {
+size_t bindingDifferences(const BindingResult& first, const BindingResult& second) {
     if (first.cubeBoundGroups != second.cubeBoundGroups
         || first.weightBoundGroups != second.weightBoundGroups
         || first.excludedInvalidLines != second.excludedInvalidLines
         || first.groups.size() != second.groups.size()) {
         return 1;
     }
-    std::size_t differences = 0;
-    for (std::size_t i = 0; i < first.groups.size(); ++i) {
+    size_t differences = 0;
+    for (size_t i = 0; i < first.groups.size(); ++i) {
         const auto& a = first.groups[i];
         const auto& b = second.groups[i];
         if (a.binding != b.binding || a.totalPallets != b.totalPallets
@@ -58,7 +60,7 @@ bool sameStacks(const StackSet& a, const StackSet& b) {
         || a.heaviestStackLb != b.heaviestStackLb || a.stacks.size() != b.stacks.size()) {
         return false;
     }
-    for (std::size_t i = 0; i < a.stacks.size(); ++i) {
+    for (size_t i = 0; i < a.stacks.size(); ++i) {
         if (a.stacks[i].lineIndices != b.stacks[i].lineIndices
             || a.stacks[i].quantity != b.stacks[i].quantity) {
             return false;
@@ -67,23 +69,23 @@ bool sameStacks(const StackSet& a, const StackSet& b) {
     return true;
 }
 
-bool sameOutcomes(const std::vector<MethodOutcome>& a, const std::vector<MethodOutcome>& b) {
+bool sameOutcomes(const vector<MethodOutcome>& a, const vector<MethodOutcome>& b) {
     if (a.size() != b.size()) return false;
-    for (std::size_t i = 0; i < a.size(); ++i) {
+    for (size_t i = 0; i < a.size(); ++i) {
         if (a[i].method != b[i].method || a[i].floorPositions != b[i].floorPositions) return false;
     }
     return true;
 }
 
-std::size_t stackingDifferences(const StackingResult& first, const StackingResult& second) {
+size_t stackingDifferences(const StackingResult& first, const StackingResult& second) {
     if (first.excludedLines.size() != second.excludedLines.size()
         || first.invalidQuantityLines != second.invalidQuantityLines
         || first.zeroQuantityLines != second.zeroQuantityLines
         || first.groups.size() != second.groups.size()) {
         return 1;
     }
-    std::size_t differences = 0;
-    for (std::size_t i = 0; i < first.groups.size(); ++i) {
+    size_t differences = 0;
+    for (size_t i = 0; i < first.groups.size(); ++i) {
         if (!sameStacks(first.groups[i].best, second.groups[i].best)
             || !sameOutcomes(first.groups[i].outcomes, second.groups[i].outcomes)) {
             ++differences;
@@ -92,8 +94,8 @@ std::size_t stackingDifferences(const StackingResult& first, const StackingResul
     return differences;
 }
 
-std::string printedReports(const PipelineResult& run) {
-    std::ostringstream out;
+string printedReports(const PipelineResult& run) {
+    ostringstream out;
     Reporter::print_summary(run.summary, out, 0);
     Reporter::print_warnings(run.validation, out);
     StackReporter::print(run.stackReport, out, 0);
@@ -113,7 +115,7 @@ TEST_CASE("pipeline: two runs on the same input give identical groups, stacks an
     CHECK(first.palletsForStacking == second.palletsForStacking);
     CHECK(first.weightForStacking == second.weightForStacking);
 
-    const std::string firstReport = printedReports(first);
+    const string firstReport = printedReports(first);
     CHECK(firstReport.size() > 10000);
     CHECK(firstReport == printedReports(second));
 }

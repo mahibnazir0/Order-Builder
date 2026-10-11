@@ -581,7 +581,7 @@ TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning" * doctes
     CHECK(r.unrecognized_pallet_id == 1);
 }
 
-TEST_CASE("a demand line whose ship window ends before it starts is an error") {
+TEST_CASE("a demand line whose ship window ends before it starts is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(!f.demand.str.empty());
     f.demand.str[0].datfr_ta = "2026-10-09";
@@ -593,7 +593,7 @@ TEST_CASE("a demand line whose ship window ends before it starts is an error") {
     CHECK(Validator::excludedLineFlags(r, f.join.lines.size())[0]);
 }
 
-TEST_CASE("an unreadable or out-of-range TPRIO is a warning that keeps the line") {
+TEST_CASE("an unreadable or out-of-range TPRIO is a warning that keeps the line" * doctest::skip(!crossDayTests::august17Present())) {
     for (const int priority : {kUnreadablePriority, -5, kMaxPriority + 1}) {
         CAPTURE(priority);
         Fixture f;
@@ -605,7 +605,7 @@ TEST_CASE("an unreadable or out-of-range TPRIO is a warning that keeps the line"
     }
 }
 
-TEST_CASE("TPRIO at either end of its range is accepted") {
+TEST_CASE("TPRIO at either end of its range is accepted" * doctest::skip(!crossDayTests::august17Present())) {
     for (const int priority : {0, kMaxPriority}) {
         CAPTURE(priority);
         Fixture f;
@@ -614,7 +614,7 @@ TEST_CASE("TPRIO at either end of its range is accepted") {
     }
 }
 
-TEST_CASE("an unreadable or negative AVAIL_QTY is a warning") {
+TEST_CASE("an unreadable or negative AVAIL_QTY is a warning" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     f.demand.str[0].avail_qty = kUnreadableAvailableQuantity;
     ValidationReport r = Validator::validate(f.join);
@@ -622,14 +622,14 @@ TEST_CASE("an unreadable or negative AVAIL_QTY is a warning") {
     CHECK(count_rule(r, "unreadable_available_quantity") == 1);
 }
 
-TEST_CASE("the supplied fixtures have no unreadable priority or availability") {
+TEST_CASE("the supplied fixtures have no unreadable priority or availability" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
     CHECK(r.unreadablePriority == 0);
     CHECK(r.unreadableAvailableQuantity == 0);
 }
 
-TEST_CASE("a one-day ship window is not inverted") {
+TEST_CASE("a one-day ship window is not inverted" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(!f.demand.str.empty());
     f.demand.str[0].datfr_ta = "2026-10-01";
@@ -639,12 +639,12 @@ TEST_CASE("a one-day ship window is not inverted") {
     CHECK(r.invertedShipWindow == 0);
 }
 
-TEST_CASE("the supplied fixtures have no inverted ship window") {
+TEST_CASE("the supplied fixtures have no inverted ship window" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     CHECK(Validator::validate(f.join).invertedShipWindow == 0);
 }
 
-TEST_CASE("a pallet type listed only in the configured pallet table is not unrecognized") {
+TEST_CASE("a pallet type listed only in the configured pallet table is not unrecognized" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
@@ -659,13 +659,13 @@ TEST_CASE("a pallet type listed only in the configured pallet table is not unrec
     CHECK(r.unrecognized_pallet_id == 0);
 }
 
-TEST_CASE("a confirmed pallet type missing from the configured pallet table is unrecognized") {
+TEST_CASE("a confirmed pallet type missing from the configured pallet table is unrecognized" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(f.join.lines[0].product != nullptr);
-    const std::string palletId = f.join.lines[0].product->pallet_id;
+    const string palletId = f.join.lines[0].product->pallet_id;
 
     ValidationConfig config;
-    config.pallets.erase(std::remove_if(config.pallets.begin(), config.pallets.end(),
+    config.pallets.erase(remove_if(config.pallets.begin(), config.pallets.end(),
                                         [&](const PalletSpec& pallet) {
                                             return pallet.palletId == palletId;
                                         }),

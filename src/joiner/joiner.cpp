@@ -3,16 +3,18 @@
 
 #include <algorithm>
 
+using namespace std;
+
 namespace ob {
 
-const std::vector<std::string>& Joiner::default_pallet_preference() {
+const vector<string>& Joiner::default_pallet_preference() {
     // Ordered by frequency in the product master. Replace with Tom's rule
     // once he supplies the four configuration names and how demand selects one.
-    static const std::vector<std::string> pref = {"TLD", "PTL", "PGM", "GMA"};
+    static const vector<string> pref = {"TLD", "PTL", "PGM", "GMA"};
     return pref;
 }
 
-ProductIndex Joiner::build_index(const std::vector<ProductRecord>& products) {
+ProductIndex Joiner::build_index(const vector<ProductRecord>& products) {
     ProductIndex index;
     index.reserve(products.size());
     for (const auto& p : products) {
@@ -26,8 +28,8 @@ namespace {
 // Choose one variant when a product ID has several pallet types.
 // Walk the preference order and take the first match; if none of the preferred
 // types are present, fall back to the first row so a product is never dropped.
-const ProductRecord* choose_variant(const std::vector<ProductRecord>& variants,
-                                    const std::vector<std::string>& preference) {
+const ProductRecord* choose_variant(const vector<ProductRecord>& variants,
+                                    const vector<string>& preference) {
     if (variants.empty()) return nullptr;
     if (variants.size() == 1) return &variants[0];
 
@@ -41,9 +43,9 @@ const ProductRecord* choose_variant(const std::vector<ProductRecord>& variants,
 
 } // anonymous namespace
 
-JoinResult Joiner::join(const std::vector<STRRecord>& demand,
+JoinResult Joiner::join(const vector<STRRecord>& demand,
                         const ProductIndex& index,
-                        const std::vector<std::string>& pallet_preference) {
+                        const vector<string>& pallet_preference) {
     JoinResult result;
     result.lines.reserve(demand.size());
 
@@ -57,7 +59,7 @@ JoinResult Joiner::join(const std::vector<STRRecord>& demand,
             jl.product = nullptr;
             ++result.unmatched_lines;
             // Record each missing material number once.
-            if (std::find(result.unmatched_matnrs.begin(),
+            if (find(result.unmatched_matnrs.begin(),
                           result.unmatched_matnrs.end(),
                           line.matnr) == result.unmatched_matnrs.end()) {
                 result.unmatched_matnrs.push_back(line.matnr);
@@ -71,7 +73,7 @@ JoinResult Joiner::join(const std::vector<STRRecord>& demand,
 
             if (jl.ambiguous) {
                 ++result.ambiguous_lines;
-                if (std::find(result.ambiguous_matnrs.begin(),
+                if (find(result.ambiguous_matnrs.begin(),
                               result.ambiguous_matnrs.end(),
                               line.matnr) == result.ambiguous_matnrs.end()) {
                     result.ambiguous_matnrs.push_back(line.matnr);
@@ -82,9 +84,9 @@ JoinResult Joiner::join(const std::vector<STRRecord>& demand,
         result.lines.push_back(jl);
     }
 
-    LOG_INFO("Joined demand to products: " + std::to_string(result.matched_lines)
-             + " matched, " + std::to_string(result.unmatched_lines) + " unmatched, "
-             + std::to_string(result.ambiguous_lines) + " ambiguous (pallet-type variant chosen by preference)");
+    LOG_INFO("Joined demand to products: " + to_string(result.matched_lines)
+             + " matched, " + to_string(result.unmatched_lines) + " unmatched, "
+             + to_string(result.ambiguous_lines) + " ambiguous (pallet-type variant chosen by preference)");
 
     return result;
 }

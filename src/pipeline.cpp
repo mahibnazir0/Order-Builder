@@ -8,7 +8,9 @@
 #include "segregation.hpp"
 #include "stackRules.hpp"
 
+#include <filesystem>
 #include <stdexcept>
+#include <system_error>
 
 using namespace std;
 
@@ -46,6 +48,7 @@ string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     switch (error) {
     case UnitLoadError::MissingProduct: return "product is not in the master";
     case UnitLoadError::MissingPalletSpec:
+        if (line.product->pallet_id.empty()) return "the product master gives no Pallet_ID";
         return "neither the product master nor the pallet table gives the weight, height and"
                " footprint of pallet type '" + line.product->pallet_id + "'";
     case UnitLoadError::InvalidData:
@@ -178,6 +181,16 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.ranMilestone2 = true;
 }
 
+// A demand extract read as the placeholder file has no PHOLDER block and loads as zero trucks
+// requested, so passing one file to both flags would quietly empty the requested loads.
+void requireDistinctDemandAndPlaceholder(const PipelineInputs& inputs) {
+    error_code ignored;
+    if (filesystem::equivalent(inputs.demand_path, inputs.placeholder_path, ignored)) {
+        throw runtime_error("--demand and --placeholder name the same file: "
+                            + inputs.placeholder_path);
+    }
+}
+
 // Non-empty demand of which the rule took nothing is far more often a mistyped planning date
 // than a day with nothing to ship, so it never reads as a complete run.
 bool selectsNothing(const PipelineResult& result) {
@@ -206,17 +219,17 @@ void runFloor(const DemandSelector& selector, PipelineResult& result) {
     result.ranFloor = true;
 }
 
-bool isFloorComplete(const PipelineResult& result) {
-    return !selectsNothing(result) && result.demandSelection.undatedLines.empty()
-        && result.floorPlan.excludedLines.empty();
-}
-
 } // namespace
 
-bool isRunComplete(const PipelineResult& result) {
-    if (result.validation.errors > 0) return false;
-    if (result.ranMilestone2 && !result.stackReport.isComplete()) return false;
-    return !result.ranFloor || isFloorComplete(result);
+RunOutcome runOutcome(const PipelineResult& result) {
+    if (result.validation.errors > 0) return RunOutcome::ValidationErrors;
+    if (result.ranMilestone2 && !result.stackReport.isComplete()) return RunOutcome::LinesNotStacked;
+    if (!result.ranFloor) return RunOutcome::FloorNotComputed;
+    if (!result.demandSelection.undatedLines.empty() || !result.floorPlan.excludedLines.empty()) {
+        return RunOutcome::FloorIncomplete;
+    }
+    if (selectsNothing(result)) return RunOutcome::NothingSelected;
+    return RunOutcome::Complete;
 }
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {
@@ -224,6 +237,7 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         throw runtime_error("a demand rule needs a params file: the floor is planned against "
                             "its trailer");
     }
+    requireDistinctDemandAndPlaceholder(inputs);
     PipelineResult result;
 
     // ── 1. Read the three input files ───────────────────────────────────────
@@ -269,11 +283,13 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     }
 
     // ── 4. Validate ─────────────────────────────────────────────────────────
+    ValidationConfig validationConfig = inputs.validation;
+    validationConfig.productMasterPath = inputs.product_path;
     result.validation = Validator::validate(result.join,
                                             result.pallets_per_line,
-                                            inputs.validation);
+                                            validationConfig);
     Validator::validate_placeholders(result.placeholders.placeholders, result.validation,
-                                     inputs.validation);
+                                     validationConfig);
     Validator::validate_do_not_mix(result.demand.dnm, result.demand.str, result.validation);
 
     // ── 5. Summarise ────────────────────────────────────────────────────────

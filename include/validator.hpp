@@ -58,6 +58,9 @@ struct ValidationConfig {
     // Anything else is a warning: Order Builder plans every lane on one trailer, so a lane
     // asking for different equipment needs a planner's eye.
     std::vector<std::string> allowedEquipSizes = {"53F"};
+
+    // Named in the unmatched-material message, so it says which master was searched.
+    std::string productMasterPath;
 };
 
 struct ValidationIssue {

@@ -47,10 +47,10 @@ string writeEditedParams(const string& path, const string& from, const string& t
 
 const string kTldPallet = "TLD,48,40,0.1,1\n";
 
-// One stackable line, 16 cases of 8 per unit load at 2 lb a case, with a DATFR_TA but no
-// DATTO_TA, so dueBy cannot judge it. The pallet table holds `palletRows`.
+// One stackable line of `casesDemanded` cases, 8 per 20-inch unit load at 2 lb a case, with a
+// DATFR_TA but no DATTO_TA, so dueBy cannot judge it. The pallet table holds `palletRows`.
 PipelineResult runOneLine(const string& demandRule, const string& palletId = "TLD",
-                          const string& palletRows = kTldPallet) {
+                          const string& palletRows = kTldPallet, double casesDemanded = 16.0) {
     const string productPath = "tests/importer/_tmp_m3_products.csv";
     const string demandPath = "tests/importer/_tmp_m3_demand.json";
     const string placeholderPath = "tests/importer/_tmp_m3_placeholder.json";
@@ -61,7 +61,8 @@ PipelineResult runOneLine(const string& demandRule, const string& palletId = "TL
                              "GOOD,Good,10,10,10,5,CS,2,4,2,8," << palletId << "\n";
     ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1",)"
                             R"("LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17",)"
-                            R"("SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"}]})";
+                            R"("SHIP_COND":"TL","TRANS":)" << casesDemanded
+                         << R"(,"UNITOFMEAS":"CS"}]})";
     ofstream(placeholderPath) << R"({"PHOLDER":[]})";
     PipelineInputs inputs;
     inputs.product_path = productPath;
@@ -91,27 +92,29 @@ TEST_CASE("pipelineM3: a demand rule without a params file throws") {
     CHECK_THROWS_AS(Pipeline::run(inputs), runtime_error);
 }
 
-TEST_CASE("pipelineM3: the floor is planFloor on the run's own groups, lines and trailer" * doctest::skip(!crossDayTests::august17StackingPresent())) {
-    const PipelineResult& run = wholeExtractRun();
+TEST_CASE("pipelineM3: 200 unit loads of 20 in on the 53 ft trailer floor at 2 trucks, bound by stacked height") {
+    const PipelineResult run = runOneLine("wholeExtract", "TLD", kTldPallet, 1600.0);
     REQUIRE(run.ranFloor);
-    const DemandSelection selection =
-        selectDemand(run.demand.str, parseDemandSelector("wholeExtract"));
-    const FloorPlan expected =
-        planFloor(run.segregation, run.join.lines, selection, run.params, run.trailer);
-    CHECK(run.floorPlan.floorTrucks == expected.floorTrucks);
-    CHECK(run.floorPlan.boundTrucks == doctest::Approx(expected.boundTrucks));
-    CHECK(run.floorPlan.lanes.size() == expected.lanes.size());
-    CHECK(run.floorPlan.groups.size() == run.segregation.groups.size());
+    CHECK(run.floorPlan.totals.unitLoads == doctest::Approx(200.0));
+    CHECK(run.floorPlan.totals.stackedInches == doctest::Approx(4000.0));
+    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(200.0 * (8 * 2.0 + 1.0)));
+    REQUIRE(run.floorPlan.groups.size() == 1);
+    CHECK(run.floorPlan.groups[0].bound.binding == FloorTerm::StackedHeight);
+    CHECK(run.floorPlan.boundTrucks == doctest::Approx(4000.0 / (108.0 * 32)));
+    CHECK(run.floorPlan.floorTrucks == 2);
+    CHECK(run.floorPlan.noStackingBaselineTrucks == 7);
 }
 
-TEST_CASE("pipelineM3: the real day's whole-extract floor is pinned" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+// A regression pin, not an independent measurement: these are the figures this code printed for
+// 17 Aug when the floor was signed off, so any change to them has to be explained.
+TEST_CASE("pipelineM3: the real day's whole-extract floor matches the signed-off run" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult& run = wholeExtractRun();
     CHECK(run.demandSelection.selectedLines == 24357);
     CHECK(run.floorPlan.lanes.size() == 360);
     // 3,900 when wood pallets weighed the configured 60 lb; the pallet table's 65 lb adds one.
     CHECK(run.floorPlan.floorTrucks == 3901);
     CHECK(run.floorPlan.noStackingBaselineTrucks == 4981);
-    CHECK(isRunComplete(run));
+    CHECK(runOutcome(run) == RunOutcome::Complete);
 }
 
 TEST_CASE("pipelineM3: the floor counts exactly the lines segregation grouped" * doctest::skip(!crossDayTests::august17StackingPresent())) {
@@ -154,21 +157,21 @@ TEST_CASE("pipelineM3: a rule that selects no line of a non-empty extract makes 
     CHECK(run.demandSelection.selectedLines == 0);
     CHECK(run.demandSelection.undatedLines.empty());
     CHECK(run.floorPlan.excludedLines.empty());
-    CHECK_FALSE(isRunComplete(run));
+    CHECK(runOutcome(run) == RunOutcome::NothingSelected);
 }
 
 TEST_CASE("pipelineM3: a line the demand rule cannot date makes the run incomplete") {
     const PipelineResult run = runOneLine("dueBy:2026-08-19");
     CHECK(run.stackReport.isComplete());
     CHECK(run.demandSelection.undatedLines == vector<size_t>{0});
-    CHECK_FALSE(isRunComplete(run));
+    CHECK(runOutcome(run) == RunOutcome::FloorIncomplete);
 }
 
 TEST_CASE("pipelineM3: the same line under wholeExtract is counted and the run is complete") {
     const PipelineResult run = runOneLine("wholeExtract");
     CHECK(run.demandSelection.undatedLines.empty());
     CHECK(run.floorPlan.floorTrucks == 1);
-    CHECK(isRunComplete(run));
+    CHECK(runOutcome(run) == RunOutcome::Complete);
 }
 
 TEST_CASE("pipelineM3: with no trailer named, the run plans against the largest one listed" * doctest::skip(!crossDayTests::august17StackingPresent())) {

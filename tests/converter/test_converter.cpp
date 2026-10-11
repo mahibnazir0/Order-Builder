@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <string>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* DEMAND_PATH  = "tests/importer/Demand-1.json";
@@ -22,7 +24,7 @@ namespace {
 // where the point of the test is that the real data behaves as expected.
 ProductRecord make_product(int cases_unit_load,
                            double case_weight_lb,
-                           const std::string& pallet_id) {
+                           const string& pallet_id) {
     ProductRecord p;
     p.id               = "TEST";
     p.cases_unit_load  = cases_unit_load;
@@ -34,10 +36,10 @@ ProductRecord make_product(int cases_unit_load,
 // Returns by value rather than by reference: GCC's -Wdangling-reference
 // (13.x, on by default under -Wall) rejects binding a const ref to the result,
 // and a ProductRecord copy costs nothing in a test.
-ProductRecord find_product(const std::vector<ProductRecord>& products,
-                           const std::string& id,
-                           const std::string& pallet_id) {
-    auto it = std::find_if(products.begin(), products.end(),
+ProductRecord find_product(const vector<ProductRecord>& products,
+                           const string& id,
+                           const string& pallet_id) {
+    auto it = find_if(products.begin(), products.end(),
         [&](const ProductRecord& p){ return p.id == id && p.pallet_id == pallet_id; });
     REQUIRE(it != products.end());
     return *it;
@@ -212,7 +214,7 @@ TEST_CASE("the pallet weight is read from the confirmed palletSpec table") {
 }
 
 TEST_CASE("a pallet type with no spec adds no pallet weight") {
-    for (const std::string palletId : {"", "XYZ", "PTL "}) {
+    for (const string palletId : {"", "XYZ", "PTL "}) {
         CAPTURE(palletId);
         ProductRecord product = make_product(3, 315.0, palletId);
         CHECK(Converter::to_weight_lb(1.0, product, confirmedPalletSpecs()) == doctest::Approx(945.0));
@@ -220,7 +222,7 @@ TEST_CASE("a pallet type with no spec adds no pallet weight") {
 }
 
 TEST_CASE("the pallet weight follows the pallet table passed in, not the confirmed one") {
-    const std::vector<PalletSpec> customerPallets{{"PTL", 65.0, 5.5, 48.0, 40.0},
+    const vector<PalletSpec> customerPallets{{"PTL", 65.0, 5.5, 48.0, 40.0},
                                                   {"EUR", 55.0, 5.7, 47.2, 31.5}};
     CHECK(Converter::to_weight_lb(1.0, make_product(3, 315.0, "PTL"), customerPallets)
           == doctest::Approx(1010.0));
@@ -364,7 +366,7 @@ TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * do
     for (const auto& line : join.lines) {
         if (line.product == nullptr) continue;
         const double trans = line.str->trans;
-        const std::string& uom = line.str->unitofmeas;
+        const string& uom = line.str->unitofmeas;
         defaulted     += Converter::to_pallets(trans, uom, *line.product);
         explicit_none += Converter::to_pallets(trans, uom, *line.product, PalletRounding::None);
         floored       += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Floor);

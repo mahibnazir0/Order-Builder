@@ -17,18 +17,18 @@ using namespace std;
 // Drives the built order_builder executable, as a user would, so argument parsing,
 // report printing and exit codes are tested together. OB_CLI_PATH comes from CMake.
 
-namespace fs = std::filesystem;
+namespace fs = filesystem;
 
 namespace {
 
-const std::string kProduct = "tests/importer/Customer2-Product-Data.csv";
-const std::string kDemand = "tests/importer/Demand-1.json";
-const std::string kPlaceholder = "tests/importer/PlaceHolder-1.json";
-const std::string kParams = "config/orderBuilderParams.json";
+const string kProduct = "tests/importer/Customer2-Product-Data.csv";
+const string kDemand = "tests/importer/Demand-1.json";
+const string kPlaceholder = "tests/importer/PlaceHolder-1.json";
+const string kParams = "config/orderBuilderParams.json";
 
 struct CliRun {
     int exitCode = -1;
-    std::string output;   // stdout and stderr together
+    string output;   // stdout and stderr together
 };
 
 fs::path scratchDirectory() {
@@ -37,11 +37,11 @@ fs::path scratchDirectory() {
     return directory;
 }
 
-std::string quoted(const std::string& text) { return "\"" + text + "\""; }
+string quoted(const string& text) { return "\"" + text + "\""; }
 
-CliRun runCli(const std::vector<std::string>& arguments) {
+CliRun runCli(const vector<string>& arguments) {
     const fs::path outputPath = scratchDirectory() / "cliOutput.txt";
-    std::string command = quoted(fs::path(OB_CLI_PATH).make_preferred().string());
+    string command = quoted(fs::path(OB_CLI_PATH).make_preferred().string());
     for (const auto& argument : arguments) command += " " + quoted(argument);
     command += " > " + quoted(outputPath.string()) + " 2>&1";
 #ifdef _WIN32
@@ -49,14 +49,14 @@ CliRun runCli(const std::vector<std::string>& arguments) {
     command = "\"" + command + "\"";
 #endif
     CliRun run;
-    const int status = std::system(command.c_str());
+    const int status = system(command.c_str());
 #ifdef _WIN32
     run.exitCode = status;
 #else
     run.exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 #endif
-    std::ifstream captured(outputPath, std::ios::binary);
-    std::stringstream buffer;
+    ifstream captured(outputPath, ios::binary);
+    stringstream buffer;
     buffer << captured.rdbuf();
     run.output = buffer.str();
     captured.close();
@@ -64,8 +64,8 @@ CliRun runCli(const std::vector<std::string>& arguments) {
     return run;
 }
 
-std::vector<std::string> realDayArguments(bool withParams) {
-    std::vector<std::string> arguments{"--product", kProduct, "--demand", kDemand,
+vector<string> realDayArguments(bool withParams) {
+    vector<string> arguments{"--product", kProduct, "--demand", kDemand,
                                        "--placeholder", kPlaceholder, "--day", "2026-08-17"};
     if (withParams) {
         arguments.insert(arguments.end(), {"--params", kParams, "--pallets",
@@ -75,8 +75,8 @@ std::vector<std::string> realDayArguments(bool withParams) {
     return arguments;
 }
 
-std::vector<std::string> withExtra(std::vector<std::string> arguments,
-                                   const std::vector<std::string>& extra) {
+vector<string> withExtra(vector<string> arguments,
+                                   const vector<string>& extra) {
     arguments.insert(arguments.end(), extra.begin(), extra.end());
     return arguments;
 }
@@ -86,26 +86,26 @@ const CliRun& fullRealRun() {
     return run;
 }
 
-std::vector<std::string> splitLines(const std::string& text) {
-    std::vector<std::string> lines;
-    std::istringstream stream(text);
-    for (std::string line; std::getline(stream, line);) {
+vector<string> splitLines(const string& text) {
+    vector<string> lines;
+    istringstream stream(text);
+    for (string line; getline(stream, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         lines.push_back(line);
     }
     return lines;
 }
 
-bool isRule(const std::string& line) {
+bool isRule(const string& line) {
     return line.rfind("-----", 0) == 0 || line.rfind("=====", 0) == 0;
 }
 
 // The lines of a report section: after its title's closing rule, up to the next rule.
 // A truncated table appends "(top N of M ...)" to its title line, so match the start.
-std::vector<std::string> section(const std::string& output, const std::string& title) {
+vector<string> section(const string& output, const string& title) {
     const auto lines = splitLines(output);
-    std::vector<std::string> body;
-    std::size_t index = 0;
+    vector<string> body;
+    size_t index = 0;
     while (index < lines.size() && lines[index].rfind(" " + title, 0) != 0) ++index;
     while (index < lines.size() && !isRule(lines[index])) ++index;
     for (++index; index < lines.size() && !isRule(lines[index]); ++index) body.push_back(lines[index]);
@@ -113,24 +113,24 @@ std::vector<std::string> section(const std::string& output, const std::string& t
 }
 
 // Table rows start in column one; notes and summary lines are indented. Excludes the header.
-std::size_t tableRows(const std::vector<std::string>& sectionLines) {
-    std::size_t rows = 0;
+size_t tableRows(const vector<string>& sectionLines) {
+    size_t rows = 0;
     for (const auto& line : sectionLines) {
         if (!line.empty() && line[0] != ' ') ++rows;
     }
     return rows == 0 ? 0 : rows - 1;
 }
 
-const std::string kM1Summary = "ORDER BUILDER - MILESTONE 1 SUMMARY";
-const std::string kM2Summary = "ORDER BUILDER - MILESTONE 2 GROUPS AND STACKS";
-const std::string kLaneTable = "PER-LANE SUMMARY";
-const std::string kGroupTable = "PER-GROUP SUMMARY";
-const std::string kM3Floor = "ORDER BUILDER - MILESTONE 3 TRUCK FLOOR";
-const std::string kFloorByLane = "C. FLOOR BY LANE";
+const string kM1Summary = "ORDER BUILDER - MILESTONE 1 SUMMARY";
+const string kM2Summary = "ORDER BUILDER - MILESTONE 2 GROUPS AND STACKS";
+const string kLaneTable = "PER-LANE SUMMARY";
+const string kGroupTable = "PER-GROUP SUMMARY";
+const string kM3Floor = "ORDER BUILDER - MILESTONE 3 TRUCK FLOOR";
+const string kFloorByLane = "C. FLOOR BY LANE";
 const string kFloorNotComputed = "Truck floor: NOT COMPUTED. No --params was given";
 
-bool contains(const std::string& text, const std::string& needle) {
-    return text.find(needle) != std::string::npos;
+bool contains(const string& text, const string& needle) {
+    return text.find(needle) != string::npos;
 }
 
 // Floor-by-lane rows are indented like its notes; a row is the one that names a lane.
@@ -145,25 +145,25 @@ size_t floorLaneRows(const vector<string>& sectionLines) {
 // Small valid inputs, so the bad-input cases fail on the one file under test and run fast.
 struct SyntheticInputs {
     fs::path directory = scratchDirectory() / "inputs";
-    std::string product = (directory / "products.csv").string();
-    std::string demand = (directory / "demand.json").string();
-    std::string unmatchedDemand = (directory / "unmatchedDemand.json").string();
-    std::string placeholder = (directory / "placeholder.json").string();
+    string product = (directory / "products.csv").string();
+    string demand = (directory / "demand.json").string();
+    string unmatchedDemand = (directory / "unmatchedDemand.json").string();
+    string placeholder = (directory / "placeholder.json").string();
     string pallets = (directory / "pallets.csv").string();
 
     SyntheticInputs() {
         fs::create_directories(directory);
-        std::ofstream(product) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        ofstream(product) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
                                   "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
                                << "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD\n";
-        const std::string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":")";
-        const std::string lineEnd = R"(","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"})";
-        std::ofstream(demand) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
+        const string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":")";
+        const string lineEnd = R"(","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"})";
+        ofstream(demand) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
                               << lineStart << "GOOD" << lineEnd << "]}";
-        std::ofstream(unmatchedDemand) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
+        ofstream(unmatchedDemand) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
                                        << lineStart << "GOOD" << lineEnd << ","
                                        << lineStart << "NOT_IN_MASTER" << lineEnd << "]}";
-        std::ofstream(placeholder)
+        ofstream(placeholder)
             << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","SHIP_COND":"TL","NO_OF_LOADS":1}]})";
         ofstream(pallets) << "ID,Footprint_Length,Footprint_Width,Height,Weight\n"
                              "PTL,48,40,6,65\nTLD,48,40,0.10000000149011612,1\n";
@@ -171,22 +171,22 @@ struct SyntheticInputs {
     SyntheticInputs(const SyntheticInputs&) = delete;
     SyntheticInputs& operator=(const SyntheticInputs&) = delete;
     ~SyntheticInputs() {
-        std::error_code ignored;
+        error_code ignored;
         fs::remove_all(directory, ignored);
     }
 
-    std::string write(const std::string& name, const std::string& content) const {
-        const std::string path = (directory / name).string();
-        std::ofstream(path) << content;
+    string write(const string& name, const string& content) const {
+        const string path = (directory / name).string();
+        ofstream(path) << content;
         return path;
     }
 
     // With params, the synthetic pallet table goes along unless `palletPath` names another.
-    std::vector<std::string> arguments(const std::string& productPath, const std::string& demandPath,
-                                       const std::string& placeholderPath,
-                                       const std::string& paramsPath,
+    vector<string> arguments(const string& productPath, const string& demandPath,
+                                       const string& placeholderPath,
+                                       const string& paramsPath,
                                        const string& palletPath = "") const {
-        std::vector<std::string> result{"--product", productPath, "--demand", demandPath,
+        vector<string> result{"--product", productPath, "--demand", demandPath,
                                         "--placeholder", placeholderPath};
         if (!paramsPath.empty()) {
             result.insert(result.end(), {"--params", paramsPath, "--pallets",
@@ -226,11 +226,11 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
 TEST_CASE("cli: --trailer 53FT_NA differs from the default output only in how the trailer was chosen" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun named = runCli(withExtra(realDayArguments(true), {"--trailer", "53FT_NA"}));
     CHECK(named.exitCode == 0);
-    const std::string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, positions and depth)";
-    const std::string namedTrailerLine = "53FT_NA  (named with --trailer)";
-    std::string defaultOutput = fullRealRun().output;
+    const string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, positions and depth)";
+    const string namedTrailerLine = "53FT_NA  (named with --trailer)";
+    string defaultOutput = fullRealRun().output;
     const size_t at = defaultOutput.find(defaultTrailerLine);
-    REQUIRE(at != std::string::npos);
+    REQUIRE(at != string::npos);
     defaultOutput.replace(at, defaultTrailerLine.size(), namedTrailerLine);
     CHECK(named.output == defaultOutput);
 }
@@ -249,8 +249,8 @@ TEST_CASE("cli: an unknown trailer exits 2 and names the code") {
 TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun debug = runCli(withExtra(realDayArguments(true), {"--debug"}));
     CHECK(debug.exitCode == 0);
-    std::string withoutDebugLines;
-    std::size_t debugLines = 0;
+    string withoutDebugLines;
+    size_t debugLines = 0;
     for (const auto& line : splitLines(debug.output)) {
         if (line.rfind("[DEBUG]", 0) == 0) {
             ++debugLines;
@@ -258,7 +258,7 @@ TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure" * doctest::
         }
         withoutDebugLines += line + "\n";
     }
-    std::string fullNormalised;
+    string fullNormalised;
     for (const auto& line : splitLines(fullRealRun().output)) fullNormalised += line + "\n";
     CHECK(debugLines > 0);
     CHECK(withoutDebugLines == fullNormalised);
@@ -266,7 +266,7 @@ TEST_CASE("cli: --debug adds only DEBUG lines and changes no figure" * doctest::
 
 TEST_CASE("cli: without --params only the Milestone 1 report is printed, and it says no floor was computed" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli(realDayArguments(false));
-    CHECK(run.exitCode == 0);
+    CHECK(run.exitCode == 6);
     CHECK(section(run.output, kM1Summary) == section(fullRealRun().output, kM1Summary));
     CHECK(tableRows(section(run.output, kLaneTable)) == 371);
     CHECK_FALSE(contains(run.output, kM2Summary));
@@ -277,9 +277,41 @@ TEST_CASE("cli: without --params only the Milestone 1 report is printed, and it 
     CHECK_FALSE(contains(fullRealRun().output, kFloorNotComputed));
 }
 
+TEST_CASE("cli: a clean run without --params exits 6, not success") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli(inputs.arguments(inputs.product, inputs.demand, inputs.placeholder, ""));
+    CHECK(run.exitCode == 6);
+    CHECK(contains(run.output, kM1Summary));
+    CHECK(contains(run.output, kFloorNotComputed));
+}
+
+TEST_CASE("cli: one file as both --demand and --placeholder exits 2 naming it") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli(inputs.arguments(inputs.product, inputs.demand, inputs.demand, kParams));
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "[ERROR] --demand and --placeholder name the same file: " + inputs.demand));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: a copy of the demand file as --placeholder exits 2 naming it") {
+    const SyntheticInputs inputs;
+    const string demandCopy = inputs.write("demandCopy.json",
+        R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[]})");
+    const CliRun run = runCli(inputs.arguments(inputs.product, inputs.demand, demandCopy, kParams));
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, demandCopy + " has no PHOLDER block but has an STR block"));
+}
+
+TEST_CASE("cli: an unmatched material names the product master it was looked up in") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli(inputs.arguments(inputs.product, inputs.unmatchedDemand,
+                                               inputs.placeholder, kParams));
+    CHECK(contains(run.output, "Material number is not in the product master " + inputs.product));
+}
+
 TEST_CASE("cli: validation errors exit 1 and the report is still printed") {
     const SyntheticInputs inputs;
-    for (const std::string& paramsPath : {std::string{}, kParams}) {
+    for (const string& paramsPath : {string{}, kParams}) {
         CAPTURE(paramsPath);
         const CliRun run = runCli(inputs.arguments(inputs.product, inputs.unmatchedDemand,
                                                    inputs.placeholder, paramsPath));
@@ -320,6 +352,25 @@ TEST_CASE("cli: a master without Pallet_* columns and no --pallets exits 2 with 
     CHECK_FALSE(contains(run.output, "was not stacked"));
 }
 
+TEST_CASE("cli: a blank Pallet_ID rejects only its line, with or without --pallets") {
+    const SyntheticInputs inputs;
+    const string blankPallet = inputs.write("blankPallet.csv",
+        "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+        "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+        "GOOD,Good,10,10,10,5,CS,2,4,2,8,\n");
+    const vector<string> withoutTable{"--product", blankPallet, "--demand", inputs.demand,
+                                      "--placeholder", inputs.placeholder, "--params", kParams,
+                                      "--demand-rule", "wholeExtract"};
+    for (const auto& arguments : {withoutTable, inputs.arguments(blankPallet, inputs.demand,
+                                                                 inputs.placeholder, kParams)}) {
+        const CliRun run = runCli(arguments);
+        CAPTURE(run.output);
+        CHECK(run.exitCode == 3);
+        CHECK(contains(run.output, "line 0, material GOOD: the product master gives no Pallet_ID"));
+        CHECK_FALSE(contains(run.output, "pass --pallets <csv>"));
+    }
+}
+
 TEST_CASE("cli: a master whose rows carry their own Pallet_* figures needs no --pallets") {
     const SyntheticInputs inputs;
     const string ownPallet = inputs.write("ownPallet.csv",
@@ -333,31 +384,31 @@ TEST_CASE("cli: a master whose rows carry their own Pallet_* figures needs no --
     CHECK(contains(run.output, "complete: every demand line is in a stack"));
 }
 
-TEST_CASE("cli: a pallet taller than the trailer ceiling exits 1 and is reported") {
+TEST_CASE("cli: a pallet taller than the trailer ceiling exits 3 and is reported") {
     const SyntheticInputs inputs;
-    const std::string tallProduct = inputs.write("tallProducts.csv",
+    const string tallProduct = inputs.write("tallProducts.csv",
         "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
         "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
         "GOOD,Tall,10,10,120,5,CS,2,1,1,1,PTL\n");
     const CliRun run = runCli(inputs.arguments(tallProduct, inputs.demand, inputs.placeholder, kParams));
-    CHECK(run.exitCode == 1);
+    CHECK(run.exitCode == 3);
     CHECK(contains(run.output, "Over-height lines         1"));
 }
 
-TEST_CASE("cli: a line with no unit load exits 1 and the report says incomplete") {
+TEST_CASE("cli: a line with no unit load exits 3 and the report says incomplete") {
     const SyntheticInputs inputs;
-    const std::vector<std::pair<std::string, std::string>> badProducts{
+    const vector<pair<string, string>> badProducts{
         {"strength out of range", "GOOD,Good,10,10,10,11,CS,2,4,2,8,TLD\n"},
         {"zero weight", "GOOD,Good,10,10,10,5,CS,0,4,2,8,TLD\n"},
         {"no pallet spec", "GOOD,Good,10,10,10,5,CS,2,4,2,8,ZZZ\n"},
     };
     for (const auto& badProduct : badProducts) {
         CAPTURE(badProduct.first);
-        const std::string productPath = inputs.write("badProducts.csv",
+        const string productPath = inputs.write("badProducts.csv",
             "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
             "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n" + badProduct.second);
         const CliRun run = runCli(inputs.arguments(productPath, inputs.demand, inputs.placeholder, kParams));
-        CHECK(run.exitCode == 1);
+        CHECK(run.exitCode == 3);
         CHECK(contains(run.output, "was not stacked"));
         CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
     }
@@ -390,15 +441,15 @@ TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in 
     CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }
 
-TEST_CASE("cli: a valid PAL line beside an EA line exits 1 and names the EA line") {
+TEST_CASE("cli: a valid PAL line beside an EA line exits 3 and names the EA line") {
     const SyntheticInputs inputs;
-    const std::string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL",)";
-    const std::string mixedDemand = inputs.write("mixedUnits.json",
+    const string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL",)";
+    const string mixedDemand = inputs.write("mixedUnits.json",
         R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
         + lineStart + R"("TRANS":1.0,"UNITOFMEAS":"PAL"},)"
         + lineStart + R"("TRANS":5.0,"UNITOFMEAS":"EA"}]})");
     const CliRun run = runCli(inputs.arguments(inputs.product, mixedDemand, inputs.placeholder, kParams));
-    CHECK(run.exitCode == 1);
+    CHECK(run.exitCode == 3);
     CHECK(contains(run.output, "INCOMPLETE: 1 demand line(s) are in no stack"));
     CHECK(contains(run.output, "line 1, material GOOD: unit of measure 'EA' cannot be converted to pallets"));
     CHECK_FALSE(contains(run.output, "complete: every demand line is in a stack"));
@@ -406,32 +457,32 @@ TEST_CASE("cli: a valid PAL line beside an EA line exits 1 and names the EA line
 
 TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming the problem") {
     const SyntheticInputs inputs;
-    const std::string missing = (inputs.directory / "doesNotExist.json").string();
-    const std::string directory = inputs.directory.string();
-    const std::string emptyFile = inputs.write("empty.json", "");
-    const std::string emptyCsv = inputs.write("empty.csv", "");
-    const std::string malformedJson = inputs.write("malformed.json", R"({"STR":[{"LOCFRNO":)");
-    const std::string malformedCsv = inputs.write("malformed.csv", "not,a,product,header\n1,2,3,4\n");
+    const string missing = (inputs.directory / "doesNotExist.json").string();
+    const string directory = inputs.directory.string();
+    const string emptyFile = inputs.write("empty.json", "");
+    const string emptyCsv = inputs.write("empty.csv", "");
+    const string malformedJson = inputs.write("malformed.json", R"({"STR":[{"LOCFRNO":)");
+    const string malformedCsv = inputs.write("malformed.csv", "not,a,product,header\n1,2,3,4\n");
 
     struct BadInput {
-        std::string description;
-        std::string role;   // which argument receives the bad path
-        std::string path;
-        std::string expectedMessage;
+        string description;
+        string role;   // which argument receives the bad path
+        string path;
+        string expectedMessage;
     };
-    const std::vector<BadInput> cases{
+    const vector<BadInput> cases{
         {"missing product", "product", missing, "Cannot open product file"},
         {"directory as product", "product", directory, "Cannot open product file"},
         {"empty product", "product", emptyCsv, "Product file is empty"},
         {"malformed product header", "product", malformedCsv, "roduct"},
         {"missing demand", "demand", missing, "Cannot open demand file"},
         {"directory as demand", "demand", directory, "Cannot open demand file"},
-        {"empty demand", "demand", emptyFile, "Demand file is not valid JSON"},
-        {"malformed demand", "demand", malformedJson, "Demand file is not valid JSON"},
+        {"empty demand", "demand", emptyFile, "Demand file " + emptyFile + " is not valid JSON"},
+        {"malformed demand", "demand", malformedJson, "Demand file " + malformedJson + " is not valid JSON"},
         {"missing placeholder", "placeholder", missing, "Cannot open placeholder file"},
         {"directory as placeholder", "placeholder", directory, "Cannot open placeholder file"},
-        {"empty placeholder", "placeholder", emptyFile, "Placeholder file is not valid JSON"},
-        {"malformed placeholder", "placeholder", malformedJson, "Placeholder file is not valid JSON"},
+        {"empty placeholder", "placeholder", emptyFile, "Placeholder file " + emptyFile + " is not valid JSON"},
+        {"malformed placeholder", "placeholder", malformedJson, "Placeholder file " + malformedJson + " is not valid JSON"},
         {"missing params", "params", missing, "params: cannot open file"},
         {"directory as params", "params", directory, "params: cannot open file"},
         {"empty params", "params", emptyFile, "params: invalid JSON"},
@@ -459,10 +510,10 @@ TEST_CASE("cli: a missing, directory, empty or malformed input exits 2 naming th
 
 TEST_CASE("cli: argument mistakes exit 2 with a message") {
     struct BadArguments {
-        std::vector<std::string> arguments;
-        std::string expectedMessage;
+        vector<string> arguments;
+        string expectedMessage;
     };
-    const std::vector<BadArguments> cases{
+    const vector<BadArguments> cases{
         {{}, "--product, --demand and --placeholder are all required"},
         {{"--bogus"}, "unrecognised option '--bogus'"},
         {{"--product"}, "--product needs a value"},
@@ -488,8 +539,9 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
                                           "--pallets", "--trailer", "--groups", "--day", "--lanes", "--debug",
-                                          "0  success", "1  incomplete: validation errors, or a line is in no stack",
-                                          "2  could not run"}) {
+                                          "0  success", "1  validation errors", "2  could not run",
+                                          "3  a line is in no stack", "4  a line was left out of the floor",
+                                          "5  the demand rule selected no line", "6  no floor computed"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
@@ -504,12 +556,12 @@ TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and p
     CHECK_FALSE(contains(run.output, kM1Summary));
 }
 
-TEST_CASE("cli: a demand rule that selects no line of the real day exits 1" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: a demand rule that selects no line of the real day exits 5" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli({"--product", kProduct, "--demand", kDemand, "--placeholder",
                                kPlaceholder, "--params", kParams, "--pallets",
                                crossDayTests::kPalletTableForOlderMasters, "--demand-rule",
                                "dueBy:2020-01-01"});
-    CHECK(run.exitCode == 1);
+    CHECK(run.exitCode == 5);
     CHECK(contains(run.output, "selected none of the"));
 }
 
@@ -546,12 +598,12 @@ TEST_CASE("cli: the floor prints the demand rule it was planned under" * doctest
     CHECK(contains(run.output, "FLOOR                     53 trucks  (dueBy(2026-08-19)"));
 }
 
-TEST_CASE("cli: a line the demand rule cannot date exits 1 and is reported") {
+TEST_CASE("cli: a line the demand rule cannot date exits 4 and is reported") {
     const SyntheticInputs inputs;
     const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
                                "--placeholder", inputs.placeholder, "--params", kParams,
                                "--pallets", inputs.pallets, "--demand-rule", "dueBy:2026-08-19"});
-    CHECK(run.exitCode == 1);
+    CHECK(run.exitCode == 4);
     CHECK(contains(run.output, "1 demand line(s) have a date dueBy(2026-08-19) cannot judge"));
     CHECK(contains(run.output, "undated                 1"));
 }

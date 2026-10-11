@@ -106,7 +106,9 @@ vector<string> missingPalletIds(const vector<JoinedLine>& lines,
                                           const M2Params& params) {
     set<string> missing;
     for (const auto& line : lines) {
-        if (line.matched && line.product != nullptr && !resolvePalletSpec(*line.product, params)) {
+        // No pallet table can supply a blank ID, so that line is rejected on its own instead.
+        if (line.matched && line.product != nullptr && !line.product->pallet_id.empty()
+            && !resolvePalletSpec(*line.product, params)) {
             missing.insert(line.product->pallet_id);
         }
     }
