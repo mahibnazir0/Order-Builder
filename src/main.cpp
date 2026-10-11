@@ -65,6 +65,8 @@ void print_usage(ostream& out) {
         "                          dueBy:YYYY-MM-DD       DATTO_TA on or before the date\n"
         "                          availableBy:YYYY-MM-DD DATFR_TA on or before the date\n"
         "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
+        "                          schedule:YYYY-MM-DD    DATTO_TA on the delivery days of a\n"
+        "                                                 Monday, Tuesday or Friday plan (provisional)\n"
         "  --pallets <path>      Pallet table CSV (weight, height, footprint per pallet type);\n"
         "                        needed with --params when the master has no Pallet_* columns\n"
         "  --trailer <code>      Trailer code from the params file (default: the largest listed)\n"

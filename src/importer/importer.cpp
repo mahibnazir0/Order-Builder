@@ -85,17 +85,18 @@ DemandFile Importer::load_demand(const string& json_path) {
         throw runtime_error("Demand file " + json_path + ": root must be a JSON object");
     }
 
-    if (!root.contains("STR") && root.contains("PHOLDER")) {
-        throw runtime_error("Demand file " + json_path
-                                 + " has no STR block but has a PHOLDER block: is it a placeholder file?");
+    // An absent STR would load as a day with no demand, which is also how "{}" or a placeholder
+    // file passed by mistake reads. A day with no demand is "STR": [].
+    if (!root.contains("STR")) {
+        throw runtime_error("Demand file " + json_path + " has no STR block");
     }
 
     DemandFile demand;
     demand.request_id = get_or<string>(root, "REQUEST_ID", "");
 
-    // Each block is optional at the top level: absent means empty. Present
-    // but the wrong shape (e.g. STR as an object) is malformed input and
-    // throws instead — see get_optional_array.
+    // CTL and DNM are optional: absent means empty. Present but the wrong
+    // shape (e.g. STR as an object) is malformed input and throws instead —
+    // see get_optional_array.
     const string context = "Demand file " + json_path;
     if (const auto* str = get_optional_array(root, "STR", context)) {
         demand.str.reserve(str->size());

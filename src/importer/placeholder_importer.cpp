@@ -60,18 +60,16 @@ PlaceholderLoadResult PlaceholderImporter::load(const string& json_path) {
         throw runtime_error("Placeholder file " + json_path + ": root must be a JSON object");
     }
 
-    // An absent PHOLDER loads as zero trucks, which is how a demand extract passed by mistake
-    // would read; one that carries demand blocks instead is refused.
-    if (!root.contains("PHOLDER") && root.contains("STR")) {
-        throw runtime_error("Placeholder file " + json_path
-                            + " has no PHOLDER block but has an STR block: is it a demand file?");
+    // An absent PHOLDER would load as zero trucks requested, which is also how an empty file or
+    // a demand extract passed by mistake reads. A day with no requests is "PHOLDER": [].
+    if (!root.contains("PHOLDER")) {
+        throw runtime_error("Placeholder file " + json_path + " has no PHOLDER block");
     }
 
     PlaceholderLoadResult result;
 
     // Present but the wrong shape (e.g. PHOLDER as an object) is malformed
-    // input and throws instead of being treated as an absent block — see
-    // get_optional_array.
+    // input and throws — see get_optional_array. Null reads as an empty block.
     if (const auto* pholder = get_optional_array(root, "PHOLDER", "Placeholder file " + json_path)) {
         result.placeholders.reserve(pholder->size());
         unordered_set<string> lanesSeen;

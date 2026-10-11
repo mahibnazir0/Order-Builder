@@ -9,4 +9,13 @@ namespace ob {
 // correctly as dates with plain string comparison, so callers need not parse further.
 bool isIsoDate(const std::string& text);
 
+// Day of the week of a date isIsoDate accepts: 0 is Monday, 6 is Sunday.
+int weekdayIndex(const std::string& isoDate);
+
+// "Monday" .. "Sunday" for weekdayIndex's 0 .. 6.
+const char* weekdayName(int weekday);
+
+// The date `days` after a date isIsoDate accepts, as YYYY-MM-DD; negative goes back.
+std::string addDays(const std::string& isoDate, int days);
+
 } // namespace ob

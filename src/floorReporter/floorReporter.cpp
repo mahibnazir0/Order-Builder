@@ -100,7 +100,11 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
     out << (params.floorDeckHeight == DeckHeightRule::Included
                 ? "added to unit-load height (floorDeckHeight = Included)"
                 : "not added to unit-load height (floorDeckHeight = Excluded)")
-        << "  (open: questions 6 and 21)\n";
+        << "\n";
+    printLabel(out, "");
+    out << "provisional: open with the client (questions 6 and 21); Excluded can only\n";
+    printLabel(out, "");
+    out << "lower the floor, so it stays a valid lower bound either way\n";
     printLabel(out, "Rounding point");
     out << roundingPointText(plan.roundingPoint) << "\n";
     printLabel(out, "Unit-load equivalents");

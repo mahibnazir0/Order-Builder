@@ -21,10 +21,6 @@ enum class FloorRoundingPoint { Group, Lane };
 // attempt per group. The shipped config uses 4; 64 is generous while bounding runtime.
 constexpr int kMaxPass2Attempts = 64;
 
-// Upper bound for maxStackHeight. This customer never exceeds two high; 16 leaves
-// ample room for future rules while preventing an unbounded value from the params file.
-constexpr int kMaxStackHeight = 16;
-
 struct CriTable {
     // Index 0 is unused so callers can index by CRI 1..10 directly.
     std::array<double, 11> safeLimitLb{};
@@ -40,8 +36,6 @@ struct M2Params {
     std::vector<TrailerSpec> trailers;
     SegregationReading doNotMixReading = SegregationReading::Strict;
     int pass2AttemptCap = 4;
-    // Most pallets in one stack. Tom: this customer never goes above two high.
-    int maxStackHeight = 2;
     bool blankCriIsStackable = false;
     // True stacks whole physical pallets: each line's pallet-equivalents are rounded up, so a
     // part pallet takes a real position. False keeps the fractional estimate, which can report

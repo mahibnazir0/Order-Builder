@@ -231,15 +231,11 @@ M2Params parseParams(const json& root) {
                 + to_string(params.pass2AttemptCap));
         }
     }
-    if (!root.contains("maxStackHeight")) {
-        params.defaultedKeys.push_back("maxStackHeight");
-    } else {
-        params.maxStackHeight = readInteger(root["maxStackHeight"], "maxStackHeight", 1);
-        if (params.maxStackHeight > kMaxStackHeight) {
-            throw runtime_error("params: maxStackHeight must be an integer between 1 and "
-                + to_string(kMaxStackHeight) + ", got "
-                + to_string(params.maxStackHeight));
-        }
+    // Stack depth has one home, the trailer's maxStackDepth, which the floor reads too. A
+    // second cap here would let Milestone 2 and the floor stack differently.
+    if (root.contains("maxStackHeight")) {
+        throw runtime_error("params: 'maxStackHeight' is no longer read; stacks build to the"
+                            " ceiling unless the trailer's maxStackDepth limits them");
     }
     if (!root.contains("blankCriIsStackable")) {
         params.defaultedKeys.push_back("blankCriIsStackable");

@@ -82,17 +82,19 @@ TEST_CASE("CTL and DNM present but the wrong JSON type also throw") {
     const string ctlPath = "tests/importer/_tmp_ctl_wrong_type.json";
     {
         ofstream out(ctlPath);
-        out << R"({"REQUEST_ID":"X","CTL":"not-an-array"})";
+        out << R"({"REQUEST_ID":"X","STR":[],"CTL":"not-an-array"})";
     }
-    CHECK_THROWS_AS(Importer::load_demand(ctlPath), runtime_error);
+    CHECK_THROWS_WITH_AS(Importer::load_demand(ctlPath), doctest::Contains("'CTL' is present but is not an array"),
+                         runtime_error);
     remove(ctlPath.c_str());
 
     const string dnmPath = "tests/importer/_tmp_dnm_wrong_type.json";
     {
         ofstream out(dnmPath);
-        out << R"({"REQUEST_ID":"X","DNM":42})";
+        out << R"({"REQUEST_ID":"X","STR":[],"DNM":42})";
     }
-    CHECK_THROWS_AS(Importer::load_demand(dnmPath), runtime_error);
+    CHECK_THROWS_WITH_AS(Importer::load_demand(dnmPath), doctest::Contains("'DNM' is present but is not an array"),
+                         runtime_error);
     remove(dnmPath.c_str());
 }
 
@@ -100,7 +102,7 @@ TEST_CASE("a DNM PLANNER_SNP of the wrong JSON type loads as blank") {
     const string path = "tests/importer/_tmp_dnm_planner_wrong_type.json";
     {
         ofstream out(path);
-        out << R"({"REQUEST_ID":"X","DNM":[{"PLANNER_SNP":20,"LOCFRNO":"2027"}]})";
+        out << R"({"REQUEST_ID":"X","STR":[],"DNM":[{"PLANNER_SNP":20,"LOCFRNO":"2027"}]})";
     }
     const DemandFile demand = Importer::load_demand(path);
     remove(path.c_str());
@@ -124,26 +126,24 @@ TEST_CASE("an STR PLANNER_SNP of the wrong JSON type loads as blank") {
     CHECK(demand.str[0].locfrno == "2027");
 }
 
-TEST_CASE("STR genuinely absent still loads cleanly with zero demand lines") {
-    // An absent block is a different case from a malformed one: it is a
-    // legitimate empty result, not an error.
-    const string path = "tests/importer/_tmp_str_absent.json";
-    {
-        ofstream out(path);
-        out << R"({"REQUEST_ID":"X"})";
+TEST_CASE("a demand file with no STR block throws naming the file") {
+    for (const string content : {R"({})", R"({"REQUEST_ID":"X"})", R"({"PHOLDER":[]})"}) {
+        CAPTURE(content);
+        const string path = "tests/importer/_tmp_str_absent.json";
+        ofstream(path) << content;
+        CHECK_THROWS_WITH_AS(Importer::load_demand(path),
+                             doctest::Contains(("Demand file " + path + " has no STR block").c_str()),
+                             runtime_error);
+        remove(path.c_str());
     }
+}
+
+TEST_CASE("an empty STR block loads cleanly with zero demand lines") {
+    const string path = "tests/importer/_tmp_str_empty.json";
+    ofstream(path) << R"({"REQUEST_ID":"X","STR":[]})";
     DemandFile d = Importer::load_demand(path);
     CHECK(d.str.empty());
     CHECK(d.request_id == "X");
-    remove(path.c_str());
-}
-
-TEST_CASE("a placeholder file read as the demand file throws naming the file") {
-    const string path = "tests/importer/_tmp_demand_is_placeholder.json";
-    ofstream(path) << R"({"PHOLDER":[]})";
-    CHECK_THROWS_WITH_AS(Importer::load_demand(path),
-                         doctest::Contains((path + " has no STR block but has a PHOLDER block").c_str()),
-                         runtime_error);
     remove(path.c_str());
 }
 

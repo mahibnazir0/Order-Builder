@@ -198,7 +198,10 @@ the same greedy builder; they differ only in the order in which bases and tops a
 - The 0.1 in deck height that TLD and GMA carry is a placeholder, not a measurement (client,
   3 October), and adds nothing to the stack height. Without that, products built to exactly
   108.00 in would read as over the ceiling. Their 0.1 lb and 1 lb weights are used as given.
-- Stacks are at most `maxStackHeight` high (2 for this customer).
+- Stacks build to the ceiling; the only cap on levels is the trailer's `maxStackDepth`
+  (null for this customer, so none). The client confirmed stacks are not limited to two
+  high; the former `maxStackHeight` params key is refused so the floor and the stacks
+  cannot read different limits.
 - Taking each base in base order, the builder adds the first top in top order that fits, then
   commits as many identical stacks as the scarcest line allows.
 - Each group is built with every method and the method using the fewest floor positions
@@ -213,7 +216,7 @@ the same greedy builder; they differ only in the order in which bases and tops a
 | Base & Top | Highest CRI first | Lightest first | Strongest loads carry; light loads ride on top |
 | Try Hard | Input order, rotated to several start points | Lightest first | Base & Top's top order from several starting bases; repeats `pass2AttemptCap` times (4) and keeps the best |
 
-**Worked example.** One group, one pallet each, at most two high, 108 in ceiling.
+**Worked example.** One group, one pallet each, a trailer `maxStackDepth` of 2, 108 in ceiling.
 
 | Load | Height | Weight | CRI | Can carry |
 |---|---:|---:|---:|---:|

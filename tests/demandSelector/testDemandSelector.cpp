@@ -4,6 +4,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -194,5 +195,48 @@ TEST_CASE("demandSelector: line counts on every extract match the raw files" * d
             CHECK(selection.selectedLines == expectation.selectedLines);
             CHECK(selection.undatedLines.empty());
         }
+    }
+}
+
+TEST_CASE("demandSelector: a Monday or Tuesday schedule selects DATTO_TA two days later") {
+    const vector<STRRecord> demand{line("2026-10-01", "2026-10-07"), line("2026-10-01", "2026-10-08"),
+                                   line("2026-10-07", "2026-10-09")};
+    CHECK(selectedFlags("schedule:2026-10-05", demand) == vector<bool>{true, false, false});
+    CHECK(selectedFlags("schedule:2026-10-06", demand) == vector<bool>{false, true, false});
+}
+
+TEST_CASE("demandSelector: a Friday schedule selects Sunday and Monday deliveries") {
+    const vector<STRRecord> demand{line("", "2026-10-10"), line("", "2026-10-11"),
+                                   line("", "2026-10-12"), line("", "2026-10-13")};
+    CHECK(selectedFlags("schedule:2026-10-09", demand) == vector<bool>{false, true, true, false});
+}
+
+TEST_CASE("demandSelector: a schedule reads DATTO_TA and lists a line without one as undated") {
+    const vector<STRRecord> demand{line("2026-10-07", ""), line("2026-10-07", "2026-10-07")};
+    const DemandSelection selection = selectDemand(demand, parseDemandSelector("schedule:2026-10-05"));
+    CHECK(selection.selected == vector<bool>{false, true});
+    CHECK(selection.undatedLines == vector<size_t>{0});
+}
+
+TEST_CASE("demandSelector: a schedule refuses a weekday the client has not given, naming it") {
+    for (const auto& dayAndName : vector<pair<string, string>>{
+             {"2026-10-07", "Wednesday"}, {"2026-10-08", "Thursday"},
+             {"2026-10-10", "Saturday"}, {"2026-10-11", "Sunday"}}) {
+        CAPTURE(dayAndName.first);
+        const string message = parseErrorMessage("schedule:" + dayAndName.first);
+        CHECK(message.find(kDemandRuleArgument) != string::npos);
+        CHECK(message.find(dayAndName.first + " is a " + dayAndName.second) != string::npos);
+    }
+}
+
+TEST_CASE("demandSelector: a schedule names its field, delivery days and provisional status") {
+    CHECK(describeDemandSelector(parseDemandSelector("schedule:2026-10-09"))
+          == "schedule(2026-10-09 Friday: DATTO_TA on 2026-10-11 or 2026-10-12; provisional)");
+}
+
+TEST_CASE("demandSelector: a schedule needs exactly one real date") {
+    for (const string rule : {"schedule", "schedule:2026-02-30", "schedule:2026-10-05:2026-10-06"}) {
+        CAPTURE(rule);
+        CHECK(parseErrorMessage(rule).find(kDemandRuleArgument) != string::npos);
     }
 }

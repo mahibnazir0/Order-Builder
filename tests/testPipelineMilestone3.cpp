@@ -195,6 +195,11 @@ TEST_CASE("pipelineM3: a trailer named on the command line is recorded as named"
     CHECK(Pipeline::run(inputs).trailerChoice == TrailerChoice::Named);
 }
 
+TEST_CASE("pipelineM3: the Milestone 2 weight total equals the floor's total weight" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    const PipelineResult& run = wholeExtractRun();
+    CHECK(run.stackReport.totalWeightLb == doctest::Approx(run.floorPlan.totals.totalWeightLb).epsilon(1e-12));
+}
+
 TEST_CASE("pipelineM3: the floor weighs pallets from the pallet table and Milestone 1 keeps the confirmed weight") {
     const PipelineResult run = runOneLine("wholeExtract", "PTL", "PTL,48,40,6,65\n");
     REQUIRE(run.weight_per_line.size() == 1);

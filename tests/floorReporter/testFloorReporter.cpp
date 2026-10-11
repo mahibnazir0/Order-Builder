@@ -76,6 +76,8 @@ TEST_CASE("floorReporter: the basis block names every decision behind the figure
     CHECK(lineContaining(report, "source").find(shippedParams().sourcePath) != string::npos);
     CHECK(lineContaining(report, "Deck height").find("floorDeckHeight = Excluded")
           != string::npos);
+    CHECK(lineContaining(report, "provisional: open with the client (questions 6 and 21)")
+          != "");
     CHECK(lineContaining(report, "Rounding point").find("floorRoundingPoint = Group")
           != string::npos);
 }

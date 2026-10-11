@@ -299,7 +299,15 @@ TEST_CASE("cli: a copy of the demand file as --placeholder exits 2 naming it") {
         R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[]})");
     const CliRun run = runCli(inputs.arguments(inputs.product, inputs.demand, demandCopy, kParams));
     CHECK(run.exitCode == 2);
-    CHECK(contains(run.output, demandCopy + " has no PHOLDER block but has an STR block"));
+    CHECK(contains(run.output, demandCopy + " has no PHOLDER block"));
+}
+
+TEST_CASE("cli: an empty {} demand file exits 2 instead of planning a day with no demand") {
+    const SyntheticInputs inputs;
+    const string emptyObject = inputs.write("emptyObject.json", "{}");
+    const CliRun run = runCli(inputs.arguments(inputs.product, emptyObject, inputs.placeholder, kParams));
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "Demand file " + emptyObject + " has no STR block"));
 }
 
 TEST_CASE("cli: an unmatched material names the product master it was looked up in") {
@@ -539,6 +547,7 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
                                           "--pallets", "--trailer", "--groups", "--day", "--lanes", "--debug",
+                                          "schedule:YYYY-MM-DD",
                                           "0  success", "1  validation errors", "2  could not run",
                                           "3  a line is in no stack", "4  a line was left out of the floor",
                                           "5  the demand rule selected no line", "6  no floor computed"}) {
@@ -577,6 +586,29 @@ TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {
         CHECK(contains(run.output, "[ERROR] --demand-rule: "));
         CHECK_FALSE(contains(run.output, kM1Summary));
     }
+}
+
+TEST_CASE("cli: a schedule planned on a Wednesday exits 2 naming the weekday") {
+    const SyntheticInputs inputs;
+    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--pallets", inputs.pallets, "--demand-rule", "schedule:2026-10-07"});
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "2026-10-07 is a Wednesday"));
+    CHECK_FALSE(contains(run.output, kM1Summary));
+}
+
+TEST_CASE("cli: a Monday schedule floors the Wednesday deliveries and prints the field it read") {
+    const SyntheticInputs inputs;
+    const string wednesdayDemand = inputs.write("wednesdayDemand.json",
+        R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD",)"
+        R"("DATFR_TA":"2026-10-05","DATTO_TA":"2026-10-07","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"}]})");
+    const CliRun run = runCli({"--product", inputs.product, "--demand", wednesdayDemand,
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--pallets", inputs.pallets, "--demand-rule", "schedule:2026-10-05"});
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "schedule(2026-10-05 Monday: DATTO_TA on 2026-10-07; provisional)"));
+    CHECK(contains(run.output, "FLOOR                     1 trucks"));
 }
 
 TEST_CASE("cli: --demand-rule without --params exits 2") {

@@ -53,7 +53,8 @@ StackAudit auditStacks(const PipelineResult& run) {
         for (const auto& stack : run.stacking.groups[groupIndex].best.stacks) {
             ++audit.stacks;
             if (stack.lineIndices.size() > 1) ++audit.multiHighStacks;
-            if (stack.lineIndices.size() > static_cast<size_t>(params.maxStackHeight)) {
+            if (run.trailer.maxStackDepth
+                && stack.lineIndices.size() > static_cast<size_t>(*run.trailer.maxStackDepth)) {
                 ++audit.tooManyLevels;
             }
             vector<UnitLoad> levels;

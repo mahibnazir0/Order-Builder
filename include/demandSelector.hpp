@@ -15,12 +15,13 @@ enum class DemandRule {
     DueBy,        // DATTO_TA <= toDate: latest arrival on or before the planning date
     AvailableBy,  // DATFR_TA <= toDate: earliest arrival on or before the planning date
     Window,       // fromDate <= DATTO_TA <= toDate: latest arrival inside the window
+    Schedule,     // DATTO_TA on a delivery day of the planning day's weekday (toDate)
 };
 
 struct DemandSelector {
     DemandRule rule = DemandRule::WholeExtract;
     std::string fromDate; // YYYY-MM-DD; Window only
-    std::string toDate;   // YYYY-MM-DD; DueBy, AvailableBy and Window
+    std::string toDate;   // YYYY-MM-DD; DueBy, AvailableBy and Window; the planning day for Schedule
 };
 
 struct DemandSelection {
@@ -40,14 +41,22 @@ extern const char* const kDemandRuleArgument;
 
 // Parses the rule as given on the command line:
 //   wholeExtract | dueBy:YYYY-MM-DD | availableBy:YYYY-MM-DD | window:YYYY-MM-DD:YYYY-MM-DD
+//   | schedule:YYYY-MM-DD
 // Throws std::invalid_argument naming kDemandRuleArgument for an empty or unknown rule, a
-// missing, extra or invalid date, or a window that ends before it starts.
+// missing, extra or invalid date, a window that ends before it starts, or a schedule
+// planning day whose weekday has no delivery days.
 DemandSelector parseDemandSelector(const std::string& text);
 
 // Applies the rule to every line. Throws std::invalid_argument for a selector whose own
 // dates are invalid (one built in code rather than parsed).
 DemandSelection selectDemand(const std::vector<STRRecord>& demand,
                              const DemandSelector& selector);
+
+// The days a plan made on `planningDay` delivers, by the client's weekly schedule (3 Oct):
+// Monday's plan delivers Wednesday, Tuesday's Thursday, Friday's Sunday and Monday.
+// Provisional: no other weekday has been given, so any other planning day throws
+// std::invalid_argument naming the weekday rather than guessing.
+std::vector<std::string> scheduleDeliveryDates(const std::string& planningDay);
 
 // The rule as it should be printed beside any figure it produced, e.g. "dueBy(2026-10-02)".
 // Plain ASCII.

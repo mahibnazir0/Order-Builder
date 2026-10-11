@@ -49,6 +49,9 @@ struct StackReport {
     std::size_t weightBoundGroups = 0;
     std::size_t groupsAllSingleHigh = 0;
     double totalPallets = 0.0;
+    // Summed before rounding, so it matches the floor's total weight; the group rows are each
+    // rounded, and adding them up drifts from it by a few pounds.
+    double totalWeightLb = 0.0;
     double totalPalletsStacked = 0.0;   // exceeds totalPallets when part pallets are rounded up
     double totalFloorPositions = 0.0;
     std::size_t linesExcludedByValidator = 0;

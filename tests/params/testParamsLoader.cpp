@@ -67,7 +67,7 @@ json completeParams() {
         "criSafeLimitLb": [5,299,549,799,1149,1499,1849,2199,3099,3599],
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],
-        "doNotMixReading":"Strict","pass2AttemptCap":4,"maxStackHeight":2,"blankCriIsStackable":false,
+        "doNotMixReading":"Strict","pass2AttemptCap":4,"blankCriIsStackable":false,
         "stackWholePallets":true,"floorDeckHeight":"Excluded","floorRoundingPoint":"Group"
     })");
 }
@@ -84,7 +84,7 @@ void checkCompleteParams(const M2Params& params) {
     CHECK(trailer.stackHeightCeilingIn == 108);
     CHECK(trailer.weightLimitLb == 45000);
     CHECK(trailer.stackPositions == 32);
-    CHECK(params.maxStackHeight == 2);
+    CHECK_FALSE(trailer.maxStackDepth);
     CHECK(params.doNotMixReading == SegregationReading::Strict);
     CHECK(params.pass2AttemptCap == 4);
     CHECK_FALSE(params.blankCriIsStackable);
@@ -135,17 +135,15 @@ TEST_CASE("params missing policy keys use and record their defaults") {
     auto root = completeParams();
     root.erase("doNotMixReading");
     root.erase("pass2AttemptCap");
-    root.erase("maxStackHeight");
     root.erase("blankCriIsStackable");
     root.erase("stackWholePallets");
     const auto params = parseParams(root);
     CHECK(params.doNotMixReading == SegregationReading::Strict);
     CHECK(params.pass2AttemptCap == 4);
-    CHECK(params.maxStackHeight == 2);
     CHECK_FALSE(params.blankCriIsStackable);
     CHECK(params.stackWholePallets);
     const vector<string> expectedKeys{
-        "doNotMixReading", "pass2AttemptCap", "maxStackHeight", "blankCriIsStackable",
+        "doNotMixReading", "pass2AttemptCap", "blankCriIsStackable",
         "stackWholePallets"
     };
     CHECK(params.defaultedKeys == expectedKeys);
@@ -287,33 +285,11 @@ TEST_CASE("params attempt cap rejects a value above the maximum") {
     CHECK(parseParams(root).pass2AttemptCap == kMaxPass2Attempts);
 }
 
-TEST_CASE("params max stack height requires a positive integer and defaults to two when absent") {
+TEST_CASE("params refuse maxStackHeight, so stack depth has one home on the trailer") {
     auto root = completeParams();
-    root.erase("maxStackHeight");
-    const auto defaulted = parseParams(root);
-    CHECK(defaulted.maxStackHeight == 2);
-    CHECK(defaulted.defaultedKeys == vector<string>{"maxStackHeight"});
-    const vector<json> invalidValues{0, -1, 1.5, true, "2", nullptr,
-        numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity(),
-        static_cast<long long>(numeric_limits<int>::max()) + 1};
-    for (const auto& value : invalidValues) {
-        root["maxStackHeight"] = value;
-        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("maxStackHeight"), runtime_error);
-    }
-    for (const json& value : vector<json>{1, 3.0, 4}) {
-        root["maxStackHeight"] = value;
-        const auto params = parseParams(root);
-        CHECK(params.maxStackHeight == value.get<int>());
-        CHECK(params.defaultedKeys.empty());
-    }
-}
-
-TEST_CASE("params max stack height rejects a value above the maximum") {
-    auto root = completeParams();
-    root["maxStackHeight"] = kMaxStackHeight + 1;
-    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("maxStackHeight"), runtime_error);
-    root["maxStackHeight"] = kMaxStackHeight;
-    CHECK(parseParams(root).maxStackHeight == kMaxStackHeight);
+    root["maxStackHeight"] = 2;
+    CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("'maxStackHeight' is no longer read"),
+                         runtime_error);
 }
 
 TEST_CASE("params present blocks must be non-empty arrays") {
