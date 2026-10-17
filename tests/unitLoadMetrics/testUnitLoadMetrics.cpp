@@ -129,8 +129,8 @@ TEST_CASE("unitLoadMetrics: the deck height is added only when the rule includes
           == doctest::Approx(40.0 + shippedPallet("PTL").addedHeightIn));
 }
 
-TEST_CASE("unitLoadMetrics: the shipped params exclude the deck height from the floor") {
-    CHECK(shippedParams().floorDeckHeight == DeckHeightRule::Excluded);
+TEST_CASE("unitLoadMetrics: the shipped params count the deck height in the floor") {
+    CHECK(shippedParams().floorDeckHeight == DeckHeightRule::Included);
 }
 
 TEST_CASE("unitLoadMetrics: a unit load exactly at the ceiling fits") {
@@ -260,6 +260,60 @@ TEST_CASE("unitLoadMetrics: a negative or non-finite deck height is rejected und
     }
 }
 
+TEST_CASE("unitLoadMetrics: a zero, negative or non-finite pallet footprint side is rejected") {
+    for (const double side : {0.0, -48.0, kNaN, kInfinity}) {
+        CAPTURE(side);
+        ProductRecord longSide = ptlProduct();
+        longSide.palletFootprintLengthIn = side;
+        CHECK(errorFor(longSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+        ProductRecord shortSide = ptlProduct();
+        shortSide.palletFootprintWidthIn = side;
+        CHECK(errorFor(shortSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: a unit load covers its pallet's footprint and fills footprint x height") {
+    const PalletSpec& pallet = shippedPallet("PTL");
+    const double footprintSqIn = pallet.footprintLengthIn * pallet.footprintWidthIn;
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(2.0, "PAL"));
+    CHECK(metrics.floorAreaSqIn == doctest::Approx(2.0 * footprintSqIn));
+    CHECK(metrics.cargoCubicIn == doctest::Approx(2.0 * footprintSqIn * 40.0));
+}
+
+TEST_CASE("unitLoadMetrics: the product row's footprint wins over the pallet table") {
+    ProductRecord record = ptlProduct();
+    record.palletFootprintLengthIn = 40.0;
+    record.palletFootprintWidthIn = 30.0;
+    CHECK(metricsFor(record, demand(1.0, "PAL")).floorAreaSqIn == doctest::Approx(1200.0));
+}
+
+TEST_CASE("unitLoadMetrics: a zero, negative or non-finite layer side is rejected") {
+    for (const double side : {0.0, -47.0, kNaN, kInfinity}) {
+        CAPTURE(side);
+        ProductRecord longSide = ptlProduct();
+        longSide.layerLengthIn = side;
+        longSide.layerWidthIn = 40.0;
+        CHECK(errorFor(longSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidLayerSize);
+        ProductRecord shortSide = ptlProduct();
+        shortSide.layerLengthIn = 48.0;
+        shortSide.layerWidthIn = side;
+        CHECK(errorFor(shortSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidLayerSize);
+    }
+}
+
+TEST_CASE("unitLoadMetrics: a TLD load covers its layer, not the pallet table's footprint") {
+    ProductRecord record = product("TLD", 10.0, 9.0, 12, 4, 48);
+    record.layerLengthIn = 47.0;
+    record.layerWidthIn = 36.0;
+    const UnitLoadMetrics metrics = metricsFor(record, demand(2.0, "PAL"));
+    CHECK(metrics.floorAreaSqIn == doctest::Approx(2.0 * 47.0 * 36.0));
+    CHECK_FALSE(metrics.footprintFromPalletOnly);
+}
+
+TEST_CASE("unitLoadMetrics: a product with no layer size is flagged as covering its pallet's footprint") {
+    CHECK(metricsFor(ptlProduct(), demand(1.0, "PAL")).footprintFromPalletOnly);
+}
+
 TEST_CASE("unitLoadMetrics: a unit of measure other than CS, PAL or DIS is rejected") {
     for (const string unitOfMeasure : {"", "EA", "ROL", "cs"}) {
         CAPTURE(unitOfMeasure);
@@ -328,6 +382,8 @@ TEST_CASE("unitLoadMetrics: every error has a distinct plain-ASCII name") {
           == "missing_pallet_spec");
     CHECK(string(unitLoadMetricsErrorName(UnitLoadMetricsError::InvalidPalletSpec))
           == "invalid_pallet_spec");
+    CHECK(string(unitLoadMetricsErrorName(UnitLoadMetricsError::InvalidLayerSize))
+          == "invalid_layer_size");
 }
 
 TEST_CASE("unitLoadMetrics: reproduces the M1 pallet-equivalents and the M2 stacking weight on every extract" * doctest::skip(!crossDayTests::allExtractsPresent())) {

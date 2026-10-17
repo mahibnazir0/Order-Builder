@@ -581,6 +581,73 @@ TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning" * doctes
     CHECK(r.unrecognized_pallet_id == 1);
 }
 
+TEST_CASE("a negative, NaN or infinite item master pallet weight is an invalid_pallet_weight error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
+    for (const double badWeightLb : {-65.0, numeric_limits<double>::quiet_NaN(),
+                                     numeric_limits<double>::infinity()}) {
+        CAPTURE(badWeightLb);
+        Fixture f;
+        JoinResult j = f.join;
+        REQUIRE(j.lines[0].product != nullptr);
+        ProductRecord badProduct = *j.lines[0].product;
+        badProduct.palletWeightLb = badWeightLb;
+        j.lines[0].product = &badProduct;
+
+        ValidationReport r = Validator::validate(j);
+        CHECK(r.invalidPalletWeight == 1);
+        CHECK(count_rule(r, "invalid_pallet_weight") == 1);
+        CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+    }
+}
+
+TEST_CASE("a negative pallet table weight is an invalid_pallet_weight error" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    REQUIRE(f.join.lines[0].product != nullptr);
+    ValidationConfig config;
+    config.pallets = {{f.join.lines[0].product->pallet_id, -1.0, 0.0, 48.0, 40.0}};
+
+    ValidationReport r = Validator::validate(f.join, {}, config);
+    CHECK(r.invalidPalletWeight >= 1);
+    CHECK(Validator::excludedLineFlags(r, f.join.lines.size())[0]);
+}
+
+TEST_CASE("an unreadable Pallet_Weight cell in the item master is an invalid_pallet_weight error" * doctest::skip(!crossDayTests::august17Present())) {
+    const string path = "tests/importer/_tmp_validator_pallet_weight.csv";
+    {
+        ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID,Pallet_Weight\n";
+        out << "T1,Test,10,10,10,5,CS,9.5,4,2,8,PTL,65x\n";
+    }
+    const ProductLoadResult loaded = ProductImporter::load(path);
+    remove(path.c_str());
+
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "T1";
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    REQUIRE(j.lines[0].product != nullptr);
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.invalidPalletWeight == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("an item master pallet weight clears the unrecognized Pallet_ID warning" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.pallet_id = "XYZ";
+    product.palletWeightLb = 40.0;
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unrecognized_pallet_id == 0);
+    CHECK(r.invalidPalletWeight == 0);
+}
+
 TEST_CASE("a demand line whose ship window ends before it starts is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(!f.demand.str.empty());

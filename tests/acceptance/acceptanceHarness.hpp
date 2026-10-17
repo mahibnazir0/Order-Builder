@@ -63,7 +63,7 @@ struct LaneDayValidity {
     double boundTrucks = 0.0;
     // Each term summed over the lane-day's groups, so a violation shows which term drove it.
     double weightTrucks = 0.0;
-    double stackedHeightTrucks = 0.0;
+    double volumeTrucks = 0.0;
     double unitLoads = 0.0;
     long long noStackingBaselineTrucks = 0;
 };

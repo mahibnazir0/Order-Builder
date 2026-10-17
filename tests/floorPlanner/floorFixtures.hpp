@@ -74,7 +74,7 @@ inline ob::SegregatedGroup group(const std::string& locationTo, const std::strin
     return segregatedGroup;
 }
 
-// Half a trailer of stacked height per line.
+// Half a trailer's volume per line: ceiling-high TLD unit loads covering half the floor.
 struct HalfTrailerLines {
     std::vector<ob::ProductRecord> products;
     std::vector<ob::STRRecord> demand;
@@ -82,8 +82,11 @@ struct HalfTrailerLines {
 
     explicit HalfTrailerLines(std::size_t lineCount) {
         const ob::TrailerSpec& trailer = shippedTrailer();
+        const ob::PalletSpec* tld = ob::palletSpecFor(shippedParams().pallets, "TLD");
+        const double halfFloorUnitLoads = trailer.interiorLengthIn * trailer.interiorWidthIn / 2.0
+            / (tld->footprintLengthIn * tld->footprintWidthIn);
         products.assign(lineCount, unitLoadProduct("TLD", trailer.stackHeightCeilingIn));
-        demand.assign(lineCount, palletDemand(trailer.stackPositions / 2.0));
+        demand.assign(lineCount, palletDemand(halfFloorUnitLoads));
         lines = joinedLines(products, demand);
     }
     // lines points into this object's own vectors; a copy would point into the original.

@@ -9,6 +9,6 @@
   "pass2AttemptCap": 4,
   "blankCriIsStackable": false,
   "stackWholePallets": true,
-  "floorDeckHeight": "Excluded",
+  "floorDeckHeight": "Included",
   "floorRoundingPoint": "Group"
 }

@@ -67,18 +67,27 @@ TEST_CASE("floorReporter: the basis block names every decision behind the figure
     CHECK(lineContaining(report, "Trailer").find(trailer.trailerCode) != string::npos);
     CHECK(lineContaining(report, "Weight limit").find(grouped(trailer.weightLimitLb) + " lb")
           != string::npos);
-    CHECK(lineContaining(report, "Stack positions").find(to_string(trailer.stackPositions))
-          != string::npos);
+    CHECK(lineContaining(report, "Interior floor").find("630 x 100 in") != string::npos);
+    CHECK(lineContaining(report, "Footprint").find("layer size") != string::npos);
+    CHECK(lineContaining(report, "Interior floor").find("63,000 sq in") != string::npos);
+    CHECK(lineContaining(report, "Stack positions").empty());
     CHECK(lineContaining(report, "Interior height")
               .find(grouped(trailer.stackHeightCeilingIn) + " in") != string::npos);
     CHECK(lineContaining(report, "Max stack depth").find("no limit") != string::npos);
     CHECK(lineContaining(report, "Pallet weight").find("PTL") != string::npos);
     CHECK(lineContaining(report, "source").find(shippedParams().sourcePath) != string::npos);
-    CHECK(lineContaining(report, "Deck height").find("floorDeckHeight = Excluded")
+    CHECK(lineContaining(report, "Deck height").find("floorDeckHeight = Included")
           != string::npos);
-    CHECK(lineContaining(report, "provisional: open with the client (questions 6 and 21)")
-          != "");
+    CHECK(lineContaining(report, "client ruling (12 Oct)") != "");
     CHECK(lineContaining(report, "Rounding point").find("floorRoundingPoint = Group")
+          != string::npos);
+}
+
+TEST_CASE("floorReporter: lines with no layer size are counted beside the cargo volume") {
+    const ThreeLanes lanes;
+    FloorPlan plan = lanes.plan;
+    plan.linesWithoutLayerSize = 7;
+    CHECK(lineContaining(reportFor(plan, lanes.selection), "pallet footprint stood in").find("7 line(s)")
           != string::npos);
 }
 
@@ -95,7 +104,7 @@ TEST_CASE("floorReporter: every bound term is printed, including the ones that d
     const ThreeLanes lanes;
     const string report = reportFor(lanes.plan, lanes.selection);
     CHECK(lineContaining(report, "  weight ").find("binds on 0 group(s)") != string::npos);
-    CHECK(lineContaining(report, "stacked height  ").find("binds on 4 group(s)") != string::npos);
+    CHECK(lineContaining(report, "  volume ").find("binds on 4 group(s)") != string::npos);
     CHECK(lineContaining(report, "    stack depth").find("not applied") != string::npos);
 }
 
@@ -129,7 +138,7 @@ TEST_CASE("floorReporter: lanes are listed largest floor first with their groups
     CHECK(laneS3 < laneS1);
     CHECK(laneS1 < laneS2);
     const string rowS1 = lineContaining(report, "2027 -> S1 TL");
-    CHECK(rowS1.find("stacked_height") != string::npos);
+    CHECK(rowS1.find("volume") != string::npos);
     CHECK(rowS1.substr(rowS1.size() - 2) == " 2");
 }
 
@@ -220,7 +229,7 @@ TEST_CASE("floorReporter: the floor is printed with its not-yet-validated caveat
     const string report = reportFor(lanes.plan, lanes.selection);
     CHECK(report.find("NOT YET VALIDATED") > report.find("FLOOR "));
     CHECK(report.find("NOT YET VALIDATED") != string::npos);
-    CHECK(lineContaining(report, "upper bound").find("question 7") != string::npos);
+    CHECK(lineContaining(report, "NOT YET VALIDATED").find("Truck Builder") != string::npos);
 }
 
 TEST_CASE("floorReporter: the basis says how the trailer was chosen") {

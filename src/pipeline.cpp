@@ -11,12 +11,41 @@
 #include <filesystem>
 #include <stdexcept>
 #include <system_error>
+#include <unordered_map>
 
 using namespace std;
 
 namespace ob {
 
 namespace {
+
+// Fills each product with no layer size of its own from the row with the same ID and
+// Pallet_ID in donors. Throws when donors carry no layer size at all: that file cannot be
+// the one meant, and silently borrowing nothing would leave every footprint on the pallet.
+size_t borrowLayerSizes(vector<ProductRecord>& products, const vector<ProductRecord>& donors,
+                        const string& donorPath) {
+    unordered_map<string, const ProductRecord*> donorByKey;
+    donorByKey.reserve(donors.size());
+    for (const ProductRecord& donor : donors) {
+        if (donor.layerLengthIn && donor.layerWidthIn) {
+            donorByKey.emplace(donor.id + '\x1f' + donor.pallet_id, &donor);
+        }
+    }
+    if (donorByKey.empty()) {
+        throw runtime_error("--layer-sizes " + donorPath
+                            + ": no row has both Layer_Length and Layer_Width");
+    }
+    size_t borrowed = 0;
+    for (ProductRecord& product : products) {
+        if (product.layerLengthIn || product.layerWidthIn) continue;
+        const auto found = donorByKey.find(product.id + '\x1f' + product.pallet_id);
+        if (found == donorByKey.end()) continue;
+        product.layerLengthIn = found->second->layerLengthIn;
+        product.layerWidthIn = found->second->layerWidthIn;
+        ++borrowed;
+    }
+    return borrowed;
+}
 
 vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& excluded) {
     vector<double> kept = figures;
@@ -244,6 +273,13 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     LOG_DEBUG("Reading product master: " + inputs.product_path);
     result.products = ProductImporter::load(inputs.product_path);
 
+    if (!inputs.layerSizePath.empty()) {
+        result.layerSizesBorrowed = borrowLayerSizes(result.products.products,
+            ProductImporter::load(inputs.layerSizePath).products, inputs.layerSizePath);
+        LOG_INFO("Borrowed layer sizes for " + to_string(result.layerSizesBorrowed)
+                 + " product rows from " + inputs.layerSizePath);
+    }
+
     LOG_DEBUG("Reading demand: " + inputs.demand_path);
     result.demand = Importer::load_demand(inputs.demand_path);
 
@@ -263,6 +299,8 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     result.join  = Joiner::join(result.demand.str, result.index);
 
     // ── 3. Convert quantities to pallets and weight ─────────────────────────
+    const vector<PalletSpec>& m1Pallets =
+        result.params.pallets.empty() ? confirmedPalletSpecs() : result.params.pallets;
     result.pallets_per_line.reserve(result.join.lines.size());
     result.weight_per_line.reserve(result.join.lines.size());
     for (const auto& jl : result.join.lines) {
@@ -279,12 +317,13 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
                                                      *jl.product);
         result.pallets_per_line.push_back(pallets);
         result.weight_per_line.push_back(
-            Converter::to_weight_lb(pallets, *jl.product, confirmedPalletSpecs()));
+            Converter::to_weight_lb(pallets, *jl.product, m1Pallets));
     }
 
     // ── 4. Validate ─────────────────────────────────────────────────────────
     ValidationConfig validationConfig = inputs.validation;
     validationConfig.productMasterPath = inputs.product_path;
+    validationConfig.pallets = m1Pallets;
     result.validation = Validator::validate(result.join,
                                             result.pallets_per_line,
                                             validationConfig);

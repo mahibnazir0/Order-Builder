@@ -67,10 +67,15 @@ double Converter::to_weight_lb(double pallets, const ProductRecord& product,
     const double unit_load_lb =
         product.weight_lb * static_cast<double>(product.cases_unit_load);
 
-    const PalletSpec* pallet = palletSpecFor(palletSpecs, product.pallet_id);
-    const double palletAddedWeightLb = pallet != nullptr ? pallet->addedWeightLb : 0.0;
+    return pallets * (unit_load_lb + palletAddedWeightLb(product, palletSpecs).value_or(0.0));
+}
 
-    return pallets * (unit_load_lb + palletAddedWeightLb);
+optional<double> Converter::palletAddedWeightLb(const ProductRecord& product,
+                                                const vector<PalletSpec>& palletSpecs) {
+    if (product.palletWeightLb) return product.palletWeightLb;
+    const PalletSpec* pallet = palletSpecFor(palletSpecs, product.pallet_id);
+    if (pallet == nullptr) return nullopt;
+    return pallet->addedWeightLb;
 }
 
 }  // namespace ob

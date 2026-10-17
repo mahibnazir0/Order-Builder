@@ -60,7 +60,8 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--placeholder <path>` | yes | Placeholder JSON (trucks requested per lane) |
 | `--params <path>` | no | Params JSON (for example `config/orderBuilderParams.json`). Turns on the Milestone 2 report: segregation groups, cube/weight limit per group, and stacks |
 | `--pallets <path>` | with `--params`, for masters without `Pallet_*` columns | Pallet table CSV (`Customer2-Pallet-Data.csv`): weight, height and footprint per pallet type. A product row's own `Pallet_Weight`, `Pallet_Height` and `Pallet_Footprint_*` win over it |
-| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the one largest on payload, interior height, stack positions and depth (the run stops if no single trailer is) |
+| `--layer-sizes <path>` | no | A product master to borrow `Layer_Length` and `Layer_Width` from, for a master without them; fills only products that have none, matched on ID and Pallet_ID. A file with no layer sizes stops the run |
+| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the one largest on payload, interior height, volume and stacked floor area (the run stops if no single trailer is) |
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
@@ -219,9 +220,27 @@ threshold, defaulting to 300 pallets, which flags lines for review and never
 blocks a run. They appear in the warnings section as `large_line` — 17 lines in
 the current sample. A business rule would replace the threshold.
 
-**Wood pallet weight.** The Milestone 1 totals assume 60 lb for a physical wood
-pallet (PTL and PGM; TLD and GMA add nothing), so the published M1 figures stay
-reproducible. Milestone 2 does not use that figure: every stack, CRI check, group
-weight and cube/weight decision weighs the pallet from the supplied data — the
-product row's `Pallet_*` columns, or the pallet table given with `--pallets` — so a
-client with different pallets needs no code or config change.
+**Pallet weight.** Every milestone weighs a pallet the same way, from the item
+master first (client ruling, 13 Oct 2026): the product row's `Pallet_*` columns, then
+the pallet table given with `--pallets`, then a built-in fallback that copies the
+client's own table (PTL and PGM 65 lb, TLD 1 lb, GMA 0.1 lb) for a master with no
+pallet columns, such as 17 August. A client with different pallets needs no code or
+config change. A negative or non-finite pallet weight is an `invalid_pallet_weight`
+error that excludes the line.
+
+**Truck floor capacity.** The Milestone 3 floor takes a trailer's capacity from its floor
+area and volume, not from a count of pallet positions (client, 12 Oct 2026): a truck holds at
+most interior length x width x ceiling of footprint x unit-load height, or its payload in
+weight. `stackPositions` is still read for the Milestone 2 cube-or-weight split.
+
+**Unit-load footprint.** A stack covers the larger of its pallet and its layer (client,
+15 Oct 2026). TLD and GMA have no real pallet, so they cover their layer (`Layer_Length` x
+`Layer_Width` in the master); PTL and PGM cover the larger of 48 x 40 and the layer on each
+side. Masters before 29 Sep have no layer columns: pass `--layer-sizes` with a later master to
+borrow them by ID and Pallet_ID. Without a layer size, the pallet's footprint stands in and
+the floor report counts those lines.
+
+**Deck height.** The shipped params count the pallet deck toward unit-load height
+(`floorDeckHeight: Included`, client ruling, 12 Oct 2026), so a PTL or PGM load
+carries its 6 in wood deck against the 108 in ceiling. The 0.1 in TLD/GMA deck is a
+placeholder and adds nothing.

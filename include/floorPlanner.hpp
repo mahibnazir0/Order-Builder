@@ -63,6 +63,8 @@ struct FloorPlan {
     std::size_t linesNotSelected = 0;
     std::vector<FloorExcludedLine> excludedLines;
     std::size_t casesPerUnitLoadMismatchLines = 0;
+    // Counted lines whose product has no layer size, so the pallet's footprint stood in.
+    std::size_t linesWithoutLayerSize = 0;
 };
 
 // Applies floorBound to every segregated group and sums, counting only the lines the demand

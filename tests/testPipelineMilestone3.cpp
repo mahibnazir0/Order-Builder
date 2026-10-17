@@ -76,6 +76,42 @@ PipelineResult runOneLine(const string& demandRule, const string& palletId = "TL
     return result;
 }
 
+
+const string kLayerDonorHeader = "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+                                 "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID,"
+                                 "Layer_Length,Layer_Width\n";
+
+// The one-line run of runOneLine on a TLD pallet, two unit loads, with the product's own layer
+// cells (blank for none) and a donor master to borrow layer sizes from.
+PipelineResult runOneLineBorrowingLayers(const string& ownLayerCells, const string& donorText) {
+    const string productPath = "tests/importer/_tmp_m3_layer_products.csv";
+    const string donorPath = "tests/importer/_tmp_m3_layer_donor.csv";
+    const string demandPath = "tests/importer/_tmp_m3_layer_demand.json";
+    const string placeholderPath = "tests/importer/_tmp_m3_layer_placeholder.json";
+    const string palletPath = "tests/importer/_tmp_m3_layer_pallets.csv";
+    ofstream(palletPath) << "ID,Footprint_Length,Footprint_Width,Height,Weight\n" << kTldPallet;
+    ofstream(productPath) << kLayerDonorHeader << "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD,"
+                          << ownLayerCells << "\n";
+    ofstream(donorPath) << donorText;
+    ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1",)"
+                            R"("LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17",)"
+                            R"("SHIP_COND":"TL","TRANS":16,"UNITOFMEAS":"CS"}]})";
+    ofstream(placeholderPath) << R"({"PHOLDER":[]})";
+    PipelineInputs inputs;
+    inputs.product_path = productPath;
+    inputs.demand_path = demandPath;
+    inputs.placeholder_path = placeholderPath;
+    inputs.paramsPath = kShippedParamsPath;
+    inputs.palletPath = palletPath;
+    inputs.layerSizePath = donorPath;
+    inputs.demandSelector = parseDemandSelector("wholeExtract");
+    struct RemoveFiles {
+        vector<string> paths;
+        ~RemoveFiles() { for (const auto& path : paths) remove(path.c_str()); }
+    } cleanup{{productPath, donorPath, demandPath, placeholderPath, palletPath}};
+    return Pipeline::run(inputs);
+}
+
 } // namespace
 
 TEST_CASE("pipelineM3: without a demand rule no floor is planned" * doctest::skip(!crossDayTests::august17StackingPresent())) {
@@ -92,15 +128,16 @@ TEST_CASE("pipelineM3: a demand rule without a params file throws") {
     CHECK_THROWS_AS(Pipeline::run(inputs), runtime_error);
 }
 
-TEST_CASE("pipelineM3: 200 unit loads of 20 in on the 53 ft trailer floor at 2 trucks, bound by stacked height") {
+TEST_CASE("pipelineM3: 200 unit loads of 20 in on 48 x 40 pallets floor at 2 trucks, bound by volume") {
     const PipelineResult run = runOneLine("wholeExtract", "TLD", kTldPallet, 1600.0);
     REQUIRE(run.ranFloor);
     CHECK(run.floorPlan.totals.unitLoads == doctest::Approx(200.0));
     CHECK(run.floorPlan.totals.stackedInches == doctest::Approx(4000.0));
     CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(200.0 * (8 * 2.0 + 1.0)));
     REQUIRE(run.floorPlan.groups.size() == 1);
-    CHECK(run.floorPlan.groups[0].bound.binding == FloorTerm::StackedHeight);
-    CHECK(run.floorPlan.boundTrucks == doctest::Approx(4000.0 / (108.0 * 32)));
+    CHECK(run.floorPlan.groups[0].bound.binding == FloorTerm::Volume);
+    CHECK(run.floorPlan.totals.floorAreaSqIn == doctest::Approx(200.0 * 48.0 * 40.0));
+    CHECK(run.floorPlan.boundTrucks == doctest::Approx(200.0 * 48.0 * 40.0 * 20.0 / (630.0 * 100.0 * 108.0)));
     CHECK(run.floorPlan.floorTrucks == 2);
     CHECK(run.floorPlan.noStackingBaselineTrucks == 7);
 }
@@ -111,9 +148,11 @@ TEST_CASE("pipelineM3: the real day's whole-extract floor matches the signed-off
     const PipelineResult& run = wholeExtractRun();
     CHECK(run.demandSelection.selectedLines == 24357);
     CHECK(run.floorPlan.lanes.size() == 360);
-    // 3,900 when wood pallets weighed the configured 60 lb; the pallet table's 65 lb adds one.
-    CHECK(run.floorPlan.floorTrucks == 3901);
-    CHECK(run.floorPlan.noStackingBaselineTrucks == 4981);
+    // 3,900 when wood pallets weighed the configured 60 lb; the pallet table's 65 lb added one.
+    // Counting the 6 in wood deck (client ruling, 12 Oct) added 80 more, to 3,981. Taking
+    // capacity from floor area and volume instead of 32 positions (client, 12 Oct) gives 3,886.
+    CHECK(run.floorPlan.floorTrucks == 3886);
+    CHECK(run.floorPlan.noStackingBaselineTrucks == 4835);
     CHECK(runOutcome(run) == RunOutcome::Complete);
 }
 
@@ -200,11 +239,11 @@ TEST_CASE("pipelineM3: the Milestone 2 weight total equals the floor's total wei
     CHECK(run.stackReport.totalWeightLb == doctest::Approx(run.floorPlan.totals.totalWeightLb).epsilon(1e-12));
 }
 
-TEST_CASE("pipelineM3: the floor weighs pallets from the pallet table and Milestone 1 keeps the confirmed weight") {
-    const PipelineResult run = runOneLine("wholeExtract", "PTL", "PTL,48,40,6,65\n");
+TEST_CASE("pipelineM3: the floor and Milestone 1 both weigh pallets from the pallet table") {
+    const PipelineResult run = runOneLine("wholeExtract", "PTL", "PTL,48,40,6,70\n");
     REQUIRE(run.weight_per_line.size() == 1);
-    CHECK(run.weight_per_line[0] == doctest::Approx(2.0 * (2.0 * 8.0 + 60.0)));
-    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(2.0 * (2.0 * 8.0 + 65.0)));
+    CHECK(run.weight_per_line[0] == doctest::Approx(2.0 * (2.0 * 8.0 + 70.0)));
+    CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(2.0 * (2.0 * 8.0 + 70.0)));
     CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(run.weightForStacking[0]));
 }
 
@@ -213,4 +252,43 @@ TEST_CASE("pipelineM3: a pallet type only the pallet table lists reaches the flo
     CHECK(run.floorPlan.excludedLines.empty());
     CHECK(run.floorPlan.totals.totalWeightLb == doctest::Approx(2.0 * (2.0 * 8.0 + 55.0)));
     CHECK(run.floorPlan.floorTrucks == 1);
+}
+
+TEST_CASE("pipelineM3: a product with no layer size borrows one by ID and Pallet_ID") {
+    const PipelineResult run = runOneLineBorrowingLayers(
+        ",", kLayerDonorHeader + "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD,30,20\n");
+    CHECK(run.layerSizesBorrowed == 1);
+    CHECK(run.floorPlan.linesWithoutLayerSize == 0);
+    CHECK(run.floorPlan.totals.floorAreaSqIn == doctest::Approx(2.0 * 30.0 * 20.0));
+}
+
+TEST_CASE("pipelineM3: a donor row on another pallet type lends nothing") {
+    const PipelineResult run = runOneLineBorrowingLayers(
+        ",", kLayerDonorHeader + "GOOD,Good,10,10,10,5,CS,2,4,2,8,PTL,30,20\n");
+    CHECK(run.layerSizesBorrowed == 0);
+    CHECK(run.floorPlan.linesWithoutLayerSize == 1);
+    CHECK(run.floorPlan.totals.floorAreaSqIn == doctest::Approx(2.0 * 48.0 * 40.0));
+}
+
+TEST_CASE("pipelineM3: a product's own layer size is kept over the donor's") {
+    const PipelineResult run = runOneLineBorrowingLayers(
+        "36,24", kLayerDonorHeader + "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD,30,20\n");
+    CHECK(run.layerSizesBorrowed == 0);
+    CHECK(run.floorPlan.totals.floorAreaSqIn == doctest::Approx(2.0 * 36.0 * 24.0));
+}
+
+TEST_CASE("pipelineM3: a layer-size file with no layer sizes stops the run") {
+    CHECK_THROWS_AS(runOneLineBorrowingLayers(
+                        ",", "ID,Description,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,"
+                             "Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
+                             "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD\n"),
+                    runtime_error);
+}
+
+TEST_CASE("pipelineM3: a borrowed layer size that is unreadable leaves the line out of the floor") {
+    const PipelineResult run = runOneLineBorrowingLayers(
+        ",", kLayerDonorHeader + "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD,wide,20\n");
+    CHECK(run.layerSizesBorrowed == 1);
+    REQUIRE(run.floorPlan.excludedLines.size() == 1);
+    CHECK(run.floorPlan.excludedLines[0].error == UnitLoadMetricsError::InvalidLayerSize);
 }

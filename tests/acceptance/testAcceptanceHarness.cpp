@@ -17,10 +17,6 @@ using namespace acceptanceTests;
 
 namespace {
 
-// Question 7: the client corrected 30 to 32 positions and said 34 also occurs, depending on
-// footprint. Validity is measured under both.
-constexpr int kAlternativeStackPositions = 34;
-
 // The September days with Truck Builder solutions: dayFiles() index and solution folder.
 struct SolvedDay {
     size_t dayIndex;
@@ -38,9 +34,9 @@ constexpr array<size_t, 3> kSolutionFiles{41, 40, 40};
 constexpr array<size_t, 3> kLaneDays{150, 140, 150};
 constexpr array<size_t, 3> kAchievedLoads{290, 271, 319};
 
-// Lane-days on which the no-stacking baseline exceeds Truck Builder's achieved loads,
-// measured 7 Oct 2026.
-constexpr array<size_t, 3> kBaselineExceedsAt32{62, 69, 75};
+// Lane-days on which the no-stacking baseline exceeds Truck Builder's achieved loads, measured
+// 17 Oct 2026 with capacity taken from floor area and the client's footprint rule.
+constexpr array<size_t, 3> kBaselineExceeds{37, 38, 47};
 
 // Truck Builder solution folders a solved-day test needs and cannot find. Like the extracts
 // they are confidential and gitignored.
@@ -59,12 +55,6 @@ bool solvedDaysPresent() { return allExtractsPresent() && missingSolutionFolders
 const TrailerSpec& shippedTrailer() {
     static const M2Params params = loadParams(kStrictParamsPath);
     return selectTrailer(params.trailers, params.sourcePath, "53FT_NA");
-}
-
-TrailerSpec trailerWithPositions(int stackPositions) {
-    TrailerSpec trailer = shippedTrailer();
-    trailer.stackPositions = stackPositions;
-    return trailer;
 }
 
 const AchievedRequest& achievedFor(size_t solvedIndex) {
@@ -229,19 +219,16 @@ TEST_CASE("acceptanceHarness: a lane-day floored above its achieved loads is cou
 
 // The validity criterion itself: the floor is a lower bound, so no lane-day may need more
 // trucks than Truck Builder used. It is not marked as expected to fail. While the bound is
-// invalid (M3 section 2.5, edge case 31) this test fails, and the suite with it. The counts
-// at 32 and 34 positions are printed on every run, pass or fail, so the defect is tracked.
+// invalid (M3 section 2.5, edge case 31) this test fails, and the suite with it. The count is
+// printed on every run, pass or fail, so the defect is tracked.
 TEST_CASE("acceptanceHarness: the floor never exceeds Truck Builder's achieved loads" * doctest::skip(!solvedDaysPresent())) {
-    const TrailerSpec alternativePositions = trailerWithPositions(kAlternativeStackPositions);
     for (size_t index = 0; index < kSolvedDays.size(); ++index) {
         const string& label = dayFiles()[kSolvedDays[index].dayIndex].label;
         CAPTURE(label);
-        const size_t exceedsAt32 = validityFor(index, shippedTrailer()).floorExceedsAchieved;
-        const size_t exceedsAt34 = validityFor(index, alternativePositions).floorExceedsAchieved;
-        MESSAGE(label << ": floor exceeds achieved loads on " << exceedsAt32 << " of "
-                      << kLaneDays[index] << " lane-days at " << shippedTrailer().stackPositions
-                      << " positions, " << exceedsAt34 << " at " << kAlternativeStackPositions);
-        CHECK(exceedsAt32 == 0);
+        const size_t exceeds = validityFor(index, shippedTrailer()).floorExceedsAchieved;
+        MESSAGE(label << ": floor exceeds achieved loads on " << exceeds << " of "
+                      << kLaneDays[index] << " lane-days");
+        CHECK(exceeds == 0);
     }
 }
 
@@ -249,19 +236,181 @@ TEST_CASE("acceptanceHarness: the no-stacking baseline exceeds achieved loads fa
     for (size_t index = 0; index < kSolvedDays.size(); ++index) {
         CAPTURE(dayFiles()[kSolvedDays[index].dayIndex].label);
         const ValidityResult validity = validityFor(index, shippedTrailer());
-        CHECK(validity.baselineExceedsAchieved == kBaselineExceedsAt32[index]);
+        CHECK(validity.baselineExceedsAchieved == kBaselineExceeds[index]);
         CHECK(validity.floorExceedsAchieved < validity.baselineExceedsAchieved);
     }
 }
 
-// Acceptance: 1,219 trucks across 454 lane-days on the 4-6 August data. We hold neither the
-// August demand extracts nor their configuration (question 2), and the planning-day rule is
-// not agreed (question 1), so this runs only once the inputs are supplied, and then fails
-// until the run is written against the agreed rule.
-TEST_CASE("acceptanceHarness: the August run reproduces 1,219 trucks across 454 lane-days" * doctest::skip(!filesystem::is_directory("tests/importer/august"))) {
-    constexpr long long kAcceptedTrucks = 1219;
-    constexpr size_t kAcceptedLaneDays = 454;
-    FAIL("August inputs found: write this run against the agreed planning-day rule (question 1)"
-         " and configuration (question 2), expecting " << kAcceptedTrucks << " trucks across "
-         << kAcceptedLaneDays << " lane-days");
+namespace {
+
+// The 4-6 August runs the 1,219 figure was quoted on: the request each Truck Builder solution
+// set answers, and the demand file that request planned (client README, 13 Oct: the run
+// labelled Aug4 planned Demand-Aug5-2). Placeholders carry no request ID, so they pair by the
+// supplied day label only. No historical config or pallet table exists, so the run uses the
+// shipped params and the 29 Sep pallet table, as the client's own 13 Oct check did.
+struct AugustRun {
+    string label;
+    string requestId;
+    string demandPath;
+    string placeholderPath;
+    string solutionDirectory;
+};
+const string kAugustDirectory = "tests/importer/august";
+const string kAugustProductPath = kAugustDirectory + "/Product-Data.csv";
+
+const array<AugustRun, 3> kAugustRuns{{
+    {"Aug4", "#STR_PA4400_20260804154458#", kAugustDirectory + "/Aug4/demand/Demand-Aug5-2.json",
+     kAugustDirectory + "/Aug4/PH-Aug4.json", kAugustDirectory + "/Aug4/solutions"},
+    {"Aug5", "#STR_PA4400_20260805153651#", kAugustDirectory + "/Aug5/demand/Demand-Aug5.json",
+     kAugustDirectory + "/Aug5/PH-Aug5.json", kAugustDirectory + "/Aug5/solutions"},
+    {"Aug6", "#STR_PA4400_20260806165912#", kAugustDirectory + "/Aug6/demand/Demand-Aug6.json",
+     kAugustDirectory + "/Aug6/PH-Aug6.json", kAugustDirectory + "/Aug6/solutions"},
+}};
+
+// From the client's README (13 Oct), counted independently of this code. Solution files are
+// for the main request only: the README's 40 and 41 for Aug4 and Aug5 include one
+// supplementary #q request each.
+constexpr array<size_t, 3> kAugustSolutionFiles{39, 40, 39};
+constexpr array<size_t, 3> kAugustLaneDays{134, 158, 162};
+constexpr array<size_t, 3> kAugustAchievedLoads{282, 492, 534};
+constexpr size_t kAugustTotalLaneDays = 454;
+constexpr size_t kAugustTotalAchievedLoads = 1308;
+
+// The acceptance figure the client quoted. Its definition is not confirmed.
+constexpr long long kAcceptedTrucks = 1219;
+
+bool augustPresent() {
+    if (!filesystem::is_regular_file(kAugustProductPath)
+        || !filesystem::is_regular_file(kLayerSizesForOlderMasters)) {
+        return false;
+    }
+    for (const AugustRun& run : kAugustRuns) {
+        if (!filesystem::is_regular_file(run.demandPath)
+            || !filesystem::is_regular_file(run.placeholderPath)
+            || !filesystem::is_directory(run.solutionDirectory)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const PipelineResult& augustPipelineRun(size_t runIndex) {
+    static const array<PipelineResult, 3> runs = [] {
+        array<PipelineResult, 3> loaded;
+        for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+            PipelineInputs inputs;
+            inputs.product_path = kAugustProductPath;
+            inputs.demand_path = kAugustRuns[index].demandPath;
+            inputs.placeholder_path = kAugustRuns[index].placeholderPath;
+            inputs.planning_day = kAugustRuns[index].label;
+            inputs.paramsPath = kStrictParamsPath;
+            inputs.palletPath = kPalletTableForOlderMasters;
+            inputs.layerSizePath = kLayerSizesForOlderMasters;
+            loaded[index] = Pipeline::run(inputs);
+        }
+        return loaded;
+    }();
+    return runs[runIndex];
+}
+
+const AchievedRequest& augustAchieved(size_t runIndex) {
+    static const array<AchievedRequest, 3> achieved = [] {
+        array<AchievedRequest, 3> loaded;
+        for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+            loaded[index] = readAchievedLoads(kAugustRuns[index].solutionDirectory,
+                                              kAugustRuns[index].requestId);
+        }
+        return loaded;
+    }();
+    return achieved[runIndex];
+}
+
+ValidityResult augustValidity(size_t runIndex, const TrailerSpec& trailer) {
+    return checkValidity(augustPipelineRun(runIndex), augustAchieved(runIndex), trailer);
+}
+
+} // namespace
+
+TEST_CASE("acceptanceHarness: each August demand file is the request its solutions answer" * doctest::skip(!augustPresent())) {
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        CAPTURE(kAugustRuns[index].label);
+        CHECK(augustPipelineRun(index).demand.request_id == kAugustRuns[index].requestId);
+    }
+}
+
+TEST_CASE("acceptanceHarness: the August solutions give the client's 454 lane-days and 1,308 loads" * doctest::skip(!augustPresent())) {
+    size_t laneDays = 0;
+    size_t loads = 0;
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        CAPTURE(kAugustRuns[index].label);
+        const AchievedRequest& achieved = augustAchieved(index);
+        CHECK(achieved.solutionFiles == kAugustSolutionFiles[index]);
+        CHECK(achieved.laneDays.size() == kAugustLaneDays[index]);
+        CHECK(achieved.totalLoads() == kAugustAchievedLoads[index]);
+        CHECK(achieved.scoredLoadsOutsideSet == 0);
+        CHECK(achieved.unscoredLoadsInSet == 0);
+        laneDays += achieved.laneDays.size();
+        loads += achieved.totalLoads();
+    }
+    CHECK(laneDays == kAugustTotalLaneDays);
+    CHECK(loads == kAugustTotalAchievedLoads);
+}
+
+TEST_CASE("acceptanceHarness: every August shipped line is floored" * doctest::skip(!augustPresent())) {
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        CAPTURE(kAugustRuns[index].label);
+        const ValidityResult validity = augustValidity(index, shippedTrailer());
+        CHECK(validity.laneDays.size() == kAugustLaneDays[index]);
+        CHECK(validity.achievedLoads == kAugustAchievedLoads[index]);
+        CHECK(validity.shippedLinesNotInDemand == 0);
+        CHECK(validity.shippedLinesDisagreeing == 0);
+        CHECK(validity.shippedLinesNotGrouped == 0);
+        CHECK(validity.shippedLinesLeftOutOfFloor == 0);
+    }
+}
+
+TEST_CASE("acceptanceHarness: Aug6's placeholder is missing a SHIP_COND and only Aug6 fails validation" * doctest::skip(!augustPresent())) {
+    CHECK(augustPipelineRun(0).validation.errors == 0);
+    CHECK(augustPipelineRun(1).validation.errors == 0);
+    CHECK(augustPipelineRun(2).validation.errors == 1);
+    CHECK(augustPipelineRun(2).validation.missing_ship_cond == 1);
+}
+
+// A regression pin, not an acceptance figure: what this code floors the August shipped volume
+// to on 17 Oct 2026, with capacity taken from floor area and volume and each footprint from
+// the client's layer-size rule, so any change to it has to be explained.
+TEST_CASE("acceptanceHarness: the August floor matches the measured run" * doctest::skip(!augustPresent())) {
+    constexpr array<long long, 3> floorTrucks{291, 469, 509};
+    constexpr array<long long, 3> noStackingBaselineTrucks{370, 557, 605};
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        CAPTURE(kAugustRuns[index].label);
+        const ValidityResult validity = augustValidity(index, shippedTrailer());
+        CHECK(validity.floorTrucks == floorTrucks[index]);
+        CHECK(validity.noStackingBaselineTrucks == noStackingBaselineTrucks[index]);
+    }
+}
+
+// The validity criterion on the August data, as for the September days above: not marked as
+// expected to fail, so while the bound is invalid the suite fails and prints the counts.
+TEST_CASE("acceptanceHarness: the August floor never exceeds Truck Builder's achieved loads" * doctest::skip(!augustPresent())) {
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        CAPTURE(kAugustRuns[index].label);
+        const size_t exceeds = augustValidity(index, shippedTrailer()).floorExceedsAchieved;
+        MESSAGE(kAugustRuns[index].label << ": floor exceeds achieved loads on " << exceeds
+                << " of " << kAugustLaneDays[index] << " lane-days");
+        CHECK(exceeds == 0);
+    }
+}
+
+// Acceptance: 1,219 trucks across the 454 August lane-days, the milestone's agreed figure. The
+// client describes it as the trucks reserved in advance (15 Oct); the August placeholder files
+// reserve 1,503, so how it was counted is still open. The run prints the floor beside it.
+TEST_CASE("acceptanceHarness: the August floor reproduces 1,219 trucks across 454 lane-days" * doctest::skip(!augustPresent())) {
+    long long floorTrucks = 0;
+    for (size_t index = 0; index < kAugustRuns.size(); ++index) {
+        floorTrucks += augustValidity(index, shippedTrailer()).floorTrucks;
+    }
+    MESSAGE("August floor " << floorTrucks << " trucks against the accepted " << kAcceptedTrucks
+            << " and " << kAugustTotalAchievedLoads << " achieved");
+    CHECK(floorTrucks == kAcceptedTrucks);
 }

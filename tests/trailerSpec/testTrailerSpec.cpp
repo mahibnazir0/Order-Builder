@@ -127,13 +127,14 @@ TEST_CASE("trailerSpec: a maxStackDepth that is not a positive integer is reject
 namespace {
 
 TrailerSpec trailerSized(const string& trailerCode, double weightLimitLb,
-                         double stackHeightCeilingIn, int stackPositions,
+                         double stackHeightCeilingIn, double interiorLengthIn,
                          optional<int> maxStackDepth = nullopt) {
     TrailerSpec trailer;
     trailer.trailerCode = trailerCode;
     trailer.weightLimitLb = weightLimitLb;
     trailer.stackHeightCeilingIn = stackHeightCeilingIn;
-    trailer.stackPositions = stackPositions;
+    trailer.interiorLengthIn = interiorLengthIn;
+    trailer.interiorWidthIn = 100;
     trailer.maxStackDepth = maxStackDepth;
     return trailer;
 }
@@ -150,29 +151,41 @@ string largestTrailerErrorMessage(const vector<TrailerSpec>& trailers) {
 } // namespace
 
 TEST_CASE("trailerSpec: the largest trailer is chosen even when a smaller one is listed first") {
-    const vector<TrailerSpec> trailers{trailerSized("48FT", 40000, 100, 28),
-                                       trailerSized("53FT", 45000, 108, 32)};
+    const vector<TrailerSpec> trailers{trailerSized("48FT", 40000, 100, 570),
+                                       trailerSized("53FT", 45000, 108, 630)};
     CHECK(largestTrailer(trailers, "params.json").trailerCode == "53FT");
 }
 
 TEST_CASE("trailerSpec: equal trailers resolve to the lowest trailerCode") {
-    const vector<TrailerSpec> trailers{trailerSized("53FT_B", 45000, 108, 32),
-                                       trailerSized("53FT_A", 45000, 108, 32)};
+    const vector<TrailerSpec> trailers{trailerSized("53FT_B", 45000, 108, 630),
+                                       trailerSized("53FT_A", 45000, 108, 630)};
     CHECK(largestTrailer(trailers, "params.json").trailerCode == "53FT_A");
 }
 
 TEST_CASE("trailerSpec: a trailer with no depth limit beats an otherwise equal one with a limit") {
-    const vector<TrailerSpec> trailers{trailerSized("A_DEPTH", 45000, 108, 32, 2),
-                                       trailerSized("B_NODEPTH", 45000, 108, 32)};
+    const vector<TrailerSpec> trailers{trailerSized("A_DEPTH", 45000, 108, 630, 2),
+                                       trailerSized("B_NODEPTH", 45000, 108, 630)};
     CHECK(largestTrailer(trailers, "params.json").trailerCode == "B_NODEPTH");
 }
 
 TEST_CASE("trailerSpec: no trailer largest on every figure is an error asking for --trailer") {
-    const vector<TrailerSpec> trailers{trailerSized("HEAVY", 48000, 100, 28),
-                                       trailerSized("TALL", 45000, 108, 32)};
+    const vector<TrailerSpec> trailers{trailerSized("HEAVY", 48000, 100, 570),
+                                       trailerSized("TALL", 45000, 108, 630)};
     const string message = largestTrailerErrorMessage(trailers);
     CHECK(message.find("params.json") != string::npos);
     CHECK(message.find("--trailer") != string::npos);
+}
+
+TEST_CASE("trailerSpec: a longer floor is larger even with the same payload and height") {
+    const vector<TrailerSpec> trailers{trailerSized("SHORT", 45000, 108, 570),
+                                       trailerSized("LONG", 45000, 108, 630)};
+    CHECK(largestTrailer(trailers, "params.json").trailerCode == "LONG");
+}
+
+TEST_CASE("trailerSpec: a taller trailer with less volume is not largest on every figure") {
+    const vector<TrailerSpec> trailers{trailerSized("TALL_SHORT", 45000, 110, 500),
+                                       trailerSized("LOW_LONG", 45000, 108, 630)};
+    CHECK(largestTrailerErrorMessage(trailers).find("--trailer") != string::npos);
 }
 
 TEST_CASE("trailerSpec: an empty trailer list has no largest trailer") {

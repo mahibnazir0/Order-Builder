@@ -40,10 +40,18 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& param
 
     const optional<PalletSpec> pallet = resolvePalletSpec(product, params);
     if (!pallet) return rejected(UnitLoadMetricsError::MissingPalletSpec);
-    // Pallet figures come from CSV cells, where an unreadable one is kept as NaN.
+    // Pallet figures come from CSV cells, where an unreadable one is kept as NaN. A zero
+    // footprint would let a unit load take no floor at all.
     if (!isfinite(pallet->addedWeightLb) || pallet->addedWeightLb < 0.0
-        || !isfinite(pallet->addedHeightIn) || pallet->addedHeightIn < 0.0) {
+        || !isfinite(pallet->addedHeightIn) || pallet->addedHeightIn < 0.0
+        || !isfinite(pallet->footprintLengthIn) || pallet->footprintLengthIn <= 0.0
+        || !isfinite(pallet->footprintWidthIn) || pallet->footprintWidthIn <= 0.0) {
         return rejected(UnitLoadMetricsError::InvalidPalletSpec);
+    }
+    for (const optional<double>& side : {product.layerLengthIn, product.layerWidthIn}) {
+        if (side && (!isfinite(*side) || *side <= 0.0)) {
+            return rejected(UnitLoadMetricsError::InvalidLayerSize);
+        }
     }
     if (!Converter::isConvertibleUom(demand.unitofmeas)) {
         return rejected(UnitLoadMetricsError::UnconvertibleUom);
@@ -60,11 +68,15 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& param
         * (product.weight_lb * product.cases_unit_load + pallet->addedWeightLb);
     metrics.unitLoadHeightIn = unitLoadHeightIn(product, *pallet, params);
     metrics.stackedInches = metrics.unitLoads * metrics.unitLoadHeightIn;
+    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet);
+    metrics.footprintFromPalletOnly = footprint.fromPalletOnly;
+    metrics.floorAreaSqIn = metrics.unitLoads * footprint.longSideIn * footprint.shortSideIn;
+    metrics.cargoCubicIn = metrics.floorAreaSqIn * metrics.unitLoadHeightIn;
     metrics.casesPerUnitLoadMismatch = static_cast<long long>(product.cases_layer)
         * product.layers_unit_load != product.cases_unit_load;
 
     if (!isfinite(metrics.weightLb) || !isfinite(metrics.unitLoadHeightIn)
-        || !isfinite(metrics.stackedInches)) {
+        || !isfinite(metrics.stackedInches) || !isfinite(metrics.cargoCubicIn)) {
         return rejected(UnitLoadMetricsError::NonFiniteResult);
     }
     return metrics;
@@ -80,6 +92,7 @@ const char* unitLoadMetricsErrorName(UnitLoadMetricsError error) {
     case UnitLoadMetricsError::MissingProduct: return "missing_product";
     case UnitLoadMetricsError::MissingPalletSpec: return "missing_pallet_spec";
     case UnitLoadMetricsError::InvalidPalletSpec: return "invalid_pallet_spec";
+    case UnitLoadMetricsError::InvalidLayerSize: return "invalid_layer_size";
     case UnitLoadMetricsError::UnconvertibleUom: return "unconvertible_uom";
     case UnitLoadMetricsError::InvalidQuantity: return "invalid_quantity";
     case UnitLoadMetricsError::InvalidCasesPerUnitLoad: return "invalid_cases_per_unit_load";

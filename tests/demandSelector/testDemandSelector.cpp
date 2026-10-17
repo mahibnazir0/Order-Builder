@@ -13,14 +13,14 @@ using namespace crossDayTests;
 
 namespace {
 
-STRRecord line(const string& earliestArrival, const string& latestArrival) {
+STRRecord line(const string& shipDate, const string& deliveryDate) {
     STRRecord record;
-    record.datfr_ta = earliestArrival;
-    record.datto_ta = latestArrival;
+    record.datfr_ta = shipDate;
+    record.datto_ta = deliveryDate;
     return record;
 }
 
-// Arrival windows 1-3, 2-4 and 3-5 October.
+// Ship-to-delivery windows 1-3, 2-4 and 3-5 October.
 const vector<STRRecord>& octoberLines() {
     static const vector<STRRecord> lines{line("2026-10-01", "2026-10-03"),
                                          line("2026-10-02", "2026-10-04"),
@@ -51,17 +51,17 @@ TEST_CASE("demandSelector: wholeExtract selects every line, dated or not") {
     CHECK(selection.undatedLines.empty());
 }
 
-TEST_CASE("demandSelector: dueBy selects lines whose latest arrival is on or before the date") {
+TEST_CASE("demandSelector: dueBy selects lines whose delivery date is on or before the date") {
     CHECK(selectedFlags("dueBy:2026-10-04", octoberLines()) == vector<bool>{true, true, false});
     CHECK(selectedFlags("dueBy:2026-10-02", octoberLines()) == vector<bool>{false, false, false});
 }
 
-TEST_CASE("demandSelector: availableBy selects lines whose earliest arrival is on or before the date") {
+TEST_CASE("demandSelector: availableBy selects lines whose ship date is on or before the date") {
     CHECK(selectedFlags("availableBy:2026-10-02", octoberLines())
           == vector<bool>{true, true, false});
 }
 
-TEST_CASE("demandSelector: window selects lines whose latest arrival falls inside it") {
+TEST_CASE("demandSelector: window selects lines whose delivery date falls inside it") {
     CHECK(selectedFlags("window:2026-10-04:2026-10-05", octoberLines())
           == vector<bool>{false, true, true});
     CHECK(selectedFlags("window:2026-10-04:2026-10-04", octoberLines())
@@ -84,7 +84,7 @@ TEST_CASE("demandSelector: dueBy counts selected lines due before the planning d
     CHECK(selection.overdueLines == 1);
 }
 
-TEST_CASE("demandSelector: availableBy counts selected lines whose latest arrival has passed") {
+TEST_CASE("demandSelector: availableBy counts selected lines whose delivery date has passed") {
     const DemandSelection selection =
         selectDemand(octoberLines(), parseDemandSelector("availableBy:2026-10-04"));
     CHECK(selection.selectedLines == 3);
@@ -97,7 +97,7 @@ TEST_CASE("demandSelector: wholeExtract and window count nothing as overdue") {
               .overdueLines == 0);
 }
 
-TEST_CASE("demandSelector: availableBy reads only the earliest arrival date") {
+TEST_CASE("demandSelector: availableBy reads only the ship date") {
     const vector<STRRecord> demand{line("2026-10-01", "")};
     const DemandSelection selection =
         selectDemand(demand, parseDemandSelector("availableBy:2026-10-01"));

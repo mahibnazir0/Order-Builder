@@ -24,18 +24,20 @@
 // plus the pallet itself where the pallet is physical wood.
 //
 // PALLET WEIGHT
-// What a pallet adds is read from the pallet table the caller passes. The
-// pipeline passes the confirmed palletSpec table, so the published Milestone 1
-// totals stay reproducible. PTL and PGM are wood and add their own weight; TLD and GMA
-// add nothing. 10,659 of the 20,201 master rows are wood (verified against the
-// real file), and the pallet is ~9.5% of a median unit load, so it is not
-// negligible. A pallet type with no spec adds nothing here; the Validator
-// warns about it.
+// What a pallet adds comes from the item master first (the product row's
+// Pallet_Weight), then from the pallet table the caller passes (client, 13 Oct:
+// "use what is in the item master"). Milestone 2 and the floor read it the same
+// way, so all three milestones weigh a pallet alike. PTL and PGM are wood and
+// add their own weight. 10,659 of the 20,201 master rows are wood (verified
+// against the real file), and the pallet is ~9.5% of a median unit load, so it
+// is not negligible. A pallet with no weight from either source adds nothing
+// here; the Validator warns about it, and rejects a negative or non-finite one.
 // ============================================================================
 
 #include "palletSpec.hpp"
 #include "product_types.hpp"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -112,6 +114,12 @@ public:
     // becomes a whole one.
     static double to_weight_lb(double pallets, const ProductRecord& product,
                                const std::vector<PalletSpec>& palletSpecs);
+
+    // What one pallet adds: the product row's own figure when the master
+    // carries one, else the row for its Pallet_ID in palletSpecs, else nullopt.
+    // Not range-checked; the Validator rejects a negative or non-finite one.
+    static std::optional<double> palletAddedWeightLb(const ProductRecord& product,
+                                                     const std::vector<PalletSpec>& palletSpecs);
 };
 
 }  // namespace ob

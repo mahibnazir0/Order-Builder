@@ -5,14 +5,15 @@ using namespace std;
 namespace ob {
 
 const vector<PalletSpec>& confirmedPalletSpecs() {
-    // PTL and PGM are wood: 60 lb, confirmed by Tom in writing on 25 August. The client's
-    // September pallet table says 65 lb; that is an open question (M3 question 5), and a
-    // confirmed weight does not change on silence. TLD and GMA add nothing.
+    // The client's own figures (every master and pallet table since September), so a run
+    // without them weighs exactly as a run with them. Tom confirmed 60 lb wood on 25 August,
+    // then on 13 October ruled that the item master's figure wins. TLD and GMA carry a 0.1 in
+    // placeholder deck, read as 0 (stackRules).
     static const vector<PalletSpec> specs{
-        {"PTL", 60.0, 5.5, 48.0, 40.0},
-        {"PGM", 60.0, 5.5, 48.0, 40.0},
-        {"TLD", 0.0, 0.0, 48.0, 40.0},
-        {"GMA", 0.0, 0.0, 48.0, 40.0},
+        {"PTL", 65.0, 6.0, 48.0, 40.0},
+        {"PGM", 65.0, 6.0, 48.0, 40.0},
+        {"TLD", 1.0, 0.0, 48.0, 40.0},
+        {"GMA", 0.1, 0.0, 45.0, 34.0},
     };
     return specs;
 }

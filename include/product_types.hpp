@@ -44,6 +44,10 @@ struct ProductRecord {
     std::optional<double> palletHeightIn;
     std::optional<double> palletFootprintLengthIn;
     std::optional<double> palletFootprintWidthIn;
+    // One layer of cases as built, from the same master; empty and NaN read as above. With
+    // the pallet, it sets the floor area a unit load covers (unitLoadFootprint).
+    std::optional<double> layerLengthIn;
+    std::optional<double> layerWidthIn;
 };
 
 } // namespace ob

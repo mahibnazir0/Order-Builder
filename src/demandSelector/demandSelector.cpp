@@ -69,7 +69,7 @@ bool isSelected(const string& lineDate, const DemandSelector& selector,
     return false;
 }
 
-// The latest arrival has already passed on the planning date. A window cannot select one:
+// The delivery date has already passed on the planning date. A window cannot select one:
 // its lines all arrive inside it.
 bool isOverdue(const STRRecord& line, const DemandSelector& selector) {
     if (selector.rule != DemandRule::DueBy && selector.rule != DemandRule::AvailableBy) {

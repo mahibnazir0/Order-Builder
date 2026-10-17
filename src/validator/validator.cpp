@@ -217,13 +217,20 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product master row has no unit of measure", s.matnr, idx);
         }
 
-        // The Converter adds nothing for a pallet type the run's table has no
-        // spec for (blank, a typo, a new type), which understates weight with
-        // nothing else to flag it.
-        if (palletSpecFor(config.pallets, p.pallet_id) == nullptr) {
+        // The Converter adds nothing for a pallet neither the master row nor the
+        // run's table weighs (blank, a typo, a new type), which understates weight
+        // with nothing else to flag it. A negative or NaN weight would corrupt the
+        // lane's weight total instead, so that one excludes the line.
+        const optional<double> palletWeightLb = Converter::palletAddedWeightLb(p, config.pallets);
+        if (!palletWeightLb) {
             ++rep.unrecognized_pallet_id;
             add(rep, ValidationIssue::Severity::Warning, "unrecognized_pallet_id",
                 "Product's Pallet_ID '" + p.pallet_id + "' is not one of the known types",
+                s.matnr, idx);
+        } else if (!isfinite(*palletWeightLb) || *palletWeightLb < 0.0) {
+            ++rep.invalidPalletWeight;
+            add(rep, ValidationIssue::Severity::Error, "invalid_pallet_weight",
+                "Pallet weight for Pallet_ID '" + p.pallet_id + "' is not a finite number of 0 lb or more",
                 s.matnr, idx);
         }
 

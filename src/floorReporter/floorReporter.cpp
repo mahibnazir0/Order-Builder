@@ -15,6 +15,7 @@ namespace ob {
 namespace {
 
 constexpr size_t kExcludedLinesListed = 20;
+constexpr double kCubicInchesPerCubicFoot = 1728.0;
 const char* const kRule = "----------------------------------------------------------------\n";
 
 string printable(const string& text) {
@@ -64,7 +65,7 @@ string roundingPointText(FloorRoundingPoint roundingPoint) {
 string trailerChoiceText(TrailerChoice trailerChoice) {
     return trailerChoice == TrailerChoice::Named
         ? "named with --trailer"
-        : "largest listed on payload, height, positions and depth";
+        : "largest listed on payload, height, volume and stacked floor area";
 }
 
 void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
@@ -79,8 +80,10 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
     out << printable(trailer.trailerCode) << "  (" << trailerChoiceText(trailerChoice) << ")\n";
     printLabel(out, "Weight limit");
     out << measure(trailer.weightLimitLb) << " lb\n";
-    printLabel(out, "Stack positions");
-    out << trailer.stackPositions << "  (open: question 7)\n";
+    printLabel(out, "Interior floor");
+    out << measure(trailer.interiorLengthIn) << " x " << measure(trailer.interiorWidthIn)
+        << " in  (" << grouped(trailer.interiorLengthIn * trailer.interiorWidthIn)
+        << " sq in; capacity is floor area and volume, client 12 Oct)\n";
     printLabel(out, "Interior height");
     out << measure(trailer.stackHeightCeilingIn)
         << " in  (a unit load exactly at it fits; only taller is excluded)\n";
@@ -90,6 +93,10 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
     } else {
         out << "no limit configured\n";
     }
+    printLabel(out, "Footprint");
+    out << "layer size; on a PTL or PGM pallet, the larger of layer and pallet per side\n";
+    printLabel(out, "");
+    out << "(client, 15 Oct); the pallet's footprint where a product has no layer size\n";
     printLabel(out, "Pallet weight");
     out << palletWeights(params) << "\n";
     printLabel(out, "  source");
@@ -102,9 +109,13 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
                 : "not added to unit-load height (floorDeckHeight = Excluded)")
         << "\n";
     printLabel(out, "");
-    out << "provisional: open with the client (questions 6 and 21); Excluded can only\n";
-    printLabel(out, "");
-    out << "lower the floor, so it stays a valid lower bound either way\n";
+    out << (params.floorDeckHeight == DeckHeightRule::Included
+                ? "client ruling (12 Oct): a wood deck counts toward the 108 in ceiling\n"
+                : "not the client's ruling (12 Oct), which counts a wood deck; Excluded\n");
+    if (params.floorDeckHeight == DeckHeightRule::Excluded) {
+        printLabel(out, "");
+        out << "can only lower the floor, so it stays a valid lower bound\n";
+    }
     printLabel(out, "Rounding point");
     out << roundingPointText(plan.roundingPoint) << "\n";
     printLabel(out, "Unit-load equivalents");
@@ -115,10 +126,10 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
 
 struct TermTotals {
     double weightTrucks = 0.0;
-    double stackedHeightTrucks = 0.0;
+    double volumeTrucks = 0.0;
     double stackDepthTrucks = 0.0;
     size_t weightBoundGroups = 0;
-    size_t stackedHeightBoundGroups = 0;
+    size_t volumeBoundGroups = 0;
     size_t stackDepthBoundGroups = 0;
     size_t groupsWithDemand = 0;
 };
@@ -129,11 +140,11 @@ TermTotals termTotals(const FloorPlan& plan) {
         if (group.linesSelected == 0) continue;
         ++totals.groupsWithDemand;
         totals.weightTrucks += group.bound.weightTrucks;
-        totals.stackedHeightTrucks += group.bound.stackedHeightTrucks;
+        totals.volumeTrucks += group.bound.volumeTrucks;
         if (group.bound.stackDepthTrucks) totals.stackDepthTrucks += *group.bound.stackDepthTrucks;
         switch (group.bound.binding) {
         case FloorTerm::Weight: ++totals.weightBoundGroups; break;
-        case FloorTerm::StackedHeight: ++totals.stackedHeightBoundGroups; break;
+        case FloorTerm::Volume: ++totals.volumeBoundGroups; break;
         case FloorTerm::StackDepth: ++totals.stackDepthBoundGroups; break;
         case FloorTerm::None: break;
         }
@@ -171,7 +182,7 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
         << " in the extract  (" << ruleText << ")\n";
     printLabel(out, "  overdue");
     out << count(selection.overdueLines)
-        << "  (selected, latest arrival before the planning date)\n";
+        << "  (selected, delivery date before the planning date)\n";
     printLabel(out, "  undated");
     out << count(selection.undatedLines.size())
         << "  (date blank or malformed; cannot be judged, not selected)\n";
@@ -190,13 +201,17 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     out << grouped(plan.totals.unitLoads, 1) << "  (fractional; see basis)\n";
     printLabel(out, "Total weight");
     out << grouped(plan.totals.totalWeightLb) << " lb\n";
-    printLabel(out, "Stacked height");
-    out << grouped(plan.totals.stackedInches, 1) << " in\n\n";
+    printLabel(out, "Cargo volume");
+    out << grouped(plan.totals.cargoCubicIn / kCubicInchesPerCubicFoot, 1)
+        << " cu ft  (footprint x unit-load height)\n";
+    printLabel(out, "  no layer size");
+    out << count(plan.linesWithoutLayerSize)
+        << " line(s)  (pallet footprint stood in; pass --layer-sizes)\n\n";
 
     out << "  Bound terms, in trucks, summed over groups. Each is a valid lower bound;\n"
            "  per group the largest one binds.\n";
     printTerm(out, "  weight", terms.weightTrucks, terms.weightBoundGroups);
-    printTerm(out, "  stacked height", terms.stackedHeightTrucks, terms.stackedHeightBoundGroups);
+    printTerm(out, "  volume", terms.volumeTrucks, terms.volumeBoundGroups);
     if (trailer.maxStackDepth) {
         printTerm(out, "  stack depth", terms.stackDepthTrucks, terms.stackDepthBoundGroups);
     } else {
@@ -211,11 +226,9 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
         << printable(trailer.trailerCode) << ")\n";
     printLabel(out, "");
     out << "NOT YET VALIDATED: exceeds Truck Builder's achieved loads on some lane-days\n";
-    printLabel(out, "");
-    out << "(stack positions is not yet an upper bound for every footprint; open: question 7)\n";
     printLabel(out, "No-stacking baseline");
     out << grouped(static_cast<double>(plan.noStackingBaselineTrucks))
-        << " trucks  NOT a floor: assumes nothing stacks (unit loads / stack positions)\n\n";
+        << " trucks  NOT a floor: assumes nothing stacks (pallet floor area / interior floor)\n\n";
 
     printLabel(out, "Lines left out of floor");
     out << count(plan.excludedLines.size());
@@ -283,7 +296,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
     pad_right(out, "  Lane", 24);
     pad_left(out, "Groups", 7);
     pad_left(out, "Unit-load eq", 14);
-    pad_left(out, "Stacked in", 14);
+    pad_left(out, "Cargo cu ft", 14);
     pad_right(out, "  Binds", 18);
     pad_left(out, "Floor", 15);
     out << "\n";
@@ -292,7 +305,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
         pad_right(out, "  " + laneLabel(lane), 24);
         pad_left(out, count(lane.groupIndices.size()), 7);
         pad_left(out, grouped(lane.totals.unitLoads, 1), 14);
-        pad_left(out, grouped(lane.totals.stackedInches, 1), 14);
+        pad_left(out, grouped(lane.totals.cargoCubicIn / kCubicInchesPerCubicFoot, 1), 14);
         pad_right(out, "  " + laneBinding(lane, plan), 18);
         pad_left(out, laneFloorText(lane), 15);
         out << "\n";

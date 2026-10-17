@@ -37,6 +37,11 @@ constexpr std::size_t kDayCount = 4;
 inline const std::string kPalletTableForOlderMasters =
     "tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv";
 
+// Those masters carry no Layer_* columns either. The 5 Oct master has them for every product
+// they demand, so its layer sizes stand in (PipelineInputs::layerSizePath).
+inline const std::string kLayerSizesForOlderMasters =
+    "tests/importer/crossDay/20261005/Product-Data/Customer2-Product-Data.csv";
+
 // True when every path is a file. Otherwise names the first missing one, so a skipped test
 // reads as skipped rather than as a pass.
 inline bool filesPresent(std::initializer_list<std::string> paths, const std::string& skippedWhat) {
@@ -177,7 +182,8 @@ namespace expectedM1 {
 constexpr PerDay<std::size_t> demandLines{24357, 23462, 23003, 21909};
 constexpr PerDay<double> hashTotal{8708934, 8275859, 8106348, 7778017};
 constexpr PerDay<double> palletEquivalents{152911.2, 149391.3, 146023.0, 139678.5};
-constexpr PerDay<double> totalWeightLb{103005833, 98793082, 95668859, 91591555};
+// Weighs wood pallets at 65 lb, the item master's figure (client ruling, 13 Oct 2026).
+constexpr PerDay<double> totalWeightLb{103367993, 99155309, 96023693, 91924765};
 constexpr PerDay<int> lanesUnion{371, 380, 383, 377};
 constexpr PerDay<int> validationErrors{0, 0, 0, 0};
 constexpr PerDay<int> validationWarnings{161, 204, 207, 169};
@@ -231,6 +237,7 @@ inline ob::PipelineInputs dayInputs(std::size_t dayIndex, const std::string& par
     inputs.planning_day = day.label;
     inputs.paramsPath = paramsPath;
     inputs.palletPath = kPalletTableForOlderMasters;
+    inputs.layerSizePath = kLayerSizesForOlderMasters;
     return inputs;
 }
 
@@ -304,11 +311,11 @@ constexpr PerDay<std::size_t> placeholderEntries{181, 283, 275, 228, 299};
 constexpr PerDay<long long> trucksRequested{339, 604, 527, 411, 618};
 constexpr PerDay<int> productRows{21319, 21319, 21351, 21351, 21355};
 // Milestone 1 totals and the pass 1 cube/weight split (round 4 verification, 10 Oct 2026):
-// the figures people check by hand. The M1 weight uses the converter's fixed wood-pallet
-// weight, not the pallet table, so it does not move with the pallet data.
+// the figures people check by hand. The M1 weight reads each pallet's weight from the item
+// master row, as Milestone 2 does, so it moves with the master's pallet columns.
 constexpr PerDay<double> hashTotal{7358530, 7395210, 6767583, 6116067, 7546177};
 constexpr PerDay<double> palletEquivalents{141697.0, 143118.8, 133623.2, 123367.0, 148004.3};
-constexpr PerDay<double> totalWeightLb{94052648, 95418783, 88943337, 81696332, 99787983};
+constexpr PerDay<double> totalWeightLb{94391167, 95761824, 89267645, 82000472, 100144563};
 constexpr PerDay<std::size_t> cubeBoundGroups{387, 399, 397, 390, 386};
 constexpr PerDay<std::size_t> weightBoundGroups{2, 2, 4, 1, 1};
 // The same on every day.

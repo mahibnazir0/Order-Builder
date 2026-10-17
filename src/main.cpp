@@ -62,13 +62,15 @@ void print_usage(ostream& out) {
         "                        and the Milestone 3 truck floor. Needs --demand-rule\n"
         "  --demand-rule <rule>  Which demand counts toward the floor; no default:\n"
         "                          wholeExtract           every line in the file\n"
-        "                          dueBy:YYYY-MM-DD       DATTO_TA on or before the date\n"
-        "                          availableBy:YYYY-MM-DD DATFR_TA on or before the date\n"
+        "                          dueBy:YYYY-MM-DD       delivery date (DATTO_TA) on or before the date\n"
+        "                          availableBy:YYYY-MM-DD ship date (DATFR_TA) on or before the date\n"
         "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
         "                          schedule:YYYY-MM-DD    DATTO_TA on the delivery days of a\n"
         "                                                 Monday, Tuesday or Friday plan (provisional)\n"
         "  --pallets <path>      Pallet table CSV (weight, height, footprint per pallet type);\n"
         "                        needed with --params when the master has no Pallet_* columns\n"
+        "  --layer-sizes <path>  Product master to borrow Layer_Length/Layer_Width from, for a\n"
+        "                        master without them (matched on ID and Pallet_ID)\n"
         "  --trailer <code>      Trailer code from the params file (default: the largest listed)\n"
         "  --groups N            Print only the N largest groups (0 or absent: all)\n"
         "  --day <date>          Planning day, shown in the report header\n"
@@ -159,6 +161,8 @@ int main(int argc, char** argv) {
             demandRuleGiven = true;
         } else if (arg == "--pallets") {
             if (!take_value(argc, argv, i, "--pallets", inputs.palletPath)) return 2;
+        } else if (arg == "--layer-sizes") {
+            if (!take_value(argc, argv, i, "--layer-sizes", inputs.layerSizePath)) return 2;
         } else if (arg == "--trailer") {
             if (!take_value(argc, argv, i, "--trailer", inputs.trailerCode)) return 2;
         } else if (arg == "--groups") {

@@ -8,13 +8,14 @@
 
 namespace ob {
 
-// Which demand lines count toward the planning day. Open with the client (M3 question 1):
+// Which demand lines count toward the planning day. DATFR_TA is the ship date and DATTO_TA the
+// delivery date (client, 15 Oct). Which of them decides the day is still open (M3 question 1):
 // the choice moves the floor by a factor of sixty, so there is deliberately no default.
 enum class DemandRule {
     WholeExtract, // every line in the file
-    DueBy,        // DATTO_TA <= toDate: latest arrival on or before the planning date
-    AvailableBy,  // DATFR_TA <= toDate: earliest arrival on or before the planning date
-    Window,       // fromDate <= DATTO_TA <= toDate: latest arrival inside the window
+    DueBy,        // DATTO_TA <= toDate: delivery date on or before the planning date
+    AvailableBy,  // DATFR_TA <= toDate: ship date on or before the planning date
+    Window,       // fromDate <= DATTO_TA <= toDate: delivery date inside the window
     Schedule,     // DATTO_TA on a delivery day of the planning day's weekday (toDate)
 };
 
@@ -31,7 +32,7 @@ struct DemandSelection {
     // Lines whose date the rule reads is blank or not a real YYYY-MM-DD date. They cannot be
     // judged, so they are not selected, and are listed rather than silently dropped.
     std::vector<std::size_t> undatedLines;
-    // Selected lines whose latest arrival (DATTO_TA) is before the planning date, under dueBy
+    // Selected lines whose delivery date (DATTO_TA) is before the planning date, under dueBy
     // and availableBy. Counted, not excluded: overdue demand still ships.
     std::size_t overdueLines = 0;
 };

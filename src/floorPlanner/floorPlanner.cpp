@@ -13,6 +13,8 @@ void addTotals(FloorTotals& into, const FloorTotals& from) {
     into.totalWeightLb += from.totalWeightLb;
     into.stackedInches += from.stackedInches;
     into.unitLoads += from.unitLoads;
+    into.floorAreaSqIn += from.floorAreaSqIn;
+    into.cargoCubicIn += from.cargoCubicIn;
 }
 
 // The unit separator cannot appear in a location or ship-condition code, so distinct lanes
@@ -40,11 +42,13 @@ GroupFloor groupFloor(const SegregatedGroup& group, const vector<JoinedLine>& li
             continue;
         }
         if (metrics.casesPerUnitLoadMismatch) ++plan.casesPerUnitLoadMismatchLines;
+        if (metrics.footprintFromPalletOnly) ++plan.linesWithoutLayerSize;
         if (exceedsCeiling(metrics, trailer)) {
             plan.excludedLines.push_back({lineIndex, UnitLoadMetricsError::None, true});
             continue;
         }
-        addTotals(floor.totals, {metrics.weightLb, metrics.stackedInches, metrics.unitLoads});
+        addTotals(floor.totals, {metrics.weightLb, metrics.stackedInches, metrics.unitLoads,
+                                 metrics.floorAreaSqIn, metrics.cargoCubicIn});
         ++floor.linesCounted;
     }
     floor.bound = floorBound(floor.totals, trailer);

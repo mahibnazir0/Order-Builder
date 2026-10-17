@@ -50,8 +50,9 @@ struct ValidationConfig {
     // Ship conditions seen in the demand and placeholder files. Anything else is a warning.
     std::vector<std::string> allowed_ship_cond = {"TL", "TF"};
 
-    // Pallet types Milestone 1 can weigh: the confirmed table the Converter reads, so the
-    // warning names exactly the types the M1 totals weigh as 0.
+    // The pallet table Milestone 1 weighs against when a master row carries no pallet weight
+    // of its own; the pipeline sets it to the table the Converter reads, so the warning names
+    // exactly the pallets the M1 totals weigh as 0.
     std::vector<PalletSpec> pallets = confirmedPalletSpecs();
 
     // Placeholder ZZNA_EQUIP_SIZE values seen in every extract; blank means any trailer.
@@ -103,7 +104,8 @@ struct ValidationReport {
     int invalid_strength    = 0;   // product's Strength is unreadable or outside 0..10
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
-    int unrecognized_pallet_id = 0; // no spec in ValidationConfig::pallets
+    int unrecognized_pallet_id = 0; // no pallet weight from the master row or ValidationConfig::pallets
+    int invalidPalletWeight = 0;    // that pallet weight is negative or non-finite
     int ambiguous_pallet    = 0;   // variant chosen by preference, not by data
     int over_pallet_threshold = 0; // the phantom-truck warning
 

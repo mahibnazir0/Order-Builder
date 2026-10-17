@@ -33,8 +33,8 @@ const TrailerSpec& selectTrailer(std::vector<TrailerSpec>&& trailers,
                                  const std::string& trailerCode) = delete;
 
 // The trailer at least as large as every other on each figure the floor divides by or
-// compares against: payload, interior height, stacked height (ceiling x positions) and unit
-// loads (positions x depth, where no depth limit beats any). Only such a trailer keeps the
+// compares against: payload, interior height, volume (length x width x ceiling) and stacked
+// floor area (length x width x depth, where no depth limit beats any). Only such a trailer keeps the
 // floor a lower bound whichever listed truck a lane is given. Equal trailers resolve to the
 // lowest trailerCode. Throws std::runtime_error naming the params file when the list is
 // empty, or when no trailer is largest on every figure (the run must then name one).

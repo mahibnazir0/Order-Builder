@@ -226,7 +226,7 @@ TEST_CASE("cli: --groups and --lanes truncate the tables and leave the summaries
 TEST_CASE("cli: --trailer 53FT_NA differs from the default output only in how the trailer was chosen" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun named = runCli(withExtra(realDayArguments(true), {"--trailer", "53FT_NA"}));
     CHECK(named.exitCode == 0);
-    const string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, positions and depth)";
+    const string defaultTrailerLine = "53FT_NA  (largest listed on payload, height, volume and stacked floor area)";
     const string namedTrailerLine = "53FT_NA  (named with --trailer)";
     string defaultOutput = fullRealRun().output;
     const size_t at = defaultOutput.find(defaultTrailerLine);
@@ -546,7 +546,7 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     const CliRun run = runCli({"--help"});
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
-                                          "--pallets", "--trailer", "--groups", "--day", "--lanes", "--debug",
+                                          "--pallets", "--layer-sizes", "--trailer", "--groups", "--day", "--lanes", "--debug",
                                           "schedule:YYYY-MM-DD",
                                           "0  success", "1  validation errors", "2  could not run",
                                           "3  a line is in no stack", "4  a line was left out of the floor",
@@ -554,6 +554,15 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
+}
+
+TEST_CASE("cli: --layer-sizes naming a master with no layer sizes exits 2 naming the file") {
+    const SyntheticInputs inputs;
+    vector<string> arguments = inputs.arguments(inputs.product, inputs.demand, inputs.placeholder, kParams);
+    arguments.insert(arguments.end(), {"--layer-sizes", inputs.product});
+    const CliRun run = runCli(arguments);
+    CHECK(run.exitCode == 2);
+    CHECK(contains(run.output, "--layer-sizes " + inputs.product));
 }
 
 TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and plans nothing") {

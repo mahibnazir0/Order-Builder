@@ -19,17 +19,21 @@ string printableCode(const string& trailerCode) {
     return printable;
 }
 
-double unitLoadCapacity(const TrailerSpec& trailer) {
+double floorArea(const TrailerSpec& trailer) {
+    return trailer.interiorLengthIn * trailer.interiorWidthIn;
+}
+
+double stackedFloorCapacity(const TrailerSpec& trailer) {
     if (!trailer.maxStackDepth) return numeric_limits<double>::infinity();
-    return static_cast<double>(trailer.stackPositions) * *trailer.maxStackDepth;
+    return floorArea(trailer) * *trailer.maxStackDepth;
 }
 
 bool isAtLeastAsLarge(const TrailerSpec& candidate, const TrailerSpec& other) {
     return candidate.weightLimitLb >= other.weightLimitLb
         && candidate.stackHeightCeilingIn >= other.stackHeightCeilingIn
-        && candidate.stackHeightCeilingIn * candidate.stackPositions
-               >= other.stackHeightCeilingIn * other.stackPositions
-        && unitLoadCapacity(candidate) >= unitLoadCapacity(other);
+        && floorArea(candidate) * candidate.stackHeightCeilingIn
+               >= floorArea(other) * other.stackHeightCeilingIn
+        && stackedFloorCapacity(candidate) >= stackedFloorCapacity(other);
 }
 
 string fileNameFor(const string& sourcePath) {
@@ -74,8 +78,8 @@ const TrailerSpec& largestTrailer(const vector<TrailerSpec>& trailers, const str
     }
     if (largest == nullptr) {
         throw runtime_error("params: " + fileNameFor(sourcePath)
-            + ": no trailer is largest on payload, interior height, stack positions and depth"
-              " together; name one with --trailer");
+            + ": no trailer is largest on payload, interior height, volume and stacked floor"
+              " area together; name one with --trailer");
     }
     return *largest;
 }

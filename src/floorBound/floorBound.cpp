@@ -28,11 +28,9 @@ void requireNonNegativeFinite(double value, const char* field) {
 
 void requireUsableTrailer(const TrailerSpec& trailer) {
     requirePositiveFinite(trailer.weightLimitLb, "trailer.weightLimitLb");
+    requirePositiveFinite(trailer.interiorLengthIn, "trailer.interiorLengthIn");
+    requirePositiveFinite(trailer.interiorWidthIn, "trailer.interiorWidthIn");
     requirePositiveFinite(trailer.stackHeightCeilingIn, "trailer.stackHeightCeilingIn");
-    if (trailer.stackPositions <= 0) {
-        throw invalid_argument("floorBound: trailer.stackPositions must be positive (got "
-            + to_string(trailer.stackPositions) + ")");
-    }
     if (trailer.maxStackDepth && *trailer.maxStackDepth <= 0) {
         throw invalid_argument("floorBound: trailer.maxStackDepth must be positive (got "
             + to_string(*trailer.maxStackDepth) + ")");
@@ -59,21 +57,22 @@ FloorBoundResult floorBound(const FloorTotals& totals, const TrailerSpec& traile
     requireNonNegativeFinite(totals.totalWeightLb, "totalWeightLb");
     requireNonNegativeFinite(totals.stackedInches, "stackedInches");
     requireNonNegativeFinite(totals.unitLoads, "unitLoads");
+    requireNonNegativeFinite(totals.floorAreaSqIn, "floorAreaSqIn");
+    requireNonNegativeFinite(totals.cargoCubicIn, "cargoCubicIn");
 
-    const double positions = trailer.stackPositions;
+    const double floorArea = trailer.interiorLengthIn * trailer.interiorWidthIn;
     FloorBoundResult result;
     result.weightTrucks = totals.totalWeightLb / trailer.weightLimitLb;
-    result.stackedHeightTrucks = totals.stackedInches
-        / (trailer.stackHeightCeilingIn * positions);
+    result.volumeTrucks = totals.cargoCubicIn / (floorArea * trailer.stackHeightCeilingIn);
     if (trailer.maxStackDepth) {
-        result.stackDepthTrucks = totals.unitLoads / (positions * *trailer.maxStackDepth);
+        result.stackDepthTrucks = totals.floorAreaSqIn / (floorArea * *trailer.maxStackDepth);
     }
-    result.noStackingBaselineTrucks = totals.unitLoads / positions;
+    result.noStackingBaselineTrucks = totals.floorAreaSqIn / floorArea;
 
-    // Ties go to stacked height, the usual limit here; another term binds only when it is
-    // strictly larger, so the reported binding term is deterministic.
-    result.boundTrucks = result.stackedHeightTrucks;
-    result.binding = FloorTerm::StackedHeight;
+    // Ties go to volume, the usual limit here; another term binds only when it is strictly
+    // larger, so the reported binding term is deterministic.
+    result.boundTrucks = result.volumeTrucks;
+    result.binding = FloorTerm::Volume;
     if (result.weightTrucks > result.boundTrucks) {
         result.boundTrucks = result.weightTrucks;
         result.binding = FloorTerm::Weight;
@@ -96,7 +95,7 @@ const char* floorTermName(FloorTerm term) {
     switch (term) {
     case FloorTerm::None: return "none";
     case FloorTerm::Weight: return "weight";
-    case FloorTerm::StackedHeight: return "stacked_height";
+    case FloorTerm::Volume: return "volume";
     case FloorTerm::StackDepth: return "stack_depth";
     }
     return "unknown";

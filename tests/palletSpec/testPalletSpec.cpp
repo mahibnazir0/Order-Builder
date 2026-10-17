@@ -20,11 +20,16 @@ const PalletSpec& confirmedSpec(const string& palletId) {
 
 } // namespace
 
-TEST_CASE("palletSpec: wood pallets weigh Tom's confirmed 60 lb and the others add nothing") {
-    CHECK(confirmedSpec("PTL").addedWeightLb == 60.0);
-    CHECK(confirmedSpec("PGM").addedWeightLb == 60.0);
-    CHECK(confirmedSpec("TLD").addedWeightLb == 0.0);
-    CHECK(confirmedSpec("GMA").addedWeightLb == 0.0);
+TEST_CASE("palletSpec: the fallback pallets weigh what the client's pallet table says") {
+    CHECK(confirmedSpec("PTL").addedWeightLb == 65.0);
+    CHECK(confirmedSpec("PGM").addedWeightLb == 65.0);
+    CHECK(confirmedSpec("TLD").addedWeightLb == 1.0);
+    CHECK(confirmedSpec("GMA").addedWeightLb == 0.1);
+}
+
+TEST_CASE("palletSpec: the fallback wood deck is the client's 6 in") {
+    CHECK(confirmedSpec("PTL").addedHeightIn == 6.0);
+    CHECK(confirmedSpec("PGM").addedHeightIn == 6.0);
 }
 
 TEST_CASE("palletSpec: every confirmed spec is a physical pallet with a unique id") {

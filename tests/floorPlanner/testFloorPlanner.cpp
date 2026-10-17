@@ -85,7 +85,8 @@ TEST_CASE("floorPlanner: an empty segregation is a zero plan with no lanes") {
 TEST_CASE("floorPlanner: the no-stacking baseline is summed beside the floor, not as it") {
     const TrailerSpec& trailer = shippedTrailer();
     const vector<ProductRecord> products{unitLoadProduct("TLD", trailer.stackHeightCeilingIn / 2)};
-    const vector<STRRecord> demand{palletDemand(2.0 * trailer.stackPositions)};
+    // 64 TLD pallets cover 1.95 trailer floors single-high and fit one trailer two-high.
+    const vector<STRRecord> demand{palletDemand(64.0)};
     const vector<JoinedLine> lines = joinedLines(products, demand);
     const FloorPlan plan =
         planFloor(segregation({group("S1", "", {0})}), lines, wholeExtract(lines), shippedParams(),
@@ -216,7 +217,7 @@ TEST_CASE("floorPlanner: lines the demand rule leaves out are counted but not fl
                                      selection, shippedParams(), trailer);
     CHECK(plan.linesNotSelected == 1);
     CHECK(plan.groups[0].linesSelected == 1);
-    CHECK(plan.totals.unitLoads == doctest::Approx(trailer.stackPositions / 2.0));
+    CHECK(plan.totals.unitLoads == doctest::Approx(fixture.demand[0].trans));
     CHECK(plan.excludedLines.empty());
     CHECK(describeDemandSelector(plan.selector) == "dueBy(2026-10-02)");
 }
@@ -254,7 +255,7 @@ TEST_CASE("floorPlanner: a group line index outside the lines is a caller error"
 TEST_CASE("floorPlanner: an unusable trailer is rejected through floorBound") {
     const HalfTrailerLines fixture(1);
     TrailerSpec trailer = shippedTrailer();
-    trailer.stackPositions = 0;
+    trailer.interiorWidthIn = 0.0;
     CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {0})}), fixture.lines,
                               wholeExtract(fixture.lines), shippedParams(), trailer),
                     invalid_argument);

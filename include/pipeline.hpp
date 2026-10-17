@@ -54,6 +54,10 @@ struct PipelineInputs {
     // Pallet table (Customer2-Pallet-Data.csv). Optional when every demanded product row
     // carries its own pallet figures, as the 88-column masters do; required for older masters.
     std::string palletPath;
+    // A product master to borrow layer sizes from, for a master that has no Layer_* columns
+    // (17 Aug and 4-6 Aug). Fills only products with no layer size of their own, matched on
+    // ID and Pallet_ID. Optional; the floor falls back to the pallet's footprint without it.
+    std::string layerSizePath;
 };
 
 // Everything the run produced. Held together so a caller (or a test) can
@@ -100,6 +104,9 @@ struct PipelineResult {
     // The trailer M2 and the floor were planned against, and how it was chosen.
     TrailerSpec trailer;
     TrailerChoice trailerChoice = TrailerChoice::Largest;
+
+    // Products given a layer size from PipelineInputs::layerSizePath.
+    std::size_t layerSizesBorrowed = 0;
 
     // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
     bool ranFloor = false;

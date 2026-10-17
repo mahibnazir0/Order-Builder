@@ -238,7 +238,7 @@ ValidityResult checkValidity(const PipelineResult& run, const AchievedRequest& a
             laneDay.unitLoads = found->second->totals.unitLoads;
             for (const size_t groupIndex : found->second->groupIndices) {
                 laneDay.weightTrucks += plan.groups[groupIndex].bound.weightTrucks;
-                laneDay.stackedHeightTrucks += plan.groups[groupIndex].bound.stackedHeightTrucks;
+                laneDay.volumeTrucks += plan.groups[groupIndex].bound.volumeTrucks;
             }
         }
         const auto achievedLoads = static_cast<long long>(laneDay.achievedLoads);

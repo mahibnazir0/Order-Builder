@@ -9,6 +9,7 @@
 
 #include "doctest.h"
 #include "importer/crossDayFixtures.hpp"
+#include "palletSpec.hpp"
 #include "pipeline.hpp"
 
 #include <sstream>
@@ -92,7 +93,7 @@ TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks" * do
 TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
-    // Weight must be case weight x cases per unit load, plus 60 lb for a wooden
+    // Weight must be case weight x cases per unit load, plus the pallet: 65 lb for a wooden
     // pallet (PTL / PGM). Using case weight alone would understate by ~60x, so
     // this guards the most expensive easy mistake in the pipeline.
     bool checked_wood = false, checked_nowood = false;
@@ -105,7 +106,9 @@ TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule"
         const ProductRecord& p = *jl.product;
         const double per_ul = p.weight_lb * p.cases_unit_load;
         const bool wood = (p.pallet_id == "PTL" || p.pallet_id == "PGM");
-        const double expected = r.pallets_per_line[i] * (per_ul + (wood ? 60.0 : 0.0));
+        const PalletSpec* pallet = palletSpecFor(confirmedPalletSpecs(), p.pallet_id);
+        REQUIRE(pallet != nullptr);
+        const double expected = r.pallets_per_line[i] * (per_ul + pallet->addedWeightLb);
 
         CHECK(r.weight_per_line[i] == doctest::Approx(expected));
         if (wood) checked_wood = true; else checked_nowood = true;

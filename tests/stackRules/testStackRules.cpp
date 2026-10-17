@@ -66,6 +66,59 @@ UnitLoadError buildError(const ProductRecord& record) {
 
 } // namespace
 
+TEST_CASE("stackRules: a TLD or GMA load covers exactly its layer, smaller than the pallet table says") {
+    ProductRecord record = product();
+    record.layerLengthIn = 47.0;
+    record.layerWidthIn = 36.0;
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"TLD", 1.0, 0.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 47.0);
+    CHECK(footprint.shortSideIn == 36.0);
+    CHECK_FALSE(footprint.fromPalletOnly);
+}
+
+TEST_CASE("stackRules: a layer smaller than a real pallet covers the pallet's 48 x 40") {
+    ProductRecord record = product();
+    record.layerLengthIn = 47.0;
+    record.layerWidthIn = 36.0;
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 48.0);
+    CHECK(footprint.shortSideIn == 40.0);
+}
+
+TEST_CASE("stackRules: a layer overhanging a real pallet covers the layer") {
+    ProductRecord record = product();
+    record.layerLengthIn = 57.8;
+    record.layerWidthIn = 45.45;
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PGM", 65.0, 6.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 57.8);
+    CHECK(footprint.shortSideIn == 45.45);
+}
+
+TEST_CASE("stackRules: a layer overhanging a real pallet on one side only takes the larger side each way") {
+    ProductRecord record = product();
+    record.layerLengthIn = 50.0;
+    record.layerWidthIn = 38.0;
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 50.0);
+    CHECK(footprint.shortSideIn == 40.0);
+}
+
+TEST_CASE("stackRules: a layer listed width first is matched long side to long side") {
+    ProductRecord record = product();
+    record.layerLengthIn = 36.0;
+    record.layerWidthIn = 47.0;
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 48.0);
+    CHECK(footprint.shortSideIn == 40.0);
+}
+
+TEST_CASE("stackRules: a product with no layer size falls back to the pallet's footprint and says so") {
+    const UnitLoadFootprint footprint = unitLoadFootprint(product(), {"TLD", 1.0, 0.0, 48.0, 40.0});
+    CHECK(footprint.longSideIn == 48.0);
+    CHECK(footprint.shortSideIn == 40.0);
+    CHECK(footprint.fromPalletOnly);
+}
+
 TEST_CASE("stackRules: unit load uses cases per unit and the pallet spec, not case footprint") {
     const ProductRecord record = product();
     const UnitLoad unitLoad = buildUnitLoad(matchedLine(record), testParams());
@@ -443,30 +496,31 @@ PairPassCounts sampledPairCounts(const vector<JoinedLine>& lines, const M2Params
 
 TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 in ceiling" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     constexpr size_t everyNth = 10;
-    // Measured by this test on 27 Sep 2026 with the deck counted (Included), and on 10 Oct
-    // 2026 under the shipped Excluded; 17 Aug is also anchored exhaustively above. The
-    // pallet table's 65 lb wood deck moved 03 Sep's Excluded passBoth from 537 (at 60 lb).
+    // Measured by this test on 27 Sep 2026 with the deck counted (Included, shipped since the
+    // client's 12 Oct ruling), and on 10 Oct 2026 with it left out; 17 Aug is also anchored
+    // exhaustively above. The pallet table's 65 lb wood deck moved 03 Sep's deckless passBoth
+    // from 537 (at 60 lb).
     const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<size_t> passHeight{492, 625, 494, 853};
-    const crossDayTests::PerDay<size_t> passBoth{313, 408, 341, 536};
-    const crossDayTests::PerDay<size_t> passHeightWithDeck{484, 625, 484, 841};
-    const crossDayTests::PerDay<size_t> passBothWithDeck{308, 408, 334, 531};
+    const crossDayTests::PerDay<size_t> passHeight{484, 625, 484, 841};
+    const crossDayTests::PerDay<size_t> passBoth{308, 408, 334, 531};
+    const crossDayTests::PerDay<size_t> passHeightWithoutDeck{492, 625, 494, 853};
+    const crossDayTests::PerDay<size_t> passBothWithoutDeck{313, 408, 341, 536};
     for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];
         REQUIRE_FALSE(run.params.trailers.empty());
         REQUIRE(run.params.trailers.front().stackHeightCeilingIn == kCeilingIn);
-        REQUIRE(run.params.floorDeckHeight == DeckHeightRule::Excluded);
+        REQUIRE(run.params.floorDeckHeight == DeckHeightRule::Included);
         const PairPassCounts counts = sampledPairCounts(run.join.lines, run.params, everyNth);
         CHECK(counts.sampledProducts == sampledProducts[dayIndex]);
         CHECK(counts.pairs == sampledProducts[dayIndex] * sampledProducts[dayIndex]);
         CHECK(counts.passHeight == passHeight[dayIndex]);
         CHECK(counts.passBoth == passBoth[dayIndex]);
-        M2Params withDeck = run.params;
-        withDeck.floorDeckHeight = DeckHeightRule::Included;
-        const PairPassCounts deckCounts = sampledPairCounts(run.join.lines, withDeck, everyNth);
-        CHECK(deckCounts.passHeight == passHeightWithDeck[dayIndex]);
-        CHECK(deckCounts.passBoth == passBothWithDeck[dayIndex]);
+        M2Params withoutDeck = run.params;
+        withoutDeck.floorDeckHeight = DeckHeightRule::Excluded;
+        const PairPassCounts deckless = sampledPairCounts(run.join.lines, withoutDeck, everyNth);
+        CHECK(deckless.passHeight == passHeightWithoutDeck[dayIndex]);
+        CHECK(deckless.passBoth == passBothWithoutDeck[dayIndex]);
         cout << "Cross-day " << crossDayTests::dayFiles()[dayIndex].label
                   << " stackRules sample (every " << everyNth << "th product by ID): products="
                   << counts.sampledProducts << " pairs=" << counts.pairs

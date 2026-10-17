@@ -17,13 +17,13 @@ struct PalletSpec {
 };
 
 // Whether the pallet's deck height counts toward a unit load's height, in the Milestone 2
-// stacks and the Milestone 3 floor alike. Open with the client (M3 questions 6 and 21); the
-// params file must state which reading runs (floorDeckHeight).
+// stacks and the Milestone 3 floor alike. The client ruled Included (12 Oct); the params file
+// must still state which reading runs (floorDeckHeight).
 enum class DeckHeightRule { Excluded, Included };
 
-// The confirmed pallet weights behind the Milestone 1 totals, which stay on these figures so
-// the published M1 report is reproducible. Milestone 2 and the floor weigh each pallet from
-// the product row and the pallet table instead (resolvePalletSpec).
+// The fallback pallet figures for a master that carries no pallet columns and a run given no
+// pallet table (the 17 August master has neither). The product row and the supplied pallet
+// table always win over these, in Milestone 1 as in Milestone 2 and the floor.
 const std::vector<PalletSpec>& confirmedPalletSpecs();
 
 // Exact match ("PTL" and "PTL " differ), nullptr if absent.
