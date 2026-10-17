@@ -13,7 +13,6 @@
 #include <map>
 
 using namespace std;
-
 using namespace ob;
 
 namespace {
@@ -26,15 +25,15 @@ M2Params testParams() {
     params.cri.safeLimitLb = {0, 5, 299, 549, 799, 1149, 1499, 1849, 2199, 3099, 3599};
     params.pallets = {{"TLD", 0.0, 0.0, 48.0, 40.0}};
     params.pass2AttemptCap = 4;
-    params.maxStackHeight = 3;
     return params;
 }
 
-TrailerSpec trailer() {
+TrailerSpec trailer(optional<int> maxStackDepth = nullopt) {
     TrailerSpec spec;
     spec.stackHeightCeilingIn = 108.0;
     spec.weightLimitLb = 45000.0;
     spec.stackPositions = 30;
+    spec.maxStackDepth = maxStackDepth;
     return spec;
 }
 
@@ -68,14 +67,15 @@ struct Scenario {
         }
     }
 
-    StackingResult build(const M2Params& params = testParams()) const {
+    StackingResult build(const M2Params& params = testParams(),
+                         const TrailerSpec& trailerSpec = trailer()) const {
         SegregationResult segregation;
         SegregatedGroup group;
         for (size_t i = 0; i < lines.size(); ++i) group.lineIndices.push_back(i);
         segregation.groups.push_back(group);
         BindingResult binding;
         binding.groups.resize(1);
-        return buildStacks(segregation, lines, pallets, binding, params, trailer());
+        return buildStacks(segregation, lines, pallets, binding, params, trailerSpec);
     }
 };
 
@@ -123,9 +123,8 @@ TEST_CASE("stackBuilder: the fractional estimate spreads 4 pallets over 4/3 floo
 TEST_CASE("stackBuilder: one physical pallet takes a whole floor position") {
     Scenario scenario({product("A", 30, 100, 9)}, {1});
     CHECK(scenario.build().groups[0].best.floorPositions == 1.0);
-    M2Params params = fractionalParams();
-    params.maxStackHeight = 2;
-    CHECK(scenario.build(params).groups[0].best.floorPositions == doctest::Approx(0.5));
+    CHECK(scenario.build(fractionalParams(), trailer(2)).groups[0].best.floorPositions
+          == doctest::Approx(0.5));
 }
 
 TEST_CASE("stackBuilder: a part pallet is rounded up to a whole pallet") {
@@ -141,15 +140,39 @@ TEST_CASE("stackBuilder: an exact whole quantity is not rounded up past itself")
     CHECK(scenario.build().groups[0].best.floorPositions == 3.0);
 }
 
-TEST_CASE("stackBuilder: stacks never exceed the configured maximum height") {
-    M2Params params = testParams();
+TEST_CASE("stackBuilder: stacks never exceed the trailer's maximum stack depth") {
     Scenario scenario({product("A", 30, 100, 9)}, {4});
-    params.maxStackHeight = 2;
-    const auto twoHigh = scenario.build(params);
+    const auto twoHigh = scenario.build(testParams(), trailer(2));
     CHECK(twoHigh.groups[0].best.floorPositions == doctest::Approx(2.0));
     for (const auto& stack : twoHigh.groups[0].best.stacks) CHECK(stack.lineIndices.size() <= 2);
-    params.maxStackHeight = 1;
-    CHECK(scenario.build(params).groups[0].best.floorPositions == doctest::Approx(4.0));
+    CHECK(scenario.build(testParams(), trailer(1)).groups[0].best.floorPositions == doctest::Approx(4.0));
+}
+
+TEST_CASE("stackBuilder: with no stack depth limit a column builds to the ceiling") {
+    Scenario scenario({product("A", 20, 100, 9)}, {5});
+    const auto result = scenario.build();
+    REQUIRE(result.groups[0].best.stacks.size() == 1);
+    CHECK(result.groups[0].best.stacks[0].lineIndices.size() == 5);
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
+}
+
+TEST_CASE("stackBuilder: a load that exactly fills the remaining headroom still stacks") {
+    Scenario scenario({product("BASE", 54, 100, 9), product("TOP", 54, 100, 9)}, {1, 1});
+    const auto result = scenario.build();
+    REQUIRE(result.groups[0].best.stacks.size() == 1);
+    CHECK(result.groups[0].best.stacks[0].lineIndices.size() == 2);
+}
+
+TEST_CASE("stackBuilder: once the shortest load left cannot fit, the chain stops without stacking it") {
+    Scenario scenario({product("TALL", 70, 100, 9), product("SHORT", 30, 100, 9), product("MID", 40, 100, 9)},
+                      {1, 1, 1});
+    const auto result = scenario.build();
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
+    for (const auto& stack : result.groups[0].best.stacks) {
+        double heightIn = 0.0;
+        for (const size_t member : stack.lineIndices) heightIn += scenario.products[member].height_in;
+        CHECK(heightIn <= 108.0);
+    }
 }
 
 TEST_CASE("stackBuilder: stacks use only as many pallets as the scarcer line has") {
@@ -229,11 +252,9 @@ TEST_CASE("stackBuilder: stacked line flags mark exactly the lines that sit in a
 // Worked example 4 in docs/m2BusinessRules.md: the five methods on one 4-pallet group,
 // two high as for this customer. Only Base & Top finds both pairs.
 TEST_CASE("stackBuilder: documented worked example gives each method's floor positions") {
-    M2Params params = testParams();
-    params.maxStackHeight = 2;
     Scenario scenario({product("A", 70, 500, 9), product("B", 40, 900, 2),
                        product("C", 35, 200, 9), product("D", 60, 300, 5)}, {1, 1, 1, 1});
-    const auto result = scenario.build(params);
+    const auto result = scenario.build(testParams(), trailer(2));
     const GroupStacking& group = result.groups[0];
     CHECK(outcomeFor(group, StackMethod::Natural) == 3.0);
     CHECK(outcomeFor(group, StackMethod::Target) == 3.0);
@@ -292,11 +313,9 @@ TEST_CASE("stackBuilder: lines that cannot become a unit load are reported, not 
 
 TEST_CASE("stackBuilder: a single load taller than the ceiling is reported, not stacked") {
     Scenario scenario({product("TALL", 120, 10, 9), product("A", 60, 10, 9)}, {2, 1});
-    for (const int maxStackHeight : {3, 1}) {
-        CAPTURE(maxStackHeight);
-        M2Params params = testParams();
-        params.maxStackHeight = maxStackHeight;
-        const auto result = scenario.build(params);
+    for (const optional<int> maxStackDepth : {optional<int>{}, optional<int>{1}}) {
+        CAPTURE(maxStackDepth.value_or(0));
+        const auto result = scenario.build(testParams(), trailer(maxStackDepth));
         CHECK(result.overHeightLines == vector<size_t>{0});
         CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
         for (const auto& stack : result.groups[0].best.stacks) {
@@ -306,14 +325,35 @@ TEST_CASE("stackBuilder: a single load taller than the ceiling is reported, not 
     }
 }
 
-TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height") {
+// 104810501 on real data: 106.25 in of product, 111.75 in with the 5.5 in deck. The floor
+// counts it under Excluded and leaves it out under Included; the stacks must agree.
+TEST_CASE("stackBuilder: the pallet deck counts toward a single load's height only when floorDeckHeight says so") {
     M2Params params = testParams();
     params.pallets.push_back({"PTL", 60.0, 5.5, 48.0, 40.0});
     Scenario scenario({product("DECKED", 105, 10, 9)}, {1});
     scenario.products[0].pallet_id = "PTL";
+
+    params.floorDeckHeight = DeckHeightRule::Included;
+    const auto withDeck = scenario.build(params);
+    CHECK(withDeck.overHeightLines == vector<size_t>{0});
+    CHECK(withDeck.groups[0].best.stacks.empty());
+
+    params.floorDeckHeight = DeckHeightRule::Excluded;
+    const auto withoutDeck = scenario.build(params);
+    CHECK(withoutDeck.overHeightLines.empty());
+    REQUIRE(withoutDeck.groups[0].best.stacks.size() == 1);
+}
+
+TEST_CASE("stackBuilder: a single load on the ceiling, or a ULP above it, is not over-height") {
+    M2Params params = testParams();
+    // 36/7 in x 21 layers is 108 in on paper and one ULP above it in binary, as on real data.
+    Scenario scenario({product("SEVENTHS", 36.0 / 7.0, 10, 9)}, {1});
+    scenario.products[0].layers_unit_load = 21;
+    scenario.products[0].cases_unit_load = 21;
+    REQUIRE(36.0 / 7.0 * 21 > 108.0);
     const auto result = scenario.build(params);
-    CHECK(result.overHeightLines == vector<size_t>{0});
-    CHECK(result.groups[0].best.stacks.empty());
+    CHECK(result.overHeightLines.empty());
+    CHECK(result.groups[0].best.stacks.size() == 1);
 }
 
 TEST_CASE("stackBuilder: a single load exactly at the ceiling ships single-high") {
@@ -396,7 +436,6 @@ TEST_CASE("stackBuilder: real demand builds valid stacks within the time budget"
         for (const auto& stack : best.stacks) {
             stacked += stack.quantity * static_cast<double>(stack.lineIndices.size());
             CHECK(stack.quantity == floor(stack.quantity));
-            CHECK(stack.lineIndices.size() <= static_cast<size_t>(params.maxStackHeight));
             double heightIn = 0.0;
             for (const size_t member : stack.lineIndices) {
                 const auto load = buildUnitLoad(run.join.lines[member], params);

@@ -387,6 +387,30 @@ TEST_CASE("the master's Pallet_* columns are read per row; blank is absent, unre
     CHECK(isnan(*bad.palletWeightLb));
 }
 
+TEST_CASE("the master's Layer_Length and Layer_Width are read per row; blank is absent, unreadable is NaN") {
+    const auto loaded = loadCsvText(
+        "ID,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,"
+        "Pallet_ID,Layer_Length,Layer_Width\n"
+        "FULL,10,10,10,5,CS,9,4,2,8,TLD,47.4,39.75\n"
+        "BLANK,10,10,10,5,CS,9,4,2,8,TLD,,\n"
+        "BAD,10,10,10,5,CS,9,4,2,8,TLD,wide,39\n");
+    REQUIRE(loaded.products.size() == 3);
+    REQUIRE(loaded.products[0].layerLengthIn);
+    CHECK(*loaded.products[0].layerLengthIn == doctest::Approx(47.4));
+    CHECK(*loaded.products[0].layerWidthIn == doctest::Approx(39.75));
+    CHECK_FALSE(loaded.products[1].layerLengthIn);
+    CHECK_FALSE(loaded.products[1].layerWidthIn);
+    REQUIRE(loaded.products[2].layerLengthIn);
+    CHECK(isnan(*loaded.products[2].layerLengthIn));
+}
+
+TEST_CASE("a master without Layer_* columns leaves every row's layer size absent") {
+    const auto loaded = loadCsvText(kEightyEightColumnStyleHeader + "T1,t,10,10,10,5,CS,9,4,2,8,TLD,\n");
+    REQUIRE(loaded.products.size() == 1);
+    CHECK_FALSE(loaded.products[0].layerLengthIn);
+    CHECK_FALSE(loaded.products[0].layerWidthIn);
+}
+
 TEST_CASE("a master without Pallet_* columns leaves every row's pallet figures absent") {
     const auto loaded = loadCsvText(kEightyEightColumnStyleHeader + "T1,t,10,10,10,5,CS,9,4,2,8,TLD,\n");
     REQUIRE(loaded.products.size() == 1);

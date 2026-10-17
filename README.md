@@ -60,7 +60,8 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--placeholder <path>` | yes | Placeholder JSON (trucks requested per lane) |
 | `--params <path>` | no | Params JSON (for example `config/orderBuilderParams.json`). Turns on the Milestone 2 report: segregation groups, cube/weight limit per group, and stacks |
 | `--pallets <path>` | with `--params`, for masters without `Pallet_*` columns | Pallet table CSV (`Customer2-Pallet-Data.csv`): weight, height and footprint per pallet type. A product row's own `Pallet_Weight`, `Pallet_Height` and `Pallet_Footprint_*` win over it |
-| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the first one listed |
+| `--layer-sizes <path>` | no | A product master to borrow `Layer_Length` and `Layer_Width` from, for a master without them; fills only products that have none, matched on ID and Pallet_ID. A file with no layer sizes stops the run |
+| `--trailer <code>` | no | Trailer to plan against, by `trailerCode` in the params file; default is the one largest on payload, interior height, volume and stacked floor area (the run stops if no single trailer is) |
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
@@ -84,30 +85,47 @@ Exit codes:
 
 | Code | Meaning |
 |---|---|
-| 0 | Ran successfully and covered all of the demand |
-| 1 | Ran, but the result is incomplete: validation found errors in the data, or (with `--params`) a line that passed validation is in no stack — it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type whose weight, height and footprint neither the product master nor the pallet table gives), a single pallet is taller than the trailer ceiling, or its quantity is invalid — or demand was supplied but no stack was built |
-| 2 | Could not run — a missing argument or an unreadable file |
+| 0 | Ran successfully: every line validated, stacked and counted toward the floor |
+| 1 | Validation found errors in the data |
+| 2 | Could not run: a missing argument, an unreadable file, an invalid demand rule, or `--demand` and `--placeholder` naming the same file |
+| 3 | A line that passed validation is in no stack: it has no unit load (for example a Strength outside 0..10, a zero Weight, or a pallet type whose weight, height and footprint neither the product master nor the pallet table gives), a single pallet is taller than the trailer ceiling, or its quantity is invalid; or demand was supplied but no stack was built |
+| 4 | The floor left out a selected line, or the demand rule could not judge a line's date |
+| 5 | The demand rule selected no line of a non-empty extract |
+| 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
+
+When several apply, the lowest code wins.
 
 The Milestone 2 report states the outcome on its `Result` line, and each line left
 out of stacking is logged with its MATNR and the reason. Validation *warnings* do not
-affect the exit code. A clean run of the current
-sample data exits 0 with 161 warnings, or 163 with `--params`: Milestone 2 adds the two
+affect the exit code. The current sample data has 161 warnings without `--params`
+(exit 6) and 163 with it (exit 0): Milestone 2 adds the two
 lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
 
 ## Test data
 
-The three input fixtures are **not in the repository**. They are confidential
-customer data and are excluded by `.gitignore`:
+The input fixtures are **not in the repository**. They are confidential customer
+data and are excluded by `.gitignore`:
 
-- `tests/importer/Demand-1.json`
-- `tests/importer/Customer2-Product-Data.csv`
-- `tests/importer/PlaceHolder-1.json`
+- `tests/importer/Demand-1.json`, `tests/importer/Customer2-Product-Data.csv` and
+  `tests/importer/PlaceHolder-1.json` (17 Aug)
+- `tests/importer/crossDay/<yyyymmdd>/` for 2 and 3 September, in the client's own
+  layout: `Demands/`, `PlaceHolder/`, `Product-Data/` and `Pushed-Solutions/`
 
-After cloning, place your own copies at exactly those three paths. Most of the
-test suite reads them directly, so without them a large number of tests fail with
-`Cannot open demand file: tests/importer/Demand-1.json` or similar. This is the
-single most likely thing to trip up a new clone — if the tests fail immediately
-after a clean build, check this first.
+After cloning, copy them to exactly those paths. Each day's demand file is found
+by its `REQUEST_ID`, not its name (`Demand-N.json` and `100-STR-<uuid>.json` both
+work), so a mislabelled day fails rather than loading another day's data. The
+placeholder file is opened by the exact name the client shipped.
+
+Without them, the tests that open the 17 Aug files directly fail with
+`Cannot open demand file: ...` or similar. The cross-day tests are skipped instead,
+and two tests fail on purpose, listing every missing file:
+
+- `crossDay: the extract fixtures are present, so the extract tests ran`
+- `acceptanceHarness: the Truck Builder solution fixtures are present, so the validity tests ran`
+
+So a clone without the data never shows a green suite that ran none of the
+extract tests. If you know the data is missing and want to run only the unit tests,
+exclude those two tests yourself with `--test-case-exclude`.
 
 ## Tests
 
@@ -125,10 +143,12 @@ CTest is configured to run the binary from the repository root, so the fixture
 paths above resolve either way. Run the executable directly if you want the
 per-test-case output, or want to pass doctest flags such as `--test-case=<name>`.
 
-Current status: **80 test cases, all passing** (155,938 assertions). That covers
-the module unit tests plus 8 end-to-end acceptance tests in
-`tests/test_end_to_end.cpp`, which run the real pipeline against the real files
-and assert the exact published figures.
+Current status: every test passes except one, which fails on purpose.
+`acceptanceHarness: the floor never exceeds Truck Builder's achieved loads` is
+the M3 validity criterion, and it fails until the floor is a valid lower bound on
+the September solutions. It prints the number of lane-days exceeded on every run.
+It is not marked as expected to fail, so the suite does not report green while the
+defect is open.
 
 ## Project layout
 
@@ -200,9 +220,27 @@ threshold, defaulting to 300 pallets, which flags lines for review and never
 blocks a run. They appear in the warnings section as `large_line` — 17 lines in
 the current sample. A business rule would replace the threshold.
 
-**Wood pallet weight.** The Milestone 1 totals assume 60 lb for a physical wood
-pallet (PTL and PGM; TLD and GMA add nothing), so the published M1 figures stay
-reproducible. Milestone 2 does not use that figure: every stack, CRI check, group
-weight and cube/weight decision weighs the pallet from the supplied data — the
-product row's `Pallet_*` columns, or the pallet table given with `--pallets` — so a
-client with different pallets needs no code or config change.
+**Pallet weight.** Every milestone weighs a pallet the same way, from the item
+master first (client ruling, 13 Oct 2026): the product row's `Pallet_*` columns, then
+the pallet table given with `--pallets`, then a built-in fallback that copies the
+client's own table (PTL and PGM 65 lb, TLD 1 lb, GMA 0.1 lb) for a master with no
+pallet columns, such as 17 August. A client with different pallets needs no code or
+config change. A negative or non-finite pallet weight is an `invalid_pallet_weight`
+error that excludes the line.
+
+**Truck floor capacity.** The Milestone 3 floor takes a trailer's capacity from its floor
+area and volume, not from a count of pallet positions (client, 12 Oct 2026): a truck holds at
+most interior length x width x ceiling of footprint x unit-load height, or its payload in
+weight. `stackPositions` is still read for the Milestone 2 cube-or-weight split.
+
+**Unit-load footprint.** A stack covers the larger of its pallet and its layer (client,
+15 Oct 2026). TLD and GMA have no real pallet, so they cover their layer (`Layer_Length` x
+`Layer_Width` in the master); PTL and PGM cover the larger of 48 x 40 and the layer on each
+side. Masters before 29 Sep have no layer columns: pass `--layer-sizes` with a later master to
+borrow them by ID and Pallet_ID. Without a layer size, the pallet's footprint stands in and
+the floor report counts those lines.
+
+**Deck height.** The shipped params count the pallet deck toward unit-load height
+(`floorDeckHeight: Included`, client ruling, 12 Oct 2026), so a PTL or PGM load
+carries its 6 in wood deck against the 108 in ceiling. The 0.1 in TLD/GMA deck is a
+placeholder and adds nothing.

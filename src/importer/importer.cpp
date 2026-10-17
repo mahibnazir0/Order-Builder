@@ -6,62 +6,68 @@
 #include <fstream>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 
 using json = nlohmann::json;
 
 namespace {
 
+// Integers go through getIntegerOr, which refuses 2.9 and true rather than truncating them.
+// BNFPO, BSTRF, the process times and the CTL counts fall back to 0 ("none"): they are
+// optional and feed no total or decision yet. TPRIO and AVAIL_QTY, where 0 is a real value,
+// fall back to sentinels the Validator reports.
 STRRecord parse_str(const json& j) {
     STRRecord r;
-    r.idpr               = get_or<std::string>(j, "IDPR", "");
-    r.bnfpo              = get_or<int>(j, "BNFPO", 0);
-    r.locfrno            = get_or<std::string>(j, "LOCFRNO", "");
-    r.loctono            = get_or<std::string>(j, "LOCTONO", "");
-    r.matnr               = get_or<std::string>(j, "MATNR", "");
-    r.datfr_ta           = get_or<std::string>(j, "DATFR_TA", "");
-    r.datto_ta           = get_or<std::string>(j, "DATTO_TA", "");
-    r.ship_cond          = get_or<std::string>(j, "SHIP_COND", "");
-    r.planner_trans      = get_or<std::string>(j, "PLANNER_TRANS", "");
-    r.planner_snp        = get_or<std::string>(j, "PLANNER_SNP", "");
-    r.planner_trans_nmix = get_or<std::string>(j, "PLANNER_TRANS_NMIX", "");
-    r.confirmed_date     = get_or<std::string>(j, "CONFIRMED_DATE", "");
-    r.avail_date         = get_or<std::string>(j, "AVAIL_DATE", "");
-    r.tprio              = get_or<int>(j, "TPRIO", 0);
+    r.idpr               = get_or<string>(j, "IDPR", "");
+    r.bnfpo              = getIntegerOr(j, "BNFPO", 0);
+    r.locfrno            = get_or<string>(j, "LOCFRNO", "");
+    r.loctono            = get_or<string>(j, "LOCTONO", "");
+    r.matnr               = get_or<string>(j, "MATNR", "");
+    r.datfr_ta           = get_or<string>(j, "DATFR_TA", "");
+    r.datto_ta           = get_or<string>(j, "DATTO_TA", "");
+    r.ship_cond          = get_or<string>(j, "SHIP_COND", "");
+    r.planner_trans      = get_or<string>(j, "PLANNER_TRANS", "");
+    r.planner_snp        = get_or<string>(j, "PLANNER_SNP", "");
+    r.planner_trans_nmix = get_or<string>(j, "PLANNER_TRANS_NMIX", "");
+    r.confirmed_date     = get_or<string>(j, "CONFIRMED_DATE", "");
+    r.avail_date         = get_or<string>(j, "AVAIL_DATE", "");
+    r.tprio              = getIntegerOr(j, "TPRIO", kUnreadablePriority);
     r.trans              = get_or<double>(j, "TRANS", 0.0);
-    r.avail_qty          = get_or<int>(j, "AVAIL_QTY", 0);
-    r.unitofmeas         = get_or<std::string>(j, "UNITOFMEAS", "");
-    r.ctl_date           = get_or<std::string>(j, "CTL_DATE", "");
-    r.bstrf              = get_or<int>(j, "BSTRF", 0);
-    r.gr_proc_time       = get_or<int>(j, "GR_PROC_TIME", 0);
-    r.gi_proc_time       = get_or<int>(j, "GI_PROC_TIME", 0);
-    r.pl_deliv_time      = get_or<int>(j, "PL_DELIV_TIME", 0);
+    r.avail_qty          = getIntegerOr(j, "AVAIL_QTY", kUnreadableAvailableQuantity);
+    r.unitofmeas         = get_or<string>(j, "UNITOFMEAS", "");
+    r.ctl_date           = get_or<string>(j, "CTL_DATE", "");
+    r.bstrf              = getIntegerOr(j, "BSTRF", 0);
+    r.gr_proc_time       = getIntegerOr(j, "GR_PROC_TIME", 0);
+    r.gi_proc_time       = getIntegerOr(j, "GI_PROC_TIME", 0);
+    r.pl_deliv_time      = getIntegerOr(j, "PL_DELIV_TIME", 0);
     return r;
 }
 
 CTLRecord parse_ctl(const json& j) {
     CTLRecord r;
-    r.zdate            = get_or<std::string>(j, "ZDATE", "");
-    r.zday             = get_or<std::string>(j, "ZDAY", "");
-    r.level_load_start = get_or<int>(j, "LEVEL_LOAD_START", 0);
-    r.level_load_end   = get_or<int>(j, "LEVEL_LOAD_END", 0);
-    r.auto_o2          = get_or<int>(j, "AUTO_O2", 0);
+    r.zdate            = get_or<string>(j, "ZDATE", "");
+    r.zday             = get_or<string>(j, "ZDAY", "");
+    r.level_load_start = getIntegerOr(j, "LEVEL_LOAD_START", 0);
+    r.level_load_end   = getIntegerOr(j, "LEVEL_LOAD_END", 0);
+    r.auto_o2          = getIntegerOr(j, "AUTO_O2", 0);
     return r;
 }
 
 DNMRecord parse_dnm(const json& j) {
     DNMRecord r;
-    r.planner_snp = get_or<std::string>(j, "PLANNER_SNP", "");
-    r.locfrno     = get_or<std::string>(j, "LOCFRNO", "");
+    r.planner_snp = get_or<string>(j, "PLANNER_SNP", "");
+    r.locfrno     = get_or<string>(j, "LOCFRNO", "");
     return r;
 }
 
 } // anonymous namespace
 
-DemandFile Importer::load_demand(const std::string& json_path) {
-    std::ifstream in(json_path);
+DemandFile Importer::load_demand(const string& json_path) {
+    ifstream in(json_path);
     if (!isRegularFile(json_path) || !in) {
-        throw std::runtime_error("Cannot open demand file: " + json_path);
+        throw runtime_error("Cannot open demand file: " + json_path);
     }
 
     json root;
@@ -69,35 +75,43 @@ DemandFile Importer::load_demand(const std::string& json_path) {
         in >> root;
     } catch (const json::exception& e) {
         // parse_error for bad syntax, out_of_range for a number too large for a double.
-        throw std::runtime_error("Demand file is not valid JSON: " + std::string(e.what()));
+        throw runtime_error("Demand file " + json_path + " is not valid JSON: "
+                                 + string(e.what()));
     }
 
     // find() on an array or scalar root returns end(), so get_optional_array would
     // read every block as absent and the file would load as empty.
     if (!root.is_object()) {
-        throw std::runtime_error("Demand file: root must be a JSON object");
+        throw runtime_error("Demand file " + json_path + ": root must be a JSON object");
+    }
+
+    // An absent STR would load as a day with no demand, which is also how "{}" or a placeholder
+    // file passed by mistake reads. A day with no demand is "STR": [].
+    if (!root.contains("STR")) {
+        throw runtime_error("Demand file " + json_path + " has no STR block");
     }
 
     DemandFile demand;
-    demand.request_id = get_or<std::string>(root, "REQUEST_ID", "");
+    demand.request_id = get_or<string>(root, "REQUEST_ID", "");
 
-    // Each block is optional at the top level: absent means empty. Present
-    // but the wrong shape (e.g. STR as an object) is malformed input and
-    // throws instead — see get_optional_array.
-    if (const auto* str = get_optional_array(root, "STR", "Demand file")) {
+    // CTL and DNM are optional: absent means empty. Present but the wrong
+    // shape (e.g. STR as an object) is malformed input and throws instead —
+    // see get_optional_array.
+    const string context = "Demand file " + json_path;
+    if (const auto* str = get_optional_array(root, "STR", context)) {
         demand.str.reserve(str->size());
         for (const auto& item : *str) demand.str.push_back(parse_str(item));
     }
-    if (const auto* ctl = get_optional_array(root, "CTL", "Demand file")) {
+    if (const auto* ctl = get_optional_array(root, "CTL", context)) {
         for (const auto& item : *ctl) demand.ctl.push_back(parse_ctl(item));
     }
-    if (const auto* dnm = get_optional_array(root, "DNM", "Demand file")) {
+    if (const auto* dnm = get_optional_array(root, "DNM", context)) {
         for (const auto& item : *dnm) demand.dnm.push_back(parse_dnm(item));
     }
 
-    LOG_INFO("Loaded demand: " + std::to_string(demand.str.size()) + " STR, "
-             + std::to_string(demand.ctl.size()) + " CTL, "
-             + std::to_string(demand.dnm.size()) + " DNM");
+    LOG_INFO("Loaded demand: " + to_string(demand.str.size()) + " STR, "
+             + to_string(demand.ctl.size()) + " CTL, "
+             + to_string(demand.dnm.size()) + " DNM");
 
     return demand;
 }

@@ -56,7 +56,7 @@ partial pallet should be treated as full height.
 
 **Rule (implemented).** A run is complete only when every demand line is in a stack. Any
 line that is not, for whatever reason, is listed in the report by line number and material
-with its reason, the run is reported `INCOMPLETE`, and the program exits with code 1. This
+with its reason, the run is reported `INCOMPLETE`, and the program exits with code 3. This
 holds even when every other line stacks successfully.
 
 Reasons a line can be left out:
@@ -76,7 +76,7 @@ Reasons a line can be left out:
       line 1, material GOOD: unit of measure 'EA' cannot be converted to pallets (supported: CS, PAL, DIS)
 ```
 
-Exit code 1. The PAL line is still stacked and shown, so the planner sees both the partial
+Exit code 3. The PAL line is still stacked and shown, so the planner sees both the partial
 result and what is missing.
 
 ---
@@ -198,7 +198,10 @@ the same greedy builder; they differ only in the order in which bases and tops a
 - The 0.1 in deck height that TLD and GMA carry is a placeholder, not a measurement (client,
   3 October), and adds nothing to the stack height. Without that, products built to exactly
   108.00 in would read as over the ceiling. Their 0.1 lb and 1 lb weights are used as given.
-- Stacks are at most `maxStackHeight` high (2 for this customer).
+- Stacks build to the ceiling; the only cap on levels is the trailer's `maxStackDepth`
+  (null for this customer, so none). The client confirmed stacks are not limited to two
+  high; the former `maxStackHeight` params key is refused so the floor and the stacks
+  cannot read different limits.
 - Taking each base in base order, the builder adds the first top in top order that fits, then
   commits as many identical stacks as the scarcest line allows.
 - Each group is built with every method and the method using the fewest floor positions
@@ -213,7 +216,7 @@ the same greedy builder; they differ only in the order in which bases and tops a
 | Base & Top | Highest CRI first | Lightest first | Strongest loads carry; light loads ride on top |
 | Try Hard | Input order, rotated to several start points | Lightest first | Base & Top's top order from several starting bases; repeats `pass2AttemptCap` times (4) and keeps the best |
 
-**Worked example.** One group, one pallet each, at most two high, 108 in ceiling.
+**Worked example.** One group, one pallet each, a trailer `maxStackDepth` of 2, 108 in ceiling.
 
 | Load | Height | Weight | CRI | Can carry |
 |---|---:|---:|---:|---:|
@@ -254,6 +257,6 @@ any method should be added or dropped; the tie-break; and the Try Hard attempt c
 | 5 | DNM reading: `Strict`, with each flagged planner on its own, including the three at site 2028 | `Strict` | Config change (`FlaggedVsNormal`) |
 | 6 | Definitions of the five stacking methods and the tie-break | As in section 5 | Contained to `stackBuilder` |
 | 7 | Try Hard attempt cap | 4 | Config change |
-| 8 | A run with any unstacked demand line is `INCOMPLETE` (exit 1) | Yes | — |
+| 8 | A run with any unstacked demand line is `INCOMPLETE` (exit 3) | Yes | — |
 | 9 | A product over its own CRI limit ships single-high with a warning | Yes | Reject instead: one rule in `stackBuilder` |
 | 10 | Placeholder entries repeating a lane are summed per lane | Yes, counted in the log | De-duplicate or overwrite: placeholder importer |

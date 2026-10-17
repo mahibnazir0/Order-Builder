@@ -1,6 +1,9 @@
 #include "converter.hpp"
+#include "palletSpec.hpp"
 
 #include <cmath>
+
+using namespace std;
 
 namespace ob {
 
@@ -22,24 +25,19 @@ DimensionsCm Converter::to_cm(const ProductRecord& product) {
 
 double Converter::round_pallets(double pallets, PalletRounding rounding) {
     switch (rounding) {
-        case PalletRounding::Floor: return std::floor(pallets);
-        case PalletRounding::Ceil:  return std::ceil(pallets);
+        case PalletRounding::Floor: return floor(pallets);
+        case PalletRounding::Ceil:  return ceil(pallets);
         case PalletRounding::None:  break;
     }
     return pallets;
 }
 
-bool Converter::pallet_has_wood(const std::string& pallet_id) {
-    // PTL and PGM are wood. TLD and GMA are not, and add nothing.
-    return pallet_id == "PTL" || pallet_id == "PGM";
-}
-
-bool Converter::isConvertibleUom(const std::string& uom) {
+bool Converter::isConvertibleUom(const string& uom) {
     return uom == "CS" || uom == "PAL" || uom == "DIS";
 }
 
 double Converter::to_pallets(double trans,
-                             const std::string& uom,
+                             const string& uom,
                              const ProductRecord& product,
                              PalletRounding rounding) {
     if (uom == "CS") {
@@ -62,18 +60,22 @@ double Converter::to_pallets(double trans,
     return 0.0;
 }
 
-double Converter::to_weight_lb(double pallets,
-                               const ProductRecord& product,
-                               double wood_pallet_weight_lb) {
+double Converter::to_weight_lb(double pallets, const ProductRecord& product,
+                               const vector<PalletSpec>& palletSpecs) {
     // Weight in the master is per CASE, so a unit load is the case weight
     // times the number of cases on it.
     const double unit_load_lb =
         product.weight_lb * static_cast<double>(product.cases_unit_load);
 
-    const double pallet_lb =
-        pallet_has_wood(product.pallet_id) ? wood_pallet_weight_lb : 0.0;
+    return pallets * (unit_load_lb + palletAddedWeightLb(product, palletSpecs).value_or(0.0));
+}
 
-    return pallets * (unit_load_lb + pallet_lb);
+optional<double> Converter::palletAddedWeightLb(const ProductRecord& product,
+                                                const vector<PalletSpec>& palletSpecs) {
+    if (product.palletWeightLb) return product.palletWeightLb;
+    const PalletSpec* pallet = palletSpecFor(palletSpecs, product.pallet_id);
+    if (pallet == nullptr) return nullopt;
+    return pallet->addedWeightLb;
 }
 
 }  // namespace ob

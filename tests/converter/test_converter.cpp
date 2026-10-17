@@ -5,9 +5,12 @@
 #include "importer.hpp"
 #include "product_importer.hpp"
 #include "joiner.hpp"
+#include "palletSpec.hpp"
 
 #include <algorithm>
 #include <string>
+
+using namespace std;
 
 using namespace ob;
 
@@ -21,7 +24,7 @@ namespace {
 // where the point of the test is that the real data behaves as expected.
 ProductRecord make_product(int cases_unit_load,
                            double case_weight_lb,
-                           const std::string& pallet_id) {
+                           const string& pallet_id) {
     ProductRecord p;
     p.id               = "TEST";
     p.cases_unit_load  = cases_unit_load;
@@ -33,10 +36,10 @@ ProductRecord make_product(int cases_unit_load,
 // Returns by value rather than by reference: GCC's -Wdangling-reference
 // (13.x, on by default under -Wall) rejects binding a const ref to the result,
 // and a ProductRecord copy costs nothing in a test.
-ProductRecord find_product(const std::vector<ProductRecord>& products,
-                           const std::string& id,
-                           const std::string& pallet_id) {
-    auto it = std::find_if(products.begin(), products.end(),
+ProductRecord find_product(const vector<ProductRecord>& products,
+                           const string& id,
+                           const string& pallet_id) {
+    auto it = find_if(products.begin(), products.end(),
         [&](const ProductRecord& p){ return p.id == id && p.pallet_id == pallet_id; });
     REQUIRE(it != products.end());
     return *it;
@@ -144,8 +147,8 @@ TEST_CASE("negative and boundary quantities pass through as arithmetic") {
     // Weight follows the sign rather than taking an absolute value, and the
     // wood pallet must not be added to a negative load as if it were cargo.
     ProductRecord ptl = make_product(3, 315.0, "PTL");
-    CHECK(Converter::to_weight_lb(-1.0, ptl) == doctest::Approx(-1005.0));
-    CHECK(Converter::to_weight_lb(0.0,  ptl) == doctest::Approx(0.0));
+    CHECK(Converter::to_weight_lb(-1.0, ptl, confirmedPalletSpecs()) == doctest::Approx(-1010.0));
+    CHECK(Converter::to_weight_lb(0.0,  ptl, confirmedPalletSpecs()) == doctest::Approx(0.0));
 }
 
 TEST_CASE("Cases_Unit_Load of zero returns zero instead of dividing by zero") {
@@ -177,54 +180,78 @@ TEST_CASE("unrecognised units of measure return zero and never throw") {
 // ─── Weight ────────────────────────────────────────────────────────────────
 
 TEST_CASE("weight is on a unit-load basis, not a single case") {
-    // 105553001 TLD: 9.7 lb per case, 168 cases per unit load, no wood.
+    // 105553001 TLD: 9.7 lb per case, 168 cases per unit load, a 1 lb TLD sheet.
     ProductRecord tld = make_product(168, 9.7, "TLD");
-    CHECK(Converter::to_weight_lb(1.0, tld) == doctest::Approx(9.7 * 168.0));
-    CHECK(Converter::to_weight_lb(1.0, tld) == doctest::Approx(1629.6));
+    CHECK(Converter::to_weight_lb(1.0, tld, confirmedPalletSpecs()) == doctest::Approx(9.7 * 168.0 + 1.0));
+    CHECK(Converter::to_weight_lb(1.0, tld, confirmedPalletSpecs()) == doctest::Approx(1630.6));
 
     // The case weight alone would be badly wrong — guard against a regression
     // back to that reading.
-    CHECK(Converter::to_weight_lb(1.0, tld) != doctest::Approx(9.7));
+    CHECK(Converter::to_weight_lb(1.0, tld, confirmedPalletSpecs()) != doctest::Approx(9.7));
 }
 
-TEST_CASE("wood pallets add their weight, non-wood pallets add nothing") {
-    CHECK(Converter::pallet_has_wood("PTL"));
-    CHECK(Converter::pallet_has_wood("PGM"));
-    CHECK_FALSE(Converter::pallet_has_wood("TLD"));
-    CHECK_FALSE(Converter::pallet_has_wood("GMA"));
-    CHECK_FALSE(Converter::pallet_has_wood(""));
-
+TEST_CASE("wood pallets add their weight, a TLD sheet adds its 1 lb") {
     // Real row 100802205: PTL, 315 lb per case, 3 cases per unit load.
-    // 315 * 3 = 945, plus 60 lb of wood = 1005.
+    // 315 * 3 = 945, plus 65 lb of wood = 1010.
     ProductRecord ptl = make_product(3, 315.0, "PTL");
-    CHECK(Converter::to_weight_lb(1.0, ptl) == doctest::Approx(1005.0));
+    CHECK(Converter::to_weight_lb(1.0, ptl, confirmedPalletSpecs()) == doctest::Approx(1010.0));
 
-    // Same numbers on a TLD pallet get no wood at all.
+    // Same numbers on a TLD pallet get no wood, only the 1 lb sheet.
     ProductRecord tld = make_product(3, 315.0, "TLD");
-    CHECK(Converter::to_weight_lb(1.0, tld) == doctest::Approx(945.0));
+    CHECK(Converter::to_weight_lb(1.0, tld, confirmedPalletSpecs()) == doctest::Approx(946.0));
 
-    CHECK(Converter::to_weight_lb(1.0, ptl) - Converter::to_weight_lb(1.0, tld)
-          == doctest::Approx(60.0));
+    CHECK(Converter::to_weight_lb(1.0, ptl, confirmedPalletSpecs()) - Converter::to_weight_lb(1.0, tld, confirmedPalletSpecs())
+          == doctest::Approx(64.0));
 }
 
-TEST_CASE("the wood pallet weight is a parameter, not a baked-in literal") {
+TEST_CASE("the pallet weight is read from the confirmed palletSpec table") {
+    for (const auto& pallet : confirmedPalletSpecs()) {
+        CAPTURE(pallet.palletId);
+        ProductRecord product = make_product(3, 315.0, pallet.palletId);
+        CHECK(Converter::to_weight_lb(1.0, product, confirmedPalletSpecs())
+              == doctest::Approx(945.0 + pallet.addedWeightLb));
+    }
+}
+
+TEST_CASE("a pallet type with no spec adds no pallet weight") {
+    for (const string palletId : {"", "XYZ", "PTL "}) {
+        CAPTURE(palletId);
+        ProductRecord product = make_product(3, 315.0, palletId);
+        CHECK(Converter::to_weight_lb(1.0, product, confirmedPalletSpecs()) == doctest::Approx(945.0));
+    }
+}
+
+TEST_CASE("the pallet weight follows the pallet table passed in, not the confirmed one") {
+    const vector<PalletSpec> customerPallets{{"PTL", 65.0, 5.5, 48.0, 40.0},
+                                                  {"EUR", 55.0, 5.7, 47.2, 31.5}};
+    CHECK(Converter::to_weight_lb(1.0, make_product(3, 315.0, "PTL"), customerPallets)
+          == doctest::Approx(1010.0));
+    CHECK(Converter::to_weight_lb(1.0, make_product(3, 315.0, "EUR"), customerPallets)
+          == doctest::Approx(1000.0));
+}
+
+TEST_CASE("the item master's own pallet weight wins over the pallet table") {
     ProductRecord ptl = make_product(3, 315.0, "PTL");
+    ptl.palletWeightLb = 70.0;
+    CHECK(Converter::to_weight_lb(1.0, ptl, confirmedPalletSpecs()) == doctest::Approx(1015.0));
+    CHECK(Converter::palletAddedWeightLb(ptl, confirmedPalletSpecs()) == 70.0);
+}
 
-    // Tom has not confirmed 60 lb, so it must be overridable.
-    CHECK(Converter::to_weight_lb(1.0, ptl, 0.0)  == doctest::Approx(945.0));
-    CHECK(Converter::to_weight_lb(1.0, ptl, 45.0) == doctest::Approx(990.0));
-    CHECK(Converter::to_weight_lb(1.0, ptl, 75.0) == doctest::Approx(1020.0));
+TEST_CASE("an item master pallet weight weighs a pallet the table does not know") {
+    ProductRecord product = make_product(3, 315.0, "XYZ");
+    product.palletWeightLb = 40.0;
+    CHECK(Converter::to_weight_lb(1.0, product, confirmedPalletSpecs()) == doctest::Approx(985.0));
+}
 
-    // The override must not leak onto pallet types that carry no wood.
-    ProductRecord gma = make_product(3, 315.0, "GMA");
-    CHECK(Converter::to_weight_lb(1.0, gma, 500.0) == doctest::Approx(945.0));
+TEST_CASE("a pallet weighed by neither the master row nor the table has no pallet weight") {
+    CHECK_FALSE(Converter::palletAddedWeightLb(make_product(3, 315.0, "XYZ"), confirmedPalletSpecs()));
 }
 
 TEST_CASE("weight scales linearly with fractional pallets") {
     ProductRecord ptl = make_product(3, 315.0, "PTL");
-    CHECK(Converter::to_weight_lb(0.5, ptl) == doctest::Approx(502.5));
-    CHECK(Converter::to_weight_lb(2.0, ptl) == doctest::Approx(2010.0));
-    CHECK(Converter::to_weight_lb(0.0, ptl) == doctest::Approx(0.0));
+    CHECK(Converter::to_weight_lb(0.5, ptl, confirmedPalletSpecs()) == doctest::Approx(505.0));
+    CHECK(Converter::to_weight_lb(2.0, ptl, confirmedPalletSpecs()) == doctest::Approx(2020.0));
+    CHECK(Converter::to_weight_lb(0.0, ptl, confirmedPalletSpecs()) == doctest::Approx(0.0));
 }
 
 // ─── Against the real files ────────────────────────────────────────────────
@@ -242,14 +269,14 @@ TEST_CASE("converter reproduces the pallet-equivalent total for the whole file" 
         const double pallets =
             Converter::to_pallets(line.str->trans, line.str->unitofmeas, *line.product);
         total_pallets += pallets;
-        total_weight  += Converter::to_weight_lb(pallets, *line.product);
+        total_weight  += Converter::to_weight_lb(pallets, *line.product, confirmedPalletSpecs());
     }
 
     // The figure in the Milestone 1 summary Tom checks against his own.
     CHECK(total_pallets == doctest::Approx(152911.2).epsilon(1e-6));
 
-    // Weight follows from the unit-load basis plus 60 lb of wood.
-    CHECK(total_weight == doctest::Approx(103005832.85).epsilon(1e-9));
+    // Weight follows from the unit-load basis plus 65 lb of wood.
+    CHECK(total_weight == doctest::Approx(103367993.0).epsilon(1e-8));
 }
 
 TEST_CASE("the two variants of an ambiguous product convert differently" * doctest::skip(!crossDayTests::august17Present())) {
@@ -271,9 +298,11 @@ TEST_CASE("the two variants of an ambiguous product convert differently" * docte
     CHECK(as_tld == doctest::Approx(1.0));
     CHECK(as_gma == doctest::Approx(as_tld * 2.0));
 
-    // Neither variant is wood, so the choice does not change the weight.
-    CHECK(Converter::to_weight_lb(as_gma, gma)
-          == doctest::Approx(Converter::to_weight_lb(as_tld, tld)));
+    // Neither variant is wood: the cargo weighs the same, and only two 0.1 lb GMA
+    // pallets against one 1 lb TLD sheet separate the totals.
+    CHECK(Converter::to_weight_lb(as_gma, gma, confirmedPalletSpecs())
+              - Converter::to_weight_lb(as_tld, tld, confirmedPalletSpecs())
+          == doctest::Approx(2.0 * 0.1 - 1.0));
 }
 
 // ─── Partial-pallet rounding (M1 plan, Phase 3.2) ──────────────────────────
@@ -356,7 +385,7 @@ TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * do
     for (const auto& line : join.lines) {
         if (line.product == nullptr) continue;
         const double trans = line.str->trans;
-        const std::string& uom = line.str->unitofmeas;
+        const string& uom = line.str->unitofmeas;
         defaulted     += Converter::to_pallets(trans, uom, *line.product);
         explicit_none += Converter::to_pallets(trans, uom, *line.product, PalletRounding::None);
         floored       += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Floor);

@@ -529,7 +529,7 @@ stands and should be re-confirmed rather than reported as a slip later.
   ceiling is a confirmed 108 rather than an assumed 110.
 - Pallet footprint defaults to 48x40 for all types pending Tom's table.
 - Stack positions are 32 in the config: Tom said 30 is wrong and named 32 or 34, and 32 is the median of the solved loads. Awaiting his choice between 32 and 34.
-- Stacks are at most two high for this customer (Tom), enforced through `maxStackHeight`.
+- Stacks build to the ceiling (client, superseding the earlier two-high rule); the only level cap is the trailer's `maxStackDepth`.
 - Floor truck counts are volume divided by capacity — a lower bound for comparing rules,
   not a plan.
 - Pallet-equivalents are summed as fractions for the M1 totals and the binding decision, never

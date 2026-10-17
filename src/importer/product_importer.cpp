@@ -234,6 +234,8 @@ ProductLoadResult ProductImporter::load(const string& csv_path) {
         p.palletHeightIn          = optionalMeasurement(at(c, "pallet_height"));
         p.palletFootprintLengthIn = optionalMeasurement(at(c, "pallet_footprint_length"));
         p.palletFootprintWidthIn  = optionalMeasurement(at(c, "pallet_footprint_width"));
+        p.layerLengthIn           = optionalMeasurement(at(c, "layer_length"));
+        p.layerWidthIn            = optionalMeasurement(at(c, "layer_width"));
         if (p.cases_unit_load <= 0) ++result.rowsWithoutUnitLoad;
 
         // Rows sharing an ID are pallet-type variants (TLD / PTL / PGM / GMA),

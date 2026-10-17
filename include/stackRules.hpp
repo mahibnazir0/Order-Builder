@@ -16,14 +16,33 @@ namespace ob {
 // range-checked here: buildUnitLoad rejects a negative or non-finite one as InvalidData.
 std::optional<PalletSpec> resolvePalletSpec(const ProductRecord& product, const M2Params& params);
 
+// Height of one built unit load. The deck counts only when params.floorDeckHeight says so.
+// Milestone 2 (buildUnitLoad) and the Milestone 3 floor (unitLoadMetricsFor) both call this,
+// so the two can never read the deck differently.
+double unitLoadHeightIn(const ProductRecord& product, const PalletSpec& pallet,
+                        const M2Params& params) noexcept;
+
+// The floor area one unit load covers, long side first. A stack covers the larger of its
+// platform and its layer (client, 15 Oct): on a real pallet (a deck that is not the 0.1 in
+// placeholder, so PTL and PGM) each side is the larger of the two; with no real pallet (TLD,
+// GMA) it is the layer alone. A product with no layer size falls back to the pallet's
+// footprint and says so. Sizes are not range-checked here: the caller rejects a zero,
+// negative or non-finite one.
+struct UnitLoadFootprint {
+    double longSideIn = 0.0;
+    double shortSideIn = 0.0;
+    bool fromPalletOnly = false; // no layer size: the pallet's footprint stands in
+};
+UnitLoadFootprint unitLoadFootprint(const ProductRecord& product, const PalletSpec& pallet) noexcept;
+
 // Never throws; a bad line comes back with UnitLoad::error set. The product master
 // has no weight-above column yet, so callers normally omit suppliedWeightAboveLb and
 // the value is derived; a supplied value (including 0) always wins over derivation.
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
                        std::optional<double> suppliedWeightAboveLb = std::nullopt);
 
-// Pallet ids of matched lines whose pallet figures neither the product row nor the pallet
-// table supplies, sorted and unique.
+// Non-blank pallet ids of matched lines whose pallet figures neither the product row nor
+// the pallet table supplies, sorted and unique. A blank id is left to the per-line rejection.
 // Call once over the joined demand and report every id, before building unit loads.
 std::vector<std::string> missingPalletIds(const std::vector<JoinedLine>& lines,
                                           const M2Params& params);

@@ -6,6 +6,8 @@
 #include "product_importer.hpp"
 #include <algorithm>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* DEMAND_PATH  = "tests/importer/Demand-1.json";
@@ -69,7 +71,7 @@ TEST_CASE("preference order decides which variant is chosen" * doctest::skip(!cr
     // Reversing it must select the other variant.
     JoinResult gma = Joiner::join(f.demand.str, f.index, {"GMA", "PGM", "PTL", "TLD"});
 
-    auto find_line = [](const JoinResult& r, const std::string& matnr) -> const JoinedLine* {
+    auto find_line = [](const JoinResult& r, const string& matnr) -> const JoinedLine* {
         for (const auto& l : r.lines) if (l.str->matnr == matnr) return &l;
         return nullptr;
     };
@@ -90,7 +92,7 @@ TEST_CASE("unmatched lines are kept with a null product, never dropped" * doctes
     Fixture f;
 
     // Inject a demand line for a material that is not in the master.
-    std::vector<STRRecord> demand = f.demand.str;
+    vector<STRRecord> demand = f.demand.str;
     STRRecord ghost = demand.front();
     ghost.matnr = "999999999";
     demand.push_back(ghost);

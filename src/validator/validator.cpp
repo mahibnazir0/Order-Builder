@@ -1,9 +1,13 @@
 #include "validator.hpp"
 #include "converter.hpp"
+#include "isoDate.hpp"
+#include "palletSpec.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
+
+using namespace std;
 
 namespace ob {
 
@@ -11,9 +15,9 @@ namespace {
 
 void add(ValidationReport& rep,
          ValidationIssue::Severity sev,
-         const std::string& rule,
-         const std::string& message,
-         const std::string& matnr,
+         const string& rule,
+         const string& message,
+         const string& matnr,
          int index,
          int placeholder_index = -1) {
     ValidationIssue issue;
@@ -30,30 +34,33 @@ void add(ValidationReport& rep,
 }
 
 bool isValidDimension(double inches) {
-    return std::isfinite(inches) && inches >= 0.0;
+    return isfinite(inches) && inches >= 0.0;
 }
 
-bool is_blank(const std::string& s) {
-    return s.find_first_not_of(" \t\r\n") == std::string::npos;
+bool is_blank(const string& s) {
+    return s.find_first_not_of(" \t\r\n") == string::npos;
 }
 
 // Any UoM the Converter cannot handle converts to 0.0 pallets and is already reported
 // as unknown_uom.
-bool converted_to_weight(const std::string& uom) {
+bool converted_to_weight(const string& uom) {
     return Converter::isConvertibleUom(uom);
 }
 
-bool is_allowed(const std::string& value, const std::vector<std::string>& allowed) {
-    return std::find(allowed.begin(), allowed.end(), value) != allowed.end();
+bool is_allowed(const string& value, const vector<string>& allowed) {
+    return find(allowed.begin(), allowed.end(), value) != allowed.end();
 }
 
 } // anonymous namespace
 
 ValidationReport Validator::validate(const JoinResult& join,
-                                     const std::vector<double>& pallets_per_line,
+                                     const vector<double>& pallets_per_line,
                                      const ValidationConfig& config) {
     ValidationReport rep;
     const bool have_pallets = (pallets_per_line.size() == join.lines.size());
+    const string unmatchedProductMessage = config.productMasterPath.empty()
+        ? "Material number is not in the product master"
+        : "Material number is not in the product master " + config.productMasterPath;
 
     for (size_t i = 0; i < join.lines.size(); ++i) {
         const JoinedLine& jl = join.lines[i];
@@ -71,8 +78,19 @@ ValidationReport Validator::validate(const JoinResult& join,
             continue;   // nothing further is meaningful for this line
         }
 
+        // ── Ship window ─────────────────────────────────────────────────────
+        // The demand rules read one end of the window each, so an inverted window would
+        // otherwise be selected as if it were real.
+        if (isIsoDate(s.datfr_ta) && isIsoDate(s.datto_ta) && s.datfr_ta > s.datto_ta) {
+            ++rep.invertedShipWindow;
+            add(rep, ValidationIssue::Severity::Error, "inverted_ship_window",
+                "Demand line's DATFR_TA (" + s.datfr_ta + ") is after its DATTO_TA ("
+                    + s.datto_ta + ")",
+                s.matnr, idx);
+        }
+
         // ── Quantity ────────────────────────────────────────────────────────
-        if (!std::isfinite(s.trans) || s.trans <= 0.0) {
+        if (!isfinite(s.trans) || s.trans <= 0.0) {
             ++rep.non_positive_qty;
             add(rep, ValidationIssue::Severity::Error, "non_positive_qty",
                 "Demand quantity is not a finite, positive number", s.matnr, idx);
@@ -80,8 +98,25 @@ ValidationReport Validator::validate(const JoinResult& join,
             ++rep.excessive_quantity;
             add(rep, ValidationIssue::Severity::Error, "excessive_quantity",
                 "Demand quantity exceeds "
-                    + std::to_string(static_cast<long long>(kMaxDemandQuantity)),
+                    + to_string(static_cast<long long>(kMaxDemandQuantity)),
                 s.matnr, idx);
+        }
+
+        // ── Priority and availability ───────────────────────────────────────
+        // Warnings, not Errors: no stage reads either field yet, and an Error would drop
+        // the line from every total. They must become Errors once priority or availability
+        // decides what ships; until then the sentinel keeps a bad value from passing as 0.
+        if (s.tprio < 0 || s.tprio > kMaxPriority) {
+            ++rep.unreadablePriority;
+            add(rep, ValidationIssue::Severity::Warning, "unreadable_priority",
+                "Demand line's TPRIO is missing, not an integer, or outside 0.."
+                    + to_string(kMaxPriority),
+                s.matnr, idx);
+        }
+        if (s.avail_qty < 0) {
+            ++rep.unreadableAvailableQuantity;
+            add(rep, ValidationIssue::Severity::Warning, "unreadable_available_quantity",
+                "Demand line's AVAIL_QTY is missing, not an integer, or negative", s.matnr, idx);
         }
 
         // ── Unit of measure ─────────────────────────────────────────────────
@@ -104,7 +139,7 @@ ValidationReport Validator::validate(const JoinResult& join,
         if (!jl.matched || jl.product == nullptr) {
             ++rep.unmatched_product;
             add(rep, ValidationIssue::Severity::Error, "unmatched_product",
-                "Material number is not in the product master", s.matnr, idx);
+                unmatchedProductMessage, s.matnr, idx);
             continue;   // product-dependent checks below need a product
         }
 
@@ -132,11 +167,11 @@ ValidationReport Validator::validate(const JoinResult& join,
             add(rep, ValidationIssue::Severity::Error, "negative_unit_load",
                 "Product's Cases_Unit_Load is negative", s.matnr, idx);
         }
-        if (!std::isfinite(p.weight_lb) || p.weight_lb < 0.0 || p.weight_lb > kMaxCaseWeightLb) {
+        if (!isfinite(p.weight_lb) || p.weight_lb < 0.0 || p.weight_lb > kMaxCaseWeightLb) {
             ++rep.invalid_weight;
             add(rep, ValidationIssue::Severity::Error, "invalid_weight",
                 "Product's Weight is not a finite number between 0 and "
-                    + std::to_string(static_cast<long long>(kMaxCaseWeightLb)) + " lb",
+                    + to_string(static_cast<long long>(kMaxCaseWeightLb)) + " lb",
                 s.matnr, idx);
         }
         if (converted_to_weight(s.unitofmeas)
@@ -182,18 +217,20 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product master row has no unit of measure", s.matnr, idx);
         }
 
-        // Converter::pallet_has_wood only recognises the same set the Joiner
-        // already treats as the known pallet types. Anything else (blank, a
-        // typo, a new type not yet added here) silently reads as "not wood"
-        // and understates weight by kWoodPalletWeightLb with nothing to flag
-        // it — checked against Joiner's list rather than a second literal set
-        // that could drift out of sync with it.
-        const auto& known_pallet_types = Joiner::default_pallet_preference();
-        if (std::find(known_pallet_types.begin(), known_pallet_types.end(), p.pallet_id)
-                == known_pallet_types.end()) {
+        // The Converter adds nothing for a pallet neither the master row nor the
+        // run's table weighs (blank, a typo, a new type), which understates weight
+        // with nothing else to flag it. A negative or NaN weight would corrupt the
+        // lane's weight total instead, so that one excludes the line.
+        const optional<double> palletWeightLb = Converter::palletAddedWeightLb(p, config.pallets);
+        if (!palletWeightLb) {
             ++rep.unrecognized_pallet_id;
             add(rep, ValidationIssue::Severity::Warning, "unrecognized_pallet_id",
                 "Product's Pallet_ID '" + p.pallet_id + "' is not one of the known types",
+                s.matnr, idx);
+        } else if (!isfinite(*palletWeightLb) || *palletWeightLb < 0.0) {
+            ++rep.invalidPalletWeight;
+            add(rep, ValidationIssue::Severity::Error, "invalid_pallet_weight",
+                "Pallet weight for Pallet_ID '" + p.pallet_id + "' is not a finite number of 0 lb or more",
                 s.matnr, idx);
         }
 
@@ -203,7 +240,7 @@ ValidationReport Validator::validate(const JoinResult& join,
         if (have_pallets && pallets_per_line[i] > config.pallet_warn_threshold) {
             ++rep.over_pallet_threshold;
             add(rep, ValidationIssue::Severity::Warning, "large_line",
-                "Line resolves to " + std::to_string(std::llround(pallets_per_line[i]))
+                "Line resolves to " + to_string(llround(pallets_per_line[i]))
                     + " pallets, above the review threshold, check the unit of measure",
                 s.matnr, idx);
         }
@@ -212,16 +249,16 @@ ValidationReport Validator::validate(const JoinResult& join,
     return rep;
 }
 
-void Validator::validate_do_not_mix(const std::vector<DNMRecord>& pairs,
-                                    const std::vector<STRRecord>& demandLines,
+void Validator::validate_do_not_mix(const vector<DNMRecord>& pairs,
+                                    const vector<STRRecord>& demandLines,
                                     ValidationReport& rep) {
-    std::unordered_set<std::string> doNotMixSites;
+    unordered_set<string> doNotMixSites;
     for (size_t i = 0; i < pairs.size(); ++i) {
         const DNMRecord& pair = pairs[i];
         if (is_blank(pair.planner_snp) || is_blank(pair.locfrno)) {
             ++rep.invalid_do_not_mix_pair;
             add(rep, ValidationIssue::Severity::Error, "invalid_do_not_mix_pair",
-                "Do-not-mix entry " + std::to_string(i) + " is missing PLANNER_SNP or LOCFRNO",
+                "Do-not-mix entry " + to_string(i) + " is missing PLANNER_SNP or LOCFRNO",
                 "", -1, -1);
         } else {
             doNotMixSites.insert(pair.locfrno);
@@ -241,7 +278,7 @@ void Validator::validate_do_not_mix(const std::vector<DNMRecord>& pairs,
     }
 }
 
-void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& placeholders,
+void Validator::validate_placeholders(const vector<PlaceholderRecord>& placeholders,
                                       ValidationReport& rep,
                                       const ValidationConfig& config) {
     for (size_t i = 0; i < placeholders.size(); ++i) {
@@ -287,7 +324,7 @@ void Validator::validate_placeholders(const std::vector<PlaceholderRecord>& plac
         if (p.no_of_loads > kMaxLoadsPerPlaceholder) {
             ++rep.excessive_load_count;
             add(rep, ValidationIssue::Severity::Error, "excessive_load_count",
-                "Placeholder NO_OF_LOADS exceeds " + std::to_string(kMaxLoadsPerPlaceholder)
+                "Placeholder NO_OF_LOADS exceeds " + to_string(kMaxLoadsPerPlaceholder)
                     + " for lane " + p.locfrno + "->" + p.loctono, "", -1, idx);
         }
     }
@@ -297,8 +334,8 @@ bool Validator::excludesLine(const ValidationIssue& issue) {
     return issue.severity == ValidationIssue::Severity::Error || issue.rule == "zero_dimension";
 }
 
-std::vector<bool> Validator::excludedLineFlags(const ValidationReport& report, size_t lineCount) {
-    std::vector<bool> excluded(lineCount, false);
+vector<bool> Validator::excludedLineFlags(const ValidationReport& report, size_t lineCount) {
+    vector<bool> excluded(lineCount, false);
     for (const auto& issue : report.issues) {
         if (issue.line_index < 0 || static_cast<size_t>(issue.line_index) >= lineCount) continue;
         if (excludesLine(issue)) {

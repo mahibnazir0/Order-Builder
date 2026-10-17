@@ -1,8 +1,7 @@
-# Build output
-build/
+# Build output: any build directory (build/, build-asan/, build-m3-trailerSpec/, ...)
+build*/
 out/
 cmake-build-*/
-build-linux/
 
 # IDE / editor files
 .vs/
@@ -28,6 +27,8 @@ tests/importer/*.csv
 # September extracts keep the client's directory layout, so they are nested
 # and the flat patterns above do not reach them.
 tests/importer/crossDay/
+# The 4-6 August runs (inputs and Truck Builder solutions), nested the same way.
+tests/importer/august/
 
 # CLI output captured from real extracts: full per-lane client data.
 /m2_run_*.txt

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "json.hpp"
 #include "pipeline.hpp"
 
 #include <array>
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // The four Customer2 extracts: 17 Aug (flat in tests/importer) and the September
 // days, which keep the client's own directory layout under tests/importer/crossDay.
@@ -34,6 +36,11 @@ constexpr std::size_t kDayCount = 4;
 // another file's decorator can read before it is constructed.
 inline const std::string kPalletTableForOlderMasters =
     "tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv";
+
+// Those masters carry no Layer_* columns either. The 5 Oct master has them for every product
+// they demand, so its layer sizes stand in (PipelineInputs::layerSizePath).
+inline const std::string kLayerSizesForOlderMasters =
+    "tests/importer/crossDay/20261005/Product-Data/Customer2-Product-Data.csv";
 
 // True when every path is a file. Otherwise names the first missing one, so a skipped test
 // reads as skipped rather than as a pass.
@@ -73,61 +80,110 @@ inline bool august17StackingPresent() {
 template <typename T>
 using PerDay = std::array<T, kDayCount>;
 
+// REQUEST_ID of a demand file; empty when the file is not a JSON object carrying one.
+inline std::string requestIdOf(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    const nlohmann::json root = nlohmann::json::parse(input, nullptr, false);
+    if (!root.is_object()) return "";
+    const auto found = root.find("REQUEST_ID");
+    return found != root.end() && found->is_string() ? found->get<std::string>() : "";
+}
+
+// The one .json file in `directory` whose REQUEST_ID is `requestId`, whatever it is named:
+// Demand-N.json until mid September, 100-STR-<uuid>.json since. Throws naming the directory
+// when it is missing or holds no such file, or more than one.
+inline std::string findDemandFile(const std::string& directory, const std::string& requestId) {
+    if (!std::filesystem::is_directory(directory)) {
+        throw std::runtime_error(directory + ": demand directory not found");
+    }
+    std::vector<std::string> matches;
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".json"
+            && requestIdOf(entry.path()) == requestId) {
+            matches.push_back(entry.path().generic_string());
+        }
+    }
+    if (matches.size() != 1) {
+        throw std::runtime_error(directory + ": " + std::to_string(matches.size())
+                                 + " demand file(s) have REQUEST_ID " + requestId
+                                 + ", expected exactly 1");
+    }
+    return matches.front();
+}
+
 struct DayFiles {
     std::string label;
     std::string productPath;
-    std::string demandPath;
+    std::string demandDirectory;
+    // The demand file is found by this, never by its name. The client has renamed the files
+    // once already, and two days' product masters can be byte-identical (1 and 2 Oct, 6 and
+    // 7 Oct), so a fixture keyed by name or date alone could load the wrong day and still
+    // look right. The request ID is the one thing in the files that names the day.
+    std::string requestId;
     std::string placeholderDirectory;
     // Exactly as the client shipped it: "PlaceHolder-1.json" in August,
-    // "Placeholder-N.json" in September. Not normalised; the case breaks on Linux.
+    // "Placeholder-N.json" in September, "100-PLACEHOLDER-<uuid>.json" since. Not
+    // normalised; the case breaks on Linux. Placeholders carry no request ID, so the name
+    // is the only key.
     std::string placeholderFileName;
 
+    std::string demandPath() const { return findDemandFile(demandDirectory, requestId); }
     std::string placeholderPath() const { return placeholderDirectory + "/" + placeholderFileName; }
 };
 
 inline const PerDay<DayFiles>& dayFiles() {
     static const PerDay<DayFiles> files{{
-        {"17 Aug", "tests/importer/Customer2-Product-Data.csv", "tests/importer/Demand-1.json",
-         "tests/importer", "PlaceHolder-1.json"},
+        {"17 Aug", "tests/importer/Customer2-Product-Data.csv", "tests/importer",
+         "#STR_PA4400_20260817164454#", "tests/importer", "PlaceHolder-1.json"},
         {"02 Sep #1", "tests/importer/crossDay/20260902/Product-Data/Customer2-Product-Data.csv",
-         "tests/importer/crossDay/20260902/Demands/Demand-1.json",
+         "tests/importer/crossDay/20260902/Demands", "#STR_PA4400_20260831155005#",
          "tests/importer/crossDay/20260902/PlaceHolder", "Placeholder-1.json"},
         {"02 Sep #2", "tests/importer/crossDay/20260902/Product-Data/Customer2-Product-Data.csv",
-         "tests/importer/crossDay/20260902/Demands/Demand-2.json",
+         "tests/importer/crossDay/20260902/Demands", "#STR_PA4400_20260901153549#",
          "tests/importer/crossDay/20260902/PlaceHolder", "Placeholder-2.json"},
         {"03 Sep", "tests/importer/crossDay/20260903/Product-Data/Customer2-Product-Data.csv",
-         "tests/importer/crossDay/20260903/Demands/Demand-1.json",
+         "tests/importer/crossDay/20260903/Demands", "#STR_PA4400_20260902110529#",
          "tests/importer/crossDay/20260903/PlaceHolder", "Placeholder-1.json"},
     }};
     return files;
 }
 
-// The extracts are confidential and gitignored, so a fresh clone has none of the
-// September days. Tests that need all four are skipped rather than failed there;
-// the notice keeps the skip visible instead of reading as a pass.
-inline bool allExtractsPresent() {
-    static const bool present = [] {
-        if (!filesPresent({kPalletTableForOlderMasters}, "cross-day tests are")) return false;
+// One line for each extract file a test needs and cannot find. The extracts are
+// confidential and gitignored, so a fresh clone has none of them. The tests that read them
+// are skipped then, and the "extract fixtures are present" test fails listing these lines,
+// so a clone without the data never reports a green suite that ran none of them.
+inline const std::vector<std::string>& missingExtracts() {
+    static const std::vector<std::string> missing = [] {
+        std::vector<std::string> problems;
+        if (!std::filesystem::is_regular_file(kPalletTableForOlderMasters)) {
+            problems.push_back("pallet table: " + kPalletTableForOlderMasters + " not found");
+        }
         for (const DayFiles& day : dayFiles()) {
-            for (const std::string& path : {day.productPath, day.demandPath, day.placeholderPath()}) {
+            for (const std::string& path : {day.productPath, day.placeholderPath()}) {
                 if (!std::filesystem::is_regular_file(path)) {
-                    std::cerr << "[crossDay] " << path
-                              << " not found: cross-day tests are skipped\n";
-                    return false;
+                    problems.push_back(day.label + ": " + path + " not found");
                 }
             }
+            try {
+                day.demandPath();
+            } catch (const std::exception& error) {
+                problems.push_back(day.label + ": " + error.what());
+            }
         }
-        return true;
+        return problems;
     }();
-    return present;
+    return missing;
 }
+
+inline bool allExtractsPresent() { return missingExtracts().empty(); }
 
 // Milestone 1, measured through the CLI on 26 Sep 2026.
 namespace expectedM1 {
 constexpr PerDay<std::size_t> demandLines{24357, 23462, 23003, 21909};
 constexpr PerDay<double> hashTotal{8708934, 8275859, 8106348, 7778017};
 constexpr PerDay<double> palletEquivalents{152911.2, 149391.3, 146023.0, 139678.5};
-constexpr PerDay<double> totalWeightLb{103005833, 98793082, 95668859, 91591555};
+// Weighs wood pallets at 65 lb, the item master's figure (client ruling, 13 Oct 2026).
+constexpr PerDay<double> totalWeightLb{103367993, 99155309, 96023693, 91924765};
 constexpr PerDay<int> lanesUnion{371, 380, 383, 377};
 constexpr PerDay<int> validationErrors{0, 0, 0, 0};
 constexpr PerDay<int> validationWarnings{161, 204, 207, 169};
@@ -176,11 +232,12 @@ inline ob::PipelineInputs dayInputs(std::size_t dayIndex, const std::string& par
     const DayFiles& day = dayFiles()[dayIndex];
     ob::PipelineInputs inputs;
     inputs.product_path = day.productPath;
-    inputs.demand_path = day.demandPath;
+    inputs.demand_path = day.demandPath();
     inputs.placeholder_path = day.placeholderPath();
     inputs.planning_day = day.label;
     inputs.paramsPath = paramsPath;
     inputs.palletPath = kPalletTableForOlderMasters;
+    inputs.layerSizePath = kLayerSizesForOlderMasters;
     return inputs;
 }
 
@@ -254,11 +311,11 @@ constexpr PerDay<std::size_t> placeholderEntries{181, 283, 275, 228, 299};
 constexpr PerDay<long long> trucksRequested{339, 604, 527, 411, 618};
 constexpr PerDay<int> productRows{21319, 21319, 21351, 21351, 21355};
 // Milestone 1 totals and the pass 1 cube/weight split (round 4 verification, 10 Oct 2026):
-// the figures people check by hand. The M1 weight uses the converter's fixed wood-pallet
-// weight, not the pallet table, so it does not move with the pallet data.
+// the figures people check by hand. The M1 weight reads each pallet's weight from the item
+// master row, as Milestone 2 does, so it moves with the master's pallet columns.
 constexpr PerDay<double> hashTotal{7358530, 7395210, 6767583, 6116067, 7546177};
 constexpr PerDay<double> palletEquivalents{141697.0, 143118.8, 133623.2, 123367.0, 148004.3};
-constexpr PerDay<double> totalWeightLb{94052648, 95418783, 88943337, 81696332, 99787983};
+constexpr PerDay<double> totalWeightLb{94391167, 95761824, 89267645, 82000472, 100144563};
 constexpr PerDay<std::size_t> cubeBoundGroups{387, 399, 397, 390, 386};
 constexpr PerDay<std::size_t> weightBoundGroups{2, 2, 4, 1, 1};
 // The same on every day.

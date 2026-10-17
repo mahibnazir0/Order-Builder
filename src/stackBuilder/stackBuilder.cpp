@@ -1,19 +1,20 @@
 #include "stackBuilder.hpp"
 
 #include "stackRules.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
+#include <optional>
+#include <set>
 #include <stdexcept>
 
 using namespace std;
 
 namespace ob {
 namespace {
-
-// Below this a quantity is floating-point residue, not a real fraction of a pallet.
-constexpr double kQuantityEpsilon = 1e-9;
 
 struct Item {
     size_t lineIndex = 0;
@@ -27,6 +28,7 @@ struct Context {
     const vector<Item>& items;
     const M2Params& params;
     double ceilingIn;
+    optional<int> maxStackDepth;
 };
 
 Order naturalOrder(size_t count) {
@@ -51,12 +53,14 @@ bool hasPalletForAnotherLevel(const Context& context, const Order& chain, size_t
     return remaining[top] >= static_cast<double>(levelsHeld + 1);
 }
 
-// `top` may join the chain only if the customer's stack-height cap allows it and every
+// `top` may join the chain only if the trailer's stack depth allows it and every
 // load already in it can still carry what would sit above it. Each level is checked with
 // canStack against a copy of that load that already counts the height and weight of
 // everything stacked over it.
 bool canExtendChain(const Context& context, const Order& chain, const UnitLoad& top) {
-    if (chain.size() >= static_cast<size_t>(context.params.maxStackHeight)) return false;
+    if (context.maxStackDepth && chain.size() >= static_cast<size_t>(*context.maxStackDepth)) {
+        return false;
+    }
     double heightAboveIn = 0.0;
     double weightAboveLb = 0.0;
     for (size_t level = chain.size(); level-- > 0;) {
@@ -71,6 +75,36 @@ bool canExtendChain(const Context& context, const Order& chain, const UnitLoad& 
     return true;
 }
 
+// Heights of the lines that still have pallets. A chain whose headroom is below the shortest
+// of them cannot take another level, so its final scan of every top is skipped: without this,
+// every stack ends with a full failed scan and a large group builds in quadratic time.
+class LiveHeights {
+public:
+    LiveHeights(const vector<Item>& items, const vector<double>& remaining) {
+        live_.reserve(items.size());
+        for (size_t i = 0; i < items.size(); ++i) {
+            live_.push_back(remaining[i] > kQuantityEpsilon);
+            if (live_.back()) heights_.insert(items[i].load.heightIn);
+        }
+    }
+
+    void markExhausted(size_t item, double heightIn) {
+        if (!live_[item]) return;
+        live_[item] = false;
+        heights_.erase(heights_.find(heightIn));
+    }
+
+    // Leaves the tolerance to the chain's own height sum, which canStack recomputes in a
+    // different order: a load at the ceiling within rounding is still tried.
+    bool canAnyFit(double chainHeightIn, double ceilingIn) const {
+        return !heights_.empty() && chainHeightIn + *heights_.begin() <= ceilingIn + kQuantityEpsilon;
+    }
+
+private:
+    vector<bool> live_;
+    multiset<double> heights_;
+};
+
 // Greedy: take each base in baseOrder, keep adding the first feasible top in topOrder,
 // then commit as many identical stacks as the scarcest line allows. Repeats until every
 // line is used up. Each commit exhausts at least one line, so it always terminates.
@@ -80,17 +114,20 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
     vector<double> remaining(items.size());
     for (size_t i = 0; i < items.size(); ++i) remaining[i] = items[i].quantity;
 
+    LiveHeights liveHeights(items, remaining);
     StackSet set;
     set.method = method;
     for (const size_t base : baseOrder) {
         while (remaining[base] > kQuantityEpsilon) {
             Order chain{base};
-            for (bool extended = true; extended;) {
+            double chainHeightIn = items[base].load.heightIn;
+            for (bool extended = true; extended && liveHeights.canAnyFit(chainHeightIn, context.ceilingIn);) {
                 extended = false;
                 for (const size_t top : topOrder) {
                     if (hasPalletForAnotherLevel(context, chain, top, remaining)
                         && canExtendChain(context, chain, items[top].load)) {
                         chain.push_back(top);
+                        chainHeightIn += items[top].load.heightIn;
                         extended = true;
                         break;
                     }
@@ -116,7 +153,10 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
             for (const size_t member : chain) {
                 const bool exhausted = remaining[member] <= kQuantityEpsilon
                     || (member == limiting && !context.params.stackWholePallets);
-                if (exhausted) remaining[member] = 0.0;
+                if (exhausted) {
+                    remaining[member] = 0.0;
+                    liveHeights.markExhausted(member, items[member].load.heightIn);
+                }
             }
             set.floorPositions += quantity;
             set.heaviestStackLb = max(set.heaviestStackLb, stackWeightLb);
@@ -252,7 +292,9 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 result.excludedLines.push_back({lineIndex, load.error});
                 continue;
             }
-            if (load.heightIn > trailer.stackHeightCeilingIn) {
+            // The floor's test (exceedsCeiling): a load on the ceiling, or a ULP above it
+            // from inexact case heights, fits. Milestones 2 and 3 never disagree on a line.
+            if (load.heightIn > trailer.stackHeightCeilingIn + kQuantityEpsilon) {
                 result.overHeightLines.push_back(lineIndex);
                 continue;
             }
@@ -260,7 +302,7 @@ StackingResult buildStacks(const SegregationResult& segregation,
             items.push_back(Item{lineIndex, std::move(load), stackedQuantity});
         }
 
-        const Context context{items, params, trailer.stackHeightCeilingIn};
+        const Context context{items, params, trailer.stackHeightCeilingIn, trailer.maxStackDepth};
         const bool weightBound = binding.groups[groupIndex].binding == BindingConstraint::Weight;
         vector<StackSet> candidates;
         for (const StackMethod method : {StackMethod::Natural, StackMethod::Target,

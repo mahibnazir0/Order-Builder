@@ -70,8 +70,12 @@ void printProvisionalRules(const StackReport& report, ostream& out) {
            " equivalence to T3 not demonstrated\n";
     out << "  Stacking basis            "
         << (report.stackWholePallets
-                ? "whole pallets (stackWholePallets = true)\n\n"
-                : "fractional estimate, not a physical count (stackWholePallets = false)\n\n");
+                ? "whole pallets (stackWholePallets = true)\n"
+                : "fractional estimate, not a physical count (stackWholePallets = false)\n");
+    out << "  Deck height               "
+        << (report.deckHeight == DeckHeightRule::Included
+                ? "added to unit-load height (floorDeckHeight = Included), as in the floor\n\n"
+                : "not added to unit-load height (floorDeckHeight = Excluded), as in the floor\n\n");
 }
 
 } // namespace
@@ -99,6 +103,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
     report.linesNotStacked = stacking.linesNotStacked();
     report.doNotMixReading = params.doNotMixReading;
     report.stackWholePallets = params.stackWholePallets;
+    report.deckHeight = params.floorDeckHeight;
     report.defaultedKeys = params.defaultedKeys;
     report.paramWarnings = params.warnings;
     report.rows.reserve(report.groups);
@@ -121,6 +126,7 @@ StackReport StackReporter::build(const SegregationResult& segregation, const Bin
             report.totalPalletsStacked += palletsInStack;
         }
         report.totalPallets += row.pallets;
+        report.totalWeightLb += row.weightLb;
         report.totalFloorPositions += row.floorPositions;
         if (row.palletsByStackHeight.size() == 1 && row.palletsByStackHeight.count(1) == 1) {
             ++report.groupsAllSingleHigh;
@@ -157,6 +163,8 @@ void StackReporter::print(const StackReport& report, ostream& out, size_t maxRow
     out << "  Cube-bound groups         " << grouped(static_cast<double>(report.cubeBoundGroups)) << "\n";
     out << "  Weight-bound groups       " << grouped(static_cast<double>(report.weightBoundGroups)) << "\n";
     out << "  Pallet-equivalents        " << grouped(report.totalPallets, 1) << "\n";
+    out << "  Weight                    " << grouped(report.totalWeightLb)
+        << " lb  (summed before rounding; the group rows are rounded one by one)\n";
     out << "  Pallets in stacks         " << grouped(report.totalPalletsStacked, 1)
         << (report.stackWholePallets ? "  (each line rounded up to whole pallets)\n"
                                      : "  (fractional pallet-equivalents)\n");
