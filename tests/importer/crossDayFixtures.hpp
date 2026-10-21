@@ -177,16 +177,17 @@ inline const std::vector<std::string>& missingExtracts() {
 
 inline bool allExtractsPresent() { return missingExtracts().empty(); }
 
-// Milestone 1, measured through the CLI on 26 Sep 2026.
+// Milestone 1, measured through the CLI on 26 Sep 2026; pallet-equivalents, weight and
+// warnings re-measured 21 Oct 2026 with DIS quantities read as cases (client, 20 Oct).
 namespace expectedM1 {
 constexpr PerDay<std::size_t> demandLines{24357, 23462, 23003, 21909};
 constexpr PerDay<double> hashTotal{8708934, 8275859, 8106348, 7778017};
-constexpr PerDay<double> palletEquivalents{152911.2, 149391.3, 146023.0, 139678.5};
+constexpr PerDay<double> palletEquivalents{147671.3, 144551.6, 141338.1, 134618.9};
 // Weighs wood pallets at 65 lb, the item master's figure (client ruling, 13 Oct 2026).
-constexpr PerDay<double> totalWeightLb{103367993, 99155309, 96023693, 91924765};
+constexpr PerDay<double> totalWeightLb{100334597, 96435098, 93321776, 88949381};
 constexpr PerDay<int> lanesUnion{371, 380, 383, 377};
 constexpr PerDay<int> validationErrors{0, 0, 0, 0};
-constexpr PerDay<int> validationWarnings{161, 204, 207, 169};
+constexpr PerDay<int> validationWarnings{159, 203, 206, 168};
 // Added to the tally by Milestone 2: lines whose product exceeds its own CRI limit.
 constexpr PerDay<int> exceedsOwnCriWarnings{2, 0, 0, 0};
 constexpr PerDay<std::size_t> placeholderEntries{189, 170, 181, 200};
@@ -312,10 +313,11 @@ constexpr PerDay<long long> trucksRequested{339, 604, 527, 411, 618};
 constexpr PerDay<int> productRows{21319, 21319, 21351, 21351, 21355};
 // Milestone 1 totals and the pass 1 cube/weight split (round 4 verification, 10 Oct 2026):
 // the figures people check by hand. The M1 weight reads each pallet's weight from the item
-// master row, as Milestone 2 does, so it moves with the master's pallet columns.
+// master row, as Milestone 2 does, so it moves with the master's pallet columns. DIS lines
+// are cases (client, 20 Oct).
 constexpr PerDay<double> hashTotal{7358530, 7395210, 6767583, 6116067, 7546177};
-constexpr PerDay<double> palletEquivalents{141697.0, 143118.8, 133623.2, 123367.0, 148004.3};
-constexpr PerDay<double> totalWeightLb{94391167, 95761824, 89267645, 82000472, 100144563};
+constexpr PerDay<double> palletEquivalents{134019.8, 135023.1, 124250.7, 113326.1, 135613.5};
+constexpr PerDay<double> totalWeightLb{90222206, 91391171, 84062170, 76190806, 92821559};
 constexpr PerDay<std::size_t> cubeBoundGroups{387, 399, 397, 390, 386};
 constexpr PerDay<std::size_t> weightBoundGroups{2, 2, 4, 1, 1};
 // The same on every day.

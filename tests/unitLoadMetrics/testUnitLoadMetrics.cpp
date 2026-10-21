@@ -90,13 +90,16 @@ TEST_CASE("unitLoadMetrics: cases divide by cases per unit load") {
     CHECK(metrics.unitLoads == doctest::Approx(2.0));
 }
 
-TEST_CASE("unitLoadMetrics: PAL and DIS quantities are already unit loads") {
-    for (const string unitOfMeasure : {"PAL", "DIS"}) {
-        CAPTURE(unitOfMeasure);
-        const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(3.0, unitOfMeasure));
-        REQUIRE(metrics.error == UnitLoadMetricsError::None);
-        CHECK(metrics.unitLoads == doctest::Approx(3.0));
-    }
+TEST_CASE("unitLoadMetrics: a PAL quantity is already unit loads") {
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(3.0, "PAL"));
+    REQUIRE(metrics.error == UnitLoadMetricsError::None);
+    CHECK(metrics.unitLoads == doctest::Approx(3.0));
+}
+
+TEST_CASE("unitLoadMetrics: a DIS quantity is cases") {
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(24.0, "DIS"));
+    REQUIRE(metrics.error == UnitLoadMetricsError::None);
+    CHECK(metrics.unitLoads == doctest::Approx(24.0 / 48.0));
 }
 
 TEST_CASE("unitLoadMetrics: weight is per case times cases per unit load plus the pallet") {

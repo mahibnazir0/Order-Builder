@@ -146,8 +146,8 @@ ValidationReport Validator::validate(const JoinResult& join,
         const ProductRecord& p = *jl.product;
 
         // Cases_Unit_Load is the divisor for CS lines and a factor in every unit-load
-        // weight, so a 0 corrupts CS, PAL and DIS lines alike: CS cannot convert to
-        // pallets, and PAL/DIS report a weight that omits the cargo entirely. The
+        // weight, so a 0 corrupts CS, PAL and DIS lines alike: CS and DIS cannot convert
+        // to pallets, and PAL reports a weight that omits the cargo entirely. The
         // Converter returns 0.0 rather than dividing by zero, so it has to be
         // surfaced here or the line silently reports as empty.
         if (converted_to_weight(s.unitofmeas) && p.cases_unit_load == 0) {

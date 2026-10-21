@@ -220,6 +220,10 @@ threshold, defaulting to 300 pallets, which flags lines for review and never
 blocks a run. They appear in the warnings section as `large_line` — 17 lines in
 the current sample. A business rule would replace the threshold.
 
+**Units of measure.** A demand quantity in CS or DIS is a count of cases and is divided by
+`Cases_Unit_Load` to give pallet-equivalents; a quantity in PAL is already whole unit loads
+(client, 20 Oct 2026: DIS turns out to be less than a pallet, PAL is always a pallet).
+
 **Pallet weight.** Every milestone weighs a pallet the same way, from the item
 master first (client ruling, 13 Oct 2026): the product row's `Pallet_*` columns, then
 the pallet table given with `--pallets`, then a built-in fallback that copies the

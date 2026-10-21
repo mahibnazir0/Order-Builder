@@ -443,8 +443,8 @@ TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in 
     CHECK(contains(run.output, "line 3519, material 106005500: exceeds its own CRI limit"));
     CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
     CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
-    CHECK(contains(run.output, "0 error(s), 163 warning(s)"));
-    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 163 warnings across 24357 demand lines"));
+    CHECK(contains(run.output, "0 error(s), 161 warning(s)"));
+    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 161 warnings across 24357 demand lines"));
     CHECK(contains(run.output, "  exceeds_own_cri  (2)"));
     CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }

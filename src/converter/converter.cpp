@@ -40,7 +40,8 @@ double Converter::to_pallets(double trans,
                              const string& uom,
                              const ProductRecord& product,
                              PalletRounding rounding) {
-    if (uom == "CS") {
+    // DIS (display) quantities are cases too, usually less than a pallet (client, 20 Oct).
+    if (uom == "CS" || uom == "DIS") {
         // Cases_Unit_Load is 0 on exactly one master row. Return 0 rather than
         // dividing by zero; the Validator reports the line.
         if (product.cases_unit_load == 0) {
@@ -50,9 +51,9 @@ double Converter::to_pallets(double trans,
                              rounding);
     }
 
-    // PAL and DIS are already expressed in unit loads. They still go through
-    // the rounding switch so one mode means one thing across every UoM.
-    if (uom == "PAL" || uom == "DIS") {
+    // PAL is already expressed in unit loads. It still goes through the
+    // rounding switch so one mode means one thing across every UoM.
+    if (uom == "PAL") {
         return round_pallets(trans, rounding);
     }
 
