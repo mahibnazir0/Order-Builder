@@ -40,25 +40,18 @@ double Converter::to_pallets(double trans,
                              const string& uom,
                              const ProductRecord& product,
                              PalletRounding rounding) {
-    // DIS (display) quantities are cases too, usually less than a pallet (client, 20 Oct).
-    if (uom == "CS" || uom == "DIS") {
-        // Cases_Unit_Load is 0 on exactly one master row. Return 0 rather than
-        // dividing by zero; the Validator reports the line.
-        if (product.cases_unit_load == 0) {
-            return 0.0;
-        }
-        return round_pallets(trans / static_cast<double>(product.cases_unit_load),
-                             rounding);
-    }
-
-    // PAL is already expressed in unit loads. It still goes through the
-    // rounding switch so one mode means one thing across every UoM.
-    if (uom == "PAL") {
-        return round_pallets(trans, rounding);
-    }
-
     // Unrecognised code. Not this module's job to complain about it.
-    return 0.0;
+    if (!isConvertibleUom(uom)) return 0.0;
+
+    // The quantity counts the product's base unit, the master's "case", whatever the code
+    // names it, and Cases_Unit_Load of them make one unit load (client, 16 and 20 Oct: 18 DIS
+    // per unit load). A PAL product with Cases_Unit_Load 2 stacks two PAL in one unit load,
+    // so 60 PAL is 30 unit loads: read as 60, Truck Builder's August loads would be
+    // overweight. The Validator rejects a line whose unit differs from the master's.
+    // Cases_Unit_Load is 0 on exactly one master row. Return 0 rather than dividing by zero;
+    // the Validator reports the line.
+    if (product.cases_unit_load == 0) return 0.0;
+    return round_pallets(trans / static_cast<double>(product.cases_unit_load), rounding);
 }
 
 double Converter::to_weight_lb(double pallets, const ProductRecord& product,

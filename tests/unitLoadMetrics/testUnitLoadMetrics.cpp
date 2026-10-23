@@ -90,10 +90,19 @@ TEST_CASE("unitLoadMetrics: cases divide by cases per unit load") {
     CHECK(metrics.unitLoads == doctest::Approx(2.0));
 }
 
-TEST_CASE("unitLoadMetrics: a PAL quantity is already unit loads") {
-    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(3.0, "PAL"));
+TEST_CASE("unitLoadMetrics: a PAL quantity counts the product's base unit, divided by Cases_Unit_Load") {
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(96.0, "PAL"));
     REQUIRE(metrics.error == UnitLoadMetricsError::None);
-    CHECK(metrics.unitLoads == doctest::Approx(3.0));
+    CHECK(metrics.unitLoads == doctest::Approx(2.0));
+}
+
+TEST_CASE("unitLoadMetrics: 60 PAL of a two-per-unit-load product is 30 unit loads, not 60") {
+    // 104578600: one PAL is a 48 x 40 x 49.375 in piece of 421.4 lb, two stack into a unit load.
+    const UnitLoadMetrics metrics = metricsFor(product("TLD", 49.375, 421.4, 1, 2, 2),
+                                               demand(60.0, "PAL"));
+    REQUIRE(metrics.error == UnitLoadMetricsError::None);
+    CHECK(metrics.unitLoads == doctest::Approx(30.0));
+    CHECK(metrics.weightLb == doctest::Approx(30.0 * (2 * 421.4 + shippedPallet("TLD").addedWeightLb)));
 }
 
 TEST_CASE("unitLoadMetrics: a DIS quantity is cases") {
@@ -105,27 +114,27 @@ TEST_CASE("unitLoadMetrics: a DIS quantity is cases") {
 TEST_CASE("unitLoadMetrics: weight is per case times cases per unit load plus the pallet") {
     const double palletWeightLb = shippedPallet("PTL").addedWeightLb;
     const UnitLoadMetrics fromCases = metricsFor(ptlProduct(), demand(96.0, "CS"));
-    const UnitLoadMetrics fromPallets = metricsFor(ptlProduct(), demand(2.0, "PAL"));
+    const UnitLoadMetrics fromPallets = metricsFor(ptlProduct(), demand(96.0, "PAL"));
     CHECK(fromCases.weightLb == doctest::Approx(2.0 * (9.0 * 48 + palletWeightLb)));
     CHECK(fromPallets.weightLb == doctest::Approx(fromCases.weightLb));
 }
 
 TEST_CASE("unitLoadMetrics: a pallet type that adds no weight adds none") {
     const UnitLoadMetrics metrics = metricsFor(product("TLD", 10.0, 9.0, 12, 4, 48),
-                                               demand(1.0, "PAL"));
+                                               demand(1.0 * 48.0, "CS"));
     CHECK(metrics.weightLb == doctest::Approx(9.0 * 48 + shippedPallet("TLD").addedWeightLb));
 }
 
 TEST_CASE("unitLoadMetrics: height is case height times layers and stacked inches scale by unit loads") {
-    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(1.25, "PAL"));
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(1.25 * 48.0, "CS"));
     CHECK(metrics.unitLoadHeightIn == doctest::Approx(40.0));
     CHECK(metrics.stackedInches == doctest::Approx(50.0));
 }
 
 TEST_CASE("unitLoadMetrics: the deck height is added only when the rule includes it") {
-    const UnitLoadMetrics excluded = metricsFor(ptlProduct(), demand(1.0, "PAL"),
+    const UnitLoadMetrics excluded = metricsFor(ptlProduct(), demand(1.0 * 48.0, "CS"),
                                                 DeckHeightRule::Excluded);
-    const UnitLoadMetrics included = metricsFor(ptlProduct(), demand(1.0, "PAL"),
+    const UnitLoadMetrics included = metricsFor(ptlProduct(), demand(1.0 * 48.0, "CS"),
                                                 DeckHeightRule::Included);
     CHECK(excluded.unitLoadHeightIn == doctest::Approx(40.0));
     CHECK(included.unitLoadHeightIn
@@ -151,7 +160,7 @@ TEST_CASE("unitLoadMetrics: a case height that computes a hair over the ceiling 
     const double ceilingIn = shippedTrailer().stackHeightCeilingIn;
     const ProductRecord sevenths = product("TLD", ceilingIn / 21.0, 9.0, 1, 21, 21);
     const UnitLoadMetrics metrics =
-        metricsFor(sevenths, demand(1.0, "PAL"), DeckHeightRule::Excluded);
+        metricsFor(sevenths, demand(21.0, "CS"), DeckHeightRule::Excluded);
     REQUIRE(metrics.unitLoadHeightIn > ceilingIn);
     CHECK_FALSE(exceedsCeiling(metrics, shippedTrailer()));
 }
@@ -200,13 +209,13 @@ TEST_CASE("unitLoadMetrics: a zero quantity gives zero metrics, not an error") {
 
 TEST_CASE("unitLoadMetrics: a zero case weight is a value, not a gap") {
     const UnitLoadMetrics metrics = metricsFor(product("TLD", 10.0, 0.0, 12, 4, 48),
-                                               demand(1.0, "PAL"));
+                                               demand(1.0 * 48.0, "CS"));
     CHECK(metrics.error == UnitLoadMetricsError::None);
     CHECK(metrics.weightLb == doctest::Approx(shippedPallet("TLD").addedWeightLb));
 }
 
 TEST_CASE("unitLoadMetrics: an unmatched line is missing its product") {
-    const STRRecord demandRecord = demand(1.0, "PAL");
+    const STRRecord demandRecord = demand(1.0 * 48.0, "CS");
     JoinedLine line;
     line.str = &demandRecord;
     CHECK(unitLoadMetricsFor(line, shippedParams()).error
@@ -216,7 +225,7 @@ TEST_CASE("unitLoadMetrics: an unmatched line is missing its product") {
 TEST_CASE("unitLoadMetrics: a blank or unknown pallet type has no spec, never a zero weight") {
     for (const string palletId : {"", "XYZ", "PTL "}) {
         CAPTURE(palletId);
-        CHECK(errorFor(product(palletId, 10.0, 9.0, 12, 4, 48), demand(1.0, "PAL"))
+        CHECK(errorFor(product(palletId, 10.0, 9.0, 12, 4, 48), demand(1.0 * 48.0, "CS"))
               == UnitLoadMetricsError::MissingPalletSpec);
     }
 }
@@ -225,7 +234,7 @@ TEST_CASE("unitLoadMetrics: a product row's own pallet figures win over the pall
     ProductRecord record = ptlProduct();
     record.palletWeightLb = 100.0;
     record.palletHeightIn = 7.0;
-    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0, "PAL"), DeckHeightRule::Included);
+    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0 * 48.0, "CS"), DeckHeightRule::Included);
     REQUIRE(metrics.error == UnitLoadMetricsError::None);
     CHECK(metrics.weightLb == doctest::Approx(9.0 * 48 + 100.0));
     CHECK(metrics.unitLoadHeightIn == doctest::Approx(40.0 + 7.0));
@@ -237,7 +246,7 @@ TEST_CASE("unitLoadMetrics: a product row's pallet figures stand in for a pallet
     record.palletHeightIn = 5.0;
     record.palletFootprintLengthIn = 48.0;
     record.palletFootprintWidthIn = 40.0;
-    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0, "PAL"));
+    const UnitLoadMetrics metrics = metricsFor(record, demand(1.0 * 48.0, "CS"));
     REQUIRE(metrics.error == UnitLoadMetricsError::None);
     CHECK(metrics.weightLb == doctest::Approx(9.0 * 48 + 50.0));
 }
@@ -247,7 +256,7 @@ TEST_CASE("unitLoadMetrics: a negative or non-finite pallet weight is rejected")
         CAPTURE(palletWeightLb);
         ProductRecord record = ptlProduct();
         record.palletWeightLb = palletWeightLb;
-        CHECK(errorFor(record, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+        CHECK(errorFor(record, demand(1.0 * 48.0, "CS")) == UnitLoadMetricsError::InvalidPalletSpec);
     }
 }
 
@@ -257,7 +266,7 @@ TEST_CASE("unitLoadMetrics: a negative or non-finite deck height is rejected und
             CAPTURE(palletHeightIn);
             ProductRecord record = ptlProduct();
             record.palletHeightIn = palletHeightIn;
-            CHECK(metricsFor(record, demand(1.0, "PAL"), deckHeight).error
+            CHECK(metricsFor(record, demand(1.0 * 48.0, "CS"), deckHeight).error
                   == UnitLoadMetricsError::InvalidPalletSpec);
         }
     }
@@ -268,17 +277,17 @@ TEST_CASE("unitLoadMetrics: a zero, negative or non-finite pallet footprint side
         CAPTURE(side);
         ProductRecord longSide = ptlProduct();
         longSide.palletFootprintLengthIn = side;
-        CHECK(errorFor(longSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+        CHECK(errorFor(longSide, demand(1.0 * 48.0, "CS")) == UnitLoadMetricsError::InvalidPalletSpec);
         ProductRecord shortSide = ptlProduct();
         shortSide.palletFootprintWidthIn = side;
-        CHECK(errorFor(shortSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidPalletSpec);
+        CHECK(errorFor(shortSide, demand(1.0 * 48.0, "CS")) == UnitLoadMetricsError::InvalidPalletSpec);
     }
 }
 
 TEST_CASE("unitLoadMetrics: a unit load covers its pallet's footprint and fills footprint x height") {
-    const PalletSpec& pallet = shippedPallet("PTL");
+    const PalletSpec pallet = shippedPallet("PTL");
     const double footprintSqIn = pallet.footprintLengthIn * pallet.footprintWidthIn;
-    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(2.0, "PAL"));
+    const UnitLoadMetrics metrics = metricsFor(ptlProduct(), demand(2.0 * 48.0, "CS"));
     CHECK(metrics.floorAreaSqIn == doctest::Approx(2.0 * footprintSqIn));
     CHECK(metrics.cargoCubicIn == doctest::Approx(2.0 * footprintSqIn * 40.0));
 }
@@ -287,7 +296,7 @@ TEST_CASE("unitLoadMetrics: the product row's footprint wins over the pallet tab
     ProductRecord record = ptlProduct();
     record.palletFootprintLengthIn = 40.0;
     record.palletFootprintWidthIn = 30.0;
-    CHECK(metricsFor(record, demand(1.0, "PAL")).floorAreaSqIn == doctest::Approx(1200.0));
+    CHECK(metricsFor(record, demand(1.0 * 48.0, "CS")).floorAreaSqIn == doctest::Approx(1200.0));
 }
 
 TEST_CASE("unitLoadMetrics: a zero, negative or non-finite layer side is rejected") {
@@ -296,11 +305,11 @@ TEST_CASE("unitLoadMetrics: a zero, negative or non-finite layer side is rejecte
         ProductRecord longSide = ptlProduct();
         longSide.layerLengthIn = side;
         longSide.layerWidthIn = 40.0;
-        CHECK(errorFor(longSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidLayerSize);
+        CHECK(errorFor(longSide, demand(1.0 * 48.0, "CS")) == UnitLoadMetricsError::InvalidLayerSize);
         ProductRecord shortSide = ptlProduct();
         shortSide.layerLengthIn = 48.0;
         shortSide.layerWidthIn = side;
-        CHECK(errorFor(shortSide, demand(1.0, "PAL")) == UnitLoadMetricsError::InvalidLayerSize);
+        CHECK(errorFor(shortSide, demand(1.0 * 48.0, "CS")) == UnitLoadMetricsError::InvalidLayerSize);
     }
 }
 
@@ -308,13 +317,13 @@ TEST_CASE("unitLoadMetrics: a TLD load covers its layer, not the pallet table's 
     ProductRecord record = product("TLD", 10.0, 9.0, 12, 4, 48);
     record.layerLengthIn = 47.0;
     record.layerWidthIn = 36.0;
-    const UnitLoadMetrics metrics = metricsFor(record, demand(2.0, "PAL"));
+    const UnitLoadMetrics metrics = metricsFor(record, demand(2.0 * 48.0, "CS"));
     CHECK(metrics.floorAreaSqIn == doctest::Approx(2.0 * 47.0 * 36.0));
     CHECK_FALSE(metrics.footprintFromPalletOnly);
 }
 
 TEST_CASE("unitLoadMetrics: a product with no layer size is flagged as covering its pallet's footprint") {
-    CHECK(metricsFor(ptlProduct(), demand(1.0, "PAL")).footprintFromPalletOnly);
+    CHECK(metricsFor(ptlProduct(), demand(1.0 * 48.0, "CS")).footprintFromPalletOnly);
 }
 
 TEST_CASE("unitLoadMetrics: a unit of measure other than CS, PAL or DIS is rejected") {
@@ -346,7 +355,7 @@ TEST_CASE("unitLoadMetrics: zero or negative cases per unit load is rejected for
 TEST_CASE("unitLoadMetrics: zero or negative layers per unit load is rejected") {
     for (const int layersUnitLoad : {0, -4}) {
         CAPTURE(layersUnitLoad);
-        CHECK(errorFor(product("PTL", 10.0, 9.0, 12, layersUnitLoad, 48), demand(1.0, "PAL"))
+        CHECK(errorFor(product("PTL", 10.0, 9.0, 12, layersUnitLoad, 48), demand(1.0 * 48.0, "CS"))
               == UnitLoadMetricsError::InvalidLayersPerUnitLoad);
     }
 }
@@ -354,7 +363,7 @@ TEST_CASE("unitLoadMetrics: zero or negative layers per unit load is rejected") 
 TEST_CASE("unitLoadMetrics: a zero, negative or non-finite case height is rejected") {
     for (const double caseHeightIn : {0.0, -10.0, kNaN, kInfinity}) {
         CAPTURE(caseHeightIn);
-        CHECK(errorFor(product("PTL", caseHeightIn, 9.0, 12, 4, 48), demand(1.0, "PAL"))
+        CHECK(errorFor(product("PTL", caseHeightIn, 9.0, 12, 4, 48), demand(1.0 * 48.0, "CS"))
               == UnitLoadMetricsError::InvalidCaseHeight);
     }
 }
@@ -362,7 +371,7 @@ TEST_CASE("unitLoadMetrics: a zero, negative or non-finite case height is reject
 TEST_CASE("unitLoadMetrics: a negative or non-finite case weight is rejected") {
     for (const double caseWeightLb : {-9.0, kNaN, kInfinity, -kInfinity}) {
         CAPTURE(caseWeightLb);
-        CHECK(errorFor(product("PTL", 10.0, caseWeightLb, 12, 4, 48), demand(1.0, "PAL"))
+        CHECK(errorFor(product("PTL", 10.0, caseWeightLb, 12, 4, 48), demand(1.0 * 48.0, "CS"))
               == UnitLoadMetricsError::InvalidCaseWeight);
     }
 }
@@ -374,7 +383,7 @@ TEST_CASE("unitLoadMetrics: a blank weight is caught even when every other field
 
 TEST_CASE("unitLoadMetrics: finite inputs that overflow are rejected rather than summed") {
     const double hugeHeightIn = numeric_limits<double>::max();
-    CHECK(errorFor(product("PTL", hugeHeightIn, 9.0, 12, 4, 48), demand(1.0, "PAL"))
+    CHECK(errorFor(product("PTL", hugeHeightIn, 9.0, 12, 4, 48), demand(1.0 * 48.0, "CS"))
           == UnitLoadMetricsError::NonFiniteResult);
 }
 

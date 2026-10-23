@@ -104,6 +104,7 @@ struct ValidationReport {
     int invalid_strength    = 0;   // product's Strength is unreadable or outside 0..10
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
+    int uomMismatch         = 0;   // demand unit differs from the product master's unit
     int unrecognized_pallet_id = 0; // no pallet weight from the master row or ValidationConfig::pallets
     int invalidPalletWeight = 0;    // that pallet weight is negative or non-finite
     int ambiguous_pallet    = 0;   // variant chosen by preference, not by data

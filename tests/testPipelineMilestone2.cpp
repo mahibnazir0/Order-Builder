@@ -252,7 +252,7 @@ TEST_CASE("pipeline: the printed Milestone 2 report matches the run" * doctest::
 }
 
 TEST_CASE("pipeline: M1 and M2 both weigh pallets with the pallet table's weight") {
-    const PipelineResult result = runOneLine("m2_pallet_weight", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
+    const PipelineResult result = runOneLine("m2_pallet_weight", "P,Heavy,10,10,10,5,PAL,1330,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(100));
     REQUIRE(result.ranMilestone2);
     CHECK(result.weight_per_line[0] == doctest::Approx(1430.0));
@@ -268,7 +268,7 @@ TEST_CASE("pipeline: M1 and M2 both weigh pallets with the pallet table's weight
 TEST_CASE("pipeline: a master row's own pallet weight wins over the pallet table's") {
     const PipelineResult result = runOneLine(
         "m2_row_pallet_weight",
-        "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL,100,5.5,48,40", kOnePalletLine, ptlPalletWeighing(60),
+        "P,Heavy,10,10,10,5,PAL,1330,1,1,1,PTL,100,5.5,48,40", kOnePalletLine, ptlPalletWeighing(60),
         kProductHeader + ",Pallet_Weight,Pallet_Height,Pallet_Footprint_Length,Pallet_Footprint_Width");
     REQUIRE(result.ranMilestone2);
     CHECK(result.weightForStacking[0] == doctest::Approx(1430.0));
@@ -284,7 +284,7 @@ TEST_CASE("pipeline: a params file still listing pallets stops the run") {
     const string productPath = "tests/importer/_tmp_m2_old_params_products.csv";
     const string demandPath = "tests/importer/_tmp_m2_old_params_demand.json";
     const string placeholderPath = "tests/importer/_tmp_m2_old_params_placeholder.json";
-    ofstream(productPath) << kProductHeader << "\nP,Good,10,10,10,5,CS,10,1,1,1,PTL\n";
+    ofstream(productPath) << kProductHeader << "\nP,Good,10,10,10,5,PAL,10,1,1,1,PTL\n";
     ofstream(demandPath) << R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)" << kOnePalletLine << "]}";
     ofstream(placeholderPath) << R"({"PHOLDER":[]})";
     PipelineInputs inputs;
@@ -298,14 +298,14 @@ TEST_CASE("pipeline: a params file still listing pallets stops the run") {
 }
 
 TEST_CASE("pipeline: at a 60 lb pallet weight the same line stays cube-bound") {
-    const PipelineResult result = runOneLine("m2_pallet_weight_default", "P,Heavy,10,10,10,5,CS,133,10,1,10,PTL",
+    const PipelineResult result = runOneLine("m2_pallet_weight_default", "P,Heavy,10,10,10,5,PAL,1330,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.weightForStacking[0] == doctest::Approx(result.weight_per_line[0]));
     CHECK(result.binding.groups[0].binding == BindingConstraint::Cube);
 }
 
 TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and uses no floor") {
-    const PipelineResult result = runOneLine("m2_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_over_height", "P,Tall,10,10,120,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stacking.overHeightLines == vector<size_t>{0});
     CHECK(result.stackReport.overHeightLines == 1);
@@ -313,7 +313,7 @@ TEST_CASE("pipeline: a pallet taller than the trailer ceiling is reported and us
 }
 
 TEST_CASE("pipeline: a clean one-line run is complete") {
-    const PipelineResult result = runOneLine("m2_complete", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_complete", "P,Good,10,10,10,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stackReport.linesNotStacked == 0);
     CHECK(runOutcome(result) == RunOutcome::FloorNotComputed);
@@ -326,11 +326,11 @@ TEST_CASE("pipeline: a line left out of stacking makes the run incomplete") {
         UnitLoadError expectedError;
     };
     const vector<Case> cases{
-        {"strength_above_range", "P,Bad,10,10,10,11,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
-        {"strength_negative", "P,Bad,10,10,10,-1,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
-        {"strength_unreadable", "P,Bad,10,10,10,x,CS,10,1,1,1,PTL", UnitLoadError::InvalidData},
-        {"weight_zero", "P,Light,10,10,10,5,CS,0,1,1,1,PTL", UnitLoadError::InvalidData},
-        {"missing_pallet_spec", "P,Odd,10,10,10,5,CS,10,1,1,1,GMA", UnitLoadError::MissingPalletSpec},
+        {"strength_above_range", "P,Bad,10,10,10,11,PAL,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"strength_negative", "P,Bad,10,10,10,-1,PAL,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"strength_unreadable", "P,Bad,10,10,10,x,PAL,10,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"weight_zero", "P,Light,10,10,10,5,PAL,0,1,1,1,PTL", UnitLoadError::InvalidData},
+        {"missing_pallet_spec", "P,Odd,10,10,10,5,PAL,10,1,1,1,GMA", UnitLoadError::MissingPalletSpec},
     };
     for (const auto& testCase : cases) {
         CAPTURE(testCase.name);
@@ -346,7 +346,7 @@ TEST_CASE("pipeline: a line left out of stacking makes the run incomplete") {
 }
 
 TEST_CASE("pipeline: an over-height line makes the run incomplete") {
-    const PipelineResult result = runOneLine("m2_incomplete_over_height", "P,Tall,10,10,120,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_incomplete_over_height", "P,Tall,10,10,120,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.stackReport.linesNotStacked == 1);
     CHECK(runOutcome(result) == RunOutcome::LinesNotStacked);
@@ -355,7 +355,7 @@ TEST_CASE("pipeline: an over-height line makes the run incomplete") {
 TEST_CASE("pipeline: demand that converts to no pallets builds no stack and is incomplete") {
     const string eachesLine =
         R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":5.0,"UNITOFMEAS":"EA"})";
-    const PipelineResult result = runOneLine("m2_no_stacks", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_no_stacks", "P,Good,10,10,10,5,PAL,10,1,1,1,PTL",
                                              eachesLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.stacking.zeroQuantityLines == vector<size_t>{0});
@@ -368,7 +368,7 @@ const string kFiveEachesLine =
     R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"P","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":5.0,"UNITOFMEAS":"EA"})";
 
 TEST_CASE("pipeline: an unsupported unit beside a valid line makes the run incomplete") {
-    const PipelineResult result = runOneLine("m2_mixed_units", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_mixed_units", "P,Good,10,10,10,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine + "," + kFiveEachesLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.stackReport.totalFloorPositions == 1.0);
@@ -383,7 +383,7 @@ TEST_CASE("pipeline: an unsupported unit beside a valid line makes the run incom
 }
 
 TEST_CASE("pipeline: an unsupported-unit line is named with its reason in the printed report") {
-    const PipelineResult result = runOneLine("m2_mixed_units_report", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_mixed_units_report", "P,Good,10,10,10,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine + "," + kFiveEachesLine, ptlPalletWeighing(60));
     ostringstream out;
     StackReporter::print(result.stackReport, out);
@@ -392,7 +392,7 @@ TEST_CASE("pipeline: an unsupported-unit line is named with its reason in the pr
 }
 
 TEST_CASE("pipeline: a raw-material line the validator skips is reported and makes the run incomplete") {
-    const PipelineResult result = runOneLine("m2_raw_material", "P,Raw,0,0,0,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_raw_material", "P,Raw,0,0,0,5,PAL,10,1,1,1,PTL",
                                              kOnePalletLine, ptlPalletWeighing(60));
     CHECK(result.validation.errors == 0);
     CHECK(result.validation.zero_dimension == 1);
@@ -402,7 +402,7 @@ TEST_CASE("pipeline: a raw-material line the validator skips is reported and mak
 }
 
 TEST_CASE("pipeline: a line rejected by validation is listed among the unstacked lines") {
-    const PipelineResult result = runOneLine("m2_rejected_listed", "P,Good,10,10,10,5,CS,10,1,1,1,PTL",
+    const PipelineResult result = runOneLine("m2_rejected_listed", "P,Good,10,10,10,5,PAL,10,1,1,1,PTL",
         kOnePalletLine + "," + R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"NOT_IN_MASTER","DATFR_TA":"2026-08-17","SHIP_COND":"TL","TRANS":1.0,"UNITOFMEAS":"PAL"})",
         ptlPalletWeighing(60));
     REQUIRE(result.stackReport.unstackedLines.size() == 1);

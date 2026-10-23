@@ -35,8 +35,9 @@ constexpr array<size_t, 3> kLaneDays{150, 140, 150};
 constexpr array<size_t, 3> kAchievedLoads{290, 271, 319};
 
 // Lane-days on which the no-stacking baseline exceeds Truck Builder's achieved loads, measured
-// 21 Oct 2026 with capacity from floor area, the client's footprint rule and DIS read as cases.
-constexpr array<size_t, 3> kBaselineExceeds{36, 36, 47};
+// 24 Oct 2026 with capacity from floor area, the client's footprint rule and every quantity
+// divided by Cases_Unit_Load.
+constexpr array<size_t, 3> kBaselineExceeds{30, 30, 44};
 
 // Truck Builder solution folders a solved-day test needs and cannot find. Like the extracts
 // they are confidential and gitignored.
@@ -248,6 +249,7 @@ namespace {
 // labelled Aug4 planned Demand-Aug5-2). Placeholders carry no request ID, so they pair by the
 // supplied day label only. No historical config or pallet table exists, so the run uses the
 // shipped params and the 29 Sep pallet table, as the client's own 13 Oct check did.
+// The client's August-4-6-data folder goes in kAugustDirectory exactly as shipped.
 struct AugustRun {
     string label;
     string requestId;
@@ -256,15 +258,15 @@ struct AugustRun {
     string solutionDirectory;
 };
 const string kAugustDirectory = "tests/importer/august";
-const string kAugustProductPath = kAugustDirectory + "/Product-Data.csv";
+const string kAugustProductPath = kAugustDirectory + "/inputs/shared/Product-Data.csv";
 
 const array<AugustRun, 3> kAugustRuns{{
-    {"Aug4", "#STR_PA4400_20260804154458#", kAugustDirectory + "/Aug4/demand/Demand-Aug5-2.json",
-     kAugustDirectory + "/Aug4/PH-Aug4.json", kAugustDirectory + "/Aug4/solutions"},
-    {"Aug5", "#STR_PA4400_20260805153651#", kAugustDirectory + "/Aug5/demand/Demand-Aug5.json",
-     kAugustDirectory + "/Aug5/PH-Aug5.json", kAugustDirectory + "/Aug5/solutions"},
-    {"Aug6", "#STR_PA4400_20260806165912#", kAugustDirectory + "/Aug6/demand/Demand-Aug6.json",
-     kAugustDirectory + "/Aug6/PH-Aug6.json", kAugustDirectory + "/Aug6/solutions"},
+    {"Aug4", "#STR_PA4400_20260804154458#", kAugustDirectory + "/inputs/Aug4/Demand-Aug5-2.json",
+     kAugustDirectory + "/inputs/Aug4/PH-Aug4.json", kAugustDirectory + "/results/Aug4/raw-json"},
+    {"Aug5", "#STR_PA4400_20260805153651#", kAugustDirectory + "/inputs/Aug5/Demand-Aug5.json",
+     kAugustDirectory + "/inputs/Aug5/PH-Aug5.json", kAugustDirectory + "/results/Aug5/raw-json"},
+    {"Aug6", "#STR_PA4400_20260806165912#", kAugustDirectory + "/inputs/Aug6/Demand-Aug6.json",
+     kAugustDirectory + "/inputs/Aug6/PH-Aug6.json", kAugustDirectory + "/results/Aug6/raw-json"},
 }};
 
 // From the client's README (13 Oct), counted independently of this code. Solution files are
@@ -276,25 +278,31 @@ constexpr array<size_t, 3> kAugustAchievedLoads{282, 492, 534};
 constexpr size_t kAugustTotalLaneDays = 454;
 constexpr size_t kAugustTotalAchievedLoads = 1308;
 
-// The floor this code gives the August shipped volume: the acceptance figure, with the
-// working per lane. It replaces the 1,219 quoted in our 17-18 Aug plan, whose method was never
-// recorded, does not reproduce, and the client does not recognise (19 Oct).
-constexpr long long kAcceptedFloorTrucks = 1248;
+// A measured result, not the acceptance figure: the criterion is still to be agreed with the
+// client (22 Oct), and the milestone plan's 1,219 stands until it is. That figure came from our
+// 17-18 Aug plan, its method was never recorded, and it does not reproduce.
+constexpr long long kMeasuredFloorTrucks = 1238;
+constexpr long long kMilestonePlanTrucks = 1219;
 
-bool augustPresent() {
-    if (!filesystem::is_regular_file(kAugustProductPath)
-        || !filesystem::is_regular_file(kLayerSizesForOlderMasters)) {
-        return false;
+// Every file the August tests read and cannot find, so a missing one fails by name instead of
+// every August test skipping and the run passing with nothing checked.
+vector<string> missingAugustFiles() {
+    vector<string> missing;
+    for (const string& path : {kAugustProductPath, kLayerSizesForOlderMasters}) {
+        if (!filesystem::is_regular_file(path)) missing.push_back(path);
     }
     for (const AugustRun& run : kAugustRuns) {
-        if (!filesystem::is_regular_file(run.demandPath)
-            || !filesystem::is_regular_file(run.placeholderPath)
-            || !filesystem::is_directory(run.solutionDirectory)) {
-            return false;
+        for (const string& path : {run.demandPath, run.placeholderPath}) {
+            if (!filesystem::is_regular_file(path)) missing.push_back(path);
+        }
+        if (!filesystem::is_directory(run.solutionDirectory)) {
+            missing.push_back(run.solutionDirectory);
         }
     }
-    return true;
+    return missing;
 }
+
+bool augustPresent() { return missingAugustFiles().empty(); }
 
 const PipelineResult& augustPipelineRun(size_t runIndex) {
     static const array<PipelineResult, 3> runs = [] {
@@ -332,6 +340,16 @@ ValidityResult augustValidity(size_t runIndex, const TrailerSpec& trailer) {
 }
 
 } // namespace
+
+// Run alone with: ./build/ob_tests -ts=augustAcceptance (or ctest -R augustAcceptance).
+TEST_SUITE("augustAcceptance") {
+
+// The August tests are skipped without the files, so this one fails instead, naming each.
+TEST_CASE("acceptanceHarness: the August acceptance files are present, so the August tests ran") {
+    for (const string& path : missingAugustFiles()) {
+        FAIL_CHECK(path << " not found (confidential and gitignored; see README, August acceptance)");
+    }
+}
 
 TEST_CASE("acceptanceHarness: each August demand file is the request its solutions answer" * doctest::skip(!augustPresent())) {
     for (size_t index = 0; index < kAugustRuns.size(); ++index) {
@@ -379,11 +397,12 @@ TEST_CASE("acceptanceHarness: Aug6's placeholder is missing a SHIP_COND and only
 }
 
 // A regression pin, not an acceptance figure: what this code floors the August shipped volume
-// to on 21 Oct 2026, with capacity taken from floor area and volume, each footprint from the
-// client's layer-size rule and DIS read as cases, so any change to it has to be explained.
+// to on 24 Oct 2026, with capacity taken from floor area and volume, each footprint from the
+// client's layer-size rule and every quantity divided by Cases_Unit_Load, so any change to it
+// has to be explained.
 TEST_CASE("acceptanceHarness: the August floor matches the measured run" * doctest::skip(!augustPresent())) {
-    constexpr array<long long, 3> floorTrucks{275, 468, 505};
-    constexpr array<long long, 3> noStackingBaselineTrucks{353, 556, 602};
+    constexpr array<long long, 3> floorTrucks{274, 463, 501};
+    constexpr array<long long, 3> noStackingBaselineTrucks{352, 547, 594};
     for (size_t index = 0; index < kAugustRuns.size(); ++index) {
         CAPTURE(kAugustRuns[index].label);
         const ValidityResult validity = augustValidity(index, shippedTrailer());
@@ -412,8 +431,10 @@ long long augustFloorTrucks() {
     return floorTrucks;
 }
 
-TEST_CASE("acceptanceHarness: the August floor is 1,248 trucks across the 454 lane groups" * doctest::skip(!augustPresent())) {
-    CHECK(augustFloorTrucks() == kAcceptedFloorTrucks);
+TEST_CASE("acceptanceHarness: the August floor measured on 24 Oct is 1,238 trucks across the 454 lane groups" * doctest::skip(!augustPresent())) {
+    MESSAGE("August floor " << augustFloorTrucks() << " trucks; the milestone plan's figure is "
+            << kMilestonePlanTrucks << ", pending an agreed acceptance criterion");
+    CHECK(augustFloorTrucks() == kMeasuredFloorTrucks);
 }
 
 TEST_CASE("acceptanceHarness: the August floor is below the 1,308 trucks Truck Builder used" * doctest::skip(!augustPresent())) {
@@ -421,3 +442,5 @@ TEST_CASE("acceptanceHarness: the August floor is below the 1,308 trucks Truck B
             << kAugustTotalAchievedLoads << " used");
     CHECK(augustFloorTrucks() < static_cast<long long>(kAugustTotalAchievedLoads));
 }
+
+} // TEST_SUITE("augustAcceptance")

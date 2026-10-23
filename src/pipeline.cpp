@@ -55,8 +55,9 @@ vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& e
     return kept;
 }
 
-// M1 weights use the confirmed pallet weights so the published M1 totals stay reproducible.
-// M2 must weigh a pallet exactly as buildUnitLoad does, from the product row's pallet
+// M1 weighs a pallet from the item master, then the pallet table (client, 13 Oct); the M1
+// totals moved with it, as docs/m1Restatement.md records. M2 must weigh a pallet exactly as
+// buildUnitLoad does, from the product row's pallet
 // figures or the pallet table, or binding and reporting disagree with the stacks. A line with no buildable
 // unit load keeps its M1 weight: it still occupies the trailer, and that is the only
 // estimate there is for it.

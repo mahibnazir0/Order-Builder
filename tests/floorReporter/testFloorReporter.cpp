@@ -224,12 +224,12 @@ TEST_CASE("floorReporter: an empty plan still prints its basis and a zero floor"
     CHECK(lineContaining(report, "Demand rule").find("wholeExtract") != string::npos);
 }
 
-TEST_CASE("floorReporter: the floor is printed with its not-yet-validated caveat") {
+TEST_CASE("floorReporter: the floor is printed with the evidence that it is a lower bound") {
     const ThreeLanes lanes;
     const string report = reportFor(lanes.plan, lanes.selection);
-    CHECK(report.find("NOT YET VALIDATED") > report.find("FLOOR "));
-    CHECK(report.find("NOT YET VALIDATED") != string::npos);
-    CHECK(lineContaining(report, "NOT YET VALIDATED").find("Truck Builder") != string::npos);
+    REQUIRE(report.find("a lower bound: checked against Truck Builder") != string::npos);
+    CHECK(report.find("a lower bound: checked against Truck Builder") > report.find("FLOOR "));
+    CHECK(report.find("NOT YET VALIDATED") == string::npos);
 }
 
 TEST_CASE("floorReporter: the basis says how the trailer was chosen") {

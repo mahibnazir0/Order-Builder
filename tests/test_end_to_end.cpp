@@ -64,7 +64,7 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
     CHECK(r.summary.lanes_demand_only      == 182);
     CHECK(r.summary.lanes_placeholder_only == 11);
     CHECK(r.summary.trucks_requested       == 372);
-    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(147671.3).epsilon(0.001));
+    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(145705.8).epsilon(0.001));
 
     // Clean input: no errors, and the only warnings are the ambiguous variants
     CHECK(r.validation.errors           == 0);

@@ -225,7 +225,9 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
         << ", rounded " << floorRoundingPointName(plan.roundingPoint) << " level, "
         << printable(trailer.trailerCode) << ")\n";
     printLabel(out, "");
-    out << "NOT YET VALIDATED: exceeds Truck Builder's achieved loads on some lane-days\n";
+    out << "a lower bound: checked against Truck Builder's solutions for 2-3 Sep and\n";
+    printLabel(out, "");
+    out << "4-6 Aug, never above the trucks used on any lane group (acceptance tests)\n";
     printLabel(out, "No-stacking baseline");
     out << grouped(static_cast<double>(plan.noStackingBaselineTrucks))
         << " trucks  NOT a floor: assumes nothing stacks (pallet floor area / interior floor)\n\n";

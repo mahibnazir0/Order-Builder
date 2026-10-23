@@ -122,3 +122,6 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 # root (tests/importer/...), so run the binary from there rather than build/.
 add_test(NAME ob_tests COMMAND ob_tests
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent.
+add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

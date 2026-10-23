@@ -108,8 +108,13 @@ data and are excluded by `.gitignore`:
 
 - `tests/importer/Demand-1.json`, `tests/importer/Customer2-Product-Data.csv` and
   `tests/importer/PlaceHolder-1.json` (17 Aug)
-- `tests/importer/crossDay/<yyyymmdd>/` for 2 and 3 September, in the client's own
-  layout: `Demands/`, `PlaceHolder/`, `Product-Data/` and `Pushed-Solutions/`
+- `tests/importer/crossDay/<yyyymmdd>/` for 2 and 3 September and 29 September to
+  5 October, in the client's own layout: `Demands/`, `PlaceHolder/`, `Product-Data/` and
+  (2 and 3 September) `Pushed-Solutions/`. The 5 October master also supplies the layer
+  sizes the older masters lack.
+- `tests/importer/august/` for the 4-6 August acceptance run: the client's
+  `August-4-6-data` folder exactly as shipped (`inputs/` and `results/`). See
+  [August acceptance](#august-acceptance).
 
 After cloning, copy them to exactly those paths. Each day's demand file is found
 by its `REQUEST_ID`, not its name (`Demand-N.json` and `100-STR-<uuid>.json` both
@@ -121,11 +126,34 @@ Without them, the tests that open the 17 Aug files directly fail with
 and two tests fail on purpose, listing every missing file:
 
 - `crossDay: the extract fixtures are present, so the extract tests ran`
+- `new extracts: every day's fixtures are present, so the extract tests ran`
 - `acceptanceHarness: the Truck Builder solution fixtures are present, so the validity tests ran`
+- `acceptanceHarness: the August acceptance files are present, so the August tests ran`
 
 So a clone without the data never shows a green suite that ran none of the
 extract tests. If you know the data is missing and want to run only the unit tests,
-exclude those two tests yourself with `--test-case-exclude`.
+exclude those tests yourself with `--test-case-exclude`.
+
+### August acceptance
+
+M3 is checked against Truck Builder's 4-6 August solutions. Copy the client's
+`August-4-6-data` folder into `tests/importer/august/` as it is, so that
+`tests/importer/august/inputs/Aug4/Demand-Aug5-2.json` and
+`tests/importer/august/results/Aug4/raw-json/` exist. The August master has no layer
+sizes, so the run borrows them from the 5 October master at
+`tests/importer/crossDay/20261005/Product-Data/Customer2-Product-Data.csv`. Then run:
+
+```bash
+./build/ob_tests -ts=augustAcceptance
+```
+
+or `ctest --test-dir build -R augustAcceptance`. If any file is missing, the run fails
+and names every missing path; it never passes with nothing checked. With the data in
+place it checks, for each of the three runs: that the client's 454 lane groups and
+1,308 loads reproduce, that every shipped line is counted in the floor, and that the
+floor never exceeds the trucks Truck Builder used on any lane group. It also prints the
+measured August floor (1,238 trucks on 24 Oct 2026) beside the milestone plan's 1,219,
+which stays the plan's figure until an acceptance criterion is agreed.
 
 ## Tests
 
@@ -143,12 +171,10 @@ CTest is configured to run the binary from the repository root, so the fixture
 paths above resolve either way. Run the executable directly if you want the
 per-test-case output, or want to pass doctest flags such as `--test-case=<name>`.
 
-Current status: every test passes except one, which fails on purpose.
-`acceptanceHarness: the floor never exceeds Truck Builder's achieved loads` is
-the M3 validity criterion, and it fails until the floor is a valid lower bound on
-the September solutions. It prints the number of lane-days exceeded on every run.
-It is not marked as expected to fail, so the suite does not report green while the
-defect is open.
+Current status: every test passes. The M3 validity criterion, that the floor never
+exceeds the trucks Truck Builder used on any lane group, holds on all six solved days
+(2 and 3 September and 4-6 August) and prints the count on every run. It is not
+marked as expected to fail, so any regression turns the suite red.
 
 ## Project layout
 
@@ -220,9 +246,13 @@ threshold, defaulting to 300 pallets, which flags lines for review and never
 blocks a run. They appear in the warnings section as `large_line` — 17 lines in
 the current sample. A business rule would replace the threshold.
 
-**Units of measure.** A demand quantity in CS or DIS is a count of cases and is divided by
-`Cases_Unit_Load` to give pallet-equivalents; a quantity in PAL is already whole unit loads
-(client, 20 Oct 2026: DIS turns out to be less than a pallet, PAL is always a pallet).
+**Units of measure.** A demand quantity counts the product's base unit, the master's
+"case", whatever its unit of measure calls it (CS, DIS or PAL), and is divided by
+`Cases_Unit_Load` to give pallet-equivalents. The client's 16 Oct example: 18 DIS make one
+unit load. For a PAL product with `Cases_Unit_Load` 2, two PAL stack into one unit load, so
+60 PAL is 30 unit loads; read as 60, two of Truck Builder's August loads would be over the
+45,000 lb limit. A demand line whose unit differs from its product's unit in the master is an
+`uom_mismatch` error and is left out of every total.
 
 **Pallet weight.** Every milestone weighs a pallet the same way, from the item
 master first (client ruling, 13 Oct 2026): the product row's `Pallet_*` columns, then

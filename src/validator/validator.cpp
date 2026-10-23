@@ -145,11 +145,9 @@ ValidationReport Validator::validate(const JoinResult& join,
 
         const ProductRecord& p = *jl.product;
 
-        // Cases_Unit_Load is the divisor for CS lines and a factor in every unit-load
-        // weight, so a 0 corrupts CS, PAL and DIS lines alike: CS and DIS cannot convert
-        // to pallets, and PAL reports a weight that omits the cargo entirely. The
-        // Converter returns 0.0 rather than dividing by zero, so it has to be
-        // surfaced here or the line silently reports as empty.
+        // Cases_Unit_Load is the divisor for every demand quantity, so a 0 corrupts CS,
+        // PAL and DIS lines alike. The Converter returns 0.0 rather than dividing by
+        // zero, so it has to be surfaced here or the line silently reports as empty.
         if (converted_to_weight(s.unitofmeas) && p.cases_unit_load == 0) {
             ++rep.zero_unit_load;
             add(rep, ValidationIssue::Severity::Error, "zero_unit_load",
@@ -215,6 +213,14 @@ ValidationReport Validator::validate(const JoinResult& join,
             ++rep.blank_uom_product;
             add(rep, ValidationIssue::Severity::Warning, "blank_uom_product",
                 "Product master row has no unit of measure", s.matnr, idx);
+        } else if (converted_to_weight(s.unitofmeas) && p.uom != s.unitofmeas) {
+            // The Converter reads the quantity as the master's base unit; a line in another
+            // unit would be converted by the wrong Cases_Unit_Load, so it is excluded.
+            ++rep.uomMismatch;
+            add(rep, ValidationIssue::Severity::Error, "uom_mismatch",
+                "Demand unit '" + s.unitofmeas + "' differs from the product master's '"
+                    + p.uom + "'",
+                s.matnr, idx);
         }
 
         // The Converter adds nothing for a pallet neither the master row nor the

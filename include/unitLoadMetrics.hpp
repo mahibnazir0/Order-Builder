@@ -44,8 +44,8 @@ struct UnitLoadMetrics {
 };
 
 // The quantities the floor needs from one demand line. Weight is per case in the master, so
-// a unit load weighs Weight x Cases_Unit_Load plus its pallet. PAL quantities are already
-// unit loads; CS and DIS quantities are cases. Length and Width are case dimensions and are never used here: a unit
+// a unit load weighs Weight x Cases_Unit_Load plus its pallet. Every quantity counts the
+// product's base unit and is divided by Cases_Unit_Load (Converter::to_pallets). Length and Width are case dimensions and are never used here: a unit
 // load covers the footprint unitLoadFootprint gives it. The pallet is resolved exactly as Milestone 2 resolves it (resolvePalletSpec),
 // and its deck counts as params.floorDeckHeight says. Never throws.
 UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& params);

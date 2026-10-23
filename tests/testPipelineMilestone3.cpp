@@ -151,9 +151,10 @@ TEST_CASE("pipelineM3: the real day's whole-extract floor matches the signed-off
     // 3,900 when wood pallets weighed the configured 60 lb; the pallet table's 65 lb added one.
     // Counting the 6 in wood deck (client ruling, 12 Oct) added 80 more, to 3,981. Taking
     // capacity from floor area and volume instead of 32 positions (client, 12 Oct) gave 3,886.
-    // Reading DIS quantities as cases (client, 20 Oct) gives 3,796.
-    CHECK(run.floorPlan.floorTrucks == 3796);
-    CHECK(run.floorPlan.noStackingBaselineTrucks == 4688);
+    // Reading DIS quantities as cases (client, 20 Oct) gave 3,796; dividing PAL by
+    // Cases_Unit_Load as well gives 3,754.
+    CHECK(run.floorPlan.floorTrucks == 3754);
+    CHECK(run.floorPlan.noStackingBaselineTrucks == 4627);
     CHECK(runOutcome(run) == RunOutcome::Complete);
 }
 

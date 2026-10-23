@@ -22,15 +22,13 @@ static const char* PH_PATH      = "tests/importer/PlaceHolder-1.json";
 namespace {
 
 // Stand-in for the Converter so the Reporter can be tested independently of it.
-// CS and DIS lines are cases and divide by cases-per-unit-load; PAL is already unit loads.
+// Every convertible quantity counts the product's base unit and divides by cases-per-unit-load.
 double pallets_for(const JoinedLine& jl) {
     if (!jl.matched || jl.product == nullptr || jl.str == nullptr) return 0.0;
     const string& uom = jl.str->unitofmeas;
-    if (uom == "CS" || uom == "DIS") {
-        const int cul = jl.product->cases_unit_load;
-        return (cul > 0) ? jl.str->trans / cul : 0.0;
-    }
-    return jl.str->trans;   // PAL
+    if (uom != "CS" && uom != "DIS" && uom != "PAL") return 0.0;
+    const int cul = jl.product->cases_unit_load;
+    return (cul > 0) ? jl.str->trans / cul : 0.0;
 }
 
 struct Fixture {
@@ -86,7 +84,7 @@ TEST_CASE("pallet-equivalent total matches the independent calculation" * doctes
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
-    CHECK(d.total_pallet_equiv == doctest::Approx(147671.3).epsilon(0.001));
+    CHECK(d.total_pallet_equiv == doctest::Approx(145705.8).epsilon(0.001));
 }
 
 TEST_CASE("lanes are sorted with the largest first" * doctest::skip(!crossDayTests::august17Present())) {

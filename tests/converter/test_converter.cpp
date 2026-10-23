@@ -87,13 +87,22 @@ TEST_CASE("CS divides the case count by Cases_Unit_Load") {
     CHECK(Converter::to_pallets(1439.0, "CS", p) == doctest::Approx(29.9791666667));
 }
 
-TEST_CASE("PAL passes the quantity straight through") {
-    // Real line: 105675700 TRANS 6 PAL, already expressed in unit loads.
+TEST_CASE("PAL on a one-per-unit-load product passes the quantity through") {
+    // Real line: 105675700 TRANS 6 PAL, Cases_Unit_Load 1.
     ProductRecord p = make_product(1, 235.2, "PGM");
     CHECK(Converter::to_pallets(6.0, "PAL", p) == doctest::Approx(6.0));
+}
 
-    ProductRecord many = make_product(168, 9.7, "TLD");
-    CHECK(Converter::to_pallets(6.0, "PAL", many) == doctest::Approx(6.0));
+TEST_CASE("PAL counts the product's base unit, divided by Cases_Unit_Load like CS") {
+    // 104578600: two 49.375 in PAL pieces stack into one unit load, so 60 PAL is 30.
+    ProductRecord twoPerUnitLoad = make_product(2, 421.4, "TLD");
+    CHECK(Converter::to_pallets(60.0, "PAL", twoPerUnitLoad) == doctest::Approx(30.0));
+    CHECK(Converter::to_pallets(60.0, "PAL", twoPerUnitLoad)
+          == Converter::to_pallets(60.0, "CS", twoPerUnitLoad));
+}
+
+TEST_CASE("PAL on a product with Cases_Unit_Load of zero returns zero instead of dividing by zero") {
+    CHECK(Converter::to_pallets(6.0, "PAL", make_product(0, 21.7, "TLD")) == 0.0);
 }
 
 TEST_CASE("DIS is a count of cases, divided by Cases_Unit_Load like CS") {
@@ -138,7 +147,7 @@ TEST_CASE("negative and boundary quantities pass through as arithmetic") {
     ProductRecord p = make_product(48, 6.768, "TLD");
 
     CHECK(Converter::to_pallets(-96.0, "CS",  p) == doctest::Approx(-2.0));
-    CHECK(Converter::to_pallets(-6.0,  "PAL", p) == doctest::Approx(-6.0));
+    CHECK(Converter::to_pallets(-96.0, "PAL", p) == doctest::Approx(-2.0));
     CHECK(Converter::to_pallets(-96.0, "DIS", p) == doctest::Approx(-2.0));
     CHECK(Converter::to_pallets(-96.0, "CS",  p) < 0.0);
 
@@ -280,10 +289,10 @@ TEST_CASE("converter reproduces the pallet-equivalent total for the whole file" 
     }
 
     // The figure in the Milestone 1 summary Tom checks against his own.
-    CHECK(total_pallets == doctest::Approx(147671.3).epsilon(1e-6));
+    CHECK(total_pallets == doctest::Approx(145705.8).epsilon(1e-6));
 
     // Weight follows from the unit-load basis plus 65 lb of wood.
-    CHECK(total_weight == doctest::Approx(100334597.0).epsilon(1e-8));
+    CHECK(total_weight == doctest::Approx(99014698.0).epsilon(1e-8));
 }
 
 TEST_CASE("the two variants of an ambiguous product convert differently" * doctest::skip(!crossDayTests::august17Present())) {
@@ -377,7 +386,7 @@ TEST_CASE("round_pallets can round a summed lane total") {
 }
 
 TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * doctest::skip(!crossDayTests::august17Present())) {
-    // The guard that matters: adding the switch must not move the 147,671.3
+    // The guard that matters: adding the switch must not move the 145,705.8
     // figure Tom checks against his own numbers.
     DemandFile        demand   = Importer::load_demand(DEMAND_PATH);
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
@@ -399,7 +408,7 @@ TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * do
         ceiled        += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Ceil);
     }
 
-    CHECK(defaulted == doctest::Approx(147671.3).epsilon(1e-6));
+    CHECK(defaulted == doctest::Approx(145705.8).epsilon(1e-6));
     CHECK(defaulted == doctest::Approx(explicit_none));
 
     // Rounding per line really does move the total, which is why None is the

@@ -443,18 +443,18 @@ TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in 
     CHECK(contains(run.output, "line 3519, material 106005500: exceeds its own CRI limit"));
     CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
     CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
-    CHECK(contains(run.output, "0 error(s), 161 warning(s)"));
-    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 161 warnings across 24357 demand lines"));
+    CHECK(contains(run.output, "0 error(s), 160 warning(s)"));
+    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 160 warnings across 24357 demand lines"));
     CHECK(contains(run.output, "  exceeds_own_cri  (2)"));
     CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }
 
-TEST_CASE("cli: a valid PAL line beside an EA line exits 3 and names the EA line") {
+TEST_CASE("cli: a valid CS line beside an EA line exits 3 and names the EA line") {
     const SyntheticInputs inputs;
     const string lineStart = R"({"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD","DATFR_TA":"2026-08-17","SHIP_COND":"TL",)";
     const string mixedDemand = inputs.write("mixedUnits.json",
         R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[)"
-        + lineStart + R"("TRANS":1.0,"UNITOFMEAS":"PAL"},)"
+        + lineStart + R"("TRANS":8.0,"UNITOFMEAS":"CS"},)"
         + lineStart + R"("TRANS":5.0,"UNITOFMEAS":"EA"}]})");
     const CliRun run = runCli(inputs.arguments(inputs.product, mixedDemand, inputs.placeholder, kParams));
     CHECK(run.exitCode == 3);

@@ -648,6 +648,51 @@ TEST_CASE("an item master pallet weight clears the unrecognized Pallet_ID warnin
     CHECK(r.invalidPalletWeight == 0);
 }
 
+TEST_CASE("a demand unit that differs from the product master's unit is a uom_mismatch error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    REQUIRE(j.lines[0].str != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.uom = j.lines[0].str->unitofmeas == "PAL" ? "CS" : "PAL";
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.uomMismatch == 1);
+    CHECK(count_rule(r, "uom_mismatch") == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("an unconvertible demand unit is reported as unknown_uom, not as a uom_mismatch" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    vector<STRRecord> demandLines{f.demand.str[0]};
+    demandLines[0].unitofmeas = "EA";
+    const JoinResult j = Joiner::join(demandLines, f.index);
+    REQUIRE(j.lines[0].product != nullptr);
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unknown_uom == 1);
+    CHECK(r.uomMismatch == 0);
+}
+
+TEST_CASE("a product master row with no unit is a blank_uom_product warning, not a uom_mismatch" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.uom = "";
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.blank_uom_product == 1);
+    CHECK(r.uomMismatch == 0);
+}
+
+TEST_CASE("every 17 Aug demand line's unit matches its product master's unit" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    CHECK(Validator::validate(f.join).uomMismatch == 0);
+}
+
 TEST_CASE("a demand line whose ship window ends before it starts is an error" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     REQUIRE(!f.demand.str.empty());

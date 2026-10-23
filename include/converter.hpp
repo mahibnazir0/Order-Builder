@@ -83,9 +83,9 @@ public:
 
     // Convert a demand quantity to pallet-equivalents.
     //
-    //   CS, DIS    -> trans / Cases_Unit_Load   (cases to unit loads; a DIS
-    //                                            line is cases, client 20 Oct)
-    //   PAL        -> trans                      (already unit loads)
+    //   CS, DIS, PAL -> trans / Cases_Unit_Load   (the quantity counts the
+    //                                              product's base unit, the
+    //                                              master's "case")
     //   anything else -> 0.0
     //
     // Returns 0.0 when Cases_Unit_Load is 0 (one master row is) rather than
