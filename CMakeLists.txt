@@ -51,6 +51,7 @@ add_library(ob_core STATIC
   src/isoDate/isoDate.cpp
   src/shipCalendar/shipCalendar.cpp
   src/reservationBook/reservationBook.cpp
+  src/selectionItem/selectionItem.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -107,6 +108,7 @@ add_executable(ob_tests
   tests/isoDate/testIsoDate.cpp
   tests/shipCalendar/testShipCalendar.cpp
   tests/reservationBook/testReservationBook.cpp
+  tests/selectionItem/testSelectionItem.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
