@@ -53,6 +53,7 @@ add_library(ob_core STATIC
   src/reservationBook/reservationBook.cpp
   src/selectionItem/selectionItem.cpp
   src/floorPattern/floorPattern.cpp
+  src/laneClassifier/laneClassifier.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -111,6 +112,7 @@ add_executable(ob_tests
   tests/reservationBook/testReservationBook.cpp
   tests/selectionItem/testSelectionItem.cpp
   tests/floorPattern/testFloorPattern.cpp
+  tests/laneClassifier/testLaneClassifier.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
