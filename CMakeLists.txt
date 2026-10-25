@@ -50,6 +50,7 @@ add_library(ob_core STATIC
   src/floorReporter/floorReporter.cpp
   src/isoDate/isoDate.cpp
   src/shipCalendar/shipCalendar.cpp
+  src/reservationBook/reservationBook.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -105,6 +106,7 @@ add_executable(ob_tests
   tests/acceptance/testAcceptanceHarness.cpp
   tests/isoDate/testIsoDate.cpp
   tests/shipCalendar/testShipCalendar.cpp
+  tests/reservationBook/testReservationBook.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
