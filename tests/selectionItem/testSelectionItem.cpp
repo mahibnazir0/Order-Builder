@@ -1,5 +1,5 @@
 #include "doctest.h"
-#include "../importer/crossDayFixtures.hpp"
+#include "../m4AugustFixtures.hpp"
 #include "pipeline.hpp"
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
@@ -325,60 +325,10 @@ TEST_CASE("selectionItem: the same stacks always give identical items") {
     }
 }
 
-namespace {
-
-struct AugustRunFiles {
-    string demandPath;
-    string placeholderPath;
-};
-
-const array<AugustRunFiles, 3> kAugustRunFiles{{
-    {"tests/importer/august/inputs/Aug4/Demand-Aug5-2.json", "tests/importer/august/inputs/Aug4/PH-Aug4.json"},
-    {"tests/importer/august/inputs/Aug5/Demand-Aug5.json", "tests/importer/august/inputs/Aug5/PH-Aug5.json"},
-    {"tests/importer/august/inputs/Aug6/Demand-Aug6.json", "tests/importer/august/inputs/Aug6/PH-Aug6.json"},
-}};
-const string kAugustProduct = "tests/importer/august/inputs/shared/Product-Data.csv";
-
-bool augustPresent() {
-    static const bool present = crossDayTests::filesPresent(
-        {kAugustProduct, crossDayTests::kPalletTableForOlderMasters,
-         crossDayTests::kLayerSizesForOlderMasters, kAugustRunFiles[0].demandPath,
-         kAugustRunFiles[0].placeholderPath, kAugustRunFiles[1].demandPath,
-         kAugustRunFiles[1].placeholderPath, kAugustRunFiles[2].demandPath,
-         kAugustRunFiles[2].placeholderPath},
-        "4-6 Aug selection item tests are");
-    return present;
-}
-
-struct AugustItems {
-    PipelineResult run;
-    ReservationBook book;
-    SelectionItems built;
-};
-
-const AugustItems& augustItems(size_t runIndex) {
-    static const array<AugustItems, 3> runs = [] {
-        array<AugustItems, 3> loaded;
-        for (size_t index = 0; index < loaded.size(); ++index) {
-            PipelineInputs inputs;
-            inputs.product_path = kAugustProduct;
-            inputs.demand_path = kAugustRunFiles[index].demandPath;
-            inputs.placeholder_path = kAugustRunFiles[index].placeholderPath;
-            inputs.paramsPath = crossDayTests::kStrictParamsPath;
-            inputs.palletPath = crossDayTests::kPalletTableForOlderMasters;
-            inputs.layerSizePath = crossDayTests::kLayerSizesForOlderMasters;
-            loaded[index].run = Pipeline::run(inputs);
-            loaded[index].book = buildReservationBook(
-                loaded[index].run.placeholders.placeholders, loaded[index].run.demand.ctl,
-                planDateFromRequestId(loaded[index].run.demand.request_id), {"53F", {"53F"}});
-            loaded[index].built = buildSelectionItems(loaded[index].run, loaded[index].book.window);
-        }
-        return loaded;
-    }();
-    return runs[runIndex];
-}
-
-} // anonymous namespace
+using m4AugustTests::AugustItems;
+using m4AugustTests::augustItems;
+using m4AugustTests::augustPresent;
+using m4AugustTests::kAugustRunFiles;
 
 TEST_CASE("selectionItem: every August stacked unit load lands in exactly one item"
           * doctest::skip(!augustPresent())) {

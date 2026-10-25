@@ -52,6 +52,7 @@ add_library(ob_core STATIC
   src/shipCalendar/shipCalendar.cpp
   src/reservationBook/reservationBook.cpp
   src/selectionItem/selectionItem.cpp
+  src/floorPattern/floorPattern.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -109,6 +110,7 @@ add_executable(ob_tests
   tests/shipCalendar/testShipCalendar.cpp
   tests/reservationBook/testReservationBook.cpp
   tests/selectionItem/testSelectionItem.cpp
+  tests/floorPattern/testFloorPattern.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
