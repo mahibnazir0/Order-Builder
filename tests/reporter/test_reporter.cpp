@@ -440,3 +440,19 @@ TEST_CASE("placeholders at the maximum load count on one lane add up in the lane
     CHECK(d.trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
     CHECK(d.lanes[0].trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
 }
+
+TEST_CASE("the printed summary shows the day and lane truck totals") {
+    vector<PlaceholderRecord> placeholders(2);
+    for (auto& p : placeholders) {
+        p.locfrno   = "2023";
+        p.loctono   = "2528";
+        p.ship_cond = "TL";
+    }
+    placeholders[0].no_of_loads = 1000;
+    placeholders[1].no_of_loads = 234;
+    ostringstream out;
+    Reporter::print_summary(Reporter::build(JoinResult{}, placeholders), out);
+    const string printed = out.str();
+    CHECK(printed.find("  Trucks requested          1,234\n") != string::npos);
+    CHECK(printed.find("2023    2528    TL         0       0         0.0             0   1,234\n") != string::npos);
+}

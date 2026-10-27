@@ -159,7 +159,7 @@ void Reporter::print_summary(const DaySummary& day, ostream& out, int max_lanes)
     out << "    with placeholder        " << grouped(day.lanes_with_placeholder) << "\n";
     out << "    demand only             " << grouped(day.lanes_demand_only) << "\n";
     out << "    placeholder only        " << grouped(day.lanes_placeholder_only) << "\n";
-    out << "  Trucks requested          " << grouped(day.trucks_requested) << "\n";
+    out << "  Trucks requested          " << grouped(static_cast<double>(day.trucks_requested)) << "\n";
     out << "  Excluded placeholders     " << grouped(day.excluded_placeholders)
         << "  (validation errors)\n";
     out << "\n";
@@ -194,7 +194,7 @@ void Reporter::print_summary(const DaySummary& day, ostream& out, int max_lanes)
         pad_left (out, grouped(l.matched_lines),     8);
         pad_left (out, grouped(l.pallet_equiv, 1),  12);
         pad_left (out, grouped(l.weight_lb),        14);
-        pad_left (out, grouped(l.trucks_requested),  8);
+        pad_left (out, grouped(static_cast<double>(l.trucks_requested)), 8);
         out << "\n";
     }
 
