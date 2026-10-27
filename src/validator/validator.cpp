@@ -2,6 +2,7 @@
 #include "converter.hpp"
 #include "isoDate.hpp"
 #include "palletSpec.hpp"
+#include "reportFormat.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -49,6 +50,20 @@ bool converted_to_weight(const string& uom) {
 
 bool is_allowed(const string& value, const vector<string>& allowed) {
     return find(allowed.begin(), allowed.end(), value) != allowed.end();
+}
+
+// "336 CS; GMA 84, TLD 168 per unit load": what the client needs to settle the pallet type.
+string palletTypeQuantities(const JoinedLine& line) {
+    const double quantity = line.str->trans;
+    string text = (quantity == floor(quantity) ? grouped(quantity) : fixed(quantity, 3)) + " "
+        + line.str->unitofmeas + "; ";
+    if (line.palletTypes == nullptr) return text + "pallet types not given";
+    for (size_t typeIndex = 0; typeIndex < line.palletTypes->size(); ++typeIndex) {
+        const ProductRecord& type = (*line.palletTypes)[typeIndex];
+        text += (typeIndex == 0 ? "" : ", ") + type.pallet_id + " "
+            + to_string(type.cases_unit_load);
+    }
+    return text + " per unit load";
 }
 
 } // anonymous namespace
@@ -179,13 +194,21 @@ ValidationReport Validator::validate(const JoinResult& join,
                 "Product's Cases_Layer or Layers_Unit_Load is not a positive integer", s.matnr, idx);
         }
 
-        // Pallet-type variant was chosen by preference order, not by the data.
-        if (jl.ambiguous) {
+        // The quantity did not single out one pallet type; the client has still to confirm
+        // what happens then (27 Oct), so each case is listed under its own rule.
+        if (jl.palletTypeUnresolved()) {
             ++rep.ambiguous_pallet;
-            add(rep, ValidationIssue::Severity::Warning, "ambiguous_pallet_type",
-                "Product has several pallet-type variants; '" + p.pallet_id
-                    + "' was chosen by preference order",
-                s.matnr, idx);
+            if (jl.palletTypeChoice == PalletTypeChoice::SeveralDivide) {
+                add(rep, ValidationIssue::Severity::Warning, "pallet_type_tie",
+                    palletTypeQuantities(jl) + ": several pallet types divide it evenly; '"
+                        + p.pallet_id + "' taken (GMA first, client's rule); tie-break to confirm",
+                    s.matnr, idx);
+            } else {
+                add(rep, ValidationIssue::Severity::Warning, "pallet_type_no_fit",
+                    palletTypeQuantities(jl) + ": no pallet type divides it evenly; '"
+                        + p.pallet_id + "' taken by preference order; fallback to confirm",
+                    s.matnr, idx);
+            }
         }
 
         // ── Product data quality ────────────────────────────────────────────
@@ -346,6 +369,21 @@ vector<bool> Validator::excludedLineFlags(const ValidationReport& report, size_t
         if (issue.line_index < 0 || static_cast<size_t>(issue.line_index) >= lineCount) continue;
         if (excludesLine(issue)) {
             excluded[static_cast<size_t>(issue.line_index)] = true;
+        }
+    }
+    return excluded;
+}
+
+vector<bool> Validator::excludedPlaceholderFlags(const ValidationReport& report,
+                                                 size_t placeholderCount) {
+    vector<bool> excluded(placeholderCount, false);
+    for (const auto& issue : report.issues) {
+        if (issue.placeholder_index < 0
+            || static_cast<size_t>(issue.placeholder_index) >= placeholderCount) {
+            continue;
+        }
+        if (issue.severity == ValidationIssue::Severity::Error) {
+            excluded[static_cast<size_t>(issue.placeholder_index)] = true;
         }
     }
     return excluded;

@@ -57,14 +57,38 @@ TEST_CASE("clean input produces no errors" * doctest::skip(!crossDayTests::augus
     CHECK(r.unrecognized_pallet_id == 0);
 }
 
-TEST_CASE("ambiguous pallet-type matches are surfaced as warnings" * doctest::skip(!crossDayTests::august17Present())) {
+TEST_CASE("pallet types the quantity does not settle are surfaced as warnings" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
 
-    // 144 lines join to a product with more than one pallet-type variant.
-    CHECK(r.ambiguous_pallet == 144);
-    CHECK(count_rule(r, "ambiguous_pallet_type") == 144);
-    CHECK(r.warnings >= 144);
+    // Of the 144 lines on a product with several pallet types, 35 divide evenly by more than
+    // one (GMA taken) and 1 by none (preference order); the client has still to confirm both.
+    CHECK(r.ambiguous_pallet == 36);
+    CHECK(count_rule(r, "pallet_type_tie") == 35);
+    CHECK(count_rule(r, "pallet_type_no_fit") == 1);
+    CHECK(r.warnings >= 36);
+}
+
+TEST_CASE("a pallet-type warning names the quantity and every type's unit load" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    const ValidationReport r = Validator::validate(f.join);
+    bool foundTie = false;
+    bool foundNoFit = false;
+    for (const auto& issue : r.issues) {
+        if (issue.rule == "pallet_type_tie" && issue.matnr == "105553001") {
+            CHECK(issue.message.find(" CS; GMA 84, TLD 168 per unit load") != string::npos);
+            CHECK(issue.message.find("'GMA' taken") != string::npos);
+            foundTie = true;
+        }
+        if (issue.rule == "pallet_type_no_fit") {
+            CHECK(issue.matnr == "104725105");
+            CHECK(issue.message.find("5 DIS; TLD 33, GMA 15 per unit load") != string::npos);
+            CHECK(issue.message.find("'TLD' taken by preference order") != string::npos);
+            foundNoFit = true;
+        }
+    }
+    CHECK(foundTie);
+    CHECK(foundNoFit);
 }
 
 TEST_CASE("missing mandatory field is an error, and stops further checks" * doctest::skip(!crossDayTests::august17Present())) {
@@ -483,7 +507,7 @@ TEST_CASE("a product with a blank UoM raises blank_uom_product" * doctest::skip(
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
     j.lines.resize(1);
-    j.lines[0].ambiguous = false;
+    j.lines[0].palletTypeChoice = PalletTypeChoice::OnlyType;
 
     ProductRecord blankUomProduct = *j.lines[0].product;
     blankUomProduct.uom = "";
@@ -500,7 +524,7 @@ TEST_CASE("a whitespace-only product UoM also raises blank_uom_product" * doctes
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
     j.lines.resize(1);
-    j.lines[0].ambiguous = false;
+    j.lines[0].palletTypeChoice = PalletTypeChoice::OnlyType;
 
     ProductRecord blankUomProduct = *j.lines[0].product;
     blankUomProduct.uom = "   ";

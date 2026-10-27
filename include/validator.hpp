@@ -107,7 +107,7 @@ struct ValidationReport {
     int uomMismatch         = 0;   // demand unit differs from the product master's unit
     int unrecognized_pallet_id = 0; // no pallet weight from the master row or ValidationConfig::pallets
     int invalidPalletWeight = 0;    // that pallet weight is negative or non-finite
-    int ambiguous_pallet    = 0;   // variant chosen by preference, not by data
+    int ambiguous_pallet    = 0;   // pallet_type_tie plus pallet_type_no_fit: quantity did not settle it
     int over_pallet_threshold = 0; // the phantom-truck warning
 
     // From validate_placeholders, not the demand join above.
@@ -169,6 +169,12 @@ public:
     // Whether this one issue keeps its line out of derived totals; the rule behind
     // excludedLineFlags, so a caller naming the reason applies the same test.
     static bool excludesLine(const ValidationIssue& issue);
+
+    // Which placeholders must be kept out of truck counts: any carrying an Error (a negative
+    // or missing NO_OF_LOADS, a blank lane identifier or SHIP_COND). Parallel to the
+    // placeholders; issues pointing outside [0, placeholderCount) are ignored.
+    static std::vector<bool> excludedPlaceholderFlags(const ValidationReport& report,
+                                                      std::size_t placeholderCount);
 };
 
 } // namespace ob

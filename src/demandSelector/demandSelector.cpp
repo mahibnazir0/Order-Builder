@@ -13,30 +13,10 @@ const char* const kDemandRuleArgument = "--demand-rule";
 namespace {
 
 const char* const kRuleUsage =
-    "expected wholeExtract, dueBy:YYYY-MM-DD, availableBy:YYYY-MM-DD,"
-    " window:YYYY-MM-DD:YYYY-MM-DD or schedule:YYYY-MM-DD";
+    "expected wholeExtract, shipDates:YYYY-MM-DD[:YYYY-MM-DD] or calendar:YYYY-MM-DD";
 
 [[noreturn]] void throwRuleError(const string& problem) {
     throw invalid_argument(string(kDemandRuleArgument) + ": " + problem);
-}
-
-void requireSelectorDates(const DemandSelector& selector) {
-    if (selector.rule == DemandRule::WholeExtract) return;
-    if (!isIsoDate(selector.toDate)) {
-        throwRuleError("the planning date must be a real date written YYYY-MM-DD");
-    }
-    if (selector.rule == DemandRule::Schedule) {
-        scheduleDeliveryDates(selector.toDate);
-        return;
-    }
-    if (selector.rule != DemandRule::Window) return;
-    if (!isIsoDate(selector.fromDate)) {
-        throwRuleError("the window start must be a real date written YYYY-MM-DD");
-    }
-    if (selector.toDate < selector.fromDate) {
-        throwRuleError("the window ends (" + selector.toDate + ") before it starts ("
-            + selector.fromDate + ")");
-    }
 }
 
 vector<string> splitOnColon(const string& text) {
@@ -51,31 +31,38 @@ vector<string> splitOnColon(const string& text) {
     return parts;
 }
 
-const string& ruleDate(const STRRecord& line, DemandRule rule) {
-    return rule == DemandRule::AvailableBy ? line.datfr_ta : line.datto_ta;
+// Every date from first to last. Both must be real dates.
+vector<string> datesFrom(const string& firstShipDate, const string& lastShipDate) {
+    if (lastShipDate < firstShipDate) {
+        throwRuleError("the last ship date (" + lastShipDate + ") is before the first ("
+            + firstShipDate + ")");
+    }
+    vector<string> dates{firstShipDate};
+    while (dates.back() != lastShipDate) {
+        if (dates.size() == static_cast<size_t>(kMaxShipDatesPerRun)) {
+            throwRuleError("ship dates " + firstShipDate + " to " + lastShipDate + " cover more"
+                " than " + to_string(kMaxShipDatesPerRun) + " days");
+        }
+        dates.push_back(addDays(dates.back(), 1));
+    }
+    return dates;
 }
 
-bool isSelected(const string& lineDate, const DemandSelector& selector,
-                const vector<string>& deliveryDates) {
+void requireSelectorDates(const DemandSelector& selector) {
     switch (selector.rule) {
-    case DemandRule::WholeExtract: return true;
-    case DemandRule::DueBy:
-    case DemandRule::AvailableBy: return lineDate <= selector.toDate;
-    case DemandRule::Window:
-        return selector.fromDate <= lineDate && lineDate <= selector.toDate;
-    case DemandRule::Schedule:
-        return find(deliveryDates.begin(), deliveryDates.end(), lineDate) != deliveryDates.end();
+    case DemandRule::WholeExtract: return;
+    case DemandRule::ShipDates:
+        if (!isIsoDate(selector.firstShipDate) || !isIsoDate(selector.lastShipDate)) {
+            throwRuleError("every ship date must be a real date written YYYY-MM-DD");
+        }
+        datesFrom(selector.firstShipDate, selector.lastShipDate);
+        return;
+    case DemandRule::Calendar:
+        if (!isIsoDate(selector.planDate)) {
+            throwRuleError("the plan date must be a real date written YYYY-MM-DD");
+        }
+        return;
     }
-    return false;
-}
-
-// The delivery date has already passed on the planning date. A window cannot select one:
-// its lines all arrive inside it.
-bool isOverdue(const STRRecord& line, const DemandSelector& selector) {
-    if (selector.rule != DemandRule::DueBy && selector.rule != DemandRule::AvailableBy) {
-        return false;
-    }
-    return isIsoDate(line.datto_ta) && line.datto_ta < selector.toDate;
 }
 
 } // anonymous namespace
@@ -88,52 +75,91 @@ DemandSelector parseDemandSelector(const string& text) {
     const string& ruleName = parts.front();
 
     DemandSelector selector;
-    size_t expectedParts = 2;
+    bool partsFit = false;
     if (ruleName == "wholeExtract") {
         selector.rule = DemandRule::WholeExtract;
-        expectedParts = 1;
-    } else if (ruleName == "dueBy") {
-        selector.rule = DemandRule::DueBy;
-    } else if (ruleName == "availableBy") {
-        selector.rule = DemandRule::AvailableBy;
-    } else if (ruleName == "schedule") {
-        selector.rule = DemandRule::Schedule;
-    } else if (ruleName == "window") {
-        selector.rule = DemandRule::Window;
-        expectedParts = 3;
+        partsFit = parts.size() == 1;
+    } else if (ruleName == "shipDates") {
+        selector.rule = DemandRule::ShipDates;
+        partsFit = parts.size() == 2 || parts.size() == 3;
+        if (partsFit) {
+            selector.firstShipDate = parts[1];
+            selector.lastShipDate = parts.back();
+        }
+    } else if (ruleName == "calendar") {
+        selector.rule = DemandRule::Calendar;
+        partsFit = parts.size() == 2;
+        if (partsFit) selector.planDate = parts[1];
     } else {
         throwRuleError("unknown rule (" + string(kRuleUsage) + ")");
     }
-    if (parts.size() != expectedParts) {
+    if (!partsFit) {
         throwRuleError("wrong number of dates for " + ruleName + " (" + kRuleUsage + ")");
-    }
-    if (selector.rule == DemandRule::Window) {
-        selector.fromDate = parts[1];
-        selector.toDate = parts[2];
-    } else if (selector.rule != DemandRule::WholeExtract) {
-        selector.toDate = parts[1];
     }
     requireSelectorDates(selector);
     return selector;
 }
 
-DemandSelection selectDemand(const vector<STRRecord>& demand, const DemandSelector& selector) {
+ShipDateCoverage coverShipDates(const DemandSelector& selector, const vector<CTLRecord>& calendar) {
     requireSelectorDates(selector);
-    DemandSelection selection;
-    selection.selector = selector;
-    selection.selected.assign(demand.size(), false);
-    const vector<string> deliveryDates = selector.rule == DemandRule::Schedule
-        ? scheduleDeliveryDates(selector.toDate) : vector<string>{};
+    ShipDateCoverage coverage;
+    switch (selector.rule) {
+    case DemandRule::WholeExtract: break;
+    case DemandRule::ShipDates:
+        coverage.shipDates = datesFrom(selector.firstShipDate, selector.lastShipDate);
+        break;
+    case DemandRule::Calendar:
+        coverage.calendarWindow = planningWindow(calendar, selector.planDate);
+        coverage.shipDates =
+            datesFrom(coverage.calendarWindow->firstShipDate, coverage.calendarWindow->lastShipDate);
+        break;
+    }
+    return coverage;
+}
+
+void countCoverage(ShipDateCoverage& coverage, const vector<STRRecord>& demand,
+                   const vector<PlaceholderRecord>& placeholders,
+                   const vector<bool>& placeholderExcluded) {
+    if (placeholderExcluded.size() != placeholders.size()) {
+        throw invalid_argument("demandSelector: placeholder flags are not parallel to the"
+                               " placeholders");
+    }
+    if (coverage.shipDates.empty()) {
+        coverage.linesOnShipDates = demand.size();
+        return;
+    }
+    const string& firstShipDate = coverage.shipDates.front();
+    const string& lastShipDate = coverage.shipDates.back();
     for (size_t lineIndex = 0; lineIndex < demand.size(); ++lineIndex) {
-        const string& lineDate = ruleDate(demand[lineIndex], selector.rule);
-        if (selector.rule != DemandRule::WholeExtract && !isIsoDate(lineDate)) {
-            selection.undatedLines.push_back(lineIndex);
-            continue;
+        const string& shipDate = demand[lineIndex].datfr_ta;
+        if (!isIsoDate(shipDate)) {
+            coverage.undatedLines.push_back(lineIndex);
+        } else if (shipDate < firstShipDate) {
+            ++coverage.linesBeforeFirstShipDate;
+        } else if (shipDate > lastShipDate) {
+            ++coverage.linesAfterLastShipDate;
+        } else {
+            ++coverage.linesOnShipDates;
         }
-        if (isSelected(lineDate, selector, deliveryDates)) {
+    }
+    // shipDates is a contiguous run of real dates, so a real date between its ends is one of them.
+    for (size_t placeholderIndex = 0; placeholderIndex < placeholders.size(); ++placeholderIndex) {
+        if (placeholderExcluded[placeholderIndex]) continue;
+        const string& shipDate = placeholders[placeholderIndex].datfr_ta;
+        if (!isIsoDate(shipDate) || shipDate < firstShipDate || shipDate > lastShipDate) {
+            coverage.reservedTrucksOutsideShipDates += placeholders[placeholderIndex].no_of_loads;
+        }
+    }
+}
+
+DemandSelection selectShipDate(const vector<STRRecord>& demand, const string& shipDate) {
+    DemandSelection selection;
+    selection.shipDate = shipDate;
+    selection.selected.assign(demand.size(), false);
+    for (size_t lineIndex = 0; lineIndex < demand.size(); ++lineIndex) {
+        if (shipDate.empty() || demand[lineIndex].datfr_ta == shipDate) {
             selection.selected[lineIndex] = true;
             ++selection.selectedLines;
-            if (isOverdue(demand[lineIndex], selector)) ++selection.overdueLines;
         }
     }
     return selection;
@@ -142,36 +168,15 @@ DemandSelection selectDemand(const vector<STRRecord>& demand, const DemandSelect
 string describeDemandSelector(const DemandSelector& selector) {
     switch (selector.rule) {
     case DemandRule::WholeExtract: return "wholeExtract";
-    case DemandRule::DueBy: return "dueBy(" + selector.toDate + ")";
-    case DemandRule::AvailableBy: return "availableBy(" + selector.toDate + ")";
-    case DemandRule::Window: return "window(" + selector.fromDate + ", " + selector.toDate + ")";
-    case DemandRule::Schedule: {
-        string deliveryDays;
-        for (const string& date : scheduleDeliveryDates(selector.toDate)) {
-            deliveryDays += (deliveryDays.empty() ? "" : " or ") + date;
-        }
-        return "schedule(" + selector.toDate + " " + weekdayName(weekdayIndex(selector.toDate))
-             + ": DATTO_TA on " + deliveryDays + "; provisional)";
-    }
+    case DemandRule::ShipDates:
+        return selector.firstShipDate == selector.lastShipDate
+            ? "shipDates(" + selector.firstShipDate + ")"
+            : "shipDates(" + selector.firstShipDate + " to " + selector.lastShipDate + ")";
+    case DemandRule::Calendar:
+        return "calendar(plan " + selector.planDate + " "
+            + weekdayName(weekdayIndex(selector.planDate)) + ")";
     }
     return "unknown";
-}
-
-vector<string> scheduleDeliveryDates(const string& planningDay) {
-    if (!isIsoDate(planningDay)) {
-        throwRuleError("the planning date must be a real date written YYYY-MM-DD");
-    }
-    constexpr int kMonday = 0, kTuesday = 1, kFriday = 4;
-    switch (weekdayIndex(planningDay)) {
-    case kMonday:
-    case kTuesday: return {addDays(planningDay, 2)};
-    case kFriday: return {addDays(planningDay, 2), addDays(planningDay, 3)};
-    default: break;
-    }
-    throwRuleError("schedule: " + planningDay + " is a "
-        + weekdayName(weekdayIndex(planningDay))
-        + "; the client has given delivery days only for Monday, Tuesday and Friday plans,"
-          " so no floor is planned rather than guessing");
 }
 
 } // namespace ob

@@ -431,8 +431,10 @@ TEST_CASE("stackRules: real demand pair distribution at the confirmed 108 in cei
         size_t passHeight;
         size_t passBoth;
     };
-    for (const Expected& expected : {Expected{DeckHeightRule::Included, 65261, 42854},
-                                     Expected{DeckHeightRule::Excluded, 66445, 43535}}) {
+    // 65,261 / 42,854 and 66,445 / 43,535 until the pallet type followed the quantity (28 Oct):
+    // 105553001 and 104875007, whose first lines divide by GMA and TLD alike, now ride on GMA.
+    for (const Expected& expected : {Expected{DeckHeightRule::Included, 65772, 43145},
+                                     Expected{DeckHeightRule::Excluded, 66958, 43827}}) {
         CAPTURE(expected.deckHeight == DeckHeightRule::Included ? "Included" : "Excluded");
         params.floorDeckHeight = expected.deckHeight;
         unordered_set<string> seenProducts;
@@ -499,12 +501,13 @@ TEST_CASE("stackRules: sampled pair pass rates on all four extracts at the 108 i
     // Measured by this test on 27 Sep 2026 with the deck counted (Included, shipped since the
     // client's 12 Oct ruling), and on 10 Oct 2026 with it left out; 17 Aug is also anchored
     // exhaustively above. The pallet table's 65 lb wood deck moved 03 Sep's deckless passBoth
-    // from 537 (at 60 lb).
+    // from 537 (at 60 lb). 02 Sep #1 samples a product whose first line now rides on GMA (28
+    // Oct), which moved it from 625 / 408.
     const crossDayTests::PerDay<size_t> sampledProducts{142, 140, 140, 139};
-    const crossDayTests::PerDay<size_t> passHeight{484, 625, 484, 841};
-    const crossDayTests::PerDay<size_t> passBoth{308, 408, 334, 531};
-    const crossDayTests::PerDay<size_t> passHeightWithoutDeck{492, 625, 494, 853};
-    const crossDayTests::PerDay<size_t> passBothWithoutDeck{313, 408, 341, 536};
+    const crossDayTests::PerDay<size_t> passHeight{484, 676, 484, 841};
+    const crossDayTests::PerDay<size_t> passBoth{308, 440, 334, 531};
+    const crossDayTests::PerDay<size_t> passHeightWithoutDeck{492, 676, 494, 853};
+    const crossDayTests::PerDay<size_t> passBothWithoutDeck{313, 440, 341, 536};
     for (size_t dayIndex = 0; dayIndex < crossDayTests::kDayCount; ++dayIndex) {
         CAPTURE(crossDayTests::dayFiles()[dayIndex].label);
         const auto& run = crossDayTests::pipelineRuns()[dayIndex];

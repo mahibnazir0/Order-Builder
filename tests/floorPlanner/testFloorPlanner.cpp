@@ -206,28 +206,26 @@ TEST_CASE("floorPlanner: lines whose cases per unit load disagree with the layer
     CHECK(plan.excludedLines.empty());
 }
 
-TEST_CASE("floorPlanner: lines the demand rule leaves out are counted but not floored") {
+TEST_CASE("floorPlanner: lines shipping on another date are counted but not floored") {
     const TrailerSpec& trailer = shippedTrailer();
     HalfTrailerLines fixture(2);
-    fixture.demand[0].datto_ta = "2026-10-02";
-    fixture.demand[1].datto_ta = "2026-10-03";
-    const DemandSelection selection =
-        selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    fixture.demand[1].datfr_ta = "2026-10-03";
+    const DemandSelection selection = selectShipDate(fixture.demand, "2026-10-02");
     const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1})}), fixture.lines,
                                      selection, shippedParams(), trailer);
     CHECK(plan.linesNotSelected == 1);
     CHECK(plan.groups[0].linesSelected == 1);
     CHECK(plan.totals.unitLoads == doctest::Approx(fixture.demand[0].trans));
     CHECK(plan.excludedLines.empty());
-    CHECK(describeDemandSelector(plan.selector) == "dueBy(2026-10-02)");
+    CHECK(plan.shipDate == "2026-10-02");
 }
 
-TEST_CASE("floorPlanner: a lane with no demand under the rule produces no zero-floor row") {
+TEST_CASE("floorPlanner: a lane with no demand on the date produces no zero-floor row") {
     HalfTrailerLines fixture(2);
-    fixture.demand[0].datto_ta = "2026-10-02";
-    fixture.demand[1].datto_ta = "2026-10-09";
-    const DemandSelection selection =
-        selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    fixture.demand[1].datfr_ta = "2026-10-09";
+    const DemandSelection selection = selectShipDate(fixture.demand, "2026-10-02");
     const FloorPlan plan = planFloor(segregation({group("S1", "", {0}), group("S2", "", {1})}),
                                      fixture.lines, selection, shippedParams(), shippedTrailer());
     REQUIRE(plan.groups.size() == 2);
@@ -239,7 +237,7 @@ TEST_CASE("floorPlanner: a lane with no demand under the rule produces no zero-f
 
 TEST_CASE("floorPlanner: a selection not parallel to the lines is a caller error") {
     const HalfTrailerLines fixture(2);
-    const DemandSelection tooShort = selectDemand(vector<STRRecord>(1), DemandSelector{});
+    const DemandSelection tooShort = selectShipDate(vector<STRRecord>(1), "");
     CHECK_THROWS_AS(planFloor(segregation({group("S1", "", {0})}), fixture.lines, tooShort,
                               shippedParams(), shippedTrailer()),
                     invalid_argument);
@@ -261,6 +259,105 @@ TEST_CASE("floorPlanner: an unusable trailer is rejected through floorBound") {
                     invalid_argument);
 }
 
+namespace {
+
+PlaceholderRecord placeholder(const string& locationTo, const string& shipDate, int trucks) {
+    PlaceholderRecord record;
+    record.locfrno = "2027";
+    record.loctono = locationTo;
+    record.ship_cond = "TL";
+    record.datfr_ta = shipDate;
+    record.no_of_loads = trucks;
+    return record;
+}
+
+// One half-trailer line to S1 shipping on 2 Oct, floored for that date.
+FloorPlan secondOctoberPlan(const HalfTrailerLines& fixture) {
+    return planFloor(segregation({group("S1", "", {0})}), fixture.lines,
+                     selectShipDate(fixture.demand, "2026-10-02"), shippedParams(),
+                     shippedTrailer());
+}
+
+} // namespace
+
+TEST_CASE("floorPlanner: a lane's reserved trucks are its placeholders for the plan's ship date") {
+    HalfTrailerLines fixture(1);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    FloorPlan plan = secondOctoberPlan(fixture);
+    matchReservations(plan, {placeholder("S1", "2026-10-02", 2), placeholder("S1", "2026-10-02", 1),
+                             placeholder("S1", "2026-10-03", 5)},
+                      {false, false, false});
+    REQUIRE(plan.lanes.size() == 1);
+    CHECK(plan.lanes[0].reservedTrucks == 3);
+    CHECK(plan.reservedTrucks == 3);
+    CHECK(plan.reservedTrucksWithoutDemand == 0);
+    CHECK(plan.lanesFloorAboveReserved == 0);
+}
+
+TEST_CASE("floorPlanner: trucks reserved on a lane with no demand that day are counted apart") {
+    HalfTrailerLines fixture(1);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    FloorPlan plan = secondOctoberPlan(fixture);
+    matchReservations(plan, {placeholder("S2", "2026-10-02", 4)}, {false});
+    CHECK(plan.lanes[0].reservedTrucks == 0);
+    CHECK(plan.reservedTrucks == 4);
+    CHECK(plan.reservedTrucksWithoutDemand == 4);
+    CHECK(plan.lanesFloorAboveReserved == 1);
+}
+
+TEST_CASE("floorPlanner: a placeholder the Validator rejected reserves nothing") {
+    HalfTrailerLines fixture(1);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    FloorPlan plan = secondOctoberPlan(fixture);
+    matchReservations(plan, {placeholder("S1", "2026-10-02", 2)}, {true});
+    CHECK(plan.lanes[0].reservedTrucks == 0);
+    CHECK(plan.reservedTrucks == 0);
+}
+
+TEST_CASE("floorPlanner: under wholeExtract every placeholder reserves, whatever its date") {
+    const HalfTrailerLines fixture(1);
+    FloorPlan plan = planFloor(segregation({group("S1", "", {0})}), fixture.lines,
+                               wholeExtract(fixture.lines), shippedParams(), shippedTrailer());
+    matchReservations(plan, {placeholder("S1", "2026-10-02", 2), placeholder("S1", "2026-10-03", 1)},
+                      {false, false});
+    CHECK(plan.lanes[0].reservedTrucks == 3);
+}
+
+TEST_CASE("floorPlanner: placeholder flags not parallel to the placeholders are a caller error") {
+    HalfTrailerLines fixture(1);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    FloorPlan plan = secondOctoberPlan(fixture);
+    CHECK_THROWS_AS(matchReservations(plan, {placeholder("S1", "2026-10-02", 2)}, {}),
+                    invalid_argument);
+}
+
+TEST_CASE("floorPlanner: a run floors each covered ship date on its own") {
+    HalfTrailerLines fixture(2);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    fixture.demand[1].datfr_ta = "2026-10-03";
+    DemandFile demand;
+    demand.str = fixture.demand;
+    const SegregationResult oneGroup = segregation({group("S1", "", {0, 1})});
+    const FloorRun daily = planFloorRun(parseDemandSelector("shipDates:2026-10-02:2026-10-03"),
+                                        demand, oneGroup, fixture.lines,
+                                        {placeholder("S1", "2026-10-03", 1)}, {false},
+                                        shippedParams(), shippedTrailer());
+    REQUIRE(daily.floors.size() == 2);
+    CHECK(daily.floors[0].plan.shipDate == "2026-10-02");
+    CHECK(daily.floors[0].plan.floorTrucks == 1);
+    CHECK(daily.floors[0].plan.reservedTrucks == 0);
+    CHECK(daily.floors[1].plan.floorTrucks == 1);
+    CHECK(daily.floors[1].plan.reservedTrucks == 1);
+    CHECK(daily.floorTrucks() == 2);
+    CHECK(daily.reservedTrucks() == 1);
+    CHECK(daily.selectedLines() == 2);
+
+    const FloorRun whole = planFloorRun(parseDemandSelector("wholeExtract"), demand, oneGroup,
+                                        fixture.lines, {}, {}, shippedParams(), shippedTrailer());
+    REQUIRE(whole.floors.size() == 1);
+    CHECK(whole.floorTrucks() == 1);
+}
+
 TEST_CASE("floorPlanner: rounding points have stable plain-ASCII names") {
     CHECK(string(floorRoundingPointName(FloorRoundingPoint::Group)) == "group");
     CHECK(string(floorRoundingPointName(FloorRoundingPoint::Lane)) == "lane");
@@ -271,7 +368,7 @@ TEST_CASE("floorPlanner: the plan on every extract reconciles with Milestone 1 a
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
         const FloorPlan plan = planFloor(run.segregation, run.join.lines,
-                                         selectDemand(run.demand.str, DemandSelector{}),
+                                         selectShipDate(run.demand.str, ""),
                                          run.params, shippedTrailer());
 
         CHECK(plan.excludedLines.empty());
@@ -304,7 +401,7 @@ TEST_CASE("floorPlanner: rounding per lane never exceeds rounding per group on a
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
-        const DemandSelection everyLine = selectDemand(run.demand.str, DemandSelector{});
+        const DemandSelection everyLine = selectShipDate(run.demand.str, "");
         const FloorPlan perGroup = planFloor(run.segregation, run.join.lines, everyLine,
                                              paramsRoundingAt(FloorRoundingPoint::Group),
                                              shippedTrailer());

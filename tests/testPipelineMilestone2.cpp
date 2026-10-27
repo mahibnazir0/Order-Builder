@@ -415,13 +415,13 @@ TEST_CASE("pipeline: a line rejected by validation is listed among the unstacked
 TEST_CASE("pipeline: the real day is complete and reports its provisional rules" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const PipelineResult result = Pipeline::run(realInputs(true));
     CHECK(runOutcome(result) == RunOutcome::FloorNotComputed);
-    CHECK(result.stackReport.ambiguousPalletLines == 144);
+    CHECK(result.stackReport.ambiguousPalletLines == 36);
     CHECK(result.stackReport.stackWholePallets);
     CHECK(result.stackReport.totalPalletsStacked >= result.stackReport.totalPallets);
     ostringstream out;
     StackReporter::print(result.stackReport, out);
     CHECK(result.stackReport.unstackedLines.empty());
     CHECK(out.str().find("complete: every demand line is in a stack") != string::npos);
-    CHECK(out.str().find("144 line(s) chose a pallet type by preference order") != string::npos);
+    CHECK(out.str().find("36 line(s) the quantity did not settle") != string::npos);
     CHECK(out.str().find("equivalence to T3 not demonstrated") != string::npos);
 }

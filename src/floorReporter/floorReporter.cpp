@@ -41,9 +41,30 @@ void printLabel(ostream& out, const string& label) {
     pad_right(out, label, 26);
 }
 
-bool sameSelector(const DemandSelector& first, const DemandSelector& second) {
-    return first.rule == second.rule && first.fromDate == second.fromDate
-        && first.toDate == second.toDate;
+// "2026-08-06" or, under wholeExtract, every ship date.
+string shipDateText(const string& shipDate) {
+    return shipDate.empty() ? "every ship date" : printable(shipDate);
+}
+
+string shipDatesText(const ShipDateCoverage& coverage) {
+    if (coverage.shipDates.empty()) return "every ship date in the extract, as one floor";
+    string text;
+    for (const string& shipDate : coverage.shipDates) {
+        text += (text.empty() ? "" : ", ") + printable(shipDate);
+    }
+    return text;
+}
+
+string shipDatesSource(const FloorRun& run) {
+    switch (run.selector.rule) {
+    case DemandRule::WholeExtract: return "a check on the extract, not a daily floor";
+    case DemandRule::ShipDates: return "as given on the command line";
+    case DemandRule::Calendar: break;
+    }
+    const PlanningWindow& window = *run.coverage.calendarWindow;
+    return "CTL row " + count(window.ctlRowIndex)
+        + (window.fromDatedRow ? ", dated the plan date: overrides the weekday row"
+                               : ", the plan date's weekday");
 }
 
 string palletWeights(const M2Params& params) {
@@ -68,14 +89,19 @@ string trailerChoiceText(TrailerChoice trailerChoice) {
         : "largest listed on payload, height, volume and stacked floor area";
 }
 
-void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
+void printBasis(ostream& out, const FloorRun& run, const M2Params& params,
                 const TrailerSpec& trailer, TrailerChoice trailerChoice,
                 const string& extractLabel) {
     out << kRule << " BASIS - every figure below holds only under these\n" << kRule;
     printLabel(out, "Extract");
     out << (extractLabel.empty() ? "(not named)" : printable(extractLabel)) << "\n";
     printLabel(out, "Demand rule");
-    out << describeDemandSelector(plan.selector) << "  (open: question 1; no default)\n";
+    out << describeDemandSelector(run.selector)
+        << "  (a floor per ship date, DATFR_TA; client 24 and 27 Oct)\n";
+    printLabel(out, "Ship dates");
+    out << shipDatesText(run.coverage) << "\n";
+    printLabel(out, "");
+    out << "(" << shipDatesSource(run) << ")\n";
     printLabel(out, "Trailer");
     out << printable(trailer.trailerCode) << "  (" << trailerChoiceText(trailerChoice) << ")\n";
     printLabel(out, "Weight limit");
@@ -117,11 +143,37 @@ void printBasis(ostream& out, const FloorPlan& plan, const M2Params& params,
         out << "can only lower the floor, so it stays a valid lower bound\n";
     }
     printLabel(out, "Rounding point");
-    out << roundingPointText(plan.roundingPoint) << "\n";
+    out << roundingPointText(params.floorRoundingPoint) << "\n";
     printLabel(out, "Unit-load equivalents");
     out << "fractional (cases / Cases_Unit_Load), not physical pallets; a partial\n";
     printLabel(out, "");
     out << "pallet is scaled by its fraction in weight and height (can only lower the floor)\n\n";
+}
+
+void printSectionA(ostream& out, const FloorRun& run) {
+    const ShipDateCoverage& coverage = run.coverage;
+    out << kRule << " A. SHIP DATES AND DEMAND\n" << kRule;
+    printLabel(out, "Lines on the run's dates");
+    out << count(coverage.linesOnShipDates) << "  (each counts toward its own ship date's floor)\n";
+    printLabel(out, "  before the first date");
+    out << count(coverage.linesBeforeFirstShipDate)
+        << "  (due to ship earlier; in no floor here)\n";
+    printLabel(out, "  after the last date");
+    out << count(coverage.linesAfterLastShipDate)
+        << "  (future demand the planner can see; in no floor here)\n";
+    printLabel(out, "  undated");
+    out << count(coverage.undatedLines.size())
+        << "  (DATFR_TA blank or not a date; in no floor)\n";
+    printLabel(out, "Reserved, other dates");
+    out << grouped(static_cast<double>(coverage.reservedTrucksOutsideShipDates))
+        << " truck(s)  (placeholders for dates the run does not cover)\n";
+    printLabel(out, "Floor, all ship dates");
+    out << grouped(static_cast<double>(run.floorTrucks()))
+        << " trucks  (the daily floors added up; each day is floored on its own)\n";
+    printLabel(out, "Reserved, all ship dates");
+    out << grouped(static_cast<double>(run.reservedTrucks())) << " trucks\n";
+    printLabel(out, "Pulling demand forward");
+    out << "not applied: a later stage decides what may ship early\n\n";
 }
 
 struct TermTotals {
@@ -172,20 +224,18 @@ size_t lanesUnderstated(const FloorPlan& plan) {
         [](const LaneFloor& lane) { return lane.isMeasurable() && lane.isUnderstated(); }));
 }
 
-void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& selection,
-                   const TrailerSpec& trailer) {
+void printSectionB(ostream& out, const ShipDateFloor& floor, const TrailerSpec& trailer) {
+    const FloorPlan& plan = floor.plan;
+    const DemandSelection& selection = floor.selection;
     const TermTotals terms = termTotals(plan);
-    const string ruleText = describeDemandSelector(plan.selector);
-    out << kRule << " B. THE FLOOR\n" << kRule;
+    const string shipDate = shipDateText(plan.shipDate);
+    out << kRule << " B. THE FLOOR - "
+        << (plan.shipDate.empty() ? "EVERY SHIP DATE AS ONE FLOOR (wholeExtract)"
+                                  : "SHIP DATE " + shipDate)
+        << "\n" << kRule;
     printLabel(out, "Demand lines selected");
     out << count(selection.selectedLines) << " of " << count(selection.selected.size())
-        << " in the extract  (" << ruleText << ")\n";
-    printLabel(out, "  overdue");
-    out << count(selection.overdueLines)
-        << "  (selected, delivery date before the planning date)\n";
-    printLabel(out, "  undated");
-    out << count(selection.undatedLines.size())
-        << "  (date blank or malformed; cannot be judged, not selected)\n";
+        << " in the extract  (shipping on " << shipDate << ")\n";
     printLabel(out, "  grouped, not selected");
     out << count(plan.linesNotSelected) << "\n";
     printLabel(out, "Lanes");
@@ -221,16 +271,24 @@ void printSectionB(ostream& out, const FloorPlan& plan, const DemandSelection& s
     printLabel(out, "Bound before rounding");
     out << grouped(plan.boundTrucks, 2) << " trucks\n";
     printLabel(out, "FLOOR");
-    out << grouped(static_cast<double>(plan.floorTrucks)) << " trucks  (" << ruleText
+    out << grouped(static_cast<double>(plan.floorTrucks)) << " trucks  (" << shipDate
         << ", rounded " << floorRoundingPointName(plan.roundingPoint) << " level, "
         << printable(trailer.trailerCode) << ")\n";
     printLabel(out, "");
     out << "a lower bound: checked against Truck Builder's solutions for 2-3 Sep and\n";
     printLabel(out, "");
-    out << "4-6 Aug, never above the trucks used on any lane group (acceptance tests)\n";
+    out << "4-6 Aug, never above the trucks used on any lane and ship date (acceptance tests)\n";
     printLabel(out, "No-stacking baseline");
     out << grouped(static_cast<double>(plan.noStackingBaselineTrucks))
-        << " trucks  NOT a floor: assumes nothing stacks (pallet floor area / interior floor)\n\n";
+        << " trucks  NOT a floor: assumes nothing stacks (pallet floor area / interior floor)\n";
+    printLabel(out, "Reserved");
+    out << grouped(static_cast<double>(plan.reservedTrucks)) << " trucks  (placeholders shipping on "
+        << shipDate << ")\n";
+    printLabel(out, "  on lanes without demand");
+    out << grouped(static_cast<double>(plan.reservedTrucksWithoutDemand)) << " trucks\n";
+    printLabel(out, "  lanes floored above it");
+    out << count(plan.lanesFloorAboveReserved)
+        << "  (the floor needs more trucks than were reserved)\n\n";
 
     printLabel(out, "Lines left out of floor");
     out << count(plan.excludedLines.size());
@@ -288,7 +346,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
     const size_t shown =
         maxLanes > 0 && maxLanes < laneOrder.size() ? maxLanes : laneOrder.size();
 
-    out << kRule << " C. FLOOR BY LANE  (" << describeDemandSelector(plan.selector)
+    out << kRule << " C. FLOOR BY LANE  (" << shipDateText(plan.shipDate)
         << ", rounded " << floorRoundingPointName(plan.roundingPoint) << " level, "
         << printable(trailer.trailerCode) << ")";
     if (shown < laneOrder.size()) {
@@ -301,6 +359,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
     pad_left(out, "Cargo cu ft", 14);
     pad_right(out, "  Binds", 18);
     pad_left(out, "Floor", 15);
+    pad_left(out, "Reserved", 10);
     out << "\n";
     for (size_t rank = 0; rank < shown; ++rank) {
         const LaneFloor& lane = plan.lanes[laneOrder[rank]];
@@ -310,6 +369,7 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
         pad_left(out, grouped(lane.totals.cargoCubicIn / kCubicInchesPerCubicFoot, 1), 14);
         pad_right(out, "  " + laneBinding(lane, plan), 18);
         pad_left(out, laneFloorText(lane), 15);
+        pad_left(out, grouped(static_cast<double>(lane.reservedTrucks)), 10);
         out << "\n";
     }
     if (shown < laneOrder.size()) {
@@ -318,23 +378,29 @@ void printSectionC(ostream& out, const FloorPlan& plan, const TrailerSpec& trail
     if (lanesUnderstated(plan) > 0) {
         out << "  * lane has selected lines left out of the floor; its floor is understated\n";
     }
+    out << "\n";
 }
 
 } // anonymous namespace
 
-void printFloorReport(ostream& out, const FloorPlan& plan, const DemandSelection& selection,
-                      const M2Params& params, const TrailerSpec& trailer,
-                      TrailerChoice trailerChoice, const string& extractLabel, size_t maxLanes) {
-    if (!sameSelector(plan.selector, selection.selector)) {
-        throw invalid_argument(
-            "floorReporter: the selection does not carry the plan's demand rule");
+void printFloorReport(ostream& out, const FloorRun& run, const M2Params& params,
+                      const TrailerSpec& trailer, TrailerChoice trailerChoice,
+                      const string& extractLabel, size_t maxLanes) {
+    for (const ShipDateFloor& floor : run.floors) {
+        if (floor.selection.shipDate != floor.plan.shipDate) {
+            throw invalid_argument("floorReporter: a floor's selection and plan are for"
+                                   " different ship dates");
+        }
     }
     out << "\n================================================================\n";
     out << " ORDER BUILDER - MILESTONE 3 TRUCK FLOOR\n";
     out << "================================================================\n\n";
-    printBasis(out, plan, params, trailer, trailerChoice, extractLabel);
-    printSectionB(out, plan, selection, trailer);
-    printSectionC(out, plan, trailer, maxLanes);
+    printBasis(out, run, params, trailer, trailerChoice, extractLabel);
+    printSectionA(out, run);
+    for (const ShipDateFloor& floor : run.floors) {
+        printSectionB(out, floor, trailer);
+        printSectionC(out, floor.plan, trailer, maxLanes);
+    }
 }
 
 } // namespace ob

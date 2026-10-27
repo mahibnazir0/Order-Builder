@@ -10,7 +10,7 @@
 //   and, when a params file is given:
 //   -> segregate -> pass 1 (binding constraint) -> pass 2 (stacks) -> stack report
 //   and, when a demand rule is also given:
-//   -> select demand -> floor (Milestone 3)
+//   -> cover the ship dates -> a floor per ship date, matched to its placeholders (Milestone 3)
 // Conversion precedes validation because the large-line check needs pallet figures.
 // The floor runs last because it reads the groups segregation formed.
 // ============================================================================
@@ -48,8 +48,9 @@ struct PipelineInputs {
     std::string paramsPath;
     // Trailer to plan against, by params trailerCode; empty picks the largest one listed.
     std::string trailerCode;
-    // Milestone 3 runs only when this is set, and needs paramsPath. Never defaulted: which
-    // demand counts toward the day is open with the client (M3 question 1).
+    // Milestone 3 runs only when this is set, and needs paramsPath. Never defaulted: the
+    // floor is planned per ship date, and which dates a run covers comes from the upstream
+    // calendar or the caller, never from a guess.
     std::optional<DemandSelector> demandSelector;
     // Pallet table (Customer2-Pallet-Data.csv). Optional when every demanded product row
     // carries its own pallet figures, as the 88-column masters do; required for older masters.
@@ -110,8 +111,7 @@ struct PipelineResult {
 
     // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
     bool ranFloor = false;
-    DemandSelection demandSelection;
-    FloorPlan floorPlan;
+    FloorRun floorRun;
 };
 
 // How a run that finished turned out; main() exits with the value, so each shortfall has a
@@ -122,9 +122,9 @@ enum class RunOutcome {
     ValidationErrors = 1,
     // Milestone 2 ran and a line that passed validation is in no stack, or no stack was built.
     LinesNotStacked = 3,
-    // The floor left out a selected line, or the rule could not judge a line's date.
+    // A floor left out a selected line, or a line has no ship date to be counted on.
     FloorIncomplete = 4,
-    // The demand rule selected no line of a non-empty extract: usually a mistyped date.
+    // No line of a non-empty extract ships on the rule's dates: usually a mistyped date.
     NothingSelected = 5,
     // No floor was planned, so the run says nothing about trucks.
     FloorNotComputed = 6,

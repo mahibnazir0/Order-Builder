@@ -43,16 +43,8 @@ DaySummary Reporter::build(const JoinResult& join,
     // Same idea for placeholders (negative NO_OF_LOADS, missing lane
     // identifier): kept in placeholder_index, a separate index space from
     // line_index above, so the two can never be cross-applied by accident.
-    vector<bool> placeholder_excluded(placeholders.size(), false);
-    for (const auto& issue : validation.issues) {
-        if (issue.placeholder_index < 0
-            || static_cast<size_t>(issue.placeholder_index) >= placeholder_excluded.size()) {
-            continue;
-        }
-        if (issue.severity == ValidationIssue::Severity::Error) {
-            placeholder_excluded[static_cast<size_t>(issue.placeholder_index)] = true;
-        }
-    }
+    const vector<bool> placeholder_excluded =
+        Validator::excludedPlaceholderFlags(validation, placeholders.size());
 
     map<LaneKey, LaneSummary> lanes;
 

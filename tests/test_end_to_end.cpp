@@ -53,7 +53,8 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
     // Join
     CHECK(r.join.matched_lines   == 24357);   // 100%
     CHECK(r.join.unmatched_lines == 0);
-    CHECK(r.join.ambiguous_lines == 144);     // pallet-type variant chosen by preference
+    CHECK(r.join.multiPalletTypeLines == 144); // product listed on several pallet types
+    CHECK(r.join.ambiguous_lines == 36);       // the quantity did not settle which one
 
     // Summary — the figures in the output document Tom approved
     CHECK(r.summary.total_demand_lines     == 24357);
@@ -64,11 +65,11 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
     CHECK(r.summary.lanes_demand_only      == 182);
     CHECK(r.summary.lanes_placeholder_only == 11);
     CHECK(r.summary.trucks_requested       == 372);
-    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(145705.8).epsilon(0.001));
+    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(145765.8).epsilon(0.001));
 
-    // Clean input: no errors, and the only warnings are the ambiguous variants
+    // Clean input: no errors, and the only warnings are the unsettled pallet types
     CHECK(r.validation.errors           == 0);
-    CHECK(r.validation.ambiguous_pallet == 144);
+    CHECK(r.validation.ambiguous_pallet == 36);
     CHECK(r.validation.unknown_ship_cond == 0);   // every TL/TF in demand and placeholders
     CHECK(r.validation.missing_ship_cond == 0);
 }

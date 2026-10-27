@@ -164,7 +164,7 @@ TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and
     vector<double> pallets;
     vector<double> weights;
     for (const STRRecord& line : hugeLines) {
-        join.lines.push_back(JoinedLine{&line, &product, true, false});
+        join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
         const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
         pallets.push_back(linePallets);
         weights.push_back(Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs()));
@@ -200,7 +200,7 @@ TEST_CASE("two TRANS = -1e308 lines leave hash_total finite" * doctest::skip(!cr
         line.matnr = product.id;
         line.unitofmeas = "CS";
         line.trans = -1e308;
-        join.lines.push_back(JoinedLine{&line, &product, true, false});
+        join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
     }
 
     const ValidationReport rep = Validator::validate(join);
@@ -231,7 +231,7 @@ TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite" * doctest::s
     line.trans = 1000;
 
     JoinResult join;
-    join.lines.push_back(JoinedLine{&line, &product, true, false});
+    join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
     const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
     const vector<double> pallets{linePallets};
     const vector<double> weights{Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs())};

@@ -60,8 +60,8 @@ void printProvisionalRules(const StackReport& report, ostream& out) {
     out << " PROVISIONAL BUSINESS RULES (not yet confirmed by the customer)\n";
     out << "----------------------------------------------------------------\n";
     out << "  Pallet variant            " << grouped(static_cast<double>(report.ambiguousPalletLines))
-        << " line(s) chose a pallet type by preference order ("
-        << joined(Joiner::default_pallet_preference()) << ")\n";
+        << " line(s) the quantity did not settle: GMA where several types divide it evenly,"
+           " else preference order (" << joined(Joiner::default_pallet_preference()) << ")\n";
     out << "  Do-not-mix reading        "
         << (report.doNotMixReading == SegregationReading::Strict
                 ? "Strict: each flagged planner kept apart from other planners and normal stock\n"

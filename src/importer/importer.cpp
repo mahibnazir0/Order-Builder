@@ -15,9 +15,9 @@ using json = nlohmann::json;
 namespace {
 
 // Integers go through getIntegerOr, which refuses 2.9 and true rather than truncating them.
-// BNFPO, BSTRF, the process times and the CTL counts fall back to 0 ("none"): they are
-// optional and feed no total or decision yet. TPRIO and AVAIL_QTY, where 0 is a real value,
-// fall back to sentinels the Validator reports.
+// BNFPO, BSTRF, the process times and AUTO_O2 fall back to 0 ("none"): they are optional and
+// feed no total or decision yet. TPRIO, AVAIL_QTY and the CTL level-load days, where 0 is a
+// real value, fall back to sentinels the Validator or the ship calendar rejects.
 STRRecord parse_str(const json& j) {
     STRRecord r;
     r.idpr               = get_or<string>(j, "IDPR", "");
@@ -49,8 +49,8 @@ CTLRecord parse_ctl(const json& j) {
     CTLRecord r;
     r.zdate            = get_or<string>(j, "ZDATE", "");
     r.zday             = get_or<string>(j, "ZDAY", "");
-    r.level_load_start = getIntegerOr(j, "LEVEL_LOAD_START", 0);
-    r.level_load_end   = getIntegerOr(j, "LEVEL_LOAD_END", 0);
+    r.level_load_start = getIntegerOr(j, "LEVEL_LOAD_START", kUnreadableLevelLoadDay);
+    r.level_load_end   = getIntegerOr(j, "LEVEL_LOAD_END", kUnreadableLevelLoadDay);
     r.auto_o2          = getIntegerOr(j, "AUTO_O2", 0);
     return r;
 }

@@ -1,6 +1,8 @@
 #include "acceptanceHarness.hpp"
 
 #include "floorPlanner.hpp"
+#include "isoDate.hpp"
+#include "joiner.hpp"
 #include "json.hpp"
 
 #include <algorithm>
@@ -8,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <unordered_set>
+#include <utility>
 
 using namespace std;
 using namespace ob;
@@ -26,6 +30,11 @@ bool isAcceptanceSetCondition(const string& shipCondition) {
 string laneKey(const string& locationFrom, const string& locationTo,
                const string& shipCondition) {
     return locationFrom + '\x1f' + locationTo + '\x1f' + shipCondition;
+}
+
+string laneDayKey(const string& locationFrom, const string& locationTo,
+                  const string& shipCondition, const string& shipDate) {
+    return laneKey(locationFrom, locationTo, shipCondition) + '\x1f' + shipDate;
 }
 
 class SolutionReader {
@@ -48,6 +57,12 @@ public:
         if (found == parent.end()) fail(field, "is missing");
         if (!found->is_string()) fail(field, "is not a string");
         return found->get_ref<const string&>();
+    }
+
+    const string& requiredDate(const json& parent, const char* key, const string& field) const {
+        const string& date = requiredString(parent, key, field);
+        if (!isIsoDate(date)) fail(field, "is not a real YYYY-MM-DD date");
+        return date;
     }
 
     double requiredQuantity(const json& parent, const char* key, const string& field) const {
@@ -73,23 +88,22 @@ bool isScored(const json& load) {
 }
 
 void addShippedLine(AchievedRequest& achieved, const SolutionReader& reader, const json& line,
-                    const string& field) {
+                    const string& shipDate, const string& field) {
     const string& idpr = reader.requiredString(line, "IDPR", field + ".IDPR");
     const string& matnr = reader.requiredString(line, "MATNR", field + ".MATNR");
     const string& unitOfMeasure = reader.requiredString(line, "MEINS", field + ".MEINS");
     const double quantity = reader.requiredQuantity(line, "MENGE", field + ".MENGE");
-    const auto inserted =
-        achieved.shippedByIdpr.emplace(idpr, ShippedLine{matnr, unitOfMeasure, 0.0});
+    const auto inserted = achieved.shippedByIdpr.emplace(idpr, ShippedLine{matnr, unitOfMeasure, {}});
     ShippedLine& shipped = inserted.first->second;
     if (shipped.matnr != matnr || shipped.unitOfMeasure != unitOfMeasure) {
         reader.fail(field, "ships IDPR " + idpr + " as a different material or unit than an"
                     " earlier load");
     }
-    shipped.quantity += quantity;
+    shipped.quantityByShipDate[shipDate] += quantity;
 }
 
-void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& laneIndexByKey,
-                  const SolutionReader& reader, const json& root) {
+void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& laneDayIndexByKey,
+                  const SolutionReader& reader, const json& root, const string& onlyLoadId) {
     const json& lanes = reader.requiredArray(root, "LANES", "LANES");
     for (size_t laneIndex = 0; laneIndex < lanes.size(); ++laneIndex) {
         const string laneField = "LANES[" + to_string(laneIndex) + "]";
@@ -106,20 +120,27 @@ void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& lane
             const string loadField = laneField + ".LOADS[" + to_string(loadIndex) + "]";
             const json& load = loads[loadIndex];
             if (!load.is_object()) reader.fail(loadField, "is not an object");
+            if (!onlyLoadId.empty()
+                && reader.requiredString(load, "ID", loadField + ".ID") != onlyLoadId) {
+                continue;
+            }
             const bool scored = isScored(load);
             if (scored && !inSet) ++achieved.scoredLoadsOutsideSet;
             if (!scored && inSet) ++achieved.unscoredLoadsInSet;
             const json& lines = reader.requiredArray(load, "LINES", loadField + ".LINES");
             if (!inSet) continue;
 
-            const auto inserted = laneIndexByKey.emplace(
-                laneKey(locationFrom, locationTo, shipCondition), achieved.laneDays.size());
+            const string& shipDate =
+                reader.requiredDate(load, "DATFR_TA", loadField + ".DATFR_TA");
+            const auto inserted = laneDayIndexByKey.emplace(
+                laneDayKey(locationFrom, locationTo, shipCondition, shipDate),
+                achieved.laneDays.size());
             if (inserted.second) {
-                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, 0});
+                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, shipDate, 0});
             }
             ++achieved.laneDays[inserted.first->second].loads;
             for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
-                addShippedLine(achieved, reader, lines[lineIndex],
+                addShippedLine(achieved, reader, lines[lineIndex], shipDate,
                                loadField + ".LINES[" + to_string(lineIndex) + "]");
             }
         }
@@ -144,14 +165,23 @@ vector<filesystem::path> solutionFiles(const string& directory) {
 
 size_t AchievedRequest::totalLoads() const {
     size_t loads = 0;
-    for (const AchievedLane& lane : laneDays) loads += lane.loads;
+    for (const AchievedLaneDay& laneDay : laneDays) loads += laneDay.loads;
     return loads;
 }
 
-AchievedRequest readAchievedLoads(const string& directory, const string& requestId) {
+size_t AchievedRequest::laneGroups() const {
+    unordered_set<string> lanes;
+    for (const AchievedLaneDay& laneDay : laneDays) {
+        lanes.insert(laneKey(laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition));
+    }
+    return lanes.size();
+}
+
+AchievedRequest readAchievedLoads(const string& directory, const string& requestId,
+                                  const string& onlyLoadId) {
     AchievedRequest achieved;
     achieved.requestId = requestId;
-    unordered_map<string, size_t> laneIndexByKey;
+    unordered_map<string, size_t> laneDayIndexByKey;
     for (const filesystem::path& path : solutionFiles(directory)) {
         const SolutionReader reader(path.string());
         ifstream input(path, ios::binary);
@@ -161,11 +191,15 @@ AchievedRequest readAchievedLoads(const string& directory, const string& request
         if (!root.is_object()) reader.fail("file", "is not a JSON object");
         if (reader.requiredString(root, "REQUEST_ID", "REQUEST_ID") != requestId) continue;
         ++achieved.solutionFiles;
-        readSolution(achieved, laneIndexByKey, reader, root);
+        readSolution(achieved, laneDayIndexByKey, reader, root, onlyLoadId);
     }
     if (achieved.solutionFiles == 0) {
         throw runtime_error("acceptanceHarness: " + directory + ": no solution for request "
                             + requestId);
+    }
+    if (!onlyLoadId.empty() && achieved.laneDays.empty()) {
+        throw runtime_error("acceptanceHarness: " + directory + ": request " + requestId
+                            + " has no TF or TL load " + onlyLoadId);
     }
     return achieved;
 }
@@ -188,66 +222,90 @@ ValidityResult checkValidity(const PipelineResult& run, const AchievedRequest& a
         lineIndexByIdpr.emplace(demand[lineIndex].idpr, lineIndex);
     }
 
-    // The demand lines with shipped quantities in place of demanded ones. shippedLines points
-    // into shippedDemand; both stay local so no pointer outlives them.
-    vector<STRRecord> shippedDemand = demand;
-    vector<JoinedLine> shippedLines = run.join.lines;
-    DemandSelection shippedSelection;
-    shippedSelection.selected.assign(demand.size(), false);
+    // What each shipped demand line shipped on each date; map keeps the dates in order.
+    map<string, vector<pair<size_t, double>>> shippedByShipDate;
     for (const auto& [idpr, shipped] : achieved.shippedByIdpr) {
         const auto found = lineIndexByIdpr.find(idpr);
         if (found == lineIndexByIdpr.end()) {
             ++result.shippedLinesNotInDemand;
             continue;
         }
-        STRRecord& line = shippedDemand[found->second];
+        const STRRecord& line = demand[found->second];
         if (line.matnr != shipped.matnr || line.unitofmeas != shipped.unitOfMeasure) {
             ++result.shippedLinesDisagreeing;
             continue;
         }
         if (!grouped[found->second]) ++result.shippedLinesNotGrouped;
-        line.trans = shipped.quantity;
-        shippedSelection.selected[found->second] = true;
-        ++shippedSelection.selectedLines;
-    }
-    for (size_t lineIndex = 0; lineIndex < shippedLines.size(); ++lineIndex) {
-        shippedLines[lineIndex].str = &shippedDemand[lineIndex];
-    }
-
-    const FloorPlan plan =
-        planFloor(run.segregation, shippedLines, shippedSelection, run.params, trailer);
-    result.shippedLinesLeftOutOfFloor = plan.excludedLines.size();
-    unordered_map<string, const LaneFloor*> floorByLane;
-    floorByLane.reserve(plan.lanes.size());
-    for (const LaneFloor& lane : plan.lanes) {
-        floorByLane.emplace(laneKey(lane.locationFrom, lane.locationTo, lane.shipCondition), &lane);
+        for (const auto& [shipDate, quantity] : shipped.quantityByShipDate) {
+            shippedByShipDate[shipDate].emplace_back(found->second, quantity);
+        }
     }
 
     result.laneDays.reserve(achieved.laneDays.size());
-    for (const AchievedLane& achievedLane : achieved.laneDays) {
-        LaneDayValidity laneDay;
-        laneDay.lane = achievedLane.locationFrom + " -> " + achievedLane.locationTo + " "
-            + achievedLane.shipCondition;
-        laneDay.achievedLoads = achievedLane.loads;
-        const auto found = floorByLane.find(laneKey(
-            achievedLane.locationFrom, achievedLane.locationTo, achievedLane.shipCondition));
-        if (found != floorByLane.end()) {
-            laneDay.floorTrucks = found->second->floorTrucks;
-            laneDay.boundTrucks = found->second->boundTrucks;
-            laneDay.noStackingBaselineTrucks = found->second->noStackingBaselineTrucks;
-            laneDay.unitLoads = found->second->totals.unitLoads;
-            for (const size_t groupIndex : found->second->groupIndices) {
+    unordered_map<string, size_t> laneDayIndexByKey;
+    laneDayIndexByKey.reserve(achieved.laneDays.size());
+    for (const AchievedLaneDay& achievedLaneDay : achieved.laneDays) {
+        laneDayIndexByKey.emplace(laneDayKey(achievedLaneDay.locationFrom, achievedLaneDay.locationTo,
+                                             achievedLaneDay.shipCondition, achievedLaneDay.shipDate),
+                                  result.laneDays.size());
+        LaneDayValidity& laneDay = result.laneDays.emplace_back();
+        laneDay.lane = achievedLaneDay.locationFrom + " -> " + achievedLaneDay.locationTo + " "
+            + achievedLaneDay.shipCondition;
+        laneDay.shipDate = achievedLaneDay.shipDate;
+        laneDay.achievedLoads = achievedLaneDay.loads;
+    }
+
+    // The demand lines with a ship date's shipped quantities in place of demanded ones, each on
+    // the pallet type its shipped quantity chooses. shippedLines points into shippedDemand; both
+    // stay local so no pointer outlives them.
+    vector<STRRecord> shippedDemand = demand;
+    vector<JoinedLine> shippedLines = run.join.lines;
+    for (size_t lineIndex = 0; lineIndex < shippedLines.size(); ++lineIndex) {
+        shippedLines[lineIndex].str = &shippedDemand[lineIndex];
+    }
+    for (const auto& [shipDate, lineQuantities] : shippedByShipDate) {
+        DemandSelection selection;
+        selection.shipDate = shipDate;
+        selection.selected.assign(demand.size(), false);
+        for (const auto& [lineIndex, quantity] : lineQuantities) {
+            shippedDemand[lineIndex].trans = quantity;
+            if (shippedLines[lineIndex].palletTypes != nullptr) {
+                shippedLines[lineIndex].product =
+                    Joiner::choosePalletType(*shippedLines[lineIndex].palletTypes, quantity).product;
+            }
+            selection.selected[lineIndex] = true;
+            ++selection.selectedLines;
+        }
+        const FloorPlan plan =
+            planFloor(run.segregation, shippedLines, selection, run.params, trailer);
+        result.shippedLinesLeftOutOfFloor += plan.excludedLines.size();
+        for (const LaneFloor& lane : plan.lanes) {
+            const auto found = laneDayIndexByKey.find(
+                laneDayKey(lane.locationFrom, lane.locationTo, lane.shipCondition, shipDate));
+            if (found == laneDayIndexByKey.end()) {
+                ++result.floorLaneDaysWithoutLoads;
+                continue;
+            }
+            LaneDayValidity& laneDay = result.laneDays[found->second];
+            laneDay.floorTrucks = lane.floorTrucks;
+            laneDay.boundTrucks = lane.boundTrucks;
+            laneDay.noStackingBaselineTrucks = lane.noStackingBaselineTrucks;
+            laneDay.unitLoads = lane.totals.unitLoads;
+            laneDay.weightLb = lane.totals.totalWeightLb;
+            for (const size_t groupIndex : lane.groupIndices) {
                 laneDay.weightTrucks += plan.groups[groupIndex].bound.weightTrucks;
                 laneDay.volumeTrucks += plan.groups[groupIndex].bound.volumeTrucks;
             }
         }
+    }
+
+    for (const LaneDayValidity& laneDay : result.laneDays) {
         const auto achievedLoads = static_cast<long long>(laneDay.achievedLoads);
         if (laneDay.floorTrucks > achievedLoads) ++result.floorExceedsAchieved;
         if (laneDay.noStackingBaselineTrucks > achievedLoads) ++result.baselineExceedsAchieved;
         result.achievedLoads += laneDay.achievedLoads;
         result.floorTrucks += laneDay.floorTrucks;
         result.noStackingBaselineTrucks += laneDay.noStackingBaselineTrucks;
-        result.laneDays.push_back(laneDay);
     }
     return result;
 }

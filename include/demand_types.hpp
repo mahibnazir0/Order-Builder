@@ -17,6 +17,9 @@ namespace ob {
 // priority 0 or unreadable availability for zero stock; the Validator reports both.
 constexpr int kUnreadablePriority = -1;
 constexpr int kUnreadableAvailableQuantity = -1;
+// LEVEL_LOAD_START and LEVEL_LOAD_END as read when missing or not an integer. 0 is a real
+// offset (the plan date itself), so the fallback must not be 0; the ship calendar rejects it.
+constexpr int kUnreadableLevelLoadDay = -1;
 // The feed's stated TPRIO range is 0..11.
 constexpr int kMaxPriority = 11;
 
@@ -50,8 +53,8 @@ struct STRRecord {
 struct CTLRecord {
     std::string zdate;               // "2026-06-30" or "" if weekday entry
     std::string zday;                // "MONDAY".."FRIDAY" or "" if date entry
-    int         level_load_start = 0;
-    int         level_load_end = 0;
+    int         level_load_start = 0; // first ship day, days after the plan date
+    int         level_load_end = 0;   // last ship day, days after the plan date
     int         auto_o2 = 0;
 };
 

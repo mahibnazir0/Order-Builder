@@ -8,9 +8,9 @@
 //                 [--debug] [--help]
 //
 // Reads one planning day, validates it, and prints a summary. With --params it
-// also groups the demand, reports the stacks (Milestone 2) and prints the
-// truck floor for the demand the rule selects (Milestone 3). --params needs
-// --demand-rule: which demand counts toward the day has no default.
+// also groups the demand, reports the stacks (Milestone 2) and prints a truck
+// floor for each ship date the rule covers (Milestone 3). --params needs
+// --demand-rule: which ship dates a run covers has no default.
 //
 // Without --params only Milestone 1 runs: the report then says no truck floor
 // was computed and the run exits 6, so a forgotten --params is never read as a
@@ -20,12 +20,13 @@
 //   0  ran successfully: every line validated, stacked and counted toward the floor
 //   1  validation found errors
 //   2  could not run (missing argument, unreadable file, invalid demand rule,
-//      a --groups or --lanes value that is not a whole number of 0 or more,
-//      or --demand and --placeholder naming the same file)
+//      a calendar with no usable row for the plan date, a --groups or --lanes
+//      value that is not a whole number of 0 or more, or --demand and
+//      --placeholder naming the same file)
 //   3  a line that passed validation is in no stack (no unit load, taller than
 //      the ceiling, bad quantity), or no stack was built
-//   4  the floor left out a selected line, or could not judge a line's date
-//   5  the demand rule selected no line of a non-empty extract
+//   4  a floor left out a line shipping on its date, or a line has no ship date
+//   5  no line of a non-empty extract ships on the rule's dates
 //   6  no floor was computed: --params was not given
 // ============================================================================
 
@@ -60,13 +61,13 @@ void print_usage(ostream& out) {
         "Optional:\n"
         "  --params <path>       Params JSON; turns on the Milestone 2 groups and stacks report\n"
         "                        and the Milestone 3 truck floor. Needs --demand-rule\n"
-        "  --demand-rule <rule>  Which demand counts toward the floor; no default:\n"
-        "                          wholeExtract           every line in the file\n"
-        "                          dueBy:YYYY-MM-DD       delivery date (DATTO_TA) on or before the date\n"
-        "                          availableBy:YYYY-MM-DD ship date (DATFR_TA) on or before the date\n"
-        "                          window:YYYY-MM-DD:YYYY-MM-DD  DATTO_TA inside the window\n"
-        "                          schedule:YYYY-MM-DD    DATTO_TA on the delivery days of a\n"
-        "                                                 Monday, Tuesday or Friday plan (provisional)\n"
+        "  --demand-rule <rule>  Which ship dates (DATFR_TA) get a floor, each on its own; no default:\n"
+        "                          calendar:YYYY-MM-DD    the dates the demand file's CTL calendar\n"
+        "                                                 gives a plan made on that date\n"
+        "                          shipDates:YYYY-MM-DD[:YYYY-MM-DD]  that date, or every date\n"
+        "                                                 from the first to the last\n"
+        "                          wholeExtract           every line as one floor (a check on the\n"
+        "                                                 extract, not a daily floor)\n"
         "  --pallets <path>      Pallet table CSV (weight, height, footprint per pallet type);\n"
         "                        needed with --params when the master has no Pallet_* columns\n"
         "  --layer-sizes <path>  Product master to borrow Layer_Length/Layer_Width from, for a\n"
@@ -84,8 +85,8 @@ void print_usage(ostream& out) {
         "  1  validation errors\n"
         "  2  could not run\n"
         "  3  a line is in no stack (see Result)\n"
-        "  4  a line was left out of the floor or undated under the demand rule (see section B)\n"
-        "  5  the demand rule selected no line at all\n"
+        "  4  a line was left out of a floor (section B) or has no ship date (section A)\n"
+        "  5  no line ships on the rule's dates\n"
         "  6  no floor computed: --params was not given\n";
 }
 
@@ -221,8 +222,8 @@ int main(int argc, char** argv) {
                                      static_cast<size_t>(max_groups));
         }
         if (result.ranFloor) {
-            ob::printFloorReport(cout, result.floorPlan, result.demandSelection, result.params,
-                                 result.trailer, result.trailerChoice, inputs.demand_path,
+            ob::printFloorReport(cout, result.floorRun, result.params, result.trailer,
+                                 result.trailerChoice, inputs.demand_path,
                                  static_cast<size_t>(max_lanes));
         } else {
             print_floor_not_computed(cout);

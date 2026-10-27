@@ -221,30 +221,32 @@ void requireDistinctDemandAndPlaceholder(const PipelineInputs& inputs) {
     }
 }
 
-// Non-empty demand of which the rule took nothing is far more often a mistyped planning date
+// Non-empty demand of which no line ships on the rule's dates is far more often a mistyped date
 // than a day with nothing to ship, so it never reads as a complete run.
 bool selectsNothing(const PipelineResult& result) {
-    return !result.demand.str.empty() && result.demandSelection.selectedLines == 0;
+    return !result.demand.str.empty() && result.floorRun.selectedLines() == 0;
 }
 
 void runFloor(const DemandSelector& selector, PipelineResult& result) {
-    result.demandSelection = selectDemand(result.demand.str, selector);
-    result.floorPlan = planFloor(result.segregation, result.join.lines, result.demandSelection,
-                                 result.params, result.trailer);
+    result.floorRun = planFloorRun(selector, result.demand, result.segregation, result.join.lines,
+        result.placeholders.placeholders,
+        Validator::excludedPlaceholderFlags(result.validation,
+                                            result.placeholders.placeholders.size()),
+        result.params, result.trailer);
+    const ShipDateCoverage& coverage = result.floorRun.coverage;
     const string ruleText = describeDemandSelector(selector);
     if (selectsNothing(result)) {
-        LOG_WARN(ruleText + " selected none of the " + to_string(result.demand.str.size())
-                 + " demand line(s); check the planning date");
+        LOG_WARN("none of the " + to_string(result.demand.str.size()) + " demand line(s) ships"
+                 " on the dates of " + ruleText + "; check the dates");
     }
-    if (!result.demandSelection.undatedLines.empty()) {
-        LOG_WARN(to_string(result.demandSelection.undatedLines.size())
-                 + " demand line(s) have a date " + ruleText
-                 + " cannot judge and do not count toward the floor");
+    if (!coverage.undatedLines.empty()) {
+        LOG_WARN(to_string(coverage.undatedLines.size())
+                 + " demand line(s) have no real ship date (DATFR_TA) and count toward no floor");
     }
-    if (!result.floorPlan.excludedLines.empty()) {
-        LOG_WARN(to_string(result.floorPlan.excludedLines.size())
-                 + " demand line(s) selected by " + ruleText
-                 + " were left out of the floor (listed in section B)");
+    if (result.floorRun.linesLeftOut() > 0) {
+        LOG_WARN(to_string(result.floorRun.linesLeftOut())
+                 + " demand line(s) shipping on the run's dates were left out of the floor"
+                   " (listed in section B)");
     }
     result.ranFloor = true;
 }
@@ -255,7 +257,7 @@ RunOutcome runOutcome(const PipelineResult& result) {
     if (result.validation.errors > 0) return RunOutcome::ValidationErrors;
     if (result.ranMilestone2 && !result.stackReport.isComplete()) return RunOutcome::LinesNotStacked;
     if (!result.ranFloor) return RunOutcome::FloorNotComputed;
-    if (!result.demandSelection.undatedLines.empty() || !result.floorPlan.excludedLines.empty()) {
+    if (!result.floorRun.coverage.undatedLines.empty() || result.floorRun.linesLeftOut() > 0) {
         return RunOutcome::FloorIncomplete;
     }
     if (selectsNothing(result)) return RunOutcome::NothingSelected;
@@ -343,7 +345,7 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     // ── 6. Milestone 2: segregate, pass 1, pass 2, stack report ─────────────
     if (!inputs.paramsPath.empty()) runMilestone2(inputs, result);
 
-    // ── 7. Milestone 3: select demand, floor ────────────────────────────────
+    // ── 7. Milestone 3: a floor per ship date ───────────────────────────────
     if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
 
     // Logged only now so the count includes the warnings Milestone 2 adds and matches the report.

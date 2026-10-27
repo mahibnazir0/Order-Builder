@@ -238,6 +238,38 @@ TEST_CASE("a missing or fractional AVAIL_QTY loads as the unreadable sentinel") 
     CHECK(loadOneLine(R"({"AVAIL_QTY":12.5})").avail_qty == kUnreadableAvailableQuantity);
 }
 
+namespace {
+
+CTLRecord loadOneCalendarRow(const string& rowJson) {
+    const string path = "tests/importer/_tmp_ctl_level_load.json";
+    ofstream(path) << R"({"REQUEST_ID":"X","STR":[],"CTL":[)" << rowJson << "]}";
+    const DemandFile demand = Importer::load_demand(path);
+    remove(path.c_str());
+    REQUIRE(demand.ctl.size() == 1);
+    return demand.ctl[0];
+}
+
+} // namespace
+
+TEST_CASE("a missing CTL level-load day loads as the unreadable sentinel, never as day 0") {
+    const CTLRecord row = loadOneCalendarRow(R"({"ZDAY":"MONDAY"})");
+    CHECK(row.level_load_start == kUnreadableLevelLoadDay);
+    CHECK(row.level_load_end == kUnreadableLevelLoadDay);
+}
+
+TEST_CASE("a fractional or string CTL level-load day loads as the unreadable sentinel") {
+    CHECK(loadOneCalendarRow(R"({"LEVEL_LOAD_START":2.5})").level_load_start
+          == kUnreadableLevelLoadDay);
+    CHECK(loadOneCalendarRow(R"({"LEVEL_LOAD_END":"3"})").level_load_end
+          == kUnreadableLevelLoadDay);
+}
+
+TEST_CASE("a CTL level-load day of 0 loads as 0") {
+    const CTLRecord row = loadOneCalendarRow(R"({"LEVEL_LOAD_START":0,"LEVEL_LOAD_END":0})");
+    CHECK(row.level_load_start == 0);
+    CHECK(row.level_load_end == 0);
+}
+
 TEST_CASE("a fractional BNFPO falls back to 0 rather than truncating") {
     CHECK(loadOneLine(R"({"BNFPO":10.5})").bnfpo == 0);
     CHECK(loadOneLine(R"({"BNFPO":20})").bnfpo == 20);

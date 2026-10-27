@@ -289,16 +289,16 @@ TEST_CASE("converter reproduces the pallet-equivalent total for the whole file" 
     }
 
     // The figure in the Milestone 1 summary Tom checks against his own.
-    CHECK(total_pallets == doctest::Approx(145705.8).epsilon(1e-6));
+    CHECK(total_pallets == doctest::Approx(145765.8).epsilon(1e-6));
 
     // Weight follows from the unit-load basis plus 65 lb of wood.
-    CHECK(total_weight == doctest::Approx(99014698.0).epsilon(1e-8));
+    CHECK(total_weight == doctest::Approx(99014642.0).epsilon(1e-8));
 }
 
 TEST_CASE("the two variants of an ambiguous product convert differently" * doctest::skip(!crossDayTests::august17Present())) {
-    // This is why the joiner flags 144 lines: 105553001 is 84 cases per unit
-    // load as GMA and 168 as TLD, so the same demand line is worth twice as
-    // many pallets depending on which variant is chosen.
+    // Why the pallet type matters: 105553001 is 84 cases per unit load as GMA
+    // and 168 as TLD, so the same demand line is worth twice as many pallets
+    // depending on which type it rides on.
     ProductLoadResult products = ProductImporter::load(PRODUCT_PATH);
 
     const ProductRecord gma = find_product(products.products, "105553001", "GMA");
@@ -408,7 +408,7 @@ TEST_CASE("the default rounding mode leaves the whole-file total unchanged" * do
         ceiled        += Converter::to_pallets(trans, uom, *line.product, PalletRounding::Ceil);
     }
 
-    CHECK(defaulted == doctest::Approx(145705.8).epsilon(1e-6));
+    CHECK(defaulted == doctest::Approx(145765.8).epsilon(1e-6));
     CHECK(defaulted == doctest::Approx(explicit_none));
 
     // Rounding per line really does move the total, which is why None is the

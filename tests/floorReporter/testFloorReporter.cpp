@@ -32,29 +32,55 @@ string lineContaining(const string& report, const string& marker) {
     return "";
 }
 
-string reportFor(const FloorPlan& plan, const DemandSelection& selection, size_t maxLanes = 0,
-                 const M2Params& params = shippedParams()) {
+// A run of the one floor, as a single-date or wholeExtract run has.
+FloorRun runOf(const FloorPlan& plan, const DemandSelection& selection) {
+    FloorRun run;
+    run.selector = parseDemandSelector(plan.shipDate.empty() ? "wholeExtract"
+                                                             : "shipDates:" + plan.shipDate);
+    run.coverage = coverShipDates(run.selector, {});
+    run.floors.push_back({selection, plan});
+    return run;
+}
+
+string reportOf(const FloorRun& run, const TrailerSpec& trailer = shippedTrailer(),
+                TrailerChoice trailerChoice = TrailerChoice::Named, size_t maxLanes = 0,
+                const M2Params& params = shippedParams()) {
     ostringstream out;
-    printFloorReport(out, plan, selection, params, shippedTrailer(), TrailerChoice::Named, "17 Aug",
-                     maxLanes);
+    printFloorReport(out, run, params, trailer, trailerChoice, "17 Aug", maxLanes);
     return out.str();
 }
 
+string reportFor(const FloorPlan& plan, const DemandSelection& selection, size_t maxLanes = 0,
+                 const M2Params& params = shippedParams()) {
+    return reportOf(runOf(plan, selection), shippedTrailer(), TrailerChoice::Named, maxLanes,
+                    params);
+}
+
 // Lanes S1 (two groups of half a trailer: floor 2), S2 (half a trailer: floor 1) and S3 (two
-// and a half trailers: floor 3), every line due 2026-10-02.
+// and a half trailers: floor 3), every line shipping 2026-10-02.
 struct ThreeLanes {
     HalfTrailerLines fixture{8};
     DemandSelection selection;
     FloorPlan plan;
 
     explicit ThreeLanes(const M2Params& params = shippedParams()) {
-        for (STRRecord& line : fixture.demand) line.datto_ta = "2026-10-02";
-        selection = selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
+        for (STRRecord& line : fixture.demand) line.datfr_ta = "2026-10-02";
+        selection = selectShipDate(fixture.demand, "2026-10-02");
         plan = planFloor(segregation({group("S1", "", {0}), group("S1", "P", {1}),
                                       group("S2", "", {2}), group("S3", "", {3, 4, 5, 6, 7})}),
                          fixture.lines, selection, params, shippedTrailer());
     }
 };
+
+PlaceholderRecord placeholder(const string& locationTo, const string& shipDate, int trucks) {
+    PlaceholderRecord record;
+    record.locfrno = "2027";
+    record.loctono = locationTo;
+    record.ship_cond = "TL";
+    record.datfr_ta = shipDate;
+    record.no_of_loads = trucks;
+    return record;
+}
 
 } // namespace
 
@@ -63,7 +89,10 @@ TEST_CASE("floorReporter: the basis block names every decision behind the figure
     const string report = reportFor(lanes.plan, lanes.selection);
     const TrailerSpec& trailer = shippedTrailer();
     CHECK(lineContaining(report, "Extract").find("17 Aug") != string::npos);
-    CHECK(lineContaining(report, "Demand rule").find("dueBy(2026-10-02)") != string::npos);
+    CHECK(lineContaining(report, "Demand rule").find("shipDates(2026-10-02)") != string::npos);
+    CHECK(lineContaining(report, "Demand rule").find("a floor per ship date") != string::npos);
+    CHECK(lineContaining(report, "Ship dates").find("2026-10-02") != string::npos);
+    CHECK(lineContaining(report, "as given on the command line") != "");
     CHECK(lineContaining(report, "Trailer").find(trailer.trailerCode) != string::npos);
     CHECK(lineContaining(report, "Weight limit").find(grouped(trailer.weightLimitLb) + " lb")
           != string::npos);
@@ -91,11 +120,11 @@ TEST_CASE("floorReporter: lines with no layer size are counted beside the cargo 
           != string::npos);
 }
 
-TEST_CASE("floorReporter: the floor is printed beside its rule, rounding point and trailer") {
+TEST_CASE("floorReporter: the floor is printed beside its ship date, rounding point and trailer") {
     const ThreeLanes lanes;
-    const string floorLine = lineContaining(reportFor(lanes.plan, lanes.selection), "FLOOR ");
+    const string floorLine = lineContaining(reportFor(lanes.plan, lanes.selection), "  FLOOR ");
     CHECK(floorLine.find(to_string(lanes.plan.floorTrucks) + " trucks") != string::npos);
-    CHECK(floorLine.find("dueBy(2026-10-02)") != string::npos);
+    CHECK(floorLine.find("2026-10-02") != string::npos);
     CHECK(floorLine.find("rounded group level") != string::npos);
     CHECK(floorLine.find(shippedTrailer().trailerCode) != string::npos);
 }
@@ -112,11 +141,9 @@ TEST_CASE("floorReporter: a configured depth limit prints its term") {
     TrailerSpec trailer = shippedTrailer();
     trailer.maxStackDepth = 3;
     const ThreeLanes lanes;
-    ostringstream out;
-    printFloorReport(out, lanes.plan, lanes.selection, shippedParams(), trailer,
-                     TrailerChoice::Named, "17 Aug");
-    CHECK(lineContaining(out.str(), "    stack depth").find("binds on") != string::npos);
-    CHECK(lineContaining(out.str(), "Max stack depth").find("3") != string::npos);
+    const string report = reportOf(runOf(lanes.plan, lanes.selection), trailer);
+    CHECK(lineContaining(report, "    stack depth").find("binds on") != string::npos);
+    CHECK(lineContaining(report, "Max stack depth").find("3") != string::npos);
 }
 
 TEST_CASE("floorReporter: the no-stacking baseline is labelled as not being a floor") {
@@ -139,14 +166,14 @@ TEST_CASE("floorReporter: lanes are listed largest floor first with their groups
     CHECK(laneS1 < laneS2);
     const string rowS1 = lineContaining(report, "2027 -> S1 TL");
     CHECK(rowS1.find("volume") != string::npos);
-    CHECK(rowS1.substr(rowS1.size() - 2) == " 2");
+    CHECK(rowS1.find("  2         0") != string::npos);
 }
 
-TEST_CASE("floorReporter: section C names the rule and rounding its floors were made under") {
+TEST_CASE("floorReporter: section C names the ship date and rounding its floors were made under") {
     const ThreeLanes lanes;
     const string header =
         lineContaining(reportFor(lanes.plan, lanes.selection), "C. FLOOR BY LANE");
-    CHECK(header.find("dueBy(2026-10-02)") != string::npos);
+    CHECK(header.find("2026-10-02") != string::npos);
     CHECK(header.find("rounded group level") != string::npos);
 }
 
@@ -174,18 +201,75 @@ TEST_CASE("floorReporter: lines left out of the floor are listed with their reas
     CHECK(report.find("line 2: unit load taller than the trailer ceiling") != string::npos);
 }
 
-TEST_CASE("floorReporter: undated and unselected lines are counted beside the selection") {
-    HalfTrailerLines fixture(3);
-    fixture.demand[0].datto_ta = "2026-10-02";
-    fixture.demand[1].datto_ta = "2026-10-09";
-    const DemandSelection selection =
-        selectDemand(fixture.demand, parseDemandSelector("dueBy:2026-10-02"));
-    const FloorPlan plan = planFloor(segregation({group("S1", "", {0, 1, 2})}), fixture.lines,
-                                     selection, shippedParams(), shippedTrailer());
-    const string report = reportFor(plan, selection);
-    CHECK(lineContaining(report, "Demand lines selected").find("1 of 3") != string::npos);
-    CHECK(lineContaining(report, "undated").find("1") != string::npos);
-    CHECK(lineContaining(report, "grouped, not selected").find("2") != string::npos);
+TEST_CASE("floorReporter: section A places every line before, on or after the run's dates") {
+    HalfTrailerLines fixture(4);
+    fixture.demand[0].datfr_ta = "2026-10-01";
+    fixture.demand[1].datfr_ta = "2026-10-02";
+    fixture.demand[2].datfr_ta = "2026-10-09";
+    DemandFile demand;
+    demand.str = fixture.demand;
+    const FloorRun run = planFloorRun(parseDemandSelector("shipDates:2026-10-02"), demand,
+                                      segregation({group("S1", "", {0, 1, 2, 3})}), fixture.lines,
+                                      {placeholder("S1", "2026-10-05", 3)}, {false},
+                                      shippedParams(), shippedTrailer());
+    const string report = reportOf(run);
+    CHECK(lineContaining(report, "Lines on the run's dates").find(" 1  (") != string::npos);
+    CHECK(lineContaining(report, "before the first date").find(" 1  (") != string::npos);
+    CHECK(lineContaining(report, "after the last date").find(" 1  (future demand") != string::npos);
+    CHECK(lineContaining(report, "  undated").find(" 1  (") != string::npos);
+    CHECK(lineContaining(report, "Reserved, other dates").find("3 truck(s)") != string::npos);
+    CHECK(lineContaining(report, "Pulling demand forward").find("not applied") != string::npos);
+    CHECK(lineContaining(report, "Demand lines selected").find("1 of 4") != string::npos);
+    CHECK(lineContaining(report, "grouped, not selected").find("3") != string::npos);
+}
+
+TEST_CASE("floorReporter: each ship date gets its own floor section and the total adds them") {
+    HalfTrailerLines fixture(2);
+    fixture.demand[0].datfr_ta = "2026-10-02";
+    fixture.demand[1].datfr_ta = "2026-10-03";
+    DemandFile demand;
+    demand.str = fixture.demand;
+    const FloorRun run = planFloorRun(parseDemandSelector("shipDates:2026-10-02:2026-10-03"),
+                                      demand, segregation({group("S1", "", {0, 1})}),
+                                      fixture.lines, {}, {}, shippedParams(), shippedTrailer());
+    const string report = reportOf(run);
+    const size_t firstDay = report.find("B. THE FLOOR - SHIP DATE 2026-10-02");
+    const size_t secondDay = report.find("B. THE FLOOR - SHIP DATE 2026-10-03");
+    REQUIRE(firstDay != string::npos);
+    REQUIRE(secondDay != string::npos);
+    CHECK(firstDay < secondDay);
+    CHECK(lineContaining(report, "Floor, all ship dates").find("2 trucks") != string::npos);
+}
+
+TEST_CASE("floorReporter: the basis names the calendar row a run's ship dates came from") {
+    HalfTrailerLines fixture(1);
+    fixture.demand[0].datfr_ta = "2026-10-07";
+    DemandFile demand;
+    demand.str = fixture.demand;
+    demand.ctl = {{"", "MONDAY", 2, 3, 0}, {"2026-10-05", "", 2, 4, 0}};
+    const FloorRun run = planFloorRun(parseDemandSelector("calendar:2026-10-05"), demand,
+                                      segregation({group("S1", "", {0})}), fixture.lines, {}, {},
+                                      shippedParams(), shippedTrailer());
+    const string report = reportOf(run);
+    CHECK(lineContaining(report, "Demand rule").find("calendar(plan 2026-10-05 Monday)")
+          != string::npos);
+    CHECK(lineContaining(report, "Ship dates").find("2026-10-07, 2026-10-08, 2026-10-09")
+          != string::npos);
+    CHECK(lineContaining(report, "CTL row 1, dated the plan date: overrides the weekday row")
+          != "");
+}
+
+TEST_CASE("floorReporter: section B and C set each day's reserved trucks beside its floor") {
+    ThreeLanes lanes;
+    matchReservations(lanes.plan, {placeholder("S1", "2026-10-02", 5),
+                                   placeholder("S9", "2026-10-02", 2)},
+                      {false, false});
+    const string report = reportFor(lanes.plan, lanes.selection);
+    CHECK(lineContaining(report, "  Reserved ").find("7 trucks") != string::npos);
+    CHECK(lineContaining(report, "on lanes without demand").find("2 trucks") != string::npos);
+    CHECK(lineContaining(report, "lanes floored above it").find(" 2  (") != string::npos);
+    const string rowS1 = lineContaining(report, "2027 -> S1 TL");
+    CHECK(rowS1.substr(rowS1.size() - 2) == " 5");
 }
 
 TEST_CASE("floorReporter: the deck-height and lane-rounding readings are shown when chosen") {
@@ -197,7 +281,7 @@ TEST_CASE("floorReporter: the deck-height and lane-rounding readings are shown w
           != string::npos);
     CHECK(lineContaining(report, "Rounding point").find("floorRoundingPoint = Lane")
           != string::npos);
-    CHECK(lineContaining(report, "FLOOR ").find("rounded lane level") != string::npos);
+    CHECK(lineContaining(report, "  FLOOR ").find("rounded lane level") != string::npos);
 }
 
 TEST_CASE("floorReporter: text from the input files is printed as plain ASCII") {
@@ -209,7 +293,7 @@ TEST_CASE("floorReporter: text from the input files is printed as plain ASCII") 
     const FloorPlan plan = planFloor(segregation({group("S\xC3\xA9", "", {0})}), lines, selection,
                                      shippedParams(), trailer);
     ostringstream out;
-    printFloorReport(out, plan, selection, shippedParams(), trailer, TrailerChoice::Named,
+    printFloorReport(out, runOf(plan, selection), shippedParams(), trailer, TrailerChoice::Named,
                      "Extract \xE2\x80\x94 Aug");
     CHECK(isPlainAscii(out.str()));
     CHECK(out.str().find("2027 -> S?? TL") != string::npos);
@@ -220,7 +304,7 @@ TEST_CASE("floorReporter: an empty plan still prints its basis and a zero floor"
     const FloorPlan plan =
         planFloor(SegregationResult{}, {}, selection, shippedParams(), shippedTrailer());
     const string report = reportFor(plan, selection);
-    CHECK(lineContaining(report, "FLOOR ").find("0 trucks") != string::npos);
+    CHECK(lineContaining(report, "  FLOOR ").find("0 trucks") != string::npos);
     CHECK(lineContaining(report, "Demand rule").find("wholeExtract") != string::npos);
 }
 
@@ -228,16 +312,15 @@ TEST_CASE("floorReporter: the floor is printed with the evidence that it is a lo
     const ThreeLanes lanes;
     const string report = reportFor(lanes.plan, lanes.selection);
     REQUIRE(report.find("a lower bound: checked against Truck Builder") != string::npos);
-    CHECK(report.find("a lower bound: checked against Truck Builder") > report.find("FLOOR "));
+    CHECK(report.find("a lower bound: checked against Truck Builder") > report.find("  FLOOR "));
     CHECK(report.find("NOT YET VALIDATED") == string::npos);
 }
 
 TEST_CASE("floorReporter: the basis says how the trailer was chosen") {
     const ThreeLanes lanes;
-    ostringstream largest;
-    printFloorReport(largest, lanes.plan, lanes.selection, shippedParams(), shippedTrailer(),
-                     TrailerChoice::Largest, "17 Aug");
-    CHECK(lineContaining(largest.str(), "Trailer").find("largest listed") != string::npos);
+    const string largest =
+        reportOf(runOf(lanes.plan, lanes.selection), shippedTrailer(), TrailerChoice::Largest);
+    CHECK(lineContaining(largest, "Trailer").find("largest listed") != string::npos);
     CHECK(lineContaining(reportFor(lanes.plan, lanes.selection), "Trailer")
               .find("named with --trailer") != string::npos);
 }
@@ -248,12 +331,6 @@ TEST_CASE("floorReporter: unit loads are labelled as fractional equivalents") {
     CHECK(lineContaining(report, "Unit-load equivalents").find("not physical pallets")
           != string::npos);
     CHECK(report.find("Unit loads") == string::npos);
-}
-
-TEST_CASE("floorReporter: section B counts the overdue lines the rule selected") {
-    const ThreeLanes lanes;
-    CHECK(lineContaining(reportFor(lanes.plan, lanes.selection), "  overdue")
-              .find(" 0  (selected") != string::npos);
 }
 
 TEST_CASE("floorReporter: a lane with no line counted prints not measurable, never a zero floor") {
@@ -288,33 +365,44 @@ TEST_CASE("floorReporter: a fully counted lane prints its floor with no star or 
     CHECK(report.find("* lane has selected lines left out") == string::npos);
 }
 
-TEST_CASE("floorReporter: a selection that is not the plan's is a caller error") {
+TEST_CASE("floorReporter: a floor whose selection is for another ship date is a caller error") {
     const ThreeLanes lanes;
-    const DemandSelection otherRule =
-        selectDemand(lanes.fixture.demand, parseDemandSelector("dueBy:2026-10-03"));
+    FloorRun run = runOf(lanes.plan, lanes.selection);
+    run.floors[0].selection = selectShipDate(lanes.fixture.demand, "2026-10-03");
     ostringstream out;
-    CHECK_THROWS_AS(printFloorReport(out, lanes.plan, otherRule, shippedParams(), shippedTrailer(),
+    CHECK_THROWS_AS(printFloorReport(out, run, shippedParams(), shippedTrailer(),
                                      TrailerChoice::Named, "17 Aug"),
                     invalid_argument);
 }
 
-TEST_CASE("floorReporter: the report on every extract is plain ASCII and states its floor" * doctest::skip(!allExtractsPresent())) {
+TEST_CASE("floorReporter: the report on every extract is plain ASCII and states each day's floor" * doctest::skip(!allExtractsPresent())) {
+    const PerDay<string> planDates{"2026-08-17", "2026-08-31", "2026-09-01", "2026-09-02"};
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {
         CAPTURE(dayFiles()[dayIndex].label);
         const PipelineResult& run = pipelineRuns()[dayIndex];
-        const DemandSelection selection =
-            selectDemand(run.demand.str, parseDemandSelector("wholeExtract"));
-        const FloorPlan plan =
-            planFloor(run.segregation, run.join.lines, selection, run.params, shippedTrailer());
+        const FloorRun floorRun = planFloorRun(
+            parseDemandSelector("calendar:" + planDates[dayIndex]), run.demand, run.segregation,
+            run.join.lines, run.placeholders.placeholders,
+            Validator::excludedPlaceholderFlags(run.validation, run.placeholders.placeholders.size()),
+            run.params, shippedTrailer());
         ostringstream out;
-        printFloorReport(out, plan, selection, run.params, shippedTrailer(),
-                         TrailerChoice::Named, dayFiles()[dayIndex].label);
+        printFloorReport(out, floorRun, run.params, shippedTrailer(), TrailerChoice::Named,
+                         dayFiles()[dayIndex].label);
         const string report = out.str();
         CHECK(isPlainAscii(report));
-        CHECK(lineContaining(report, "FLOOR ")
-                  .find(grouped(static_cast<double>(plan.floorTrucks)) + " trucks")
+        size_t searchFrom = 0;
+        for (const ShipDateFloor& floor : floorRun.floors) {
+            CAPTURE(floor.plan.shipDate);
+            const size_t section = report.find("SHIP DATE " + floor.plan.shipDate, searchFrom);
+            REQUIRE(section != string::npos);
+            const size_t floorLine = report.find("  FLOOR ", section);
+            CHECK(report.substr(floorLine, 80)
+                      .find(grouped(static_cast<double>(floor.plan.floorTrucks)) + " trucks")
+                  != string::npos);
+            searchFrom = floorLine;
+        }
+        CHECK(lineContaining(report, "Floor, all ship dates")
+                  .find(grouped(static_cast<double>(floorRun.floorTrucks())) + " trucks")
               != string::npos);
-        CHECK(lineContaining(report, "Lanes ")
-                  .find(grouped(static_cast<double>(plan.lanes.size()))) != string::npos);
     }
 }

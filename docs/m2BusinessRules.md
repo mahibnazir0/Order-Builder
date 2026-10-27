@@ -87,16 +87,16 @@ result and what is missing.
 PGM, GMA), with the same dimensions and weight but a different `Cases_Unit_Load`. The demand
 file has no pallet-type field, so the variant has to be inferred.
 
-**Current behaviour.** A fixed preference order, TLD, then PTL, PGM, GMA, picks the variant,
-and every such line is flagged (144 lines, 0.59%, on 17 August). The report prints the count
-so no figure is presented as settled.
-
-**Proposed rule.** Following the customer's statement that goods ship in whole pallets:
+**Current behaviour (customer's rule, 27 Oct).** Goods ship in whole pallets:
 
 1. If exactly one variant divides the ordered case quantity evenly, use it.
-2. If several divide evenly, or none does, fall back to the preference order and keep the
-   line flagged.
-3. A line that ships a partial pallet under its chosen variant is rounded up as in section 1.
+2. If several divide evenly, use GMA ("GMA when its capacity divides the quantity evenly"),
+   else the preference order TLD, PTL, PGM, GMA; the line is flagged `pallet_type_tie`.
+3. If none divides evenly, use the preference order; the line is flagged
+   `pallet_type_no_fit`.
+4. A line that ships a partial pallet under its chosen variant is rounded up as in section 1.
+
+On 17 August, 108 of the 144 lines are settled by rule 1, 35 are ties and 1 has no fit.
 
 **Rationale.** Measured on all four days, the divisibility rule resolves 69–75% of ambiguous
 lines, and fewer than 0.1% of all lines are not a whole number of pallets, so the premise
@@ -105,18 +105,18 @@ every valid TLD quantity is also a valid GMA quantity.
 
 **Worked examples.** Product 105553001, GMA 84 cases per pallet, TLD 168.
 
-| Demand | GMA | TLD | Divisibility rule | Current preference order |
+| Demand | GMA | TLD | Divisibility rule (since 28 Oct) | Preference order (before) |
 |---|---|---|---|---|
 | 252 CS | 3 pallets ✓ | 1.5 ✗ | **GMA, 3 pallets** | TLD, 1.5 → 2 pallets |
-| 336 CS | 4 pallets ✓ | 2 ✓ | Ambiguous → TLD, 2 pallets, flagged | TLD, 2 pallets |
+| 336 CS | 4 pallets ✓ | 2 ✓ | Tie → GMA, 4 pallets, flagged | TLD, 2 pallets |
 | 100 CS | 1.19 ✗ | 0.60 ✗ | No fit → TLD, 0.60 → 1 pallet, flagged | TLD, 1 pallet |
 
-**Status.** The divisibility rule is not implemented yet. We propose implementing it once the
-customer confirms rules 1 and 2. Until then the preference order applies.
+**Status.** Implemented 28 Oct 2026. Rule 1 never disagrees with the old preference order on
+the extracts supplied; only rule 2's GMA tie-break moves a figure.
 
-**To confirm:** the divisibility rule; the fallback order when it cannot decide; and whether
-the customer can supply the pallet type for the 105553001-style products, which no rule can
-infer.
+**To confirm:** the tie-break and the fallback (the customer's existing system also uses
+configured pallet selection and partial-quantity handling); and whether the customer can
+supply the pallet type for the 105553001-style products, which no rule can infer.
 
 ---
 
@@ -252,7 +252,7 @@ any method should be added or dropped; the tie-break; and the Try Hard attempt c
 |---|---|---|---|
 | 1 | Round partial pallets up per line for stacking | Yes (`stackWholePallets: true`); M1 totals stay fractional | Config change |
 | 2 | Stack a partial pallet at full unit-load height | Yes | One-line change in unit-load height |
-| 3 | Pallet variant: divisibility first, then the preference order TLD, PTL, PGM, GMA | Yes, flagged when unresolved | Joiner change, not yet built |
+| 3 | Pallet variant: divisibility first; GMA on a tie; the preference order TLD, PTL, PGM, GMA when none divides | Divisibility and GMA first given 27 Oct; tie-break and fallback flagged, to confirm | Built 28 Oct; tie-break is one constant in the Joiner |
 | 4 | Pallet type for products no rule can resolve (e.g. 105553001) | Customer to supply, if available | Data change |
 | 5 | DNM reading: `Strict`, with each flagged planner on its own, including the three at site 2028 | `Strict` | Config change (`FlaggedVsNormal`) |
 | 6 | Definitions of the five stacking methods and the tie-break | As in section 5 | Contained to `stackBuilder` |

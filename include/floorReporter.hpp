@@ -20,23 +20,27 @@
 namespace ob {
 
 // Prints, in order:
-//   the basis block  - extract, demand rule, trailer and how it was chosen, weight limit, stack
-//                      positions, interior height, depth limit, pallet weights and their
-//                      source, deck height, rounding point and what a unit-load equivalent
-//                      is, each marked with the open question behind it;
-//   section B        - the floor: lines selected (and how many overdue), lanes (and how many
-//                      are not measurable or understated) and groups, every bound term whether
-//                      or not it binds, the floor with its not-yet-validated caveat, and the
-//                      no-stacking baseline labelled as not being a floor, then every line
-//                      left out and why;
-//   section C        - floor by lane: groups, unit-load equivalents, stacked inches, binding
-//                      term, floor ("not measurable" with no line counted, "*" if understated).
-// selection must be the one plan was built from; params and trailer the ones it was planned
-// against, and trailerChoice how that trailer was chosen. maxLanes limits section C to the lanes with the largest floors; 0 prints all.
-// Throws std::invalid_argument when selection does not carry the plan's demand rule.
-void printFloorReport(std::ostream& out, const FloorPlan& plan, const DemandSelection& selection,
-                      const M2Params& params, const TrailerSpec& trailer,
-                      TrailerChoice trailerChoice, const std::string& extractLabel,
-                      std::size_t maxLanes = 0);
+//   the basis block  - extract, demand rule and the ship dates it covers (with the calendar row
+//                      they came from), trailer and how it was chosen, weight limit, interior,
+//                      depth limit, pallet weights and their source, deck height, rounding
+//                      point and what a unit-load equivalent is;
+//   section A        - where the extract falls against the run's ship dates: lines on them,
+//                      before them, after them (future demand, in no floor) and undated;
+//                      placeholders outside them; the daily floors and reservations added up;
+//   then for each ship date (once for wholeExtract):
+//   section B        - the floor: lines selected, lanes (and how many are not measurable or
+//                      understated) and groups, every bound term whether or not it binds, the
+//                      floor, the no-stacking baseline labelled as not being a floor, the
+//                      trucks reserved that day, then every line left out and why;
+//   section C        - floor by lane: groups, unit-load equivalents, cargo volume, binding
+//                      term, floor ("not measurable" with no line counted, "*" if understated)
+//                      and the trucks reserved on the lane that day.
+// params and trailer must be the ones the run was planned against, and trailerChoice how that
+// trailer was chosen. maxLanes limits each section C to the lanes with the largest floors; 0
+// prints all. Throws std::invalid_argument when a floor's selection and plan are for different
+// ship dates.
+void printFloorReport(std::ostream& out, const FloorRun& run, const M2Params& params,
+                      const TrailerSpec& trailer, TrailerChoice trailerChoice,
+                      const std::string& extractLabel, std::size_t maxLanes = 0);
 
 } // namespace ob

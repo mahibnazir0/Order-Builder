@@ -443,8 +443,8 @@ TEST_CASE("cli: the real day's over-own-CRI lines are logged once and listed in 
     CHECK(contains(run.output, "line 3519, material 106005500: exceeds its own CRI limit"));
     CHECK(contains(run.output, "line 13056, material 106005500: exceeds its own CRI limit"));
     CHECK_FALSE(contains(run.output, "[WARN] Demand line 3519"));
-    CHECK(contains(run.output, "0 error(s), 160 warning(s)"));
-    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 160 warnings across 24357 demand lines"));
+    CHECK(contains(run.output, "0 error(s), 52 warning(s)"));
+    CHECK(contains(run.output, "[INFO] Validation: 0 errors, 52 warnings across 24357 demand lines"));
     CHECK(contains(run.output, "  exceeds_own_cri  (2)"));
     CHECK(contains(run.output, "line 3519, material 106005500: Unit load exceeds its own CRI limit"));
 }
@@ -547,10 +547,10 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
     CHECK(run.exitCode == 0);
     for (const char* documented : {"--product", "--demand", "--placeholder", "--params", "--demand-rule",
                                           "--pallets", "--layer-sizes", "--trailer", "--groups", "--day", "--lanes", "--debug",
-                                          "schedule:YYYY-MM-DD",
+                                          "calendar:YYYY-MM-DD", "shipDates:YYYY-MM-DD[:YYYY-MM-DD]",
                                           "0  success", "1  validation errors", "2  could not run",
-                                          "3  a line is in no stack", "4  a line was left out of the floor",
-                                          "5  the demand rule selected no line", "6  no floor computed"}) {
+                                          "3  a line is in no stack", "4  a line was left out of a floor",
+                                          "5  no line ships on the rule's dates", "6  no floor computed"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
@@ -574,19 +574,20 @@ TEST_CASE("cli: --params without --demand-rule exits 2 naming the argument and p
     CHECK_FALSE(contains(run.output, kM1Summary));
 }
 
-TEST_CASE("cli: a demand rule that selects no line of the real day exits 5" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: a demand rule whose dates no line of the real day ships on exits 5" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli({"--product", kProduct, "--demand", kDemand, "--placeholder",
                                kPlaceholder, "--params", kParams, "--pallets",
                                crossDayTests::kPalletTableForOlderMasters, "--demand-rule",
-                               "dueBy:2020-01-01"});
+                               "shipDates:2020-01-01"});
     CHECK(run.exitCode == 5);
-    CHECK(contains(run.output, "selected none of the"));
+    CHECK(contains(run.output, "none of the 24357 demand line(s) ships on the dates of"));
 }
 
 TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {
     const SyntheticInputs inputs;
-    for (const char* rule : {"", "tomorrow", "dueBy", "dueBy:2026-02-30",
-                                   "window:2026-08-19:2026-08-17"}) {
+    for (const char* rule : {"", "tomorrow", "calendar", "shipDates:2026-02-30",
+                                   "shipDates:2026-08-19:2026-08-17", "dueBy:2026-08-19",
+                                   "schedule:2026-10-05"}) {
         CAPTURE(rule);
         const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
                                    "--placeholder", inputs.placeholder, "--params", kParams,
@@ -597,27 +598,31 @@ TEST_CASE("cli: an invalid --demand-rule exits 2 naming the argument") {
     }
 }
 
-TEST_CASE("cli: a schedule planned on a Wednesday exits 2 naming the weekday") {
+TEST_CASE("cli: a Wednesday plan floors the ship dates its calendar row gives") {
+    const SyntheticInputs inputs;
+    const string wednesdayDemand = inputs.write("wednesdayDemand.json",
+        R"({"REQUEST_ID":"t","CTL":[{"ZDATE":"","ZDAY":"WEDNESDAY","LEVEL_LOAD_START":2,)"
+        R"("LEVEL_LOAD_END":3,"AUTO_O2":0}],"DNM":[],"STR":[{"LOCFRNO":"1","LOCTONO":"2",)"
+        R"("MATNR":"GOOD","DATFR_TA":"2026-10-09","DATTO_TA":"2026-10-12","SHIP_COND":"TL",)"
+        R"("TRANS":16.0,"UNITOFMEAS":"CS"}]})");
+    const CliRun run = runCli({"--product", inputs.product, "--demand", wednesdayDemand,
+                               "--placeholder", inputs.placeholder, "--params", kParams,
+                               "--pallets", inputs.pallets, "--demand-rule", "calendar:2026-10-07"});
+    CHECK(run.exitCode == 0);
+    CHECK(contains(run.output, "calendar(plan 2026-10-07 Wednesday)"));
+    CHECK(contains(run.output, "Ship dates                2026-10-09, 2026-10-10"));
+    CHECK(contains(run.output, "B. THE FLOOR - SHIP DATE 2026-10-09"));
+    CHECK(contains(run.output, "B. THE FLOOR - SHIP DATE 2026-10-10"));
+    CHECK(contains(run.output, "FLOOR                     1 trucks  (2026-10-09"));
+}
+
+TEST_CASE("cli: a plan date the calendar has no row for exits 2 naming the weekday") {
     const SyntheticInputs inputs;
     const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
                                "--placeholder", inputs.placeholder, "--params", kParams,
-                               "--pallets", inputs.pallets, "--demand-rule", "schedule:2026-10-07"});
+                               "--pallets", inputs.pallets, "--demand-rule", "calendar:2026-10-07"});
     CHECK(run.exitCode == 2);
-    CHECK(contains(run.output, "2026-10-07 is a Wednesday"));
-    CHECK_FALSE(contains(run.output, kM1Summary));
-}
-
-TEST_CASE("cli: a Monday schedule floors the Wednesday deliveries and prints the field it read") {
-    const SyntheticInputs inputs;
-    const string wednesdayDemand = inputs.write("wednesdayDemand.json",
-        R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1","LOCTONO":"2","MATNR":"GOOD",)"
-        R"("DATFR_TA":"2026-10-05","DATTO_TA":"2026-10-07","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"}]})");
-    const CliRun run = runCli({"--product", inputs.product, "--demand", wednesdayDemand,
-                               "--placeholder", inputs.placeholder, "--params", kParams,
-                               "--pallets", inputs.pallets, "--demand-rule", "schedule:2026-10-05"});
-    CHECK(run.exitCode == 0);
-    CHECK(contains(run.output, "schedule(2026-10-05 Monday: DATTO_TA on 2026-10-07; provisional)"));
-    CHECK(contains(run.output, "FLOOR                     1 trucks"));
+    CHECK(contains(run.output, "CTL table has no row for Wednesday"));
 }
 
 TEST_CASE("cli: --demand-rule without --params exits 2") {
@@ -629,22 +634,27 @@ TEST_CASE("cli: --demand-rule without --params exits 2") {
     CHECK_FALSE(contains(run.output, kM1Summary));
 }
 
-TEST_CASE("cli: the floor prints the demand rule it was planned under" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+TEST_CASE("cli: the floor prints the demand rule and ship date it was planned under" * doctest::skip(!crossDayTests::august17StackingPresent())) {
     const CliRun run = runCli(withExtra(realDayArguments(false),
                                         {"--params", kParams, "--pallets",
                                          crossDayTests::kPalletTableForOlderMasters,
-                                         "--demand-rule", "dueBy:2026-08-19"}));
+                                         "--demand-rule", "calendar:2026-08-17"}));
     CHECK(run.exitCode == 0);
-    CHECK(contains(run.output, "Demand rule               dueBy(2026-08-19)"));
-    CHECK(contains(run.output, "FLOOR                     53 trucks  (dueBy(2026-08-19)"));
+    CHECK(contains(run.output, "Demand rule               calendar(plan 2026-08-17 Monday)"));
+    CHECK(contains(run.output, "FLOOR                     1,037 trucks  (2026-08-19"));
+    CHECK(contains(run.output, "FLOOR                     446 trucks  (2026-08-20"));
+    CHECK(contains(run.output, "Floor, all ship dates     1,483 trucks"));
 }
 
-TEST_CASE("cli: a line the demand rule cannot date exits 4 and is reported") {
+TEST_CASE("cli: a line with no real ship date exits 4 and is reported") {
     const SyntheticInputs inputs;
-    const CliRun run = runCli({"--product", inputs.product, "--demand", inputs.demand,
+    const string undatedDemand = inputs.write("undatedDemand.json",
+        R"({"REQUEST_ID":"t","CTL":[],"DNM":[],"STR":[{"LOCFRNO":"1","LOCTONO":"2",)"
+        R"("MATNR":"GOOD","DATFR_TA":"2026-08-32","SHIP_COND":"TL","TRANS":16.0,"UNITOFMEAS":"CS"}]})");
+    const CliRun run = runCli({"--product", inputs.product, "--demand", undatedDemand,
                                "--placeholder", inputs.placeholder, "--params", kParams,
-                               "--pallets", inputs.pallets, "--demand-rule", "dueBy:2026-08-19"});
+                               "--pallets", inputs.pallets, "--demand-rule", "shipDates:2026-08-19"});
     CHECK(run.exitCode == 4);
-    CHECK(contains(run.output, "1 demand line(s) have a date dueBy(2026-08-19) cannot judge"));
+    CHECK(contains(run.output, "1 demand line(s) have no real ship date (DATFR_TA)"));
     CHECK(contains(run.output, "undated                 1"));
 }

@@ -95,7 +95,7 @@ struct HalfTrailerLines {
 };
 
 inline ob::DemandSelection wholeExtract(const std::vector<ob::JoinedLine>& lines) {
-    return ob::selectDemand(std::vector<ob::STRRecord>(lines.size()), ob::DemandSelector{});
+    return ob::selectShipDate(std::vector<ob::STRRecord>(lines.size()), "");
 }
 
 inline ob::SegregationResult segregation(const std::vector<ob::SegregatedGroup>& groups) {

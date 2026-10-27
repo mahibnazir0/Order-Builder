@@ -2,9 +2,9 @@
 [INFO] 1 product rows have Cases_Unit_Load at or below zero and cannot form a unit load; demand for any of them is rejected by validation
 [INFO] Loaded demand: 24357 STR, 8 CTL, 22 DNM
 [INFO] Loaded placeholders: 189 entries, 372 trucks requested
-[INFO] Joined demand to products: 24357 matched, 0 unmatched, 144 ambiguous (pallet-type variant chosen by preference)
+[INFO] Joined demand to products: 24357 matched, 0 unmatched, 144 on several pallet types, 36 of them not settled by the quantity
 [INFO] Summary built: 371 lanes, 24357 demand lines, 372 trucks requested
-[INFO] Validation: 0 errors, 158 warnings across 24357 demand lines
+[INFO] Validation: 0 errors, 50 warnings across 24357 demand lines
 
 ================================================================
  ORDER BUILDER - MILESTONE 1 SUMMARY
@@ -16,8 +16,8 @@
   Unmatched lines           0
   Excluded from totals      0  (validation errors)
   Hash total (all demand)   8,708,934 units
-  Total pallet-equivalents  145,705.8
-  Total weight              99,014,698 lb
+  Total pallet-equivalents  145,765.8
+  Total weight              99,014,642 lb
 
   Lanes                     371
     with demand             360
@@ -40,12 +40,12 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2028    2190    TL       233     233     3,310.4     1,827,751       6
 2023    2358    TL       155     155     2,504.0     1,589,991       5
 2023    2508    TF       219     219     2,432.0     1,727,439       7
-2050    2292    TL       284     284     2,363.0     1,891,756       4
+2050    2292    TL       284     284     2,380.0     1,891,741       4
 2027    2080    TF       277     277     2,336.0     1,018,594       3
 2023    2292    TL       183     183     2,230.7     1,773,538       5
-2050    2299    TL       259     259     2,097.5     1,676,167       2
+2050    2299    TL       259     259     2,110.5     1,676,154       2
 2048    2299    TL       179     179     1,906.0     1,890,190       3
-2050    2508    TF       240     240     1,842.0     1,462,182       1
+2050    2508    TF       240     240     1,849.0     1,462,177       1
 2048    2508    TL       150     150     1,643.0     1,524,554       6
 2048    2323    TL       143     143     1,550.0     1,613,376       4
 2023    2299    TF       173     173     1,447.1     1,120,583       5
@@ -60,8 +60,8 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2358    2508    TF       403     403     1,029.4       782,067       0
 2066    2299    TL        87      87     1,024.0     1,007,275       3
 2023    2474    TL        46      46       996.0       826,469       3
+2050    2496    TL       233     233       992.8       777,376       2
 2028    2031    TF       140     140       988.0       318,761       1
-2050    2496    TL       233     233       985.8       777,381       2
 2023    2050    TL       158     158       963.5       737,948       2
 2358    2050    TL       127     127       961.2       545,089       0
 2032    2496    TL       476     476       948.0       765,661       2
@@ -74,7 +74,7 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2190    2508    TF       109     109       900.8       371,867       3
 2602    2496    TL       120     120       878.9       620,554       2
 2299    2292    TF       263     263       875.6       771,431       2
-2050    2080    TF       135     135       870.9       708,225       1
+2050    2080    TF       135     135       871.9       708,224       1
 2827    2508    TF       146     146       862.0       952,396       2
 2574    2508    TF        92      92       854.0       554,419       0
 2028    2292    TF       208     208       845.0       551,152       2
@@ -210,6 +210,7 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2584    2323    TF         7       7       139.0        80,277       0
 2496    2292    TF        70      70       135.0        91,808       0
 2340    2848    TF        71      71       134.0       104,133       1
+2487    2508    TF        20      20       133.0       128,637       0
 2524    2292    TF        18      18       133.0        90,161       0
 2822    2848    TF        22      22       132.0       101,791       0
 2034    2848    TF         5       5       132.0        81,919       0
@@ -218,7 +219,6 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2508    2528    TL        35      35       128.0        93,770       1
 2292    2528    TL        21      21       126.0        57,245       1
 2054    2292    TF        83      83       124.0        99,444       0
-2487    2508    TF        20      20       124.0       128,647       0
 2602    2292    TF        51      51       123.0        96,168       0
 2027    2028    TL        30      30       122.0        67,798       1
 2066    2080    TF        33      33       121.0       137,086       1
@@ -281,9 +281,9 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2508    2292    TF        18      18        50.0        38,787       0
 2066    2528    TL         5       5        50.0        71,459       1
 2292    2556    TL        47      47        48.0        35,527       0
+2487    2292    TL        13      13        48.0        46,452       0
 2524    2323    TF        17      17        47.0        32,323       0
 2358    2487    TL        21      21        46.0        15,841       0
-2487    2292    TL        13      13        45.0        46,455       0
 2822    2496    TF         9       9        45.0        35,409       0
 2027    2323    TL         9       9        45.0        15,781       1
 2023    2487    TL         4       4        45.0        15,907       0
@@ -310,12 +310,12 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 2822    2358    TF        19      19        28.0        23,157       0
 2524    2190    TL         1       1        28.0         9,380       0
 2190    2027    TL         1       1        28.0         5,953       1
+2487    2299    TL         7       7        27.0        31,859       0
 2292    2299    TF         9       9        26.0        11,367       0
 2054    2848    TF         7       7        25.0        18,322       0
 2496    2569    TF        25      25        24.8        18,881       0
 2474    2496    TF        16      16        24.0        18,966       0
 2833    2031    TF        12      12        24.0        13,479       0
-2487    2299    TL         7       7        24.0        31,863       0
 2487    2190    TL         7       7        24.0        21,648       0
 2240    2299    TF         2       2        24.0        14,184       1
 2028    2027    TL        11      11        23.0         9,111       1
@@ -410,15 +410,7 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
 ----------------------------------------------------------------
  WARNINGS AND REJECTIONS
 ----------------------------------------------------------------
-  0 error(s), 158 warning(s)
-
-  ambiguous_pallet_type  (144)
-      line 1955, material 105553001: Product has several pallet-type variants; 'TLD' was chosen by preference order
-      line 2203, material 104725105: Product has several pallet-type variants; 'TLD' was chosen by preference order
-      line 2386, material 105284605: Product has several pallet-type variants; 'TLD' was chosen by preference order
-      line 2387, material 105284605: Product has several pallet-type variants; 'TLD' was chosen by preference order
-      line 2388, material 105284605: Product has several pallet-type variants; 'TLD' was chosen by preference order
-      ... and 139 more
+  0 error(s), 50 warning(s)
 
   large_line  (14)
       line 558, material 105654002: Line resolves to 1010 pallets, above the review threshold, check the unit of measure
@@ -427,6 +419,17 @@ From    To      SC     Lines   Match   Pallet-eq    Weight(lb)  Trucks
       line 1001, material 105666901: Line resolves to 332 pallets, above the review threshold, check the unit of measure
       line 3634, material 105450904: Line resolves to 340 pallets, above the review threshold, check the unit of measure
       ... and 9 more
+
+  pallet_type_no_fit  (1)
+      line 2203, material 104725105: 5 DIS; TLD 33, GMA 15 per unit load: no pallet type divides it evenly; 'TLD' taken by preference order; fallback to confirm
+
+  pallet_type_tie  (35)
+      line 1955, material 105553001: 168 CS; GMA 84, TLD 168 per unit load: several pallet types divide it evenly; 'GMA' taken (GMA first, client's rule); tie-break to confirm
+      line 5518, material 105553001: 168 CS; GMA 84, TLD 168 per unit load: several pallet types divide it evenly; 'GMA' taken (GMA first, client's rule); tie-break to confirm
+      line 5519, material 105553001: 168 CS; GMA 84, TLD 168 per unit load: several pallet types divide it evenly; 'GMA' taken (GMA first, client's rule); tie-break to confirm
+      line 6028, material 104875007: 728 CS; TLD 182, GMA 104 per unit load: several pallet types divide it evenly; 'GMA' taken (GMA first, client's rule); tie-break to confirm
+      line 8021, material 104875007: 728 CS; TLD 182, GMA 104 per unit load: several pallet types divide it evenly; 'GMA' taken (GMA first, client's rule); tie-break to confirm
+      ... and 30 more
 
 
 Truck floor: NOT COMPUTED. No --params was given, so only Milestone 1 ran: no

@@ -29,15 +29,16 @@ const array<SolvedDay, 3> kSolvedDays{{
 }};
 
 // Counted directly from the *_valid.json files, independently of this code: solution files,
-// lane-days and loads on ship conditions TF and TL, per request.
+// lane groups, lanes and ship dates, and loads on ship conditions TF and TL, per request.
 constexpr array<size_t, 3> kSolutionFiles{41, 40, 40};
-constexpr array<size_t, 3> kLaneDays{150, 140, 150};
+constexpr array<size_t, 3> kLaneGroups{150, 140, 150};
+constexpr array<size_t, 3> kLaneDays{151, 142, 160};
 constexpr array<size_t, 3> kAchievedLoads{290, 271, 319};
 
-// Lane-days on which the no-stacking baseline exceeds Truck Builder's achieved loads, measured
-// 24 Oct 2026 with capacity from floor area, the client's footprint rule and every quantity
-// divided by Cases_Unit_Load.
-constexpr array<size_t, 3> kBaselineExceeds{30, 30, 44};
+// Lanes and ship dates on which the no-stacking baseline exceeds Truck Builder's achieved loads,
+// measured 28 Oct 2026 with capacity from floor area, the client's footprint rule, every
+// quantity divided by Cases_Unit_Load and each shipped quantity on the pallet type it divides.
+constexpr array<size_t, 3> kBaselineExceeds{30, 30, 46};
 
 // Truck Builder solution folders a solved-day test needs and cannot find. Like the extracts
 // they are confidential and gitignored.
@@ -95,11 +96,21 @@ private:
     filesystem::path directory_;
 };
 
-string solutionWithLines(const string& linesJson, const string& shipCondition = "TL") {
-    return R"({"REQUEST_ID":"R1","LANES":[{"LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
-        + shipCondition + R"(","LOADS":[{"LOAD_OPT_SCORE":"90","LINES":)" + linesJson
-        + "}]}]}";
+string load(const string& loadId, const string& shipDate, const string& linesJson) {
+    return R"({"ID":")" + loadId + R"(","DATFR_TA":")" + shipDate
+        + R"(","LOAD_OPT_SCORE":"90","LINES":)" + linesJson + "}";
 }
+
+string solutionWithLoads(const string& loadsJson, const string& shipCondition = "TL") {
+    return R"({"REQUEST_ID":"R1","LANES":[{"LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
+        + shipCondition + R"(","LOADS":[)" + loadsJson + "]}]}";
+}
+
+string solutionWithLines(const string& linesJson, const string& shipCondition = "TL") {
+    return solutionWithLoads(load("L1", "2026-08-06", linesJson), shipCondition);
+}
+
+const string kOneLine = R"([{"IDPR":"A","MATNR":"M1","MENGE":10,"MEINS":"CS"}])";
 
 string readErrorMessage(const string& solutionJson) {
     const SolutionFolder folder(solutionJson);
@@ -127,7 +138,40 @@ TEST_CASE("acceptanceHarness: a solution's TF and TL loads and shipped lines are
     const AchievedRequest achieved = readAchievedLoads(folder.path(), "R1");
     REQUIRE(achieved.laneDays.size() == 1);
     CHECK(achieved.laneDays[0].loads == 1);
-    CHECK(achieved.shippedByIdpr.at("A").quantity == doctest::Approx(15.0));
+    CHECK(achieved.laneDays[0].shipDate == "2026-08-06");
+    CHECK(achieved.shippedByIdpr.at("A").quantityByShipDate.at("2026-08-06")
+          == doctest::Approx(15.0));
+}
+
+TEST_CASE("acceptanceHarness: loads on one lane and two ship dates are two lane-days of one lane group") {
+    const SolutionFolder folder(solutionWithLoads(
+        load("L1", "2026-08-06", kOneLine) + "," + load("L2", "2026-08-07", kOneLine) + ","
+        + load("L3", "2026-08-07", kOneLine)));
+    const AchievedRequest achieved = readAchievedLoads(folder.path(), "R1");
+    REQUIRE(achieved.laneDays.size() == 2);
+    CHECK(achieved.laneDays[0].loads == 1);
+    CHECK(achieved.laneDays[1].shipDate == "2026-08-07");
+    CHECK(achieved.laneDays[1].loads == 2);
+    CHECK(achieved.laneGroups() == 1);
+    CHECK(achieved.totalLoads() == 3);
+    CHECK(achieved.shippedByIdpr.at("A").quantityByShipDate.at("2026-08-07")
+          == doctest::Approx(20.0));
+}
+
+TEST_CASE("acceptanceHarness: one load can be read on its own by its ID") {
+    const SolutionFolder folder(solutionWithLoads(
+        load("L1", "2026-08-06", kOneLine) + "," + load("L2", "2026-08-07", kOneLine)));
+    const AchievedRequest achieved = readAchievedLoads(folder.path(), "R1", "L2");
+    REQUIRE(achieved.laneDays.size() == 1);
+    CHECK(achieved.laneDays[0].shipDate == "2026-08-07");
+    CHECK_THROWS_AS(readAchievedLoads(folder.path(), "R1", "L9"), runtime_error);
+}
+
+TEST_CASE("acceptanceHarness: a load with no real ship date is an error naming it") {
+    CHECK(readErrorMessage(solutionWithLoads(load("L1", "2026-08-32", kOneLine)))
+              .find("LOADS[0].DATFR_TA is not a real YYYY-MM-DD date") != string::npos);
+    CHECK(readErrorMessage(solutionWithLoads(R"({"LOAD_OPT_SCORE":"90","LINES":[]})"))
+              .find("LOADS[0].DATFR_TA is missing") != string::npos);
 }
 
 TEST_CASE("acceptanceHarness: suffixed ship conditions are left out of the acceptance set") {
@@ -185,6 +229,7 @@ TEST_CASE("acceptanceHarness: solutions for every solved day match the raw files
         CAPTURE(dayFiles()[kSolvedDays[index].dayIndex].label);
         const AchievedRequest& achieved = achievedFor(index);
         CHECK(achieved.solutionFiles == kSolutionFiles[index]);
+        CHECK(achieved.laneGroups() == kLaneGroups[index]);
         CHECK(achieved.laneDays.size() == kLaneDays[index]);
         CHECK(achieved.totalLoads() == kAchievedLoads[index]);
         CHECK(achieved.scoredLoadsOutsideSet == 0);
@@ -202,6 +247,7 @@ TEST_CASE("acceptanceHarness: every shipped line is floored on every solved day"
         CHECK(validity.shippedLinesDisagreeing == 0);
         CHECK(validity.shippedLinesNotGrouped == 0);
         CHECK(validity.shippedLinesLeftOutOfFloor == 0);
+        CHECK(validity.floorLaneDaysWithoutLoads == 0);
     }
 }
 
@@ -218,8 +264,8 @@ TEST_CASE("acceptanceHarness: a lane-day floored above its achieved loads is cou
     CHECK(after.floorExceedsAchieved == before.floorExceedsAchieved + 1);
 }
 
-// The validity criterion itself: the floor is a lower bound, so no lane-day may need more
-// trucks than Truck Builder used. It is not marked as expected to fail. While the bound is
+// The validity criterion itself: the floor is a lower bound, so no lane and ship date may need
+// more trucks than Truck Builder used on it. It is not marked as expected to fail. While the bound is
 // invalid (M3 section 2.5, edge case 31) this test fails, and the suite with it. The count is
 // printed on every run, pass or fail, so the defect is tracked.
 TEST_CASE("acceptanceHarness: the floor never exceeds Truck Builder's achieved loads" * doctest::skip(!solvedDaysPresent())) {
@@ -228,7 +274,7 @@ TEST_CASE("acceptanceHarness: the floor never exceeds Truck Builder's achieved l
         CAPTURE(label);
         const size_t exceeds = validityFor(index, shippedTrailer()).floorExceedsAchieved;
         MESSAGE(label << ": floor exceeds achieved loads on " << exceeds << " of "
-                      << kLaneDays[index] << " lane-days");
+                      << kLaneDays[index] << " lanes and ship dates");
         CHECK(exceeds == 0);
     }
 }
@@ -273,15 +319,20 @@ const array<AugustRun, 3> kAugustRuns{{
 // for the main request only: the README's 40 and 41 for Aug4 and Aug5 include one
 // supplementary #q request each.
 constexpr array<size_t, 3> kAugustSolutionFiles{39, 40, 39};
-constexpr array<size_t, 3> kAugustLaneDays{134, 158, 162};
+constexpr array<size_t, 3> kAugustLaneGroups{134, 158, 162};
 constexpr array<size_t, 3> kAugustAchievedLoads{282, 492, 534};
-constexpr size_t kAugustTotalLaneDays = 454;
+constexpr size_t kAugustTotalLaneGroups = 454;
 constexpr size_t kAugustTotalAchievedLoads = 1308;
+// Lanes and ship dates with a TF or TL load, counted from the same files: a lane group whose
+// loads ship on two dates is two of these.
+constexpr array<size_t, 3> kAugustLaneDays{135, 244, 253};
 
-// A measured result, not the acceptance figure: the criterion is still to be agreed with the
-// client (22 Oct), and the milestone plan's 1,219 stands until it is. That figure came from our
-// 17-18 Aug plan, its method was never recorded, and it does not reproduce.
-constexpr long long kMeasuredFloorTrucks = 1238;
+// A measured result, not an approved target: the client will confirm the acceptance criterion
+// after their retest (27 Oct), and the milestone plan's 1,219 stands until then. That figure
+// came from our 17-18 Aug plan, its method was never recorded, and it does not reproduce.
+// 1,238 when each lane group was floored over all its ship dates at once (24 Oct); a lane
+// group whose loads ship on two dates now gets a floor for each.
+constexpr long long kMeasuredFloorTrucks = 1269;
 constexpr long long kMilestonePlanTrucks = 1219;
 
 // Every file the August tests read and cannot find, so a missing one fails by name instead of
@@ -358,21 +409,22 @@ TEST_CASE("acceptanceHarness: each August demand file is the request its solutio
     }
 }
 
-TEST_CASE("acceptanceHarness: the August solutions give the client's 454 lane-days and 1,308 loads" * doctest::skip(!augustPresent())) {
-    size_t laneDays = 0;
+TEST_CASE("acceptanceHarness: the August solutions give the client's 454 lane groups and 1,308 loads" * doctest::skip(!augustPresent())) {
+    size_t laneGroups = 0;
     size_t loads = 0;
     for (size_t index = 0; index < kAugustRuns.size(); ++index) {
         CAPTURE(kAugustRuns[index].label);
         const AchievedRequest& achieved = augustAchieved(index);
         CHECK(achieved.solutionFiles == kAugustSolutionFiles[index]);
+        CHECK(achieved.laneGroups() == kAugustLaneGroups[index]);
         CHECK(achieved.laneDays.size() == kAugustLaneDays[index]);
         CHECK(achieved.totalLoads() == kAugustAchievedLoads[index]);
         CHECK(achieved.scoredLoadsOutsideSet == 0);
         CHECK(achieved.unscoredLoadsInSet == 0);
-        laneDays += achieved.laneDays.size();
+        laneGroups += achieved.laneGroups();
         loads += achieved.totalLoads();
     }
-    CHECK(laneDays == kAugustTotalLaneDays);
+    CHECK(laneGroups == kAugustTotalLaneGroups);
     CHECK(loads == kAugustTotalAchievedLoads);
 }
 
@@ -386,6 +438,7 @@ TEST_CASE("acceptanceHarness: every August shipped line is floored" * doctest::s
         CHECK(validity.shippedLinesDisagreeing == 0);
         CHECK(validity.shippedLinesNotGrouped == 0);
         CHECK(validity.shippedLinesLeftOutOfFloor == 0);
+        CHECK(validity.floorLaneDaysWithoutLoads == 0);
     }
 }
 
@@ -397,12 +450,13 @@ TEST_CASE("acceptanceHarness: Aug6's placeholder is missing a SHIP_COND and only
 }
 
 // A regression pin, not an acceptance figure: what this code floors the August shipped volume
-// to on 24 Oct 2026, with capacity taken from floor area and volume, each footprint from the
-// client's layer-size rule and every quantity divided by Cases_Unit_Load, so any change to it
-// has to be explained.
+// to on 28 Oct 2026, each lane and ship date on its own, with capacity taken from floor area and
+// volume, each footprint from the client's layer-size rule, every quantity divided by
+// Cases_Unit_Load and each shipped quantity on the pallet type it divides evenly, so any change
+// to it has to be explained.
 TEST_CASE("acceptanceHarness: the August floor matches the measured run" * doctest::skip(!augustPresent())) {
-    constexpr array<long long, 3> floorTrucks{274, 463, 501};
-    constexpr array<long long, 3> noStackingBaselineTrucks{352, 547, 594};
+    constexpr array<long long, 3> floorTrucks{274, 477, 518};
+    constexpr array<long long, 3> noStackingBaselineTrucks{352, 555, 614};
     for (size_t index = 0; index < kAugustRuns.size(); ++index) {
         CAPTURE(kAugustRuns[index].label);
         const ValidityResult validity = augustValidity(index, shippedTrailer());
@@ -418,7 +472,7 @@ TEST_CASE("acceptanceHarness: the August floor never exceeds Truck Builder's ach
         CAPTURE(kAugustRuns[index].label);
         const size_t exceeds = augustValidity(index, shippedTrailer()).floorExceedsAchieved;
         MESSAGE(kAugustRuns[index].label << ": floor exceeds achieved loads on " << exceeds
-                << " of " << kAugustLaneDays[index] << " lane-days");
+                << " of " << kAugustLaneDays[index] << " lanes and ship dates");
         CHECK(exceeds == 0);
     }
 }
@@ -431,7 +485,7 @@ long long augustFloorTrucks() {
     return floorTrucks;
 }
 
-TEST_CASE("acceptanceHarness: the August floor measured on 24 Oct is 1,238 trucks across the 454 lane groups" * doctest::skip(!augustPresent())) {
+TEST_CASE("acceptanceHarness: the August floor measured on 28 Oct is 1,269 trucks across 632 lanes and ship dates" * doctest::skip(!augustPresent())) {
     MESSAGE("August floor " << augustFloorTrucks() << " trucks; the milestone plan's figure is "
             << kMilestonePlanTrucks << ", pending an agreed acceptance criterion");
     CHECK(augustFloorTrucks() == kMeasuredFloorTrucks);
@@ -441,6 +495,41 @@ TEST_CASE("acceptanceHarness: the August floor is below the 1,308 trucks Truck B
     MESSAGE("August floor " << augustFloorTrucks() << " trucks against "
             << kAugustTotalAchievedLoads << " used");
     CHECK(augustFloorTrucks() < static_cast<long long>(kAugustTotalAchievedLoads));
+}
+
+// The client's two worked examples, read from the real loads and floored by the real code path.
+// Load 1344793 (Aug5 run, 2299 -> 2031 TF, ships 7 Aug) carries 60 PAL of 104578600: one PAL is
+// a 49.375 in piece of 421.4 lb and two make a unit load, so it is 30 unit loads and 25,284 lb
+// of cargo, with each unit load's pallet weighed on top (client, 27 Oct).
+TEST_CASE("acceptanceHarness: load 1344793, 60 PAL of 104578600, is 30 unit loads on one truck" * doctest::skip(!augustPresent())) {
+    const PipelineResult& run = augustPipelineRun(1);
+    const AchievedRequest load =
+        readAchievedLoads(kAugustRuns[1].solutionDirectory, kAugustRuns[1].requestId, "1344793");
+    const ValidityResult validity = checkValidity(run, load, shippedTrailer());
+    REQUIRE(validity.laneDays.size() == 1);
+    const LaneDayValidity& laneDay = validity.laneDays[0];
+    CHECK(laneDay.lane == "2299 -> 2031 TF");
+    CHECK(laneDay.shipDate == "2026-08-07");
+    CHECK(laneDay.achievedLoads == 1);
+    CHECK(laneDay.unitLoads == doctest::Approx(30.0));
+    const PalletSpec* tld = palletSpecFor(run.params.pallets, "TLD");
+    REQUIRE(tld != nullptr);
+    CHECK(laneDay.weightLb == doctest::Approx(60 * 421.4 + 30 * tld->addedWeightLb));
+    CHECK(laneDay.floorTrucks == 1);
+}
+
+// Load 1343393 (Aug4 run, 2524 -> 2508 TL, ships 6 Aug): 432 DIS of 105456404 at 18 a unit load
+// is 24, and 800 CS of 105597501 at 100 is 8, so 32 unit loads rather than 440 (client, 16 Oct).
+TEST_CASE("acceptanceHarness: load 1343393, 432 DIS and 800 CS, is 32 unit loads on one truck" * doctest::skip(!augustPresent())) {
+    const AchievedRequest load =
+        readAchievedLoads(kAugustRuns[0].solutionDirectory, kAugustRuns[0].requestId, "1343393");
+    const ValidityResult validity = checkValidity(augustPipelineRun(0), load, shippedTrailer());
+    REQUIRE(validity.laneDays.size() == 1);
+    const LaneDayValidity& laneDay = validity.laneDays[0];
+    CHECK(laneDay.lane == "2524 -> 2508 TL");
+    CHECK(laneDay.shipDate == "2026-08-06");
+    CHECK(laneDay.unitLoads == doctest::Approx(432.0 / 18.0 + 800.0 / 100.0));
+    CHECK(laneDay.floorTrucks == 1);
 }
 
 } // TEST_SUITE("augustAcceptance")
