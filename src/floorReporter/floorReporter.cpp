@@ -166,7 +166,7 @@ void printSectionA(ostream& out, const FloorRun& run) {
         << "  (DATFR_TA blank or not a date; in no floor)\n";
     printLabel(out, "Reserved, other dates");
     out << grouped(static_cast<double>(coverage.reservedTrucksOutsideShipDates))
-        << " truck(s)  (placeholders for dates the run does not cover)\n";
+        << " truck(s)  (placeholders for dates the run does not cover; set against no floor)\n";
     printLabel(out, "Floor, all ship dates");
     out << grouped(static_cast<double>(run.floorTrucks()))
         << " trucks  (the daily floors added up; each day is floored on its own)\n";

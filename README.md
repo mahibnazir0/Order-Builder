@@ -298,6 +298,13 @@ see; they count toward none of its floors, and pulling them forward onto an earl
 a later stage's decision. The report counts them, the lines due before the first date, and
 placeholders for dates the run does not cover.
 
+**Placeholders outside a run's dates (open policy point).** A placeholder whose ship date
+falls outside the run's calendar window is counted and reported ("Reserved, other dates" in
+section A of the floor report) but is set against none of the run's daily floors. The Aug5
+run, for example, has 52 trucks booked for 9 Aug while its calendar window is 7-8 Aug. This
+is the current, provisional behaviour: how such reservations should be treated is still open
+with the client (28 Oct 2026).
+
 **Pallet weight.** Every milestone weighs a pallet the same way, from the item
 master first (client ruling, 13 Oct 2026): the product row's `Pallet_*` columns, then
 the pallet table given with `--pallets`, then a built-in fallback that copies the
