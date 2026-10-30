@@ -51,7 +51,8 @@ every module implementation.
 order_builder --product <csv> --demand <json> --placeholder <json>
               [--params <json> --demand-rule <rule>] [--pallets <csv>]
               [--layer-sizes <csv>] [--trailer <code>] [--groups N]
-              [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
+              [--day <YYYY-MM-DD>] [--lanes N] [--select] [--record <dir>]
+              [--debug] [--help]
 ```
 
 | Flag | Required | Meaning |
@@ -67,6 +68,8 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
+| `--select` | no, needs `--params` | Also fill each reserved truck (M4), with the settings in the params file's `selection` block; prints the M4 report after the floors |
+| `--record <dir>` | no | Copy every input and the params file into `<dir>` with a `record.txt` manifest naming each file's role, so the run can be recreated from them |
 | `--debug` | no | Verbose logging |
 | `--help` | no | Print usage and exit |
 
@@ -104,6 +107,7 @@ Exit codes:
 | 4 | A floor left out a line shipping on its date, or a line has no real ship date (DATFR_TA) |
 | 5 | No line of a non-empty extract ships on the rule's dates |
 | 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
+| 7 | M4 ran (`--select`) and its plan broke an invariant, or every method failed on a lane |
 
 When several apply, the lowest code wins.
 
@@ -112,6 +116,39 @@ out of stacking is logged with its MATNR and the reason. Validation *warnings* d
 affect the exit code. The current sample data has 50 warnings without `--params`
 (exit 6) and 52 with it (exit 0): Milestone 2 adds the two
 lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
+
+## M4: filling the reserved trucks
+
+`--select` runs M4 after the floors. Per planning run it builds the reservation book from
+the placeholders (per lane and ship date, never summed across dates, inside the window the
+demand file's CTL table gives the plan date, which comes from the demand's REQUEST_ID), turns
+Milestone 2's stacks into items, routes every group and ship date to a method, fills the
+trucks and checks the result. Every setting comes from the params file's `selection` block;
+a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
+`varietyRatio` are provisional until the benchmark settles them.
+
+| Step | Module | What it does |
+|---|---|---|
+| 0 | `selectionParams` | Reads and checks the `selection` block once |
+| 1 | `reservationBook` | Reserved trucks per lane and ship date; every placeholder row reserved or skipped with a reason |
+| 2 | `selectionItem` | One item per stack copy, one floor position; a line's items add up to the line |
+| 3 | `floorPattern` | How a truck's items stand in rows: wide-wide, wide-narrow, narrow-narrow, three-across, pinwheel |
+| 4 | `laneClassifier` | Routes each group and ship date: knapsack, patternPacker, binPacker, M5, or no truck |
+| 5-7 | `knapsack`, `patternPacker`, `binPacker` | The methods; first-fit decreasing is warm start and fallback only |
+| 8 | `selector` | Runs the methods with fallback and budget, checks every truck's rows, fills and spreads weight |
+| 9 | `selectionReporter` | The printed M4 report: inputs, parameters, fullness, unused reservations, log, trucks, goods left over, item master |
+| 10 | `benchmarkHarness` | Every method on the same routes, and the invariants recounted from the trucks |
+
+Example, the 4 August plan:
+
+```bash
+./build/order_builder --product tests/importer/august/inputs/shared/Product-Data.csv --demand tests/importer/august/inputs/Aug4/Demand-Aug5-2.json --placeholder tests/importer/august/inputs/Aug4/PH-Aug4.json --params config/orderBuilderParams.json --pallets tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv --layer-sizes tests/importer/crossDay/20261005/Product-Data/Customer2-Product-Data.csv --demand-rule calendar:2026-08-04 --day Aug4 --select
+```
+
+The M4 benchmark over every extract held runs on its own with
+`./build/ob_tests -ts=m4Benchmark --no-skip` or `ctest --test-dir build -R m4Benchmark`. In
+the full suite its tests are skipped when the extracts are absent, so a clean clone passes;
+run on its own, a missing extract fails by name.
 
 ## Test data
 
