@@ -1,4 +1,5 @@
 #include "selectionReporter.hpp"
+#include "pipeline.hpp"
 #include "reportFormat.hpp"
 #include "tolerance.hpp"
 
@@ -42,34 +43,6 @@ string laneText(const string& origin, const string& destination, const string& c
 
 string groupText(const SegregatedGroup& group) {
     return group.key.isSegregated ? "group " + printable(group.key.segregant) : "-";
-}
-
-// Every column as wide as its widest entry, numbers to the right: nothing is ever cut short.
-void printTable(ostream& out, const Row& header, const vector<Row>& rows, const vector<bool>& rightAligned) {
-    vector<size_t> widths(header.size());
-    for (size_t column = 0; column < header.size(); ++column) widths[column] = header[column].size();
-    for (const Row& row : rows) {
-        for (size_t column = 0; column < row.size(); ++column) widths[column] = max(widths[column], row[column].size());
-    }
-    auto printRow = [&](const Row& row) {
-        out << " ";
-        for (size_t column = 0; column < row.size(); ++column) {
-            out << " ";
-            if (rightAligned[column]) {
-                pad_left(out, row[column], widths[column]);
-            } else if (column + 1 == row.size()) {
-                out << row[column];
-            } else {
-                pad_right(out, row[column], widths[column]);
-            }
-        }
-        out << "\n";
-    };
-    printRow(header);
-    Row dashes;
-    for (const size_t width : widths) dashes.push_back(string(width, '-'));
-    printRow(dashes);
-    for (const Row& row : rows) printRow(row);
 }
 
 void printLine(ostream& out, const string& label, const string& value) {
@@ -188,6 +161,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "routes", count(classification.routes.size()) + " group and ship-date routes");
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
+    for (const string& warning : context.warnings) printLine(out, "warning", printable(warning));
 
     printSection(out, 1);
     const SelectorSettings& settings = context.settings;
@@ -285,14 +259,14 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     if (unusedRows.empty()) {
         out << "  Every reservation was used.\n";
     } else {
-        printTable(out, {"lane", "ship date", "reserved", "built", "unused", "reason"}, unusedRows,
+        printColumns(out, {"lane", "ship date", "reserved", "built", "unused", "reason"}, unusedRows,
                    {false, false, true, true, true, false});
         out << "\n  Penalty exposure by lane:\n";
         vector<Row> laneRows;
         for (const auto& [lane, unused] : unusedByLane) {
             laneRows.push_back({laneText(get<0>(lane), get<1>(lane), get<2>(lane)), grouped(static_cast<double>(unused))});
         }
-        printTable(out, {"lane", "unused trucks"}, laneRows, {false, true});
+        printColumns(out, {"lane", "unused trucks"}, laneRows, {false, true});
     }
     out << "\n  Penalty exposure for the day: " << grouped(static_cast<double>(plan.penaltyExposureTrucks))
         << " reserved trucks unused\n";
@@ -315,7 +289,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                              grouped(static_cast<double>(route.reservedTrucks)), statusName(outcome.status),
                              grouped(static_cast<double>(outcome.trucksBuilt)), proof, binding, attemptsText(outcome)});
     }
-    printTable(out, {"lane", "group", "ship date", "reserved", "status", "trucks", "result", "binds on", "methods"},
+    printColumns(out, {"lane", "group", "ship date", "reserved", "status", "trucks", "result", "binds on", "methods"},
                routeRows, {false, false, false, true, false, true, false, false, false});
 
     printSection(out, 5);
@@ -337,7 +311,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     if (truckRows.empty()) {
         out << "  No truck was built.\n";
     } else {
-        printTable(out, {"truck", "lane", "group", "ship date", "stacks", "unit loads", "weight lb", "payload", "cube",
+        printColumns(out, {"truck", "lane", "group", "ship date", "stacks", "unit loads", "weight lb", "payload", "cube",
                          "full", "rear waste in", "rows", "floor patterns", "turned", "lone tops"},
                    truckRows,
                    {true, false, false, false, true, true, true, true, true, false, true, true, false, true, true});
@@ -357,7 +331,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         for (const auto& [reason, totals] : leftByReason) {
             reasonRows.push_back({leftOverReasonName(reason), count(totals.first), grouped(totals.second, 1)});
         }
-        printTable(out, {"reason", "stacks", "unit loads"}, reasonRows, {false, true, true});
+        printColumns(out, {"reason", "stacks", "unit loads"}, reasonRows, {false, true, true});
     }
     if (detailed && !plan.leftOver.empty()) {
         out << "\n";
@@ -371,7 +345,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                 laneText(key.locationFrom, key.locationTo, key.shipCondition), printable(item.shipDate),
                                 to_string(item.priority), grouped(item.unitLoads, 2), leftOverReasonName(left.reason)});
         }
-        printTable(out, {"stack", "product", "lane", "ship date", "priority", "unit loads", "reason"}, itemRows,
+        printColumns(out, {"stack", "product", "lane", "ship date", "priority", "unit loads", "reason"}, itemRows,
                    {true, false, false, false, true, true, false});
     }
 
@@ -399,7 +373,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                    measure(product->length_in) + " x " + measure(product->width_in) + " x "
                                        + measure(product->height_in)});
         }
-        printTable(out, {"product", "pallet", "cases a unit load", "case lb", "case in"}, productRows,
+        printColumns(out, {"product", "pallet", "cases a unit load", "case lb", "case in"}, productRows,
                    {false, false, true, true, false});
     }
 }

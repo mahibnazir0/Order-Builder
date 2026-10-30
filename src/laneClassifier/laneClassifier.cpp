@@ -1,4 +1,5 @@
 #include "laneClassifier.hpp"
+#include "pipeline.hpp"
 #include "tolerance.hpp"
 
 #include <algorithm>

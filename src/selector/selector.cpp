@@ -1,4 +1,5 @@
 #include "selector.hpp"
+#include "pipeline.hpp"
 #include "tolerance.hpp"
 
 #include <algorithm>
@@ -127,7 +128,7 @@ public:
                 break;
             default:
                 outcome.trucksAllowed = remaining;
-                solveGroup(route, outcome, bundle);
+                solveGroup(route, methodChain(route.method), outcome, bundle);
                 remaining -= outcome.trucksBuilt;
                 break;
             }
@@ -152,18 +153,28 @@ public:
         return bundle;
     }
 
+    // One group alone, through `chain`, allowed `trucksAllowed` trucks.
+    RouteSolution solveAlone(size_t routeIndex, const vector<PackingMethod>& chain, long long trucksAllowed) const {
+        BundleResult bundle;
+        RouteOutcome outcome;
+        outcome.routeIndex = routeIndex;
+        outcome.trucksAllowed = trucksAllowed;
+        solveGroup(classification_.routes[routeIndex], chain, outcome, bundle);
+        return {std::move(outcome), std::move(bundle.trucks), std::move(bundle.leftOver)};
+    }
+
 private:
     static void leaveAll(const LaneRoute& route, LeftOverReason reason, BundleResult& bundle) {
         for (const size_t index : route.itemIndices) bundle.leftOver.push_back({index, reason});
     }
 
-    void solveGroup(const LaneRoute& route, RouteOutcome& outcome, BundleResult& bundle) const {
+    void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteOutcome& outcome,
+                    BundleResult& bundle) const {
         vector<KnapsackItem> items;
         items.reserve(route.itemIndices.size());
         for (const size_t index : route.itemIndices) items.push_back(knapsackItemFrom(items_.items[index]));
         const int allowed = static_cast<int>(max(0LL, outcome.trucksAllowed));
 
-        const vector<PackingMethod> chain = methodChain(route.method);
         optional<MethodResult> kept;
         for (size_t step = 0; step < chain.size() && !kept; ++step) {
             const double start = clock_();
@@ -396,14 +407,32 @@ void validate(const PipelineResult& run, const SelectionItems& items, const Lane
     }
 }
 
+function<double()> clockOf(const SelectorSettings& settings) {
+    if (settings.clock) return settings.clock;
+    return [] { return chrono::duration<double>(chrono::steady_clock::now().time_since_epoch()).count(); };
+}
+
 } // anonymous namespace
+
+RouteSolution solveRoute(const PipelineResult& run, const SelectionItems& items,
+                         const LaneClassification& classification, size_t routeIndex,
+                         const vector<PackingMethod>& chain, long long trucksAllowed,
+                         const SelectorSettings& settings) {
+    validate(run, items, classification, settings);
+    if (routeIndex >= classification.routes.size()) {
+        throw invalid_argument("Selector: route " + to_string(routeIndex) + " of "
+                               + to_string(classification.routes.size()));
+    }
+    if (chain.empty()) throw invalid_argument("Selector: no method to solve the route with");
+    const function<double()> clock = clockOf(settings);
+    const BundleSolver solver(run, items, classification, settings, clock);
+    return solver.solveAlone(routeIndex, chain, trucksAllowed);
+}
 
 SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book, const SelectionItems& items,
                           const LaneClassification& classification, const SelectorSettings& settings) {
     validate(run, items, classification, settings);
-    const function<double()> clock = settings.clock ? settings.clock : [] {
-        return chrono::duration<double>(chrono::steady_clock::now().time_since_epoch()).count();
-    };
+    const function<double()> clock = clockOf(settings);
 
     // Routes by lane and ship date: groups sharing a reservation are solved together, in order.
     map<LaneDate, vector<size_t>> routesByLaneDate;

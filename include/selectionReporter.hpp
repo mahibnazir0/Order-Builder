@@ -24,7 +24,6 @@
 // ============================================================================
 
 #include "laneClassifier.hpp"
-#include "pipeline.hpp"
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
 #include "selector.hpp"
@@ -35,6 +34,9 @@
 
 namespace ob {
 
+// By reference only, so pipeline.hpp can hold M4's results without including itself.
+struct PipelineResult;
+
 // Detailed adds item-level lists; it prints from the same plan and never changes it.
 enum class ReportDetail { Standard, Detailed };
 
@@ -43,6 +45,8 @@ struct SelectionReportContext {
     std::vector<std::string> inputFiles;  // as given to the run
     LaneClassifierSettings routing;
     SelectorSettings settings;            // the ones the plan was made with
+    // What the run planned around rather than stopped on, e.g. a combo lane; printed under Inputs.
+    std::vector<std::string> warnings;
     ReportDetail detail = ReportDetail::Standard;
 };
 

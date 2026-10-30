@@ -60,6 +60,8 @@ add_library(ob_core STATIC
   src/binPacker/binPacker.cpp
   src/selector/selector.cpp
   src/selectionReporter/selectionReporter.cpp
+  src/benchmarkHarness/benchmarkHarness.cpp
+  src/selectionParams/selectionParams.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -124,6 +126,10 @@ add_executable(ob_tests
   tests/binPacker/testBinPacker.cpp
   tests/selector/testSelector.cpp
   tests/selectionReporter/testSelectionReporter.cpp
+  tests/benchmarkHarness/testBenchmarkHarness.cpp
+  tests/benchmarkHarness/testM4Benchmark.cpp
+  tests/selectionParams/testSelectionParams.cpp
+  tests/testPipelineMilestone4.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.
@@ -147,4 +153,8 @@ add_test(NAME ob_tests COMMAND ob_tests
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 # The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent.
 add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The M4 benchmark over every extract held. Its presence check is skipped in the full run, so a
+# clean clone passes; here --no-skip runs it, so a missing extract fails by name.
+add_test(NAME m4Benchmark COMMAND ob_tests -ts=m4Benchmark --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
