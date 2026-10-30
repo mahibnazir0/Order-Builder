@@ -1,4 +1,5 @@
 #include "paramsLoader.hpp"
+#include "paramsFields.hpp"
 #include "inputFile.hpp"
 
 #include <algorithm>
@@ -18,8 +19,6 @@ namespace ob {
 using json = nlohmann::json;
 
 namespace {
-
-enum class ZeroAllowed { No, Yes };
 
 constexpr size_t maximumMessageTextLength = 240;
 
@@ -68,6 +67,8 @@ const json& requiredBlock(const json& root, const char* key) {
     return *block;
 }
 
+} // anonymous namespace
+
 const json& requiredField(const json& record, const char* key,
                           const string& recordName) {
     if (!record.is_object()) {
@@ -80,8 +81,7 @@ const json& requiredField(const json& record, const char* key,
     return *field;
 }
 
-double readQuantity(const json& value, const string& key,
-                    ZeroAllowed zeroAllowed = ZeroAllowed::No) {
+double readQuantity(const json& value, const string& key, ZeroAllowed zeroAllowed) {
     if (!value.is_number()) {
         throw runtime_error("params: " + key + " must be a number");
     }
@@ -127,6 +127,8 @@ void requireNonEmptyArray(const json& value, const string& key) {
         throw runtime_error("params: " + key + " must not be empty");
     }
 }
+
+namespace {
 
 TrailerSpec readTrailer(const json& record, size_t index,
                         const vector<TrailerSpec>& trailers) {
@@ -270,7 +272,7 @@ M2Params parseParams(const json& root) {
     return params;
 }
 
-M2Params loadParams(const string& path) {
+json readParamsFile(const string& path) {
     const string pathText = printablePath(path);
     ifstream input(path, ios::binary);
     if (!isRegularFile(path) || !input) {
@@ -287,15 +289,17 @@ M2Params loadParams(const string& path) {
     if (input.bad()) {
         throw runtime_error("params: cannot read file: " + pathText);
     }
-    json root;
     try {
-        root = json::parse(contents);
+        return json::parse(contents);
     } catch (const json::exception& error) {
         throw runtime_error("params: invalid JSON in " + pathText
             + ": " + printableText(error.what()));
     }
-    M2Params params = parseParams(root);
-    params.sourcePath = pathText;
+}
+
+M2Params loadParams(const string& path) {
+    M2Params params = parseParams(readParamsFile(path));
+    params.sourcePath = printablePath(path);
     return params;
 }
 
