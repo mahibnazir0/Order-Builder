@@ -1,4 +1,5 @@
 #include "patternPacker.hpp"
+#include "columnGeneration.hpp"
 #include "tolerance.hpp"
 
 #include <algorithm>
@@ -15,201 +16,10 @@ namespace ob {
 
 namespace {
 
-// Pivot and reduced-cost tolerance for the LP. Coarser than kQuantityEpsilon because the
-// tableau accumulates rounding over many pivots.
-constexpr double kLpEpsilon = 1e-9;
-
 struct ItemType {
     long long areaGrains = 0;
     long long weightGrains = 0;
     vector<size_t> items;  // input indices, most urgent first
-};
-
-struct LpSolution {
-    bool solved = false;
-    double value = 0.0;
-    vector<double> typeValues;   // the duals that price new patterns
-    vector<double> patternUses;  // trucks of each pattern the relaxation uses
-};
-
-// The LP over the current patterns, solved through its dual: maximise sum(demand x value)
-// with every pattern's value at most one truck. Its slack basis is feasible from the start,
-// and the pattern uses come back as the duals of its rows. Dense tableau, Bland's rule so it
-// cannot cycle; an iteration cap guards the run anyway.
-LpSolution solvePatternLp(const vector<vector<int>>& patterns, const vector<long long>& demand) {
-    const size_t rows = patterns.size(), types = demand.size();
-    const size_t columns = types + rows + 1;
-    vector<vector<double>> tableau(rows + 1, vector<double>(columns, 0.0));
-    vector<size_t> basis(rows);
-    for (size_t row = 0; row < rows; ++row) {
-        for (size_t type = 0; type < types; ++type) tableau[row][type] = patterns[row][type];
-        tableau[row][types + row] = 1.0;
-        tableau[row][columns - 1] = 1.0;
-        basis[row] = types + row;
-    }
-    vector<double>& objective = tableau[rows];
-    for (size_t type = 0; type < types; ++type) objective[type] = -static_cast<double>(demand[type]);
-
-    LpSolution solution;
-    const size_t iterationCap = 50 * (rows + types) + 100;
-    for (size_t iteration = 0;; ++iteration) {
-        if (iteration > iterationCap) return solution;
-        size_t entering = columns;
-        for (size_t column = 0; column + 1 < columns; ++column) {
-            if (objective[column] < -kLpEpsilon) {
-                entering = column;
-                break;
-            }
-        }
-        if (entering == columns) break;
-        size_t leaving = rows;
-        double bestRatio = 0.0;
-        for (size_t row = 0; row < rows; ++row) {
-            if (tableau[row][entering] <= kLpEpsilon) continue;
-            const double ratio = tableau[row][columns - 1] / tableau[row][entering];
-            if (leaving == rows || ratio < bestRatio - kLpEpsilon
-                || (ratio <= bestRatio + kLpEpsilon && basis[row] < basis[leaving])) {
-                leaving = row;
-                bestRatio = ratio;
-            }
-        }
-        // Every type has a pattern carrying it, so no value can grow without bound.
-        if (leaving == rows) return solution;
-        const double pivot = tableau[leaving][entering];
-        for (double& cell : tableau[leaving]) cell /= pivot;
-        for (size_t row = 0; row <= rows; ++row) {
-            if (row == leaving || fabs(tableau[row][entering]) <= 0.0) continue;
-            const double factor = tableau[row][entering];
-            for (size_t column = 0; column < columns; ++column) {
-                tableau[row][column] -= factor * tableau[leaving][column];
-            }
-        }
-        basis[leaving] = entering;
-    }
-
-    solution.solved = true;
-    solution.value = objective[columns - 1];
-    solution.typeValues.assign(types, 0.0);
-    for (size_t row = 0; row < rows; ++row) {
-        if (basis[row] < types) solution.typeValues[basis[row]] = tableau[row][columns - 1];
-    }
-    solution.patternUses.resize(rows);
-    for (size_t row = 0; row < rows; ++row) solution.patternUses[row] = max(0.0, objective[types + row]);
-    return solution;
-}
-
-// The truck load worth most at `values`: a bounded knapsack over the types, at most `available`
-// of each, within the floor and payload. Depth-first over types by value per floor grain, the
-// rest bounded by the smaller of the fractional fills of the floor and the payload left.
-class PatternPricer {
-public:
-    PatternPricer(const vector<ItemType>& types, long long areaCapacity, long long weightCapacity,
-                  long long nodeLimit)
-        : types_(types), areaCapacity_(areaCapacity), weightCapacity_(weightCapacity),
-          nodeLimit_(nodeLimit) {}
-
-    struct Priced {
-        vector<int> counts;
-        double value = 0.0;
-        bool exact = true;
-    };
-
-    Priced best(const vector<double>& values, const vector<long long>& available) {
-        values_ = &values;
-        available_ = &available;
-        order_.clear();
-        for (size_t type = 0; type < types_.size(); ++type) {
-            if (values[type] > kLpEpsilon && available[type] > 0) order_.push_back(type);
-        }
-        sort(order_.begin(), order_.end(), [&](size_t left, size_t right) {
-            const double leftDensity = values[left] / static_cast<double>(types_[left].areaGrains);
-            const double rightDensity = values[right] / static_cast<double>(types_[right].areaGrains);
-            return leftDensity != rightDensity ? leftDensity > rightDensity : left < right;
-        });
-        rank_.assign(types_.size(), order_.size());
-        for (size_t position = 0; position < order_.size(); ++position) rank_[order_[position]] = position;
-        weightOrder_ = order_;
-        sort(weightOrder_.begin(), weightOrder_.end(), [&](size_t left, size_t right) {
-            // Weightless types first: they cost no payload at all.
-            const double leftGrains = static_cast<double>(types_[left].weightGrains);
-            const double rightGrains = static_cast<double>(types_[right].weightGrains);
-            const double leftDensity = leftGrains > 0.0 ? values[left] / leftGrains : INFINITY;
-            const double rightDensity = rightGrains > 0.0 ? values[right] / rightGrains : INFINITY;
-            return leftDensity != rightDensity ? leftDensity > rightDensity : left < right;
-        });
-        counts_.assign(types_.size(), 0);
-        bestCounts_ = counts_;
-        bestValue_ = 0.0;
-        nodes_ = 0;
-        exact_ = true;
-        search(0, areaCapacity_, weightCapacity_, 0.0);
-        return {bestCounts_, bestValue_, exact_};
-    }
-
-private:
-    // The most the types still open at `position` could add within `capacityLeft` grains of
-    // one resource: whole types in `byDensity` order (value per grain of that resource) while
-    // they fit, then a fraction of the next. A type that uses none of the resource adds all of
-    // what is available.
-    double fractionalFill(const vector<size_t>& byDensity, size_t position, long long capacityLeft,
-                          bool floor) const {
-        double bound = 0.0;
-        double left = static_cast<double>(capacityLeft);
-        for (const size_t type : byDensity) {
-            if (rank_[type] < position) continue;
-            const double grains = static_cast<double>(floor ? types_[type].areaGrains : types_[type].weightGrains);
-            const double available = static_cast<double>((*available_)[type]);
-            const double count = grains > 0.0 ? min(available, left / grains) : available;
-            bound += count * (*values_)[type];
-            left -= count * grains;
-            if (left <= 0.0) break;
-        }
-        return bound;
-    }
-
-    void search(size_t position, long long areaLeft, long long weightLeft, double value) {
-        if (value > bestValue_ + kLpEpsilon) {
-            bestValue_ = value;
-            bestCounts_ = counts_;
-        }
-        if (position == order_.size()) return;
-        if (++nodes_ > nodeLimit_) {
-            exact_ = false;
-            return;
-        }
-        const double bound = min(fractionalFill(order_, position, areaLeft, true),
-                                 fractionalFill(weightOrder_, position, weightLeft, false));
-        if (value + bound <= bestValue_ + kLpEpsilon) return;
-
-        const size_t type = order_[position];
-        const ItemType& itemType = types_[type];
-        long long most = (*available_)[type];
-        most = min(most, areaLeft / itemType.areaGrains);
-        if (itemType.weightGrains > 0) most = min(most, weightLeft / itemType.weightGrains);
-        for (long long count = most; count >= 0; --count) {
-            counts_[type] = static_cast<int>(count);
-            search(position + 1, areaLeft - count * itemType.areaGrains,
-                   weightLeft - count * itemType.weightGrains,
-                   value + static_cast<double>(count) * (*values_)[type]);
-            if (!exact_) break;
-        }
-        counts_[type] = 0;
-    }
-
-    const vector<ItemType>& types_;
-    long long areaCapacity_;
-    long long weightCapacity_;
-    long long nodeLimit_;
-    const vector<double>* values_ = nullptr;
-    const vector<long long>* available_ = nullptr;
-    vector<size_t> order_;
-    vector<size_t> weightOrder_;  // the same types by value per weight grain
-    vector<size_t> rank_;         // each type's place in order_
-    vector<int> counts_;
-    vector<int> bestCounts_;
-    double bestValue_ = 0.0;
-    long long nodes_ = 0;
-    bool exact_ = true;
 };
 
 bool isPositiveFinite(double value) { return isfinite(value) && value > 0.0; }
@@ -263,7 +73,10 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
         packing.volumeBoundTrucks = static_cast<long long>(ceil(max(byArea, byWeight) - kLpEpsilon));
     }
 
-    PatternPricer pricer(types, problem.areaCapacity, problem.weightCapacity, settings.pricingNodeLimit);
+    vector<PricingType> pricingTypes;
+    pricingTypes.reserve(types.size());
+    for (const ItemType& type : types) pricingTypes.push_back({type.areaGrains, type.weightGrains});
+    PatternPricer pricer(pricingTypes, problem.areaCapacity, problem.weightCapacity, settings.pricingNodeLimit);
 
     // Starting columns: each type alone, as many as one truck holds. Every candidate fits an
     // empty truck, so each holds at least one and the LP is bounded.
@@ -277,10 +90,10 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
         if (seen.insert(pure).second) columns.push_back(std::move(pure));
     }
 
-    LpSolution lp;
+    CoveringLpSolution lp;
     if (!types.empty()) {
         for (int round = 0;; ++round) {
-            lp = solvePatternLp(columns, demand);
+            lp = solveCoveringLp(columns, demand);
             if (!lp.solved) {
                 packing.unstable = true;
                 break;

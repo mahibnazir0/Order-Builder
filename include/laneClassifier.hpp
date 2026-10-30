@@ -25,7 +25,6 @@
 // window, or not available within it, are left out and listed.
 // ============================================================================
 
-#include "pipeline.hpp"
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
 
@@ -35,6 +34,9 @@
 #include <vector>
 
 namespace ob {
+
+// By reference only, so pipeline.hpp can hold M4's results without including itself.
+struct PipelineResult;
 
 enum class SolveMethod {
     Knapsack,
