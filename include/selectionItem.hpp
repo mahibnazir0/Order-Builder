@@ -15,7 +15,6 @@
 // most urgent priority, and cannot leave before its latest available date.
 // ============================================================================
 
-#include "pipeline.hpp"
 #include "shipCalendar.hpp"
 
 #include <cstddef>
@@ -23,6 +22,9 @@
 #include <vector>
 
 namespace ob {
+
+// By reference only, so pipeline.hpp can hold M4's results without including itself.
+struct PipelineResult;
 
 enum class ShipTiming {
     Overdue,  // ship date before the window: ships first, never dropped

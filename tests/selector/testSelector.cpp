@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "../m4AugustFixtures.hpp"
+#include "../m4SyntheticDay.hpp"
 #include "selector.hpp"
 #include "tolerance.hpp"
 
@@ -17,101 +18,7 @@ using namespace ob;
 
 namespace {
 
-const TrailerSpec kTrailer{"53FT_NA", 630.0, 100.0, 108.0, 45000.0, 32, nullopt};
-const LaneClassifierSettings kRouting{20, 5.0};
-const string kPlanDate = "2026-08-04";  // a Tuesday: the window is 6-7 Aug
-const vector<CTLRecord> kCtl{{"", "TUESDAY", 2, 3, 2}};
-
-SelectorSettings selectorSettings() {
-    SelectorSettings settings;
-    settings.knapsack = {1.0, 1.0, 200'000};
-    settings.patternPacker = {1.0, 1.0, 200, 200'000};
-    settings.binPacker = {1.0, 1.0, 50, 100'000, 2'000, 100};
-    settings.floor.fullCubeFraction = 0.84;
-    settings.secondsPerLane = 10.0;
-    settings.threads = 1;
-    return settings;
-}
-
-SegregatedGroup group(const string& origin, SplitReason reason = SplitReason::None, const string& segregant = "") {
-    SegregatedGroup built;
-    built.key.locationFrom = origin;
-    built.key.locationTo = "2528";
-    built.key.shipCondition = "TL";
-    built.key.isSegregated = !segregant.empty();
-    built.key.segregant = segregant;
-    built.splitReason = reason;
-    return built;
-}
-
-// What the selector and classifier read of a run: groups, the products of the joined lines
-// (line i is product "P<i>") and the trailer.
-PipelineResult runWith(vector<SegregatedGroup> groups, size_t productCount) {
-    PipelineResult run;
-    run.demand.str.resize(productCount);
-    for (size_t index = 0; index < productCount; ++index) run.demand.str[index].matnr = "P" + to_string(index);
-    for (const STRRecord& line : run.demand.str) {
-        JoinedLine joined;
-        joined.str = &line;
-        run.join.lines.push_back(joined);
-    }
-    run.segregation.groups = std::move(groups);
-    run.trailer = kTrailer;
-    run.ranMilestone2 = true;
-    return run;
-}
-
-// A 48 x 40, 50 in unit load: 1,920 sq in of floor, 15 rows of two to a truck.
-SelectionItem item(size_t groupIndex, size_t lineIndex, double weightLb = 1000.0, int priority = 0,
-                   double longSide = 48.0, double shortSide = 40.0) {
-    SelectionItem built;
-    built.groupIndex = groupIndex;
-    built.lineIndices = {lineIndex};
-    built.footprintLongIn = longSide;
-    built.footprintShortIn = shortSide;
-    built.heightIn = 50.0;
-    built.weightLb = weightLb;
-    built.unitLoads = 1.0;
-    built.cubeCubicIn = longSide * shortSide * 50.0;
-    built.shipDate = "2026-08-06";
-    built.availDate = "2026-08-01";
-    built.priority = priority;
-    return built;
-}
-
-PlaceholderRecord reserved(const string& origin, int trucks, const string& shipDate = "2026-08-06") {
-    PlaceholderRecord record;
-    record.locfrno = origin;
-    record.loctono = "2528";
-    record.ship_cond = "TL";
-    record.datfr_ta = shipDate;
-    record.datto_ta = "2026-08-12";
-    record.zzna_equip_size = "53F";
-    record.no_of_loads = trucks;
-    return record;
-}
-
-struct Day {
-    PipelineResult run;
-    ReservationBook book;
-    SelectionItems items;
-    LaneClassification classification;
-};
-
-Day dayOf(vector<SegregatedGroup> groups, size_t products, vector<SelectionItem> items,
-          const vector<PlaceholderRecord>& placeholders) {
-    Day day;
-    day.run = runWith(std::move(groups), products);
-    day.book = buildReservationBook(placeholders, kCtl, kPlanDate, {"53F", {"53F"}});
-    sort(items.begin(), items.end(), shipsBefore);
-    day.items.items = std::move(items);
-    day.classification = classifyLanes(day.run, day.book, day.items, kRouting);
-    return day;
-}
-
-SelectionPlan plan(const Day& day, const SelectorSettings& settings = selectorSettings()) {
-    return selectLoads(day.run, day.book, day.items, day.classification, settings);
-}
+using namespace m4SyntheticDay;
 
 // I10, I2, I3, I4: every item on one truck or left over with a reason, no truck over the
 // floor, payload or its rows, no truck carrying two groups, and no lane-date given more trucks
@@ -132,17 +39,6 @@ void checkPlan(const Day& day, const SelectionPlan& selection) {
     for (const LeftOverItem& left : selection.leftOver) ++seen[left.itemIndex];
     REQUIRE(all_of(seen.begin(), seen.end(), [](int count) { return count == 1; }));
     for (const ReservationUse& use : selection.reservations) REQUIRE(use.built <= use.reserved);
-}
-
-vector<SelectionItem> repeated(size_t count, size_t groupIndex, size_t lineIndex, double weightLb = 1000.0) {
-    return vector<SelectionItem>(count, item(groupIndex, lineIndex, weightLb));
-}
-
-// Distinct products, one unit load each: the classifier sends these to binPacker.
-vector<SelectionItem> distinctProducts(size_t count, size_t groupIndex, size_t firstLine, double weightLb = 1000.0) {
-    vector<SelectionItem> items;
-    for (size_t index = 0; index < count; ++index) items.push_back(item(groupIndex, firstLine + index, weightLb));
-    return items;
 }
 
 size_t countReason(const SelectionPlan& selection, LeftOverReason reason) {
