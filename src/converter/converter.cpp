@@ -1,6 +1,9 @@
 #include "converter.hpp"
+#include "palletSpec.hpp"
 
 #include <cmath>
+
+using namespace std;
 
 namespace ob {
 
@@ -22,58 +25,51 @@ DimensionsCm Converter::to_cm(const ProductRecord& product) {
 
 double Converter::round_pallets(double pallets, PalletRounding rounding) {
     switch (rounding) {
-        case PalletRounding::Floor: return std::floor(pallets);
-        case PalletRounding::Ceil:  return std::ceil(pallets);
+        case PalletRounding::Floor: return floor(pallets);
+        case PalletRounding::Ceil:  return ceil(pallets);
         case PalletRounding::None:  break;
     }
     return pallets;
 }
 
-bool Converter::pallet_has_wood(const std::string& pallet_id) {
-    // PTL and PGM are wood. TLD and GMA are not, and add nothing.
-    return pallet_id == "PTL" || pallet_id == "PGM";
-}
-
-bool Converter::isConvertibleUom(const std::string& uom) {
+bool Converter::isConvertibleUom(const string& uom) {
     return uom == "CS" || uom == "PAL" || uom == "DIS";
 }
 
 double Converter::to_pallets(double trans,
-                             const std::string& uom,
+                             const string& uom,
                              const ProductRecord& product,
                              PalletRounding rounding) {
-    if (uom == "CS") {
-        // Cases_Unit_Load is 0 on exactly one master row. Return 0 rather than
-        // dividing by zero; the Validator reports the line.
-        if (product.cases_unit_load == 0) {
-            return 0.0;
-        }
-        return round_pallets(trans / static_cast<double>(product.cases_unit_load),
-                             rounding);
-    }
-
-    // PAL and DIS are already expressed in unit loads. They still go through
-    // the rounding switch so one mode means one thing across every UoM.
-    if (uom == "PAL" || uom == "DIS") {
-        return round_pallets(trans, rounding);
-    }
-
     // Unrecognised code. Not this module's job to complain about it.
-    return 0.0;
+    if (!isConvertibleUom(uom)) return 0.0;
+
+    // The quantity counts the product's base unit, the master's "case", whatever the code
+    // names it, and Cases_Unit_Load of them make one unit load (client, 16 and 20 Oct: 18 DIS
+    // per unit load). A PAL product with Cases_Unit_Load 2 stacks two PAL in one unit load,
+    // so 60 PAL is 30 unit loads: read as 60, Truck Builder's August loads would be
+    // overweight. The Validator rejects a line whose unit differs from the master's.
+    // Cases_Unit_Load is 0 on exactly one master row. Return 0 rather than dividing by zero;
+    // the Validator reports the line.
+    if (product.cases_unit_load == 0) return 0.0;
+    return round_pallets(trans / static_cast<double>(product.cases_unit_load), rounding);
 }
 
-double Converter::to_weight_lb(double pallets,
-                               const ProductRecord& product,
-                               double wood_pallet_weight_lb) {
+double Converter::to_weight_lb(double pallets, const ProductRecord& product,
+                               const vector<PalletSpec>& palletSpecs) {
     // Weight in the master is per CASE, so a unit load is the case weight
     // times the number of cases on it.
     const double unit_load_lb =
         product.weight_lb * static_cast<double>(product.cases_unit_load);
 
-    const double pallet_lb =
-        pallet_has_wood(product.pallet_id) ? wood_pallet_weight_lb : 0.0;
+    return pallets * (unit_load_lb + palletAddedWeightLb(product, palletSpecs).value_or(0.0));
+}
 
-    return pallets * (unit_load_lb + pallet_lb);
+optional<double> Converter::palletAddedWeightLb(const ProductRecord& product,
+                                                const vector<PalletSpec>& palletSpecs) {
+    if (product.palletWeightLb) return product.palletWeightLb;
+    const PalletSpec* pallet = palletSpecFor(palletSpecs, product.pallet_id);
+    if (pallet == nullptr) return nullopt;
+    return pallet->addedWeightLb;
 }
 
 }  // namespace ob

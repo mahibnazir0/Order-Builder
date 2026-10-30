@@ -57,14 +57,38 @@ TEST_CASE("clean input produces no errors" * doctest::skip(!crossDayTests::augus
     CHECK(r.unrecognized_pallet_id == 0);
 }
 
-TEST_CASE("ambiguous pallet-type matches are surfaced as warnings" * doctest::skip(!crossDayTests::august17Present())) {
+TEST_CASE("pallet types the quantity does not settle are surfaced as warnings" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     ValidationReport r = Validator::validate(f.join);
 
-    // 144 lines join to a product with more than one pallet-type variant.
-    CHECK(r.ambiguous_pallet == 144);
-    CHECK(count_rule(r, "ambiguous_pallet_type") == 144);
-    CHECK(r.warnings >= 144);
+    // Of the 144 lines on a product with several pallet types, 35 divide evenly by more than
+    // one (GMA taken) and 1 by none (preference order); the client has still to confirm both.
+    CHECK(r.ambiguous_pallet == 36);
+    CHECK(count_rule(r, "pallet_type_tie") == 35);
+    CHECK(count_rule(r, "pallet_type_no_fit") == 1);
+    CHECK(r.warnings >= 36);
+}
+
+TEST_CASE("a pallet-type warning names the quantity and every type's unit load" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    const ValidationReport r = Validator::validate(f.join);
+    bool foundTie = false;
+    bool foundNoFit = false;
+    for (const auto& issue : r.issues) {
+        if (issue.rule == "pallet_type_tie" && issue.matnr == "105553001") {
+            CHECK(issue.message.find(" CS; GMA 84, TLD 168 per unit load") != string::npos);
+            CHECK(issue.message.find("'GMA' taken") != string::npos);
+            foundTie = true;
+        }
+        if (issue.rule == "pallet_type_no_fit") {
+            CHECK(issue.matnr == "104725105");
+            CHECK(issue.message.find("5 DIS; TLD 33, GMA 15 per unit load") != string::npos);
+            CHECK(issue.message.find("'TLD' taken by preference order") != string::npos);
+            foundNoFit = true;
+        }
+    }
+    CHECK(foundTie);
+    CHECK(foundNoFit);
 }
 
 TEST_CASE("missing mandatory field is an error, and stops further checks" * doctest::skip(!crossDayTests::august17Present())) {
@@ -483,7 +507,7 @@ TEST_CASE("a product with a blank UoM raises blank_uom_product" * doctest::skip(
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
     j.lines.resize(1);
-    j.lines[0].ambiguous = false;
+    j.lines[0].palletTypeChoice = PalletTypeChoice::OnlyType;
 
     ProductRecord blankUomProduct = *j.lines[0].product;
     blankUomProduct.uom = "";
@@ -500,7 +524,7 @@ TEST_CASE("a whitespace-only product UoM also raises blank_uom_product" * doctes
     JoinResult j = f.join;
     REQUIRE(j.lines[0].product != nullptr);
     j.lines.resize(1);
-    j.lines[0].ambiguous = false;
+    j.lines[0].palletTypeChoice = PalletTypeChoice::OnlyType;
 
     ProductRecord blankUomProduct = *j.lines[0].product;
     blankUomProduct.uom = "   ";
@@ -579,6 +603,211 @@ TEST_CASE("a blank Pallet_ID is also an unrecognized-pallet-id warning" * doctes
 
     ValidationReport r = Validator::validate(j);
     CHECK(r.unrecognized_pallet_id == 1);
+}
+
+TEST_CASE("a negative, NaN or infinite item master pallet weight is an invalid_pallet_weight error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
+    for (const double badWeightLb : {-65.0, numeric_limits<double>::quiet_NaN(),
+                                     numeric_limits<double>::infinity()}) {
+        CAPTURE(badWeightLb);
+        Fixture f;
+        JoinResult j = f.join;
+        REQUIRE(j.lines[0].product != nullptr);
+        ProductRecord badProduct = *j.lines[0].product;
+        badProduct.palletWeightLb = badWeightLb;
+        j.lines[0].product = &badProduct;
+
+        ValidationReport r = Validator::validate(j);
+        CHECK(r.invalidPalletWeight == 1);
+        CHECK(count_rule(r, "invalid_pallet_weight") == 1);
+        CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+    }
+}
+
+TEST_CASE("a negative pallet table weight is an invalid_pallet_weight error" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    REQUIRE(f.join.lines[0].product != nullptr);
+    ValidationConfig config;
+    config.pallets = {{f.join.lines[0].product->pallet_id, -1.0, 0.0, 48.0, 40.0}};
+
+    ValidationReport r = Validator::validate(f.join, {}, config);
+    CHECK(r.invalidPalletWeight >= 1);
+    CHECK(Validator::excludedLineFlags(r, f.join.lines.size())[0]);
+}
+
+TEST_CASE("an unreadable Pallet_Weight cell in the item master is an invalid_pallet_weight error" * doctest::skip(!crossDayTests::august17Present())) {
+    const string path = "tests/importer/_tmp_validator_pallet_weight.csv";
+    {
+        ofstream out(path);
+        out << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
+               "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID,Pallet_Weight\n";
+        out << "T1,Test,10,10,10,5,CS,9.5,4,2,8,PTL,65x\n";
+    }
+    const ProductLoadResult loaded = ProductImporter::load(path);
+    remove(path.c_str());
+
+    const DemandFile demand = Importer::load_demand(DEMAND_PATH);
+    REQUIRE_FALSE(demand.str.empty());
+    vector<STRRecord> demandLines{demand.str[0]};
+    demandLines[0].matnr = "T1";
+    const ProductIndex index = Joiner::build_index(loaded.products);
+    const JoinResult j = Joiner::join(demandLines, index);
+    REQUIRE(j.lines[0].product != nullptr);
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.invalidPalletWeight == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("an item master pallet weight clears the unrecognized Pallet_ID warning" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.pallet_id = "XYZ";
+    product.palletWeightLb = 40.0;
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unrecognized_pallet_id == 0);
+    CHECK(r.invalidPalletWeight == 0);
+}
+
+TEST_CASE("a demand unit that differs from the product master's unit is a uom_mismatch error and the line is excluded" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    REQUIRE(j.lines[0].str != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.uom = j.lines[0].str->unitofmeas == "PAL" ? "CS" : "PAL";
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.uomMismatch == 1);
+    CHECK(count_rule(r, "uom_mismatch") == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
+TEST_CASE("an unconvertible demand unit is reported as unknown_uom, not as a uom_mismatch" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    vector<STRRecord> demandLines{f.demand.str[0]};
+    demandLines[0].unitofmeas = "EA";
+    const JoinResult j = Joiner::join(demandLines, f.index);
+    REQUIRE(j.lines[0].product != nullptr);
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.unknown_uom == 1);
+    CHECK(r.uomMismatch == 0);
+}
+
+TEST_CASE("a product master row with no unit is a blank_uom_product warning, not a uom_mismatch" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+    ProductRecord product = *j.lines[0].product;
+    product.uom = "";
+    j.lines[0].product = &product;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(r.blank_uom_product == 1);
+    CHECK(r.uomMismatch == 0);
+}
+
+TEST_CASE("every 17 Aug demand line's unit matches its product master's unit" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    CHECK(Validator::validate(f.join).uomMismatch == 0);
+}
+
+TEST_CASE("a demand line whose ship window ends before it starts is an error" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    REQUIRE(!f.demand.str.empty());
+    f.demand.str[0].datfr_ta = "2026-10-09";
+    f.demand.str[0].datto_ta = "2026-10-01";
+
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.invertedShipWindow == 1);
+    CHECK(count_rule(r, "inverted_ship_window") == 1);
+    CHECK(Validator::excludedLineFlags(r, f.join.lines.size())[0]);
+}
+
+TEST_CASE("an unreadable or out-of-range TPRIO is a warning that keeps the line" * doctest::skip(!crossDayTests::august17Present())) {
+    for (const int priority : {kUnreadablePriority, -5, kMaxPriority + 1}) {
+        CAPTURE(priority);
+        Fixture f;
+        f.demand.str[0].tprio = priority;
+        ValidationReport r = Validator::validate(f.join);
+        CHECK(r.unreadablePriority == 1);
+        CHECK(count_rule(r, "unreadable_priority") == 1);
+        CHECK(r.errors == 0);
+    }
+}
+
+TEST_CASE("TPRIO at either end of its range is accepted" * doctest::skip(!crossDayTests::august17Present())) {
+    for (const int priority : {0, kMaxPriority}) {
+        CAPTURE(priority);
+        Fixture f;
+        f.demand.str[0].tprio = priority;
+        CHECK(Validator::validate(f.join).unreadablePriority == 0);
+    }
+}
+
+TEST_CASE("an unreadable or negative AVAIL_QTY is a warning" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    f.demand.str[0].avail_qty = kUnreadableAvailableQuantity;
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.unreadableAvailableQuantity == 1);
+    CHECK(count_rule(r, "unreadable_available_quantity") == 1);
+}
+
+TEST_CASE("the supplied fixtures have no unreadable priority or availability" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.unreadablePriority == 0);
+    CHECK(r.unreadableAvailableQuantity == 0);
+}
+
+TEST_CASE("a one-day ship window is not inverted" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    REQUIRE(!f.demand.str.empty());
+    f.demand.str[0].datfr_ta = "2026-10-01";
+    f.demand.str[0].datto_ta = "2026-10-01";
+
+    ValidationReport r = Validator::validate(f.join);
+    CHECK(r.invertedShipWindow == 0);
+}
+
+TEST_CASE("the supplied fixtures have no inverted ship window" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    CHECK(Validator::validate(f.join).invertedShipWindow == 0);
+}
+
+TEST_CASE("a pallet type listed only in the configured pallet table is not unrecognized" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    REQUIRE(j.lines[0].product != nullptr);
+
+    static ProductRecord eurProduct = *j.lines[0].product;
+    eurProduct.pallet_id = "EUR";
+    j.lines[0].product = &eurProduct;
+
+    ValidationConfig config;
+    config.pallets.push_back({"EUR", 55.0, 5.7, 47.2, 31.5});
+    ValidationReport r = Validator::validate(j, {}, config);
+    CHECK(r.unrecognized_pallet_id == 0);
+}
+
+TEST_CASE("a confirmed pallet type missing from the configured pallet table is unrecognized" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    REQUIRE(f.join.lines[0].product != nullptr);
+    const string palletId = f.join.lines[0].product->pallet_id;
+
+    ValidationConfig config;
+    config.pallets.erase(remove_if(config.pallets.begin(), config.pallets.end(),
+                                        [&](const PalletSpec& pallet) {
+                                            return pallet.palletId == palletId;
+                                        }),
+                         config.pallets.end());
+    ValidationReport r = Validator::validate(f.join, {}, config);
+    CHECK(r.unrecognized_pallet_id > 0);
 }
 
 TEST_CASE("a placeholder with a negative NO_OF_LOADS is an error") {

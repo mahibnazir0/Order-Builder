@@ -1,5 +1,6 @@
 #include "pipeline.hpp"
 #include "converter.hpp"
+#include "floorPlanner.hpp"
 #include "importer.hpp"
 #include "logger.hpp"
 #include "paramsLoader.hpp"
@@ -7,7 +8,10 @@
 #include "segregation.hpp"
 #include "stackRules.hpp"
 
+#include <filesystem>
 #include <stdexcept>
+#include <system_error>
+#include <unordered_map>
 
 using namespace std;
 
@@ -15,13 +19,32 @@ namespace ob {
 
 namespace {
 
-const TrailerSpec& selectTrailer(const M2Params& params, const string& trailerCode) {
-    if (params.trailers.empty()) throw runtime_error("params file lists no trailers");
-    if (trailerCode.empty()) return params.trailers.front();
-    for (const auto& trailer : params.trailers) {
-        if (trailer.trailerCode == trailerCode) return trailer;
+// Fills each product with no layer size of its own from the row with the same ID and
+// Pallet_ID in donors. Throws when donors carry no layer size at all: that file cannot be
+// the one meant, and silently borrowing nothing would leave every footprint on the pallet.
+size_t borrowLayerSizes(vector<ProductRecord>& products, const vector<ProductRecord>& donors,
+                        const string& donorPath) {
+    unordered_map<string, const ProductRecord*> donorByKey;
+    donorByKey.reserve(donors.size());
+    for (const ProductRecord& donor : donors) {
+        if (donor.layerLengthIn && donor.layerWidthIn) {
+            donorByKey.emplace(donor.id + '\x1f' + donor.pallet_id, &donor);
+        }
     }
-    throw runtime_error("params file has no trailer '" + trailerCode + "'");
+    if (donorByKey.empty()) {
+        throw runtime_error("--layer-sizes " + donorPath
+                            + ": no row has both Layer_Length and Layer_Width");
+    }
+    size_t borrowed = 0;
+    for (ProductRecord& product : products) {
+        if (product.layerLengthIn || product.layerWidthIn) continue;
+        const auto found = donorByKey.find(product.id + '\x1f' + product.pallet_id);
+        if (found == donorByKey.end()) continue;
+        product.layerLengthIn = found->second->layerLengthIn;
+        product.layerWidthIn = found->second->layerWidthIn;
+        ++borrowed;
+    }
+    return borrowed;
 }
 
 vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& excluded) {
@@ -32,9 +55,10 @@ vector<double> zeroExcluded(const vector<double>& figures, const vector<bool>& e
     return kept;
 }
 
-// M1 weights use the Converter's fixed wood-pallet weight so the published M1 totals stay
-// reproducible. M2 must weigh a pallet exactly as buildUnitLoad does, from the product row's
-// pallet figures or the pallet table, or binding and reporting disagree with the stacks. A line with no buildable
+// M1 weighs a pallet from the item master, then the pallet table (client, 13 Oct); the M1
+// totals moved with it, as docs/m1Restatement.md records. M2 must weigh a pallet exactly as
+// buildUnitLoad does, from the product row's pallet
+// figures or the pallet table, or binding and reporting disagree with the stacks. A line with no buildable
 // unit load keeps its M1 weight: it still occupies the trailer, and that is the only
 // estimate there is for it.
 vector<double> configuredWeightPerLine(const vector<JoinedLine>& lines,
@@ -54,6 +78,7 @@ string unitLoadErrorText(UnitLoadError error, const JoinedLine& line) {
     switch (error) {
     case UnitLoadError::MissingProduct: return "product is not in the master";
     case UnitLoadError::MissingPalletSpec:
+        if (line.product->pallet_id.empty()) return "the product master gives no Pallet_ID";
         return "neither the product master nor the pallet table gives the weight, height and"
                " footprint of pallet type '" + line.product->pallet_id + "'";
     case UnitLoadError::InvalidData:
@@ -113,11 +138,15 @@ vector<ReportedLine> unstackedLines(const PipelineResult& result, const TrailerS
 }
 
 void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
-    result.params = loadParams(inputs.paramsPath);
-    if (!inputs.palletPath.empty()) {
-        result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
+    if (inputs.trailerCode.empty()) {
+        result.trailer = largestTrailer(result.params.trailers, result.params.sourcePath);
+        result.trailerChoice = TrailerChoice::Largest;
+    } else {
+        result.trailer =
+            selectTrailer(result.params.trailers, result.params.sourcePath, inputs.trailerCode);
+        result.trailerChoice = TrailerChoice::Named;
     }
-    const TrailerSpec trailer = selectTrailer(result.params, inputs.trailerCode);
+    const TrailerSpec& trailer = result.trailer;
 
     result.missingPalletIds = missingPalletIds(result.join.lines, result.params);
     // Masters before 29 Sep carry no Pallet_* columns, so without a table every line using them
@@ -182,19 +211,77 @@ void runMilestone2(const PipelineInputs& inputs, PipelineResult& result) {
     result.ranMilestone2 = true;
 }
 
+// A demand extract read as the placeholder file has no PHOLDER block and loads as zero trucks
+// requested, so passing one file to both flags would quietly empty the requested loads.
+void requireDistinctDemandAndPlaceholder(const PipelineInputs& inputs) {
+    error_code ignored;
+    if (filesystem::equivalent(inputs.demand_path, inputs.placeholder_path, ignored)) {
+        throw runtime_error("--demand and --placeholder name the same file: "
+                            + inputs.placeholder_path);
+    }
+}
+
+// Non-empty demand of which no line ships on the rule's dates is far more often a mistyped date
+// than a day with nothing to ship, so it never reads as a complete run.
+bool selectsNothing(const PipelineResult& result) {
+    return !result.demand.str.empty() && result.floorRun.selectedLines() == 0;
+}
+
+void runFloor(const DemandSelector& selector, PipelineResult& result) {
+    result.floorRun = planFloorRun(selector, result.demand, result.segregation, result.join.lines,
+        result.placeholders.placeholders,
+        Validator::excludedPlaceholderFlags(result.validation,
+                                            result.placeholders.placeholders.size()),
+        result.params, result.trailer);
+    const ShipDateCoverage& coverage = result.floorRun.coverage;
+    const string ruleText = describeDemandSelector(selector);
+    if (selectsNothing(result)) {
+        LOG_WARN("none of the " + to_string(result.demand.str.size()) + " demand line(s) ships"
+                 " on the dates of " + ruleText + "; check the dates");
+    }
+    if (!coverage.undatedLines.empty()) {
+        LOG_WARN(to_string(coverage.undatedLines.size())
+                 + " demand line(s) have no real ship date (DATFR_TA) and count toward no floor");
+    }
+    if (result.floorRun.linesLeftOut() > 0) {
+        LOG_WARN(to_string(result.floorRun.linesLeftOut())
+                 + " demand line(s) shipping on the run's dates were left out of the floor"
+                   " (listed in section B)");
+    }
+    result.ranFloor = true;
+}
+
 } // namespace
 
-bool isRunComplete(const PipelineResult& result) {
-    if (result.validation.errors > 0) return false;
-    return !result.ranMilestone2 || result.stackReport.isComplete();
+RunOutcome runOutcome(const PipelineResult& result) {
+    if (result.validation.errors > 0) return RunOutcome::ValidationErrors;
+    if (result.ranMilestone2 && !result.stackReport.isComplete()) return RunOutcome::LinesNotStacked;
+    if (!result.ranFloor) return RunOutcome::FloorNotComputed;
+    if (!result.floorRun.coverage.undatedLines.empty() || result.floorRun.linesLeftOut() > 0) {
+        return RunOutcome::FloorIncomplete;
+    }
+    if (selectsNothing(result)) return RunOutcome::NothingSelected;
+    return RunOutcome::Complete;
 }
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {
+    if (inputs.demandSelector && inputs.paramsPath.empty()) {
+        throw runtime_error("a demand rule needs a params file: the floor is planned against "
+                            "its trailer");
+    }
+    requireDistinctDemandAndPlaceholder(inputs);
     PipelineResult result;
 
     // ── 1. Read the three input files ───────────────────────────────────────
     LOG_DEBUG("Reading product master: " + inputs.product_path);
     result.products = ProductImporter::load(inputs.product_path);
+
+    if (!inputs.layerSizePath.empty()) {
+        result.layerSizesBorrowed = borrowLayerSizes(result.products.products,
+            ProductImporter::load(inputs.layerSizePath).products, inputs.layerSizePath);
+        LOG_INFO("Borrowed layer sizes for " + to_string(result.layerSizesBorrowed)
+                 + " product rows from " + inputs.layerSizePath);
+    }
 
     LOG_DEBUG("Reading demand: " + inputs.demand_path);
     result.demand = Importer::load_demand(inputs.demand_path);
@@ -202,11 +289,21 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
     LOG_DEBUG("Reading placeholders: " + inputs.placeholder_path);
     result.placeholders = PlaceholderImporter::load(inputs.placeholder_path);
 
+    // Read up front so a bad params file or pallet table stops the run before any work.
+    if (!inputs.paramsPath.empty()) {
+        result.params = loadParams(inputs.paramsPath);
+        if (!inputs.palletPath.empty()) {
+            result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
+        }
+    }
+
     // ── 2. Join demand to the product master ────────────────────────────────
     result.index = Joiner::build_index(result.products.products);
     result.join  = Joiner::join(result.demand.str, result.index);
 
     // ── 3. Convert quantities to pallets and weight ─────────────────────────
+    const vector<PalletSpec>& m1Pallets =
+        result.params.pallets.empty() ? confirmedPalletSpecs() : result.params.pallets;
     result.pallets_per_line.reserve(result.join.lines.size());
     result.weight_per_line.reserve(result.join.lines.size());
     for (const auto& jl : result.join.lines) {
@@ -222,15 +319,19 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
                                                      jl.str->unitofmeas,
                                                      *jl.product);
         result.pallets_per_line.push_back(pallets);
-        result.weight_per_line.push_back(Converter::to_weight_lb(pallets, *jl.product));
+        result.weight_per_line.push_back(
+            Converter::to_weight_lb(pallets, *jl.product, m1Pallets));
     }
 
     // ── 4. Validate ─────────────────────────────────────────────────────────
+    ValidationConfig validationConfig = inputs.validation;
+    validationConfig.productMasterPath = inputs.product_path;
+    validationConfig.pallets = m1Pallets;
     result.validation = Validator::validate(result.join,
                                             result.pallets_per_line,
-                                            inputs.validation);
+                                            validationConfig);
     Validator::validate_placeholders(result.placeholders.placeholders, result.validation,
-                                     inputs.validation);
+                                     validationConfig);
     Validator::validate_do_not_mix(result.demand.dnm, result.demand.str, result.validation);
 
     // ── 5. Summarise ────────────────────────────────────────────────────────
@@ -243,6 +344,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
 
     // ── 6. Milestone 2: segregate, pass 1, pass 2, stack report ─────────────
     if (!inputs.paramsPath.empty()) runMilestone2(inputs, result);
+
+    // ── 7. Milestone 3: a floor per ship date ───────────────────────────────
+    if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
 
     // Logged only now so the count includes the warnings Milestone 2 adds and matches the report.
     LOG_INFO("Validation: " + to_string(result.validation.errors) + " errors, "

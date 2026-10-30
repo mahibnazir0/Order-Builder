@@ -7,12 +7,14 @@
 
 #include <limits>
 
+using namespace std;
+
 using namespace ob;
 
 namespace {
 
-const double kNaN = std::numeric_limits<double>::quiet_NaN();
-const double kInf = std::numeric_limits<double>::infinity();
+const double kNaN = numeric_limits<double>::quiet_NaN();
+const double kInf = numeric_limits<double>::infinity();
 
 TrailerSpec trailer() {
     TrailerSpec spec;
@@ -21,7 +23,7 @@ TrailerSpec trailer() {
     return spec;
 }
 
-SegregationResult groupsOf(std::vector<std::vector<std::size_t>> lineIndicesPerGroup) {
+SegregationResult groupsOf(vector<vector<size_t>> lineIndicesPerGroup) {
     SegregationResult result;
     for (auto& indices : lineIndicesPerGroup) {
         SegregatedGroup group;
@@ -81,18 +83,18 @@ TEST_CASE("bindingConstraint: unusable trailer specs are rejected") {
     for (double badWeightLimit : {0.0, -1.0, kNaN, kInf}) {
         TrailerSpec spec = trailer();
         spec.weightLimitLb = badWeightLimit;
-        CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1}, {1}, spec), std::invalid_argument);
+        CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1}, {1}, spec), invalid_argument);
     }
     for (int badPositions : {0, -1}) {
         TrailerSpec spec = trailer();
         spec.stackPositions = badPositions;
-        CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1}, {1}, spec), std::invalid_argument);
+        CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1}, {1}, spec), invalid_argument);
     }
 }
 
 TEST_CASE("bindingConstraint: mismatched vectors and out-of-range indices are rejected") {
-    CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1, 2}, {1}, trailer()), std::invalid_argument);
-    CHECK_THROWS_AS(assessBinding(groupsOf({{1}}), {1}, {1}, trailer()), std::invalid_argument);
+    CHECK_THROWS_AS(assessBinding(groupsOf({{0}}), {1, 2}, {1}, trailer()), invalid_argument);
+    CHECK_THROWS_AS(assessBinding(groupsOf({{1}}), {1}, {1}, trailer()), invalid_argument);
 }
 
 TEST_CASE("bindingConstraint: real demand under strict segregation is almost all cube-bound" * doctest::skip(!crossDayTests::august17Present())) {
@@ -105,7 +107,7 @@ TEST_CASE("bindingConstraint: real demand under strict segregation is almost all
     REQUIRE(params.trailers.size() == 1);
 
     const auto segregation = segregate(run.join.lines, run.demand.dnm, SegregationReading::Strict,
-                                       std::vector<bool>(run.join.lines.size(), false));
+                                       vector<bool>(run.join.lines.size(), false));
     const auto result = assessBinding(segregation, run.pallets_per_line, run.weight_per_line,
                                       params.trailers[0]);
     CHECK(result.groups.size() == 387);

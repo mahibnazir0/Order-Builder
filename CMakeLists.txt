@@ -41,6 +41,15 @@ add_library(ob_core STATIC
   src/bindingConstraint/bindingConstraint.cpp
   src/stackBuilder/stackBuilder.cpp
   src/stackReporter/stackReporter.cpp
+  src/trailerSpec/trailerSpec.cpp
+  src/palletSpec/palletSpec.cpp
+  src/unitLoadMetrics/unitLoadMetrics.cpp
+  src/floorBound/floorBound.cpp
+  src/floorPlanner/floorPlanner.cpp
+  src/demandSelector/demandSelector.cpp
+  src/floorReporter/floorReporter.cpp
+  src/isoDate/isoDate.cpp
+  src/shipCalendar/shipCalendar.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -79,11 +88,23 @@ add_executable(ob_tests
   tests/stackBuilder/testStackBuilder.cpp
   tests/stackReporter/testStackReporter.cpp
   tests/testPipelineMilestone2.cpp
+  tests/testPipelineMilestone3.cpp
   tests/testCrossDayPipeline.cpp
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp
   tests/testNewExtracts.cpp
   tests/cli/testCli.cpp
+  tests/trailerSpec/testTrailerSpec.cpp
+  tests/palletSpec/testPalletSpec.cpp
+  tests/unitLoadMetrics/testUnitLoadMetrics.cpp
+  tests/floorBound/testFloorBound.cpp
+  tests/floorPlanner/testFloorPlanner.cpp
+  tests/demandSelector/testDemandSelector.cpp
+  tests/floorReporter/testFloorReporter.cpp
+  tests/acceptance/acceptanceHarness.cpp
+  tests/acceptance/testAcceptanceHarness.cpp
+  tests/isoDate/testIsoDate.cpp
+  tests/shipCalendar/testShipCalendar.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
@@ -102,4 +123,7 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
 add_test(NAME ob_tests COMMAND ob_tests
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent.
+add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

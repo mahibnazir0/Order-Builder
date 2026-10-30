@@ -3,13 +3,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 using namespace std;
-
 using namespace ob;
 using namespace crossDayTests;
 
@@ -21,7 +23,62 @@ string oneDecimal(double value) {
     return formatted.str();
 }
 
+// Demand files under the September naming, in their own temporary folder.
+class DemandFolder {
+public:
+    DemandFolder() : directory_(filesystem::temp_directory_path() / "obCrossDayDemands") {
+        filesystem::remove_all(directory_);
+        filesystem::create_directories(directory_);
+    }
+    ~DemandFolder() { filesystem::remove_all(directory_); }
+    DemandFolder(const DemandFolder&) = delete;
+    DemandFolder& operator=(const DemandFolder&) = delete;
+
+    void write(const string& name, const string& content) const {
+        ofstream(directory_ / name) << content;
+    }
+    string path() const { return directory_.generic_string(); }
+
+private:
+    filesystem::path directory_;
+};
+
 } // namespace
+
+// The extract tests are skipped without the confidential files, so this one fails instead:
+// a clone without them must never pass a suite that ran none of them.
+TEST_CASE("crossDay: the extract fixtures are present, so the extract tests ran") {
+    for (const string& problem : missingExtracts()) {
+        FAIL_CHECK(problem << " (confidential and gitignored; see README, Test data)");
+    }
+}
+
+TEST_CASE("crossDay: a demand file is found by its REQUEST_ID, not by its name") {
+    const DemandFolder folder;
+    folder.write("100-STR-01a0ede5-ec6b-74a8-bb24-b9666e5f46ea.json", R"({"REQUEST_ID":"#A#","STR":[]})");
+    folder.write("100-STR-01a0f82a-db76-7d60-984d-993498fa1a3e.json", R"({"REQUEST_ID":"#B#","STR":[]})");
+    folder.write("100-PLACEHOLDER-01a0edd8-265c-7ee2-a9dd-181f8df2fa9b.json", R"({"PHOLDER":[]})");
+    folder.write("notes.txt", R"({"REQUEST_ID":"#B#"})");
+    CHECK(findDemandFile(folder.path(), "#B#")
+          == folder.path() + "/100-STR-01a0f82a-db76-7d60-984d-993498fa1a3e.json");
+    CHECK(findDemandFile(folder.path(), "#A#")
+          == folder.path() + "/100-STR-01a0ede5-ec6b-74a8-bb24-b9666e5f46ea.json");
+}
+
+TEST_CASE("crossDay: a demand directory with no file, or two files, for the request is an error") {
+    const DemandFolder folder;
+    folder.write("Demand-1.json", R"({"REQUEST_ID":"#A#","STR":[]})");
+    folder.write("100-STR-copy.json", R"({"REQUEST_ID":"#A#","STR":[]})");
+    folder.write("broken.json", "{not json");
+    CHECK_THROWS_WITH_AS(findDemandFile(folder.path(), "#MISSING#"),
+                         doctest::Contains("0 demand file(s) have REQUEST_ID #MISSING#"),
+                         runtime_error);
+    CHECK_THROWS_WITH_AS(findDemandFile(folder.path(), "#A#"),
+                         doctest::Contains("2 demand file(s) have REQUEST_ID #A#"),
+                         runtime_error);
+    CHECK_THROWS_WITH_AS(findDemandFile(folder.path() + "/absent", "#A#"),
+                         doctest::Contains("demand directory not found"), runtime_error);
+}
 
 TEST_CASE("pipeline: cross-day Milestone 1 figures for all four extracts" * doctest::skip(!crossDayTests::allExtractsPresent())) {
     for (size_t dayIndex = 0; dayIndex < kDayCount; ++dayIndex) {

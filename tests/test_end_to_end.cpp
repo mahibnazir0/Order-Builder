@@ -9,11 +9,14 @@
 
 #include "doctest.h"
 #include "importer/crossDayFixtures.hpp"
+#include "palletSpec.hpp"
 #include "pipeline.hpp"
 
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
+
+using namespace std;
 
 using namespace ob;
 
@@ -50,7 +53,8 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
     // Join
     CHECK(r.join.matched_lines   == 24357);   // 100%
     CHECK(r.join.unmatched_lines == 0);
-    CHECK(r.join.ambiguous_lines == 144);     // pallet-type variant chosen by preference
+    CHECK(r.join.multiPalletTypeLines == 144); // product listed on several pallet types
+    CHECK(r.join.ambiguous_lines == 36);       // the quantity did not settle which one
 
     // Summary — the figures in the output document Tom approved
     CHECK(r.summary.total_demand_lines     == 24357);
@@ -61,11 +65,11 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
     CHECK(r.summary.lanes_demand_only      == 182);
     CHECK(r.summary.lanes_placeholder_only == 11);
     CHECK(r.summary.trucks_requested       == 372);
-    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(152911.2).epsilon(0.001));
+    CHECK(r.summary.total_pallet_equiv     == doctest::Approx(145765.8).epsilon(0.001));
 
-    // Clean input: no errors, and the only warnings are the ambiguous variants
+    // Clean input: no errors, and the only warnings are the unsettled pallet types
     CHECK(r.validation.errors           == 0);
-    CHECK(r.validation.ambiguous_pallet == 144);
+    CHECK(r.validation.ambiguous_pallet == 36);
     CHECK(r.validation.unknown_ship_cond == 0);   // every TL/TF in demand and placeholders
     CHECK(r.validation.missing_ship_cond == 0);
 }
@@ -73,24 +77,24 @@ TEST_CASE("ACCEPTANCE: full run reproduces the figures Tom reviewed" * doctest::
 TEST_CASE("ACCEPTANCE: printed output carries the figures a planner checks" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
-    std::ostringstream out;
+    ostringstream out;
     Reporter::print_summary(r.summary, out, 10);
     Reporter::print_warnings(r.validation, out);
-    const std::string s = out.str();
+    const string s = out.str();
 
-    CHECK(s.find("2026-08-17")  != std::string::npos);
-    CHECK(s.find("24,357")      != std::string::npos);   // demand lines
-    CHECK(s.find("8,708,934")   != std::string::npos);   // hash total
-    CHECK(s.find("371")         != std::string::npos);   // lanes
-    CHECK(s.find("372")         != std::string::npos);   // trucks requested
-    CHECK(s.find("Pallet-eq")   != std::string::npos);   // column label
-    CHECK(s.find("not a count of physical pallets") != std::string::npos);
+    CHECK(s.find("2026-08-17")  != string::npos);
+    CHECK(s.find("24,357")      != string::npos);   // demand lines
+    CHECK(s.find("8,708,934")   != string::npos);   // hash total
+    CHECK(s.find("371")         != string::npos);   // lanes
+    CHECK(s.find("372")         != string::npos);   // trucks requested
+    CHECK(s.find("Pallet-eq")   != string::npos);   // column label
+    CHECK(s.find("not a count of physical pallets") != string::npos);
 }
 
 TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule" * doctest::skip(!crossDayTests::august17Present())) {
     PipelineResult r = Pipeline::run(real_inputs());
 
-    // Weight must be case weight x cases per unit load, plus 60 lb for a wooden
+    // Weight must be case weight x cases per unit load, plus the pallet: 65 lb for a wooden
     // pallet (PTL / PGM). Using case weight alone would understate by ~60x, so
     // this guards the most expensive easy mistake in the pipeline.
     bool checked_wood = false, checked_nowood = false;
@@ -103,7 +107,9 @@ TEST_CASE("ACCEPTANCE: weight uses the unit-load basis and the wood-pallet rule"
         const ProductRecord& p = *jl.product;
         const double per_ul = p.weight_lb * p.cases_unit_load;
         const bool wood = (p.pallet_id == "PTL" || p.pallet_id == "PGM");
-        const double expected = r.pallets_per_line[i] * (per_ul + (wood ? 60.0 : 0.0));
+        const PalletSpec* pallet = palletSpecFor(confirmedPalletSpecs(), p.pallet_id);
+        REQUIRE(pallet != nullptr);
+        const double expected = r.pallets_per_line[i] * (per_ul + pallet->addedWeightLb);
 
         CHECK(r.weight_per_line[i] == doctest::Approx(expected));
         if (wood) checked_wood = true; else checked_nowood = true;
@@ -139,7 +145,7 @@ TEST_CASE("ACCEPTANCE: a wrong unit of measure is caught and named" * doctest::s
             found = true;
             CHECK(issue.matnr == bad.matnr);
             CHECK(issue.line_index >= 0);
-            CHECK(issue.message.find("EA") != std::string::npos);
+            CHECK(issue.message.find("EA") != string::npos);
         }
     }
     CHECK(found);
@@ -188,13 +194,13 @@ TEST_CASE("ACCEPTANCE: a missing input file fails cleanly, naming the file" * do
     PipelineInputs in = real_inputs();
     in.demand_path = "does/not/exist.json";
 
-    CHECK_THROWS_AS(Pipeline::run(in), std::runtime_error);
+    CHECK_THROWS_AS(Pipeline::run(in), runtime_error);
 
     try {
         Pipeline::run(in);
-    } catch (const std::runtime_error& e) {
-        const std::string msg = e.what();
-        CHECK(msg.find("does/not/exist.json") != std::string::npos);
+    } catch (const runtime_error& e) {
+        const string msg = e.what();
+        CHECK(msg.find("does/not/exist.json") != string::npos);
     }
 }
 
@@ -204,11 +210,11 @@ TEST_CASE("PipelineResult is move-only: a copy can never dangle-reference the or
     // pointers kept referencing the original's memory — a use-after-free
     // once the original goes out of scope. This must fail to compile, not
     // fail at runtime under ASan.
-    static_assert(!std::is_copy_constructible<PipelineResult>::value,
+    static_assert(!is_copy_constructible<PipelineResult>::value,
                   "PipelineResult must not be copy-constructible");
-    static_assert(!std::is_copy_assignable<PipelineResult>::value,
+    static_assert(!is_copy_assignable<PipelineResult>::value,
                   "PipelineResult must not be copy-assignable");
-    static_assert(std::is_move_constructible<PipelineResult>::value,
+    static_assert(is_move_constructible<PipelineResult>::value,
                   "PipelineResult must stay movable so Pipeline::run can return it");
     CHECK(true);   // the assertions above are the actual test
 }
@@ -218,7 +224,7 @@ TEST_CASE("ACCEPTANCE: a placeholder with a negative NO_OF_LOADS is flagged and 
     REQUIRE(!r.placeholders.placeholders.empty());
     REQUIRE(r.placeholders.placeholders[0].no_of_loads > 0);
 
-    std::vector<PlaceholderRecord> placeholders = r.placeholders.placeholders;
+    vector<PlaceholderRecord> placeholders = r.placeholders.placeholders;
     const int original_loads = placeholders[0].no_of_loads;
     placeholders[0].no_of_loads = -3;
 

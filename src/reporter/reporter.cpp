@@ -9,21 +9,23 @@
 #include <ostream>
 #include <sstream>
 
+using namespace std;
+
 namespace ob {
 
 namespace {
 
 // Lanes are keyed by the triplet the planner thinks in: origin, destination,
-// ship condition. std::map keeps a stable order before we sort for display.
-using LaneKey = std::tuple<std::string, std::string, std::string>;
+// ship condition. map keeps a stable order before we sort for display.
+using LaneKey = tuple<string, string, string>;
 
 } // anonymous namespace
 
 DaySummary Reporter::build(const JoinResult& join,
-                           const std::vector<PlaceholderRecord>& placeholders,
-                           const std::vector<double>& pallets_per_line,
-                           const std::vector<double>& weight_per_line,
-                           const std::string& planning_day,
+                           const vector<PlaceholderRecord>& placeholders,
+                           const vector<double>& pallets_per_line,
+                           const vector<double>& weight_per_line,
+                           const string& planning_day,
                            const ValidationReport& validation) {
     DaySummary day;
     day.planning_day = planning_day;
@@ -35,24 +37,16 @@ DaySummary Reporter::build(const JoinResult& join,
     // to skip ("zero_dimension") must not add to the pallet/weight totals —
     // those figures are derived, unlike hash_total below, which is a control
     // total against the source file and intentionally counts everything.
-    const std::vector<bool> line_excluded =
+    const vector<bool> line_excluded =
         Validator::excludedLineFlags(validation, join.lines.size());
 
     // Same idea for placeholders (negative NO_OF_LOADS, missing lane
     // identifier): kept in placeholder_index, a separate index space from
     // line_index above, so the two can never be cross-applied by accident.
-    std::vector<bool> placeholder_excluded(placeholders.size(), false);
-    for (const auto& issue : validation.issues) {
-        if (issue.placeholder_index < 0
-            || static_cast<size_t>(issue.placeholder_index) >= placeholder_excluded.size()) {
-            continue;
-        }
-        if (issue.severity == ValidationIssue::Severity::Error) {
-            placeholder_excluded[static_cast<size_t>(issue.placeholder_index)] = true;
-        }
-    }
+    const vector<bool> placeholder_excluded =
+        Validator::excludedPlaceholderFlags(validation, placeholders.size());
 
-    std::map<LaneKey, LaneSummary> lanes;
+    map<LaneKey, LaneSummary> lanes;
 
     // ── Demand side ─────────────────────────────────────────────────────────
     for (size_t i = 0; i < join.lines.size(); ++i) {
@@ -71,7 +65,7 @@ DaySummary Reporter::build(const JoinResult& join,
         ++day.total_demand_lines;
         // Every line counts, matched or not, unless its TRANS is out of range in either
         // direction: two lines of 1e308 (or -1e308) would turn the integrity check into inf.
-        if (std::isfinite(s.trans) && std::fabs(s.trans) <= kMaxDemandQuantity) {
+        if (isfinite(s.trans) && fabs(s.trans) <= kMaxDemandQuantity) {
             day.hash_total += s.trans;
         }
         if (line_excluded[i]) ++day.excluded_lines;
@@ -124,20 +118,20 @@ DaySummary Reporter::build(const JoinResult& join,
     day.lanes_total = static_cast<int>(day.lanes.size());
 
     // Largest lanes first — that is what a planner scans for.
-    std::sort(day.lanes.begin(), day.lanes.end(),
+    sort(day.lanes.begin(), day.lanes.end(),
               [](const LaneSummary& a, const LaneSummary& b) {
                   if (a.pallet_equiv != b.pallet_equiv) return a.pallet_equiv > b.pallet_equiv;
                   return a.demand_lines > b.demand_lines;
               });
 
-    LOG_INFO("Summary built: " + std::to_string(day.lanes_total) + " lanes, "
-             + std::to_string(day.total_demand_lines) + " demand lines, "
-             + std::to_string(day.trucks_requested) + " trucks requested");
+    LOG_INFO("Summary built: " + to_string(day.lanes_total) + " lanes, "
+             + to_string(day.total_demand_lines) + " demand lines, "
+             + to_string(day.trucks_requested) + " trucks requested");
 
     return day;
 }
 
-void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_lanes) {
+void Reporter::print_summary(const DaySummary& day, ostream& out, int max_lanes) {
     out << "\n";
     out << "================================================================\n";
     out << " ORDER BUILDER - MILESTONE 1 SUMMARY\n";
@@ -165,7 +159,7 @@ void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_l
     out << "    with placeholder        " << grouped(day.lanes_with_placeholder) << "\n";
     out << "    demand only             " << grouped(day.lanes_demand_only) << "\n";
     out << "    placeholder only        " << grouped(day.lanes_placeholder_only) << "\n";
-    out << "  Trucks requested          " << grouped(day.trucks_requested) << "\n";
+    out << "  Trucks requested          " << grouped(static_cast<double>(day.trucks_requested)) << "\n";
     out << "  Excluded placeholders     " << grouped(day.excluded_placeholders)
         << "  (validation errors)\n";
     out << "\n";
@@ -200,7 +194,7 @@ void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_l
         pad_left (out, grouped(l.matched_lines),     8);
         pad_left (out, grouped(l.pallet_equiv, 1),  12);
         pad_left (out, grouped(l.weight_lb),        14);
-        pad_left (out, grouped(l.trucks_requested),  8);
+        pad_left (out, grouped(static_cast<double>(l.trucks_requested)), 8);
         out << "\n";
     }
 
@@ -210,7 +204,7 @@ void Reporter::print_summary(const DaySummary& day, std::ostream& out, int max_l
 }
 
 void Reporter::print_warnings(const ValidationReport& report,
-                              std::ostream& out,
+                              ostream& out,
                               int max_examples_per_rule) {
     out << "----------------------------------------------------------------\n";
     out << " WARNINGS AND REJECTIONS\n";
@@ -224,7 +218,7 @@ void Reporter::print_warnings(const ValidationReport& report,
     out << "  " << report.errors << " error(s), " << report.warnings << " warning(s)\n\n";
 
     // Group by rule so a planner sees the shape before the detail.
-    std::map<std::string, std::vector<const ValidationIssue*>> by_rule;
+    map<string, vector<const ValidationIssue*>> by_rule;
     for (const auto& issue : report.issues) by_rule[issue.rule].push_back(&issue);
 
     for (const auto& kv : by_rule) {
@@ -233,7 +227,7 @@ void Reporter::print_warnings(const ValidationReport& report,
         out << "  " << rule << "  (" << items.size() << ")\n";
 
         const int limit = (max_examples_per_rule > 0)
-                              ? std::min<int>(max_examples_per_rule,
+                              ? min<int>(max_examples_per_rule,
                                               static_cast<int>(items.size()))
                               : static_cast<int>(items.size());
         for (int i = 0; i < limit; ++i) {

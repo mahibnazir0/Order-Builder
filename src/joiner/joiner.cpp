@@ -1,18 +1,22 @@
 #include "joiner.hpp"
 #include "logger.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
+#include <cmath>
+
+using namespace std;
 
 namespace ob {
 
-const std::vector<std::string>& Joiner::default_pallet_preference() {
-    // Ordered by frequency in the product master. Replace with Tom's rule
-    // once he supplies the four configuration names and how demand selects one.
-    static const std::vector<std::string> pref = {"TLD", "PTL", "PGM", "GMA"};
+const vector<string>& Joiner::default_pallet_preference() {
+    // Ordered by frequency in the product master. Replace with the client's fallback rule
+    // once they confirm it (27 Oct).
+    static const vector<string> pref = {"TLD", "PTL", "PGM", "GMA"};
     return pref;
 }
 
-ProductIndex Joiner::build_index(const std::vector<ProductRecord>& products) {
+ProductIndex Joiner::build_index(const vector<ProductRecord>& products) {
     ProductIndex index;
     index.reserve(products.size());
     for (const auto& p : products) {
@@ -23,27 +27,59 @@ ProductIndex Joiner::build_index(const std::vector<ProductRecord>& products) {
 
 namespace {
 
-// Choose one variant when a product ID has several pallet types.
-// Walk the preference order and take the first match; if none of the preferred
-// types are present, fall back to the first row so a product is never dropped.
-const ProductRecord* choose_variant(const std::vector<ProductRecord>& variants,
-                                    const std::vector<std::string>& preference) {
-    if (variants.empty()) return nullptr;
-    if (variants.size() == 1) return &variants[0];
+// The client's rule names GMA first among the types that divide a quantity evenly (27 Oct).
+const char* const kPalletTypeWhenSeveralDivide = "GMA";
 
-    for (const auto& want : preference) {
-        for (const auto& v : variants) {
-            if (v.pallet_id == want) return &v;
+bool fillsWholeUnitLoads(double quantity, int casesUnitLoad) {
+    if (casesUnitLoad <= 0) return false;
+    const double unitLoads = quantity / static_cast<double>(casesUnitLoad);
+    return abs(unitLoads - round(unitLoads)) <= kQuantityEpsilon;
+}
+
+// The first candidate in preference order; the first candidate when none is listed, so a
+// product is never dropped.
+const ProductRecord* firstByPreference(const vector<const ProductRecord*>& candidates,
+                                       const vector<string>& preference) {
+    for (const string& wanted : preference) {
+        for (const ProductRecord* candidate : candidates) {
+            if (candidate->pallet_id == wanted) return candidate;
         }
     }
-    return &variants[0];   // no preferred type present — keep the line
+    return candidates.front();
 }
 
 } // anonymous namespace
 
-JoinResult Joiner::join(const std::vector<STRRecord>& demand,
+Joiner::PalletTypePick Joiner::choosePalletType(const vector<ProductRecord>& palletTypes,
+                                                double quantity,
+                                                const vector<string>& preference) {
+    if (palletTypes.empty()) return {};
+    if (palletTypes.size() == 1) return {&palletTypes.front(), PalletTypeChoice::OnlyType};
+
+    vector<const ProductRecord*> dividing;
+    if (isfinite(quantity) && quantity > 0.0) {
+        for (const ProductRecord& type : palletTypes) {
+            if (fillsWholeUnitLoads(quantity, type.cases_unit_load)) dividing.push_back(&type);
+        }
+    }
+    if (dividing.size() == 1) return {dividing.front(), PalletTypeChoice::DividesEvenly};
+    if (dividing.empty()) {
+        vector<const ProductRecord*> everyType;
+        everyType.reserve(palletTypes.size());
+        for (const ProductRecord& type : palletTypes) everyType.push_back(&type);
+        return {firstByPreference(everyType, preference), PalletTypeChoice::NoneDivides};
+    }
+    for (const ProductRecord* type : dividing) {
+        if (type->pallet_id == kPalletTypeWhenSeveralDivide) {
+            return {type, PalletTypeChoice::SeveralDivide};
+        }
+    }
+    return {firstByPreference(dividing, preference), PalletTypeChoice::SeveralDivide};
+}
+
+JoinResult Joiner::join(const vector<STRRecord>& demand,
                         const ProductIndex& index,
-                        const std::vector<std::string>& pallet_preference) {
+                        const vector<string>& pallet_preference) {
     JoinResult result;
     result.lines.reserve(demand.size());
 
@@ -57,21 +93,24 @@ JoinResult Joiner::join(const std::vector<STRRecord>& demand,
             jl.product = nullptr;
             ++result.unmatched_lines;
             // Record each missing material number once.
-            if (std::find(result.unmatched_matnrs.begin(),
+            if (find(result.unmatched_matnrs.begin(),
                           result.unmatched_matnrs.end(),
                           line.matnr) == result.unmatched_matnrs.end()) {
                 result.unmatched_matnrs.push_back(line.matnr);
             }
         } else {
             const auto& variants = it->second;
-            jl.matched   = true;
-            jl.ambiguous = (variants.size() > 1);
-            jl.product   = choose_variant(variants, pallet_preference);
+            const PalletTypePick pick = choosePalletType(variants, line.trans, pallet_preference);
+            jl.matched          = true;
+            jl.product          = pick.product;
+            jl.palletTypes      = &variants;
+            jl.palletTypeChoice = pick.choice;
             ++result.matched_lines;
+            if (variants.size() > 1) ++result.multiPalletTypeLines;
 
-            if (jl.ambiguous) {
+            if (jl.palletTypeUnresolved()) {
                 ++result.ambiguous_lines;
-                if (std::find(result.ambiguous_matnrs.begin(),
+                if (find(result.ambiguous_matnrs.begin(),
                               result.ambiguous_matnrs.end(),
                               line.matnr) == result.ambiguous_matnrs.end()) {
                     result.ambiguous_matnrs.push_back(line.matnr);
@@ -82,9 +121,11 @@ JoinResult Joiner::join(const std::vector<STRRecord>& demand,
         result.lines.push_back(jl);
     }
 
-    LOG_INFO("Joined demand to products: " + std::to_string(result.matched_lines)
-             + " matched, " + std::to_string(result.unmatched_lines) + " unmatched, "
-             + std::to_string(result.ambiguous_lines) + " ambiguous (pallet-type variant chosen by preference)");
+    LOG_INFO("Joined demand to products: " + to_string(result.matched_lines)
+             + " matched, " + to_string(result.unmatched_lines) + " unmatched, "
+             + to_string(result.multiPalletTypeLines) + " on several pallet types, "
+             + to_string(result.ambiguous_lines)
+             + " of them not settled by the quantity");
 
     return result;
 }

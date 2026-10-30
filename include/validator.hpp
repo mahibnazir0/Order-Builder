@@ -20,6 +20,7 @@
 // ============================================================================
 
 #include "joiner.hpp"
+#include "palletSpec.hpp"
 #include "placeholder_types.hpp"
 #include <string>
 #include <vector>
@@ -49,10 +50,18 @@ struct ValidationConfig {
     // Ship conditions seen in the demand and placeholder files. Anything else is a warning.
     std::vector<std::string> allowed_ship_cond = {"TL", "TF"};
 
+    // The pallet table Milestone 1 weighs against when a master row carries no pallet weight
+    // of its own; the pipeline sets it to the table the Converter reads, so the warning names
+    // exactly the pallets the M1 totals weigh as 0.
+    std::vector<PalletSpec> pallets = confirmedPalletSpecs();
+
     // Placeholder ZZNA_EQUIP_SIZE values seen in every extract; blank means any trailer.
     // Anything else is a warning: Order Builder plans every lane on one trailer, so a lane
     // asking for different equipment needs a planner's eye.
     std::vector<std::string> allowedEquipSizes = {"53F"};
+
+    // Named in the unmatched-material message, so it says which master was searched.
+    std::string productMasterPath;
 };
 
 struct ValidationIssue {
@@ -79,11 +88,14 @@ struct ValidationReport {
     // Per-rule counts, so the summary can say "12 lines skipped: raw material"
     // without the caller walking the whole list.
     int missing_fields      = 0;
+    int invertedShipWindow  = 0;   // DATFR_TA after DATTO_TA, both real dates
     int unmatched_product   = 0;
     int unknown_ship_cond   = 0;   // SHIP_COND outside allowed_ship_cond (demand or placeholder)
     int unknown_uom         = 0;
     int non_positive_qty    = 0;
     int excessive_quantity  = 0;   // TRANS above kMaxDemandQuantity
+    int unreadablePriority  = 0;   // TPRIO missing, not an integer, or outside 0..kMaxPriority
+    int unreadableAvailableQuantity = 0; // AVAIL_QTY missing, not an integer, or negative
     int zero_unit_load      = 0;   // CS, PAL or DIS line whose product has Cases_Unit_Load == 0
     int negative_unit_load  = 0;   // product's Cases_Unit_Load is negative
     int invalid_weight      = 0;   // product's Weight is negative, non-finite or above kMaxCaseWeightLb
@@ -92,8 +104,10 @@ struct ValidationReport {
     int invalid_strength    = 0;   // product's Strength is unreadable or outside 0..10
     int zero_dimension      = 0;   // Tom's ruling: skip and warn
     int blank_uom_product   = 0;
-    int unrecognized_pallet_id = 0; // not one of Joiner's known pallet types
-    int ambiguous_pallet    = 0;   // variant chosen by preference, not by data
+    int uomMismatch         = 0;   // demand unit differs from the product master's unit
+    int unrecognized_pallet_id = 0; // no pallet weight from the master row or ValidationConfig::pallets
+    int invalidPalletWeight = 0;    // that pallet weight is negative or non-finite
+    int ambiguous_pallet    = 0;   // pallet_type_tie plus pallet_type_no_fit: quantity did not settle it
     int over_pallet_threshold = 0; // the phantom-truck warning
 
     // From validate_placeholders, not the demand join above.
@@ -155,6 +169,12 @@ public:
     // Whether this one issue keeps its line out of derived totals; the rule behind
     // excludedLineFlags, so a caller naming the reason applies the same test.
     static bool excludesLine(const ValidationIssue& issue);
+
+    // Which placeholders must be kept out of truck counts: any carrying an Error (a negative
+    // or missing NO_OF_LOADS, a blank lane identifier or SHIP_COND). Parallel to the
+    // placeholders; issues pointing outside [0, placeholderCount) are ignored.
+    static std::vector<bool> excludedPlaceholderFlags(const ValidationReport& report,
+                                                      std::size_t placeholderCount);
 };
 
 } // namespace ob

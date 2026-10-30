@@ -1,5 +1,6 @@
 #include "stackRules.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 
@@ -61,6 +62,26 @@ optional<PalletSpec> resolvePalletSpec(const ProductRecord& product, const M2Par
     return PalletSpec{product.pallet_id, *weightLb, effectivePalletHeight(*heightIn), *lengthIn, *widthIn};
 }
 
+double unitLoadHeightIn(const ProductRecord& product, const PalletSpec& pallet,
+                        const M2Params& params) noexcept {
+    return product.height_in * product.layers_unit_load
+        + (params.floorDeckHeight == DeckHeightRule::Included ? pallet.addedHeightIn : 0.0);
+}
+
+UnitLoadFootprint unitLoadFootprint(const ProductRecord& product, const PalletSpec& pallet) noexcept {
+    const double palletLongIn = max(pallet.footprintLengthIn, pallet.footprintWidthIn);
+    const double palletShortIn = min(pallet.footprintLengthIn, pallet.footprintWidthIn);
+    if (!product.layerLengthIn || !product.layerWidthIn) {
+        return {palletLongIn, palletShortIn, true};
+    }
+    const double layerLongIn = max(*product.layerLengthIn, *product.layerWidthIn);
+    const double layerShortIn = min(*product.layerLengthIn, *product.layerWidthIn);
+    // resolvePalletSpec has already read the placeholder deck as 0, so a positive deck is a
+    // real pallet the layer sits on.
+    if (pallet.addedHeightIn <= 0.0) return {layerLongIn, layerShortIn, false};
+    return {max(layerLongIn, palletLongIn), max(layerShortIn, palletShortIn), false};
+}
+
 UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
                        optional<double> suppliedWeightAboveLb) {
     UnitLoad load;
@@ -83,9 +104,10 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
         return load;
     }
 
-    load.footprintLengthIn = pallet->footprintLengthIn;
-    load.footprintWidthIn = pallet->footprintWidthIn;
-    load.heightIn = product.height_in * product.layers_unit_load + pallet->addedHeightIn;
+    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet);
+    load.footprintLengthIn = footprint.longSideIn;
+    load.footprintWidthIn = footprint.shortSideIn;
+    load.heightIn = unitLoadHeightIn(product, *pallet, params);
     load.weightLb = product.weight_lb * product.cases_unit_load + pallet->addedWeightLb;
     load.ownWeightAboveLb = suppliedWeightAboveLb.value_or(
         static_cast<double>(product.layers_unit_load - 1) * product.cases_layer * product.weight_lb);
@@ -100,7 +122,9 @@ vector<string> missingPalletIds(const vector<JoinedLine>& lines,
                                           const M2Params& params) {
     set<string> missing;
     for (const auto& line : lines) {
-        if (line.matched && line.product != nullptr && !resolvePalletSpec(*line.product, params)) {
+        // No pallet table can supply a blank ID, so that line is rejected on its own instead.
+        if (line.matched && line.product != nullptr && !line.product->pallet_id.empty()
+            && !resolvePalletSpec(*line.product, params)) {
             missing.insert(line.product->pallet_id);
         }
     }

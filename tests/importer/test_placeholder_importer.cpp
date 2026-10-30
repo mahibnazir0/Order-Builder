@@ -92,12 +92,21 @@ TEST_CASE("PHOLDER present but the wrong JSON type throws") {
     remove(path.c_str());
 }
 
-TEST_CASE("PHOLDER genuinely absent still loads cleanly with zero entries") {
-    const string path = "tests/importer/_tmp_pholder_absent.json";
-    {
-        ofstream out(path);
-        out << R"({})";
+TEST_CASE("a placeholder file with no PHOLDER block throws naming the file") {
+    for (const string content : {R"({})", R"({"REQUEST_ID":"t","STR":[]})"}) {
+        CAPTURE(content);
+        const string path = "tests/importer/_tmp_pholder_absent.json";
+        ofstream(path) << content;
+        CHECK_THROWS_WITH_AS(PlaceholderImporter::load(path),
+                             doctest::Contains(("Placeholder file " + path + " has no PHOLDER block").c_str()),
+                             runtime_error);
+        remove(path.c_str());
     }
+}
+
+TEST_CASE("an empty PHOLDER block loads cleanly with zero entries") {
+    const string path = "tests/importer/_tmp_pholder_empty.json";
+    ofstream(path) << R"({"PHOLDER":[]})";
     PlaceholderLoadResult r = PlaceholderImporter::load(path);
     CHECK(r.placeholders.empty());
     CHECK(r.total_loads == 0);

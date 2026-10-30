@@ -3,29 +3,31 @@
 #include <cmath>
 #include <stdexcept>
 
+using namespace std;
+
 namespace ob {
 namespace {
 
-bool isNonNegativeFinite(double value) noexcept { return std::isfinite(value) && value >= 0.0; }
+bool isNonNegativeFinite(double value) noexcept { return isfinite(value) && value >= 0.0; }
 
-void requireUsableInputs(const std::vector<double>& palletsPerLine,
-                         const std::vector<double>& weightPerLine, const TrailerSpec& trailer) {
-    if (!std::isfinite(trailer.weightLimitLb) || trailer.weightLimitLb <= 0.0) {
-        throw std::invalid_argument("bindingConstraint: trailer weightLimitLb must be positive");
+void requireUsableInputs(const vector<double>& palletsPerLine,
+                         const vector<double>& weightPerLine, const TrailerSpec& trailer) {
+    if (!isfinite(trailer.weightLimitLb) || trailer.weightLimitLb <= 0.0) {
+        throw invalid_argument("bindingConstraint: trailer weightLimitLb must be positive");
     }
     if (trailer.stackPositions <= 0) {
-        throw std::invalid_argument("bindingConstraint: trailer stackPositions must be positive");
+        throw invalid_argument("bindingConstraint: trailer stackPositions must be positive");
     }
     if (palletsPerLine.size() != weightPerLine.size()) {
-        throw std::invalid_argument("bindingConstraint: pallet and weight vectors differ in size");
+        throw invalid_argument("bindingConstraint: pallet and weight vectors differ in size");
     }
 }
 
 } // namespace
 
 BindingResult assessBinding(const SegregationResult& segregation,
-                            const std::vector<double>& palletsPerLine,
-                            const std::vector<double>& weightPerLine,
+                            const vector<double>& palletsPerLine,
+                            const vector<double>& weightPerLine,
                             const TrailerSpec& trailer) {
     requireUsableInputs(palletsPerLine, weightPerLine, trailer);
 
@@ -33,9 +35,9 @@ BindingResult assessBinding(const SegregationResult& segregation,
     result.groups.reserve(segregation.groups.size());
     for (const auto& group : segregation.groups) {
         GroupBinding binding;
-        for (const std::size_t lineIndex : group.lineIndices) {
+        for (const size_t lineIndex : group.lineIndices) {
             if (lineIndex >= palletsPerLine.size()) {
-                throw std::invalid_argument("bindingConstraint: group line index out of range");
+                throw invalid_argument("bindingConstraint: group line index out of range");
             }
             if (!isNonNegativeFinite(palletsPerLine[lineIndex])
                 || !isNonNegativeFinite(weightPerLine[lineIndex])) {

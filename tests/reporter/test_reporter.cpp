@@ -11,6 +11,8 @@
 #include <sstream>
 #include <algorithm>
 
+using namespace std;
+
 using namespace ob;
 
 static const char* DEMAND_PATH  = "tests/importer/Demand-1.json";
@@ -20,15 +22,13 @@ static const char* PH_PATH      = "tests/importer/PlaceHolder-1.json";
 namespace {
 
 // Stand-in for the Converter so the Reporter can be tested independently of it.
-// CS lines divide by cases-per-unit-load; PAL and DIS are already unit loads.
+// Every convertible quantity counts the product's base unit and divides by cases-per-unit-load.
 double pallets_for(const JoinedLine& jl) {
     if (!jl.matched || jl.product == nullptr || jl.str == nullptr) return 0.0;
-    const std::string& uom = jl.str->unitofmeas;
-    if (uom == "CS") {
-        const int cul = jl.product->cases_unit_load;
-        return (cul > 0) ? jl.str->trans / cul : 0.0;
-    }
-    return jl.str->trans;   // PAL and DIS
+    const string& uom = jl.str->unitofmeas;
+    if (uom != "CS" && uom != "DIS" && uom != "PAL") return 0.0;
+    const int cul = jl.product->cases_unit_load;
+    return (cul > 0) ? jl.str->trans / cul : 0.0;
 }
 
 struct Fixture {
@@ -37,8 +37,8 @@ struct Fixture {
     PlaceholderLoadResult  placeholders;
     ProductIndex           index;
     JoinResult             join;
-    std::vector<double>    pallets;
-    std::vector<double>    weights;
+    vector<double>    pallets;
+    vector<double>    weights;
 
     Fixture() {
         demand       = Importer::load_demand(DEMAND_PATH);
@@ -84,7 +84,7 @@ TEST_CASE("pallet-equivalent total matches the independent calculation" * doctes
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
-    CHECK(d.total_pallet_equiv == doctest::Approx(152911.2).epsilon(0.001));
+    CHECK(d.total_pallet_equiv == doctest::Approx(145705.8).epsilon(0.001));
 }
 
 TEST_CASE("lanes are sorted with the largest first" * doctest::skip(!crossDayTests::august17Present())) {
@@ -108,7 +108,7 @@ TEST_CASE("lanes present in only one input still appear, with zeroes" * doctest:
                                    f.pallets, f.weights);
 
     // Placeholder-only lanes: trucks requested but no demand lines.
-    const int ph_only = static_cast<int>(std::count_if(
+    const int ph_only = static_cast<int>(count_if(
         d.lanes.begin(), d.lanes.end(), [](const LaneSummary& l) {
             return l.has_placeholder && !l.has_demand;
         }));
@@ -153,7 +153,7 @@ TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and
     product.strength = 5;
     product.pallet_id = "TLD";
 
-    std::vector<STRRecord> hugeLines{demand.str[0], demand.str[1]};
+    vector<STRRecord> hugeLines{demand.str[0], demand.str[1]};
     for (STRRecord& line : hugeLines) {
         line.matnr = product.id;
         line.unitofmeas = "CS";
@@ -161,22 +161,22 @@ TEST_CASE("two TRANS = 1e308 lines leave total_weight_lb, total_pallet_equiv and
     }
 
     JoinResult join;
-    std::vector<double> pallets;
-    std::vector<double> weights;
+    vector<double> pallets;
+    vector<double> weights;
     for (const STRRecord& line : hugeLines) {
-        join.lines.push_back(JoinedLine{&line, &product, true, false});
+        join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
         const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
         pallets.push_back(linePallets);
-        weights.push_back(Converter::to_weight_lb(linePallets, product));
+        weights.push_back(Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs()));
     }
 
     const ValidationReport rep = Validator::validate(join);
     REQUIRE(rep.excessive_quantity == 2);
 
     const DaySummary d = Reporter::build(join, {}, pallets, weights, "", rep);
-    CHECK(std::isfinite(d.total_weight_lb));
-    CHECK(std::isfinite(d.total_pallet_equiv));
-    CHECK(std::isfinite(d.hash_total));
+    CHECK(isfinite(d.total_weight_lb));
+    CHECK(isfinite(d.total_pallet_equiv));
+    CHECK(isfinite(d.hash_total));
     CHECK(d.excluded_lines == 2);
 }
 
@@ -194,20 +194,20 @@ TEST_CASE("two TRANS = -1e308 lines leave hash_total finite" * doctest::skip(!cr
     product.strength = 5;
     product.pallet_id = "TLD";
 
-    std::vector<STRRecord> hugeNegativeLines{demand.str[0], demand.str[1]};
+    vector<STRRecord> hugeNegativeLines{demand.str[0], demand.str[1]};
     JoinResult join;
     for (STRRecord& line : hugeNegativeLines) {
         line.matnr = product.id;
         line.unitofmeas = "CS";
         line.trans = -1e308;
-        join.lines.push_back(JoinedLine{&line, &product, true, false});
+        join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
     }
 
     const ValidationReport rep = Validator::validate(join);
     REQUIRE(rep.non_positive_qty == 2);
 
     const DaySummary d = Reporter::build(join, {}, {}, {}, "", rep);
-    CHECK(std::isfinite(d.hash_total));
+    CHECK(isfinite(d.hash_total));
     CHECK(d.excluded_lines == 2);
 }
 
@@ -231,15 +231,15 @@ TEST_CASE("a product weight of 1e306 leaves total_weight_lb finite" * doctest::s
     line.trans = 1000;
 
     JoinResult join;
-    join.lines.push_back(JoinedLine{&line, &product, true, false});
+    join.lines.push_back(JoinedLine{&line, &product, nullptr, true});
     const double linePallets = Converter::to_pallets(line.trans, line.unitofmeas, product);
-    const std::vector<double> pallets{linePallets};
-    const std::vector<double> weights{Converter::to_weight_lb(linePallets, product)};
-    REQUIRE_FALSE(std::isfinite(weights[0]));
+    const vector<double> pallets{linePallets};
+    const vector<double> weights{Converter::to_weight_lb(linePallets, product, confirmedPalletSpecs())};
+    REQUIRE_FALSE(isfinite(weights[0]));
 
     const ValidationReport rep = Validator::validate(join);
     const DaySummary d = Reporter::build(join, {}, pallets, weights, "", rep);
-    CHECK(std::isfinite(d.total_weight_lb));
+    CHECK(isfinite(d.total_weight_lb));
 }
 
 TEST_CASE("pallet and weight columns are zero when no figures are supplied" * doctest::skip(!crossDayTests::august17Present())) {
@@ -348,38 +348,38 @@ TEST_CASE("excluded_lines counts the lines dropped from the totals" * doctest::s
                                        f.pallets, f.weights);
     CHECK(clean.excluded_lines == 0);
 
-    std::ostringstream out;
+    ostringstream out;
     Reporter::print_summary(clean, out, 5);
-    CHECK(out.str().find("Excluded from totals      0") != std::string::npos);
-    CHECK(out.str().find("(validation errors)")         != std::string::npos);
+    CHECK(out.str().find("Excluded from totals      0") != string::npos);
+    CHECK(out.str().find("(validation errors)")         != string::npos);
 }
 
 TEST_CASE("printed summary contains the key figures and the pallet-eq note" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights, "2026-08-17");
-    std::ostringstream out;
+    ostringstream out;
     Reporter::print_summary(d, out, 8);
-    const std::string s = out.str();
+    const string s = out.str();
 
-    CHECK(s.find("2026-08-17")     != std::string::npos);
-    CHECK(s.find("24,357")         != std::string::npos);  // demand lines
-    CHECK(s.find("8,708,934")      != std::string::npos);  // hash total
-    CHECK(s.find("Pallet-eq")      != std::string::npos);  // column label
-    CHECK(s.find("not a count of physical pallets") != std::string::npos);
-    CHECK(s.find("2028")           != std::string::npos);  // top lane
+    CHECK(s.find("2026-08-17")     != string::npos);
+    CHECK(s.find("24,357")         != string::npos);  // demand lines
+    CHECK(s.find("8,708,934")      != string::npos);  // hash total
+    CHECK(s.find("Pallet-eq")      != string::npos);  // column label
+    CHECK(s.find("not a count of physical pallets") != string::npos);
+    CHECK(s.find("2028")           != string::npos);  // top lane
 }
 
 TEST_CASE("printed summary honours the lane limit" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     DaySummary d = Reporter::build(f.join, f.placeholders.placeholders,
                                    f.pallets, f.weights);
-    std::ostringstream limited, full;
+    ostringstream limited, full;
     Reporter::print_summary(d, limited, 5);
     Reporter::print_summary(d, full, 0);
 
     CHECK(limited.str().size() < full.str().size());
-    CHECK(limited.str().find("top 5 of 371") != std::string::npos);
+    CHECK(limited.str().find("top 5 of 371") != string::npos);
 }
 
 TEST_CASE("warning section groups by rule and caps examples") {
@@ -395,24 +395,24 @@ TEST_CASE("warning section groups by rule and caps examples") {
         ++rep.warnings;
     }
 
-    std::ostringstream out;
+    ostringstream out;
     Reporter::print_warnings(rep, out, 3);
-    const std::string s = out.str();
+    const string s = out.str();
 
-    CHECK(s.find("ambiguous_pallet_type") != std::string::npos);
-    CHECK(s.find("(12)")                  != std::string::npos);  // group count
-    CHECK(s.find("and 9 more")            != std::string::npos);  // 12 - 3 shown
+    CHECK(s.find("ambiguous_pallet_type") != string::npos);
+    CHECK(s.find("(12)")                  != string::npos);  // group count
+    CHECK(s.find("and 9 more")            != string::npos);  // 12 - 3 shown
 }
 
 TEST_CASE("clean validation prints a clear all-good message") {
     ValidationReport rep;   // no issues
-    std::ostringstream out;
+    ostringstream out;
     Reporter::print_warnings(rep, out);
-    CHECK(out.str().find("Nothing flagged") != std::string::npos);
+    CHECK(out.str().find("Nothing flagged") != string::npos);
 }
 
 TEST_CASE("placeholders of 2,000,000,000 loads are excluded, so the truck total cannot overflow") {
-    std::vector<PlaceholderRecord> placeholders(2);
+    vector<PlaceholderRecord> placeholders(2);
     for (auto& p : placeholders) {
         p.locfrno     = "2023";
         p.loctono     = "2528";
@@ -429,7 +429,7 @@ TEST_CASE("placeholders of 2,000,000,000 loads are excluded, so the truck total 
 }
 
 TEST_CASE("placeholders at the maximum load count on one lane add up in the lane and day totals") {
-    std::vector<PlaceholderRecord> placeholders(3);
+    vector<PlaceholderRecord> placeholders(3);
     for (auto& p : placeholders) {
         p.locfrno     = "2023";
         p.loctono     = "2528";
@@ -439,4 +439,20 @@ TEST_CASE("placeholders at the maximum load count on one lane add up in the lane
     DaySummary d = Reporter::build(JoinResult{}, placeholders);
     CHECK(d.trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
     CHECK(d.lanes[0].trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
+}
+
+TEST_CASE("the printed summary shows the day and lane truck totals") {
+    vector<PlaceholderRecord> placeholders(2);
+    for (auto& p : placeholders) {
+        p.locfrno   = "2023";
+        p.loctono   = "2528";
+        p.ship_cond = "TL";
+    }
+    placeholders[0].no_of_loads = 1000;
+    placeholders[1].no_of_loads = 234;
+    ostringstream out;
+    Reporter::print_summary(Reporter::build(JoinResult{}, placeholders), out);
+    const string printed = out.str();
+    CHECK(printed.find("  Trucks requested          1,234\n") != string::npos);
+    CHECK(printed.find("2023    2528    TL         0       0         0.0             0   1,234\n") != string::npos);
 }

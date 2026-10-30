@@ -69,11 +69,11 @@ inline int getIntegerOr(const nlohmann::json& j, const char* key, int fallback) 
 // thing. `context` names the file/block in the thrown message.
 inline const nlohmann::json* get_optional_array(const nlohmann::json& j,
                                                  const char* key,
-                                                 const char* context) {
+                                                 const std::string& context) {
     auto it = j.find(key);
     if (it == j.end() || it->is_null()) return nullptr;
     if (!it->is_array()) {
-        throw std::runtime_error(std::string(context) + ": '" + key
+        throw std::runtime_error(context + ": '" + key
                                   + "' is present but is not an array");
     }
     return &(*it);
