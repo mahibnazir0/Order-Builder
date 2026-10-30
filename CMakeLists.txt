@@ -59,6 +59,7 @@ add_library(ob_core STATIC
   src/columnGeneration/columnGeneration.cpp
   src/binPacker/binPacker.cpp
   src/selector/selector.cpp
+  src/selectionReporter/selectionReporter.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -122,6 +123,7 @@ add_executable(ob_tests
   tests/patternPacker/testPatternPacker.cpp
   tests/binPacker/testBinPacker.cpp
   tests/selector/testSelector.cpp
+  tests/selectionReporter/testSelectionReporter.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.

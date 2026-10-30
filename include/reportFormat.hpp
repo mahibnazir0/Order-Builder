@@ -1,5 +1,5 @@
 #pragma once
-// Text formatting shared by the M1 and M2 reporters. Presentation only.
+// Text formatting shared by the reporters. Presentation only.
 
 #include <algorithm>
 #include <iomanip>
@@ -38,6 +38,17 @@ inline std::string grouped(double v, int places = 0) {
     std::reverse(out.begin(), out.end());
     if (neg) out.insert(out.begin(), '-');
     return out + frac;
+}
+
+// Text from the input files with every byte outside printable ASCII replaced by '?'. An em dash
+// in a printed report once broke the client's console.
+inline std::string printable(const std::string& text) {
+    std::string result = text;
+    for (char& character : result) {
+        const auto code = static_cast<unsigned char>(character);
+        if (code < 0x20 || code > 0x7e) character = '?';
+    }
+    return result;
 }
 
 inline void pad_left(std::ostream& out, const std::string& s, size_t width) {
