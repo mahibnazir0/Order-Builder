@@ -658,3 +658,20 @@ TEST_CASE("cli: a line with no real ship date exits 4 and is reported") {
     CHECK(contains(run.output, "1 demand line(s) have no real ship date (DATFR_TA)"));
     CHECK(contains(run.output, "undated                 1"));
 }
+
+TEST_CASE("cli: --select without --params exits 2, naming the selection block") {
+    const CliRun run = runCli({"--product", kProduct, "--demand", kDemand, "--placeholder", kPlaceholder, "--select"});
+    CHECK(run.exitCode == 2);
+    CHECK(run.output.find("--select needs --params") != string::npos);
+}
+
+TEST_CASE("cli: --select prints the M4 report after the floor" * doctest::skip(!crossDayTests::august17StackingPresent())) {
+    vector<string> arguments = realDayArguments(true);
+    arguments.push_back("--select");
+    const CliRun run = runCli(arguments);
+    CHECK(run.exitCode != 2);
+    const size_t m4 = run.output.find("M4 LOAD SELECTION");
+    REQUIRE(m4 != string::npos);
+    CHECK(run.output.find("8. Item master", m4) != string::npos);
+    CHECK(run.output.find("Penalty exposure for the day:", m4) != string::npos);
+}

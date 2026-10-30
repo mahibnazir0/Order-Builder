@@ -135,6 +135,20 @@ struct SelectionPlan {
     long long penaltyExposureTrucks = 0;  // reserved trucks left unused, M5 lanes excepted
 };
 
+// One group's route as the selector solves it - the method chain, then the floor, fill and
+// weight passes - but alone, with `chain` in place of its routed methods and `trucksAllowed`
+// in place of what its lane-date has left. For comparing methods on the same route. Throws as
+// selectLoads does, and for a route index out of range or an empty chain.
+struct RouteSolution {
+    RouteOutcome outcome;
+    std::vector<PlannedTruck> trucks;
+    std::vector<LeftOverItem> leftOver;
+};
+RouteSolution solveRoute(const PipelineResult& run, const SelectionItems& items,
+                         const LaneClassification& classification, std::size_t routeIndex,
+                         const std::vector<PackingMethod>& chain, long long trucksAllowed,
+                         const SelectorSettings& settings);
+
 // Throws std::invalid_argument for settings out of range (a budget that is not positive and
 // finite, fewer than one thread), or a classification that does not belong to these items.
 // A method's own settings are checked when it runs: a bad one makes it throw, which is

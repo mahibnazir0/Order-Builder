@@ -1,4 +1,5 @@
 #include "selectionItem.hpp"
+#include "pipeline.hpp"
 #include "isoDate.hpp"
 #include "stackRules.hpp"
 #include "tolerance.hpp"
