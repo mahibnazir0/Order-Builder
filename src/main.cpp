@@ -5,12 +5,13 @@
 //   order_builder --product <csv> --demand <json> --placeholder <json>
 //                 [--params <json> --demand-rule <rule>] [--pallets <csv>]
 //                 [--trailer <code>] [--groups N] [--day <YYYY-MM-DD>] [--lanes N]
-//                 [--debug] [--help]
+//                 [--select] [--record <dir>] [--debug] [--help]
 //
 // Reads one planning day, validates it, and prints a summary. With --params it
 // also groups the demand, reports the stacks (Milestone 2) and prints a truck
 // floor for each ship date the rule covers (Milestone 3). --params needs
-// --demand-rule: which ship dates a run covers has no default.
+// --demand-rule: which ship dates a run covers has no default. --select also fills each
+// reserved truck (M4), with the settings in the params file's "selection" block.
 //
 // Without --params only Milestone 1 runs: the report then says no truck floor
 // was computed and the run exits 6, so a forgotten --params is never read as a
@@ -28,10 +29,12 @@
 //   4  a floor left out a line shipping on its date, or a line has no ship date
 //   5  no line of a non-empty extract ships on the rule's dates
 //   6  no floor was computed: --params was not given
+//   7  M4 ran and its plan broke an invariant, or every method failed on a lane
 // ============================================================================
 
 #include "demandSelector.hpp"
 #include "floorReporter.hpp"
+#include "selectionReporter.hpp"
 #include "logger.hpp"
 #include "pipeline.hpp"
 
@@ -51,7 +54,7 @@ void print_usage(ostream& out) {
         "  order_builder --product <csv> --demand <json> --placeholder <json>\n"
         "                [--params <json> --demand-rule <rule>] [--pallets <csv>]\n"
         "                [--trailer <code>] [--groups N] [--day <YYYY-MM-DD>] [--lanes N]\n"
-        "                [--debug] [--help]\n"
+        "                [--select] [--record <dir>] [--debug] [--help]\n"
         "\n"
         "Required:\n"
         "  --product <path>      Product master CSV\n"
@@ -77,6 +80,10 @@ void print_usage(ostream& out) {
         "  --day <date>          Planning day, shown in the report header\n"
         "  --lanes N             Print only the N largest lanes, in the summary and the\n"
         "                        floor by lane (0 or absent: all)\n"
+        "  --select              Also fill each reserved truck (M4), with the params file's\n"
+        "                        \"selection\" settings; needs --params\n"
+        "  --record <dir>        Copy every input and the params file into <dir> with a\n"
+        "                        manifest, so the run can be recreated from them\n"
         "  --debug               Verbose logging\n"
         "  --help                Show this message\n"
         "\n"
@@ -87,7 +94,8 @@ void print_usage(ostream& out) {
         "  3  a line is in no stack (see Result)\n"
         "  4  a line was left out of a floor (section B) or has no ship date (section A)\n"
         "  5  no line ships on the rule's dates\n"
-        "  6  no floor computed: --params was not given\n";
+        "  6  no floor computed: --params was not given\n"
+        "  7  M4 broke an invariant, or every method failed on a lane\n";
 }
 
 // Returns the value following `flag`, or an empty string if it is absent.
@@ -170,6 +178,10 @@ int main(int argc, char** argv) {
             string value;
             if (!take_value(argc, argv, i, "--groups", value)) return 2;
             if (!parse_count("--groups", value, max_groups)) return 2;
+        } else if (arg == "--select") {
+            inputs.runSelection = true;
+        } else if (arg == "--record") {
+            if (!take_value(argc, argv, i, "--record", inputs.recordDirectory)) return 2;
         } else if (arg == "--day") {
             if (!take_value(argc, argv, i, "--day", inputs.planning_day)) return 2;
         } else if (arg == "--lanes") {
@@ -206,6 +218,11 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    if (inputs.runSelection && inputs.paramsPath.empty()) {
+        LOG_ERROR("--select needs --params: M4's settings are the params file's \"selection\" block");
+        return 2;
+    }
+
     ob::Logger::instance().set_debug(debug);
     if (!inputs.palletPath.empty() && inputs.paramsPath.empty()) {
         LOG_WARN("--pallets is used only by Milestones 2 and 3; without --params it is ignored");
@@ -227,6 +244,20 @@ int main(int argc, char** argv) {
                                  static_cast<size_t>(max_lanes));
         } else {
             print_floor_not_computed(cout);
+        }
+        if (result.ranSelection) {
+            ob::SelectionReportContext context;
+            context.extractLabel = inputs.planning_day.empty() ? result.demand.request_id : inputs.planning_day;
+            for (const string& path : {inputs.product_path, inputs.demand_path, inputs.placeholder_path,
+                                       inputs.paramsPath, inputs.palletPath, inputs.layerSizePath}) {
+                if (!path.empty()) context.inputFiles.push_back(path);
+            }
+            context.routing = result.selectionParams.routing;
+            context.settings = result.selectionParams.selector;
+            context.detail = result.selectionParams.reportDetail;
+            context.warnings = result.selectionWarnings;
+            ob::printSelectionReport(cout, result, result.reservationBook, result.selectionItems,
+                                     result.laneClassification, result.selectionPlan, context);
         }
 
         return static_cast<int>(ob::runOutcome(result));
