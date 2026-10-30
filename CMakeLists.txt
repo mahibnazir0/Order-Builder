@@ -55,6 +55,7 @@ add_library(ob_core STATIC
   src/floorPattern/floorPattern.cpp
   src/laneClassifier/laneClassifier.cpp
   src/knapsack/knapsack.cpp
+  src/patternPacker/patternPacker.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -115,6 +116,7 @@ add_executable(ob_tests
   tests/floorPattern/testFloorPattern.cpp
   tests/laneClassifier/testLaneClassifier.cpp
   tests/knapsack/testKnapsack.cpp
+  tests/patternPacker/testPatternPacker.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
