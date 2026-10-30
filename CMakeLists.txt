@@ -50,6 +50,18 @@ add_library(ob_core STATIC
   src/floorReporter/floorReporter.cpp
   src/isoDate/isoDate.cpp
   src/shipCalendar/shipCalendar.cpp
+  src/reservationBook/reservationBook.cpp
+  src/selectionItem/selectionItem.cpp
+  src/floorPattern/floorPattern.cpp
+  src/laneClassifier/laneClassifier.cpp
+  src/knapsack/knapsack.cpp
+  src/patternPacker/patternPacker.cpp
+  src/columnGeneration/columnGeneration.cpp
+  src/binPacker/binPacker.cpp
+  src/selector/selector.cpp
+  src/selectionReporter/selectionReporter.cpp
+  src/benchmarkHarness/benchmarkHarness.cpp
+  src/selectionParams/selectionParams.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -105,9 +117,24 @@ add_executable(ob_tests
   tests/acceptance/testAcceptanceHarness.cpp
   tests/isoDate/testIsoDate.cpp
   tests/shipCalendar/testShipCalendar.cpp
+  tests/reservationBook/testReservationBook.cpp
+  tests/selectionItem/testSelectionItem.cpp
+  tests/floorPattern/testFloorPattern.cpp
+  tests/laneClassifier/testLaneClassifier.cpp
+  tests/knapsack/testKnapsack.cpp
+  tests/patternPacker/testPatternPacker.cpp
+  tests/binPacker/testBinPacker.cpp
+  tests/selector/testSelector.cpp
+  tests/selectionReporter/testSelectionReporter.cpp
+  tests/benchmarkHarness/testBenchmarkHarness.cpp
+  tests/benchmarkHarness/testM4Benchmark.cpp
+  tests/selectionParams/testSelectionParams.cpp
+  tests/testPipelineMilestone4.cpp
 )
 
-target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
+# The bin packer's termination test runs the packer on its own thread against a deadline.
+find_package(Threads REQUIRED)
+target_link_libraries(ob_tests PRIVATE ob_core ob_warnings Threads::Threads)
 
 # Set ON for sanitizer or coverage builds, so timing tests scale their budgets. ASan, TSan and
 # Clang's UBSan are detected automatically; GCC's UBSan is not, and needs this.
@@ -119,6 +146,8 @@ endif()
 # The CLI tests run the real executable, so it must be built first and found by path.
 add_dependencies(ob_tests order_builder)
 target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_builder>")
+# The M4 benchmark suite writes its report for the client here, beside the build.
+target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
@@ -126,4 +155,8 @@ add_test(NAME ob_tests COMMAND ob_tests
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 # The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent.
 add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The M4 benchmark over every extract held. Its presence check is skipped in the full run, so a
+# clean clone passes; here --no-skip runs it, so a missing extract fails by name.
+add_test(NAME m4Benchmark COMMAND ob_tests -ts=m4Benchmark --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
