@@ -16,6 +16,7 @@
 // ============================================================================
 
 #include "demand_types.hpp"
+#include "benchmarkHarness.hpp"
 #include "bindingConstraint.hpp"
 #include "demandSelector.hpp"
 #include "floorPlanner.hpp"
@@ -23,6 +24,7 @@
 #include "paramsTypes.hpp"
 #include "placeholder_types.hpp"
 #include "segregationTypes.hpp"
+#include "selectionParams.hpp"
 #include "stackBuilder.hpp"
 #include "stackReporter.hpp"
 #include "product_importer.hpp"
@@ -59,6 +61,11 @@ struct PipelineInputs {
     // (17 Aug and 4-6 Aug). Fills only products with no layer size of their own, matched on
     // ID and Pallet_ID. Optional; the floor falls back to the pallet's footprint without it.
     std::string layerSizePath;
+    // M4 runs only when this is set, and needs paramsPath with a "selection" block.
+    bool runSelection = false;
+    // When set, every input file and the params file are copied here first, with a manifest,
+    // so the solve can be recreated from what was recorded.
+    std::string recordDirectory;
 };
 
 // Everything the run produced. Held together so a caller (or a test) can
@@ -109,6 +116,18 @@ struct PipelineResult {
     // Products given a layer size from PipelineInputs::layerSizePath.
     std::size_t layerSizesBorrowed = 0;
 
+    // M4. Empty unless PipelineInputs::runSelection was set.
+    bool ranSelection = false;
+    SelectionParams selectionParams;
+    ReservationBook reservationBook;
+    SelectionItems selectionItems;
+    LaneClassification laneClassification;
+    SelectionPlan selectionPlan;
+    // Recounted from the trucks after the plan is made; any entry fails the run (exit 7).
+    std::vector<InvariantViolation> selectionViolations;
+    // What the run found and planned around rather than stopped on, e.g. a combo lane.
+    std::vector<std::string> selectionWarnings;
+
     // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
     bool ranFloor = false;
     FloorRun floorRun;
@@ -128,6 +147,8 @@ enum class RunOutcome {
     NothingSelected = 5,
     // No floor was planned, so the run says nothing about trucks.
     FloorNotComputed = 6,
+    // M4 ran and its plan broke an invariant, or a lane had every method fail.
+    SelectionIncomplete = 7,
 };
 
 RunOutcome runOutcome(const PipelineResult& result);

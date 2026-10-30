@@ -8,7 +8,11 @@
 #include "segregation.hpp"
 #include "stackRules.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
@@ -251,6 +255,95 @@ void runFloor(const DemandSelector& selector, PipelineResult& result) {
     result.ranFloor = true;
 }
 
+// The inputs and params copied into one folder with a manifest naming each file's role, so the
+// solve can be run again from what was recorded.
+void recordInputs(const PipelineInputs& inputs) {
+    const filesystem::path directory(inputs.recordDirectory);
+    error_code failure;
+    filesystem::create_directories(directory, failure);
+    if (failure) throw runtime_error("cannot create record folder " + inputs.recordDirectory + ": " + failure.message());
+    ofstream manifest(directory / "record.txt");
+    const vector<pair<string, string>> files{
+        {"product", inputs.product_path}, {"demand", inputs.demand_path},
+        {"placeholder", inputs.placeholder_path}, {"params", inputs.paramsPath},
+        {"pallets", inputs.palletPath}, {"layerSizes", inputs.layerSizePath}};
+    for (const auto& [role, path] : files) {
+        if (path.empty()) continue;
+        const string copied = role + "-" + filesystem::path(path).filename().string();
+        filesystem::copy_file(path, directory / copied, filesystem::copy_options::overwrite_existing, failure);
+        if (failure) throw runtime_error("cannot record " + path + ": " + failure.message());
+        manifest << role << " " << copied << "\n";
+    }
+    if (!manifest) throw runtime_error("cannot write " + (directory / "record.txt").string());
+}
+
+// A grain coarser than an item would round it into grains it does not fill, so every lane's
+// method would throw and fall back. Checked once against the real items instead.
+void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& items) {
+    double lightest = 0.0, smallest = 0.0;
+    for (const SelectionItem& item : items.items) {
+        const double area = item.footprintLongIn * item.footprintShortIn;
+        if (item.weightLb > 0.0 && (lightest == 0.0 || item.weightLb < lightest)) lightest = item.weightLb;
+        if (area > 0.0 && (smallest == 0.0 || area < smallest)) smallest = area;
+    }
+    const SelectorSettings& selector = params.selector;
+    const vector<pair<string, pair<double, double>>> grains{
+        {"knapsack", {selector.knapsack.weightGrainLb, selector.knapsack.areaGrainSqIn}},
+        {"patternPacker", {selector.patternPacker.weightGrainLb, selector.patternPacker.areaGrainSqIn}},
+        {"binPacker", {selector.binPacker.weightGrainLb, selector.binPacker.areaGrainSqIn}}};
+    for (const auto& [method, grain] : grains) {
+        if (lightest > 0.0 && grain.first > lightest) {
+            throw runtime_error("params: selection." + method + ".weightGrainLb is coarser than the lightest stack ("
+                                + to_string(lightest) + " lb)");
+        }
+        if (smallest > 0.0 && grain.second > smallest) {
+            throw runtime_error("params: selection." + method + ".areaGrainSqIn is coarser than the smallest stack ("
+                                + to_string(smallest) + " sq in)");
+        }
+    }
+}
+
+// Lanes with demand under more than one ship condition on the same two sites. The client's
+// specification would top up spare truckload space from them; this customer has none, so they
+// are planned apart and named rather than merged.
+vector<string> comboLanes(const SegregationResult& segregation) {
+    map<pair<string, string>, set<string>> conditions;
+    for (const SegregatedGroup& group : segregation.groups) {
+        conditions[{group.key.locationFrom, group.key.locationTo}].insert(group.key.shipCondition);
+    }
+    vector<string> warnings;
+    for (const auto& [sites, shipConditions] : conditions) {
+        if (shipConditions.size() < 2) continue;
+        string listed;
+        for (const string& condition : shipConditions) listed += (listed.empty() ? "" : " and ") + condition;
+        warnings.push_back("combo lane " + sites.first + " -> " + sites.second + " has demand under " + listed
+                           + "; planned apart, not merged");
+    }
+    return warnings;
+}
+
+void runSelection(PipelineResult& result) {
+    const string planDate = planDateFromRequestId(result.demand.request_id);
+    result.reservationBook = buildReservationBook(result.placeholders.placeholders, result.demand.ctl, planDate,
+                                                  result.selectionParams.reservations);
+    result.selectionItems = buildSelectionItems(result, result.reservationBook.window);
+    requireGrainsFitItems(result.selectionParams, result.selectionItems);
+    result.laneClassification = classifyLanes(result, result.reservationBook, result.selectionItems,
+                                              result.selectionParams.routing);
+    result.selectionPlan = selectLoads(result, result.reservationBook, result.selectionItems,
+                                       result.laneClassification, result.selectionParams.selector);
+    result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
+                                                 result.selectionPlan, result.selectionParams.maxUnitLoadsPerTruck);
+    result.selectionWarnings = comboLanes(result.segregation);
+    for (const InvariantViolation& violation : result.selectionViolations) {
+        LOG_ERROR("M4 " + violation.invariant + ": " + violation.detail);
+    }
+    LOG_INFO("M4: " + to_string(result.selectionPlan.trucks.size()) + " trucks against "
+             + to_string(result.reservationBook.reservedTrucks) + " reserved, "
+             + to_string(result.selectionPlan.penaltyExposureTrucks) + " unused");
+    result.ranSelection = true;
+}
+
 } // namespace
 
 RunOutcome runOutcome(const PipelineResult& result) {
@@ -261,6 +354,12 @@ RunOutcome runOutcome(const PipelineResult& result) {
         return RunOutcome::FloorIncomplete;
     }
     if (selectsNothing(result)) return RunOutcome::NothingSelected;
+    if (result.ranSelection) {
+        const auto& routes = result.selectionPlan.routes;
+        const bool unsolved = any_of(routes.begin(), routes.end(),
+                                     [](const RouteOutcome& route) { return route.status == RouteStatus::Unsolved; });
+        if (!result.selectionViolations.empty() || unsolved) return RunOutcome::SelectionIncomplete;
+    }
     return RunOutcome::Complete;
 }
 
@@ -269,7 +368,11 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         throw runtime_error("a demand rule needs a params file: the floor is planned against "
                             "its trailer");
     }
+    if (inputs.runSelection && inputs.paramsPath.empty()) {
+        throw runtime_error("selection needs a params file: its settings are the params file's 'selection' block");
+    }
     requireDistinctDemandAndPlaceholder(inputs);
+    if (!inputs.recordDirectory.empty()) recordInputs(inputs);
     PipelineResult result;
 
     // ── 1. Read the three input files ───────────────────────────────────────
@@ -295,6 +398,7 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         if (!inputs.palletPath.empty()) {
             result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
         }
+        if (inputs.runSelection) result.selectionParams = loadSelectionParams(inputs.paramsPath);
     }
 
     // ── 2. Join demand to the product master ────────────────────────────────
@@ -347,6 +451,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
 
     // ── 7. Milestone 3: a floor per ship date ───────────────────────────────
     if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
+
+    // ── 8. M4: select each reserved truck's load ────────────────────────────
+    if (inputs.runSelection) runSelection(result);
 
     // Logged only now so the count includes the warnings Milestone 2 adds and matches the report.
     LOG_INFO("Validation: " + to_string(result.validation.errors) + " errors, "
