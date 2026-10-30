@@ -56,6 +56,8 @@ add_library(ob_core STATIC
   src/laneClassifier/laneClassifier.cpp
   src/knapsack/knapsack.cpp
   src/patternPacker/patternPacker.cpp
+  src/columnGeneration/columnGeneration.cpp
+  src/binPacker/binPacker.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -117,9 +119,12 @@ add_executable(ob_tests
   tests/laneClassifier/testLaneClassifier.cpp
   tests/knapsack/testKnapsack.cpp
   tests/patternPacker/testPatternPacker.cpp
+  tests/binPacker/testBinPacker.cpp
 )
 
-target_link_libraries(ob_tests PRIVATE ob_core ob_warnings)
+# The bin packer's termination test runs the packer on its own thread against a deadline.
+find_package(Threads REQUIRED)
+target_link_libraries(ob_tests PRIVATE ob_core ob_warnings Threads::Threads)
 
 # Set ON for sanitizer or coverage builds, so timing tests scale their budgets. ASan, TSan and
 # Clang's UBSan are detected automatically; GCC's UBSan is not, and needs this.
