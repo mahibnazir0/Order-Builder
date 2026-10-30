@@ -146,6 +146,8 @@ endif()
 # The CLI tests run the real executable, so it must be built first and found by path.
 add_dependencies(ob_tests order_builder)
 target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_builder>")
+# The M4 benchmark suite writes its report for the client here, beside the build.
+target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.

@@ -203,3 +203,70 @@ TEST_CASE("benchmarkHarness: the benchmark prints one plain-ASCII row per route"
         return character == '\n' || (static_cast<unsigned char>(character) >= 0x20 && static_cast<unsigned char>(character) <= 0x7e);
     }));
 }
+
+TEST_CASE("benchmarkHarness: a multi-stop load is caught") {
+    Day day = dayOf({group("2027")}, 1, repeated(10, 0, 0), {reserved("2027", 1)});
+    const SelectionPlan selection = plan(day);
+    REQUIRE(checkInvariants(day.run, day.book, day.items, selection, 64.0).empty());
+    day.run.demand.str[0].loctono = "9999";
+    CHECK(hasViolation(checkInvariants(day.run, day.book, day.items, selection, 64.0), "E215"));
+}
+
+TEST_CASE("benchmarkHarness: the plan fingerprint is the same for the same plan, different for another") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan first = plan(day);
+    CHECK(planFingerprint(first) == planFingerprint(plan(day)));
+    SelectionPlan changed = first;
+    swap(changed.trucks[0].items.back(), changed.trucks[1].items.back());
+    CHECK(planFingerprint(first) != planFingerprint(changed));
+    SelectionPlan moreBuilt = first;
+    moreBuilt.reservations[0].built += 1;
+    CHECK(planFingerprint(first) != planFingerprint(moreBuilt));
+}
+
+TEST_CASE("benchmarkHarness: fullness is averaged over the trucks, heavy trucks and lanes counted") {
+    vector<SelectionItem> items = repeated(20, 0, 0, 2000.0);
+    const vector<SelectionItem> light = repeated(10, 1, 1, 100.0);
+    items.insert(items.end(), light.begin(), light.end());
+    const Day day = dayOf({group("2027"), group("2031")}, 2, items, {reserved("2027", 1), reserved("2031", 1)});
+    const SelectionPlan selection = plan(day);
+    REQUIRE(selection.trucks.size() == 2);
+    const FullnessSummary summary = summariseFullness(day.run, day.items, selection, 30000.0);
+    CHECK(summary.trucks == 2);
+    CHECK(summary.heavyTrucks == 1);
+    CHECK(summary.heavyLanes == 1);
+    CHECK(summary.averageWeightLb == doctest::Approx((40000.0 + 1000.0) / 2.0));
+    CHECK(summary.averageCubicFeet == doctest::Approx(30.0 * 48.0 * 40.0 * 50.0 / 1728.0 / 2.0));
+    double rearWaste = 0.0;
+    for (const PlannedTruck& truck : selection.trucks) rearWaste += truck.floor.rearWasteIn;
+    CHECK(summary.averageRearWasteIn == doctest::Approx(rearWaste / 2.0));
+}
+
+TEST_CASE("benchmarkHarness: our trucks are set beside the client's loads, lane-day by lane-day") {
+    vector<SelectionItem> items = repeated(40, 0, 0);
+    const vector<SelectionItem> other = repeated(10, 1, 1);
+    items.insert(items.end(), other.begin(), other.end());
+    const Day day = dayOf({group("2027"), group("2031")}, 2, items,
+                          {reserved("2027", 3), reserved("2031", 2), reserved("2040", 1)});
+    const SelectionPlan selection = plan(day);
+    // Ours: 2 trucks on 2027 and 1 on 2031, all on 6 Aug.
+    const vector<ClientLaneDay> client{{"2027", "2528", "TL", "2026-08-06", 3},
+                                       {"2031", "2528", "TL", "2026-08-06", 1},
+                                       {"2019", "2528", "TF", "2026-08-06", 4}};
+    const ClientComparison comparison = compareWithClient(day.run, day.book, selection, client);
+    CHECK(comparison.reserved == 6);
+    CHECK(comparison.clientLoads == 8);
+    CHECK(comparison.ourTrucks == 3);
+    CHECK(comparison.clientUnused == 2);  // 2031 one, 2040 one
+    CHECK(comparison.ourUnused == 3);     // 2027 one, 2031 one, 2040 one
+    CHECK(comparison.clientOverReserved == 4);
+    CHECK(comparison.bothBuilt == 2);
+    CHECK(comparison.oursFewer == 1);
+    CHECK(comparison.oursEqual == 1);
+    CHECK(comparison.clientOnly == 1);
+    CHECK(comparison.oursOnly == 0);
+    ostringstream out;
+    printClientComparison(out, comparison);
+    CHECK(out.str().find("2027 -> 2528 TL") != string::npos);
+    CHECK(out.str().find("2031 -> 2528 TL") == string::npos);
+}

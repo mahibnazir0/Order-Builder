@@ -103,6 +103,15 @@ inline Day dayOf(std::vector<ob::SegregatedGroup> groups, std::size_t products, 
     Day day;
     day.run = runWith(std::move(groups), products);
     day.book = ob::buildReservationBook(placeholders, kCtl, kPlanDate, {"53F", {"53F"}});
+    // Each line ships on the lane of the group whose items carry it, as a real extract's do.
+    for (const ob::SelectionItem& item : items) {
+        const ob::GroupKey& lane = day.run.segregation.groups[item.groupIndex].key;
+        for (const std::size_t lineIndex : item.lineIndices) {
+            day.run.demand.str[lineIndex].locfrno = lane.locationFrom;
+            day.run.demand.str[lineIndex].loctono = lane.locationTo;
+            day.run.demand.str[lineIndex].ship_cond = lane.shipCondition;
+        }
+    }
     std::sort(items.begin(), items.end(), ob::shipsBefore);
     day.items.items = std::move(items);
     day.classification = ob::classifyLanes(day.run, day.book, day.items, kRouting);

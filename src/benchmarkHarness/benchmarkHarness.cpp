@@ -16,6 +16,8 @@ namespace ob {
 
 namespace {
 
+constexpr double kCubicInchesPerCubicFoot = 1728.0;
+
 using LaneDate = tuple<string, string, string, string>;  // origin, destination, condition, date
 
 LaneDate laneDateOf(const PipelineResult& run, const string& shipDate, size_t groupIndex) {
@@ -193,6 +195,14 @@ vector<InvariantViolation> checkInvariants(const PipelineResult& run, const Rese
                 violations.push_back({"I3", name + " carries goods of group " + to_string(item.groupIndex)
                                                 + " on a truck of group " + to_string(truck.groupIndex)});
             }
+            const GroupKey& lane = run.segregation.groups[truck.groupIndex].key;
+            for (const size_t lineIndex : item.lineIndices) {
+                const STRRecord& line = *run.join.lines[lineIndex].str;
+                if (line.locfrno != lane.locationFrom || line.loctono != lane.locationTo) {
+                    violations.push_back({"E215", name + " carries goods from " + printable(line.locfrno) + " to "
+                                                      + printable(line.loctono) + ": a multi-stop load"});
+                }
+            }
         }
         if (area > floorArea + kQuantityEpsilon) violations.push_back({"I2", name + " is over its floor area"});
         if (weight > trailer.weightLimitLb + kQuantityEpsilon) violations.push_back({"I2", name + " is over its payload"});
@@ -245,6 +255,132 @@ vector<InvariantViolation> checkInvariants(const PipelineResult& run, const Rese
         }
     }
     return violations;
+}
+
+uint64_t planFingerprint(const SelectionPlan& plan) {
+    // FNV-1a over fixed-width integers, so the hash depends on the values alone, never on the
+    // platform's sizes or byte order.
+    uint64_t hash = 14695981039346656037ULL;
+    auto mix = [&](uint64_t value) {
+        for (int shift = 0; shift < 64; shift += 8) {
+            hash ^= (value >> shift) & 0xffU;
+            hash *= 1099511628211ULL;
+        }
+    };
+    mix(plan.trucks.size());
+    for (const PlannedTruck& truck : plan.trucks) {
+        mix(truck.routeIndex);
+        mix(truck.items.size());
+        for (const size_t index : truck.items) mix(index);
+    }
+    mix(plan.leftOver.size());
+    for (const LeftOverItem& left : plan.leftOver) {
+        mix(left.itemIndex);
+        mix(static_cast<uint64_t>(left.reason));
+    }
+    for (const ReservationUse& use : plan.reservations) mix(static_cast<uint64_t>(use.built));
+    return hash;
+}
+
+FullnessSummary summariseFullness(const PipelineResult& run, const SelectionItems& items,
+                                  const SelectionPlan& plan, double heavyTruckLb) {
+    FullnessSummary summary;
+    summary.trucks = plan.trucks.size();
+    map<tuple<string, string, string>, bool> heavyLanes;
+    for (const PlannedTruck& truck : plan.trucks) {
+        double cargo = 0.0;
+        for (const size_t index : truck.items) cargo += items.items[index].cubeCubicIn;
+        summary.averageRearWasteIn += truck.floor.rearWasteIn;
+        summary.averageCube += truck.floor.cubeFraction;
+        summary.averageCubicFeet += cargo / kCubicInchesPerCubicFoot;
+        summary.averageWeightLb += truck.weightLb;
+        if (truck.weightLb > heavyTruckLb) {
+            ++summary.heavyTrucks;
+            const GroupKey& key = run.segregation.groups[truck.groupIndex].key;
+            heavyLanes[{key.locationFrom, key.locationTo, key.shipCondition}] = true;
+        }
+    }
+    summary.heavyLanes = heavyLanes.size();
+    if (summary.trucks > 0) {
+        const double trucks = static_cast<double>(summary.trucks);
+        summary.averageRearWasteIn /= trucks;
+        summary.averageCube /= trucks;
+        summary.averageCubicFeet /= trucks;
+        summary.averageWeightLb /= trucks;
+    }
+    return summary;
+}
+
+ClientComparison compareWithClient(const PipelineResult& run, const ReservationBook& book,
+                                   const SelectionPlan& plan, const vector<ClientLaneDay>& clientLoads) {
+    map<LaneDate, LaneDayComparison> byLaneDate;
+    auto entry = [&](const LaneDate& laneDate) -> LaneDayComparison& {
+        LaneDayComparison& comparison = byLaneDate[laneDate];
+        tie(comparison.origin, comparison.destination, comparison.shipCondition, comparison.shipDate) = laneDate;
+        return comparison;
+    };
+    for (const Reservation& reservation : book.reservations) {
+        entry({reservation.origin, reservation.destination, reservation.shipCondition, reservation.shipDate}).reserved +=
+            reservation.trucks;
+    }
+    for (const ClientLaneDay& client : clientLoads) {
+        entry({client.origin, client.destination, client.shipCondition, client.shipDate}).clientLoads += client.loads;
+    }
+    for (const PlannedTruck& truck : plan.trucks) ++entry(laneDateOf(run, truck.shipDate, truck.groupIndex)).ourTrucks;
+
+    ClientComparison comparison;
+    for (auto& [laneDate, laneDay] : byLaneDate) {
+        comparison.reserved += laneDay.reserved;
+        comparison.clientLoads += laneDay.clientLoads;
+        comparison.ourTrucks += laneDay.ourTrucks;
+        comparison.clientUnused += max(0LL, laneDay.reserved - laneDay.clientLoads);
+        comparison.ourUnused += max(0LL, laneDay.reserved - laneDay.ourTrucks);
+        comparison.clientOverReserved += max(0LL, laneDay.clientLoads - laneDay.reserved);
+        if (laneDay.clientLoads > 0 && laneDay.ourTrucks > 0) {
+            ++comparison.bothBuilt;
+            if (laneDay.ourTrucks < laneDay.clientLoads) ++comparison.oursFewer;
+            else if (laneDay.ourTrucks == laneDay.clientLoads) ++comparison.oursEqual;
+            else ++comparison.oursMore;
+        } else if (laneDay.clientLoads > 0) {
+            ++comparison.clientOnly;
+        } else if (laneDay.ourTrucks > 0) {
+            ++comparison.oursOnly;
+        }
+        comparison.laneDays.push_back(std::move(laneDay));
+    }
+    return comparison;
+}
+
+void printClientComparison(ostream& out, const ClientComparison& comparison) {
+    auto line = [&](const string& label, const string& value) {
+        out << "  ";
+        pad_right(out, label, 40);
+        out << value << "\n";
+    };
+    line("trucks reserved", grouped(static_cast<double>(comparison.reserved)));
+    line("client loads / our trucks", grouped(static_cast<double>(comparison.clientLoads)) + " / "
+                                          + grouped(static_cast<double>(comparison.ourTrucks)));
+    line("reserved left unused, client / ours", grouped(static_cast<double>(comparison.clientUnused)) + " / "
+                                                    + grouped(static_cast<double>(comparison.ourUnused)));
+    line("client loads beyond the reservation", grouped(static_cast<double>(comparison.clientOverReserved)));
+    line("lane-days built by both", grouped(static_cast<double>(comparison.bothBuilt)) + ": ours fewer "
+                                        + grouped(static_cast<double>(comparison.oursFewer)) + ", equal "
+                                        + grouped(static_cast<double>(comparison.oursEqual)) + ", more "
+                                        + grouped(static_cast<double>(comparison.oursMore)));
+    line("lane-days built by the client only", grouped(static_cast<double>(comparison.clientOnly)));
+    line("lane-days built by us only", grouped(static_cast<double>(comparison.oursOnly)));
+
+    vector<vector<string>> rows;
+    for (const LaneDayComparison& laneDay : comparison.laneDays) {
+        if (laneDay.clientLoads == laneDay.ourTrucks) continue;
+        rows.push_back({printable(laneDay.origin) + " -> " + printable(laneDay.destination) + " "
+                            + printable(laneDay.shipCondition),
+                        printable(laneDay.shipDate), grouped(static_cast<double>(laneDay.reserved)),
+                        grouped(static_cast<double>(laneDay.clientLoads)), grouped(static_cast<double>(laneDay.ourTrucks))});
+    }
+    if (rows.empty()) return;
+    out << "\n  Lane-days where the two differ:\n";
+    printColumns(out, {"lane", "ship date", "reserved", "client", "ours"}, rows, {false, false, true, true, true});
 }
 
 bool samePlan(const SelectionPlan& left, const SelectionPlan& right) {

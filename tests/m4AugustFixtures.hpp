@@ -6,6 +6,8 @@
 #include "selectionItem.hpp"
 
 #include <array>
+#include <filesystem>
+#include <iostream>
 #include <cstddef>
 #include <string>
 
@@ -25,6 +27,24 @@ inline const std::array<AugustRunFiles, 3> kAugustRunFiles{{
     {"tests/importer/august/inputs/Aug6/Demand-Aug6.json", "tests/importer/august/inputs/Aug6/PH-Aug6.json"},
 }};
 inline const std::string kAugustProduct = "tests/importer/august/inputs/shared/Product-Data.csv";
+
+// Truck Builder's solved loads for each run, the client's own answer to the same demand.
+inline const std::array<std::string, 3> kAugustSolutionDirectories{
+    "tests/importer/august/results/Aug4/raw-json", "tests/importer/august/results/Aug5/raw-json",
+    "tests/importer/august/results/Aug6/raw-json"};
+
+inline bool augustSolutionsPresent() {
+    static const bool present = [] {
+        for (const std::string& directory : kAugustSolutionDirectories) {
+            if (!std::filesystem::is_directory(directory)) {
+                std::cerr << "[fixtures] " << directory << " not found: the client comparison is skipped\n";
+                return false;
+            }
+        }
+        return true;
+    }();
+    return present;
+}
 
 inline bool augustPresent() {
     static const bool present = crossDayTests::filesPresent(

@@ -27,6 +27,7 @@
 #include "selector.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <iosfwd>
 #include <optional>
 #include <string>
@@ -97,10 +98,72 @@ struct InvariantViolation {
 // I1/I10 every item on exactly one truck or left over; I2 no truck over its floor area,
 // payload, ceiling or rows; I3 every truck one group's goods; I4 no lane-date given more trucks
 // than it reserved, and no truck on a date with none; I6 no truck over maxUnitLoadsPerTruck
-// unit loads; I12 every reservation reported, its trucks recounted from the trucks themselves.
+// unit loads; I12 every reservation reported, its trucks recounted from the trucks themselves;
+// E215 every truck one origin and one destination: no multi-stop load.
 std::vector<InvariantViolation> checkInvariants(const PipelineResult& run, const ReservationBook& book,
                                                 const SelectionItems& items, const SelectionPlan& plan,
                                                 double maxUnitLoadsPerTruck);
+
+// A 64-bit hash of the plan: every truck's route and goods, every item left and why, every
+// reservation's trucks. Equal plans hash equal on every platform, so one printed number
+// settles whether two builds planned the same (E223).
+std::uint64_t planFingerprint(const SelectionPlan& plan);
+
+struct FullnessSummary {
+    std::size_t trucks = 0;
+    double averageRearWasteIn = 0.0;
+    double averageCube = 0.0;        // share of the trailer's cube
+    double averageCubicFeet = 0.0;   // cargo per truck
+    double averageWeightLb = 0.0;
+    std::size_t heavyTrucks = 0;     // trucks over heavyTruckLb
+    std::size_t heavyLanes = 0;      // lanes with at least one
+};
+
+FullnessSummary summariseFullness(const PipelineResult& run, const SelectionItems& items,
+                                  const SelectionPlan& plan, double heavyTruckLb);
+
+// Loads the client's own solver built on one lane and ship date.
+struct ClientLaneDay {
+    std::string origin;
+    std::string destination;
+    std::string shipCondition;
+    std::string shipDate;
+    long long loads = 0;
+};
+
+struct LaneDayComparison {
+    std::string origin;
+    std::string destination;
+    std::string shipCondition;
+    std::string shipDate;
+    long long reserved = 0;
+    long long clientLoads = 0;
+    long long ourTrucks = 0;
+};
+
+// Our trucks against the client's loads, lane-day by lane-day, over every lane-day either
+// side built on or the book reserved.
+struct ClientComparison {
+    std::vector<LaneDayComparison> laneDays;  // sorted by lane, then date
+    long long reserved = 0;
+    long long clientLoads = 0;
+    long long ourTrucks = 0;
+    long long clientUnused = 0;        // reserved trucks the client left empty
+    long long ourUnused = 0;
+    long long clientOverReserved = 0;  // client loads beyond what the lane-day reserved
+    std::size_t bothBuilt = 0;
+    std::size_t clientOnly = 0;
+    std::size_t oursOnly = 0;
+    std::size_t oursFewer = 0;         // of the lane-days both built on
+    std::size_t oursEqual = 0;
+    std::size_t oursMore = 0;
+};
+
+ClientComparison compareWithClient(const PipelineResult& run, const ReservationBook& book,
+                                   const SelectionPlan& plan, const std::vector<ClientLaneDay>& clientLoads);
+
+// The comparison's totals and the lane-days the two sides differ on. Plain ASCII.
+void printClientComparison(std::ostream& out, const ClientComparison& comparison);
 
 // I7: the same trucks with the same goods, the same goods left over for the same reasons, and
 // the same reservations used.
