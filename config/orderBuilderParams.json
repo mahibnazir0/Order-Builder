@@ -10,5 +10,24 @@
   "blankCriIsStackable": false,
   "stackWholePallets": true,
   "floorDeckHeight": "Included",
-  "floorRoundingPoint": "Group"
+  "floorRoundingPoint": "Group",
+  "selection": {
+    "defaultEquipment": "53F",
+    "knownEquipment": ["53F"],
+    "fullCubeFraction": 0.84,
+    "maxUnitLoadsPerTruck": 64,
+    "m5Threshold": 20,
+    "varietyRatio": 5,
+    "knapsack": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "nodeLimit": 200000 },
+    "patternPacker": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "maxPatterns": 200,
+                       "pricingNodeLimit": 200000 },
+    "binPacker": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "columnRoundsPerNode": 50,
+                   "pricingNodeLimit": 100000, "branchNodeLimit": 2000, "maxSearchItems": 100 },
+    "floor": { "allowRotation": true, "fixedOrientation": "LongSideAcross",
+               "allowedPatterns": ["WideWide", "WideNarrow", "NarrowNarrow", "ThreeAcross", "Pinwheel", "Single"],
+               "maxPositions": null },
+    "secondsPerLane": 10,
+    "threads": 4,
+    "reportDetail": "Standard"
+  }
 }

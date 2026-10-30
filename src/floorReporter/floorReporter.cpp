@@ -18,15 +18,6 @@ constexpr size_t kExcludedLinesListed = 20;
 constexpr double kCubicInchesPerCubicFoot = 1728.0;
 const char* const kRule = "----------------------------------------------------------------\n";
 
-string printable(const string& text) {
-    string result = text;
-    for (char& character : result) {
-        const auto code = static_cast<unsigned char>(character);
-        if (code < 0x20 || code > 0x7e) character = '?';
-    }
-    return result;
-}
-
 string count(size_t value) {
     return grouped(static_cast<double>(value));
 }
