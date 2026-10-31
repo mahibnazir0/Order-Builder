@@ -2,12 +2,14 @@
 #include "doctest.h"
 #include "../importer/crossDayFixtures.hpp"
 #include "reporter.hpp"
+#include "reportFormat.hpp"
 #include "importer.hpp"
 #include "product_importer.hpp"
 #include "placeholder_importer.hpp"
 #include <cmath>
 #include "converter.hpp"
 
+#include <limits>
 #include <sstream>
 #include <algorithm>
 
@@ -439,4 +441,18 @@ TEST_CASE("placeholders at the maximum load count on one lane add up in the lane
     DaySummary d = Reporter::build(JoinResult{}, placeholders);
     CHECK(d.trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
     CHECK(d.lanes[0].trucks_requested == 3LL * kMaxLoadsPerPlaceholder);
+}
+
+TEST_CASE("grouped: a 64-bit count prints every digit, with separators") {
+    CHECK(grouped(0LL) == "0");
+    CHECK(grouped(999LL) == "999");
+    CHECK(grouped(1000LL) == "1,000");
+    CHECK(grouped(-1234567LL) == "-1,234,567");
+    CHECK(grouped(9007199254740993LL) == "9,007,199,254,740,993");
+    CHECK(grouped(numeric_limits<long long>::min()) == "-9,223,372,036,854,775,808");
+}
+
+TEST_CASE("grouped: an int and a size_t print the same as the double they hold") {
+    CHECK(grouped(1503) == grouped(1503.0));
+    CHECK(grouped(size_t{532}) == "532");
 }

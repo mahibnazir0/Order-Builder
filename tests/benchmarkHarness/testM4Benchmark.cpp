@@ -9,6 +9,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_set>
@@ -34,8 +35,8 @@ constexpr double kClientStatedCubicFeetHigh = 3400.0;
 SelectorSettings realDataSettings() {
     SelectorSettings settings = m4SyntheticDay::selectorSettings();
     settings.knapsack = {0.001, 0.001, 200'000};
-    settings.patternPacker = {0.001, 0.001, 200, 200'000};
-    settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100};
+    settings.patternPacker = {0.001, 0.001, 200, 200'000, 100'000};
+    settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100, 100'000};
     settings.secondsPerLane = 10.0;
     return settings;
 }
@@ -56,7 +57,7 @@ HeldDay heldDay(const string& label, const PipelineResult& run) {
     day.run = &run;
     day.book = buildReservationBook(run.placeholders.placeholders, run.demand.ctl,
                                     planDateFromRequestId(run.demand.request_id), {"53F", {"53F"}});
-    day.items = buildSelectionItems(run, day.book.window);
+    day.items = buildSelectionItems(run, day.book.window, true);
     day.classification = classifyLanes(run, day.book, day.items, m4SyntheticDay::kRouting);
     day.plan = selectLoads(run, day.book, day.items, day.classification, realDataSettings());
     return day;
@@ -234,6 +235,56 @@ TEST_CASE("m4Benchmark: every held extract keeps every invariant" * doctest::ski
              checkInvariants(*day.run, day.book, day.items, day.plan, kMaxUnitLoadsPerTruck)) {
             FAIL_CHECK(violation.invariant << ": " << violation.detail);
         }
+    }
+}
+
+TEST_CASE("m4Benchmark: every item and reservation of every held extract is routed exactly once"
+          * doctest::skip()) {
+    for (const HeldDay& day : heldDays()) {
+        CAPTURE(day.label);
+        const LaneClassification& classification = day.classification;
+        vector<int> seen(day.items.items.size(), 0);
+        set<tuple<string, string, string, string>> routedLaneDates;
+        for (const LaneRoute& route : classification.routes) {
+            for (const size_t index : route.itemIndices) ++seen[index];
+            const GroupKey& key = day.run->segregation.groups[route.groupIndex].key;
+            routedLaneDates.insert({key.locationFrom, key.locationTo, key.shipCondition, route.shipDate});
+            const bool hasItems = !route.itemIndices.empty();
+            CHECK((route.method == SolveMethod::NoDemand) == !hasItems);
+            CHECK((route.method == SolveMethod::Unrouted) == (hasItems && route.reservedTrucks == 0));
+            CHECK((route.method == SolveMethod::M5) == (hasItems && route.reservedTrucks > m4SyntheticDay::kRouting.m5Threshold));
+        }
+        for (const UnroutedItem& left : classification.itemsLeftOut) ++seen[left.itemIndex];
+        CHECK(all_of(seen.begin(), seen.end(), [](int count) { return count == 1; }));
+        const ReservationCoverage coverage = matchDemand(day.book, day.run->demand.str);
+        const set<size_t> withoutDemand(coverage.reservationsWithoutDemand.begin(),
+                                        coverage.reservationsWithoutDemand.end());
+        for (size_t index = 0; index < day.book.reservations.size(); ++index) {
+            const Reservation& reservation = day.book.reservations[index];
+            CAPTURE(index);
+            CHECK((routedLaneDates.count({reservation.origin, reservation.destination, reservation.shipCondition,
+                                          reservation.shipDate})
+                   || withoutDemand.count(index)));
+        }
+    }
+}
+
+TEST_CASE("m4Benchmark: the August routes per method, as measured on 1 Nov" * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    using Counts = map<SolveMethod, size_t>;
+    const array<Counts, 3> expected{
+        Counts{{SolveMethod::Knapsack, 116}, {SolveMethod::PatternPacker, 30}, {SolveMethod::BinPacker, 13},
+               {SolveMethod::Unrouted, 386}, {SolveMethod::NoDemand, 12}},
+        Counts{{SolveMethod::Knapsack, 172}, {SolveMethod::PatternPacker, 59}, {SolveMethod::BinPacker, 31},
+               {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 219}, {SolveMethod::NoDemand, 26}},
+        Counts{{SolveMethod::Knapsack, 163}, {SolveMethod::PatternPacker, 65}, {SolveMethod::BinPacker, 41},
+               {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
+    for (size_t run = 0; run < expected.size(); ++run) {
+        const HeldDay& day = heldDays()[run];
+        CAPTURE(day.label);
+        Counts routesBy;
+        for (const LaneRoute& route : day.classification.routes) ++routesBy[route.method];
+        CHECK(routesBy == expected[run]);
     }
 }
 

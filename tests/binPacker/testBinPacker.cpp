@@ -21,7 +21,7 @@ using namespace ob;
 namespace {
 
 const KnapsackCapacity kTruck{63000.0, 45000.0, 108.0};
-const BinPackerSettings kSettings{1.0, 1.0, 50, 100'000, 2'000, 400};
+const BinPackerSettings kSettings{1.0, 1.0, 50, 100'000, 2'000, 400, 100'000};
 
 KnapsackItem load(double area, double weight = 1000.0, double height = 60.0) {
     return {area, weight, height, 1.0, "2026-08-06", 0};
@@ -133,6 +133,46 @@ TEST_CASE("binPacker: neverWorseThanFfd - it beats first-fit decreasing where FF
     CHECK_FALSE(packing.fellBack);
 }
 
+TEST_CASE("binPacker: an LP stopped at its simplex iteration limit is reported") {
+    const vector<KnapsackItem> items = beatsFirstFitDecreasing();
+    BinPackerSettings capped = kSettings;
+    capped.simplexIterationLimit = 1;
+    const BinPacking packing = packBins(items, kTruck, capped, 5);
+    checkPacking(items, packing, 5);
+    CHECK(packing.lpIterationCapHit);
+    CHECK_FALSE(packBins(items, kTruck, kSettings, 5).lpIterationCapHit);
+}
+
+TEST_CASE("binPacker: first-fit decreasing stays within 11/9 of the optimum plus 6/9") {
+    // Each optimum is set by construction: the areas add up to exactly that many floors, and a
+    // packing that fills them is written out beside each instance.
+    const auto repeat = [](double area, size_t count) { return vector<KnapsackItem>(count, load(area)); };
+    const auto concat = [](vector<vector<KnapsackItem>> parts) {
+        vector<KnapsackItem> all;
+        for (const auto& part : parts) all.insert(all.end(), part.begin(), part.end());
+        return all;
+    };
+    struct Instance {
+        vector<KnapsackItem> items;
+        long long optimum;
+    };
+    const vector<Instance> instances{
+        // Johnson's worst case at a 63,000 sq in floor, e = 100: six trucks of 31,600 + 15,850
+        // + 15,550, and three of 15,950 x 2 + 15,550 x 2. First-fit decreasing needs 11.
+        {concat({repeat(31600, 6), repeat(15950, 6), repeat(15850, 6), repeat(15550, 12)}), 9},
+        // Five trucks of 35,000 + 28,000.
+        {concat({repeat(35000, 5), repeat(28000, 5)}), 5},
+        // Four trucks of 21,000 x 3.
+        {repeat(21000, 12), 4},
+    };
+    for (const Instance& instance : instances) {
+        CAPTURE(instance.optimum);
+        const BinPacking ffd = packFirstFitDecreasing(instance.items, kTruck, kSettings, 100);
+        CHECK(ffd.bestTrucks * 9 <= 11 * instance.optimum + 6);
+        CHECK(ffd.bestTrucks >= instance.optimum);
+    }
+}
+
 TEST_CASE("binPacker: a warm start that is already optimal is recorded as such, not as an improvement") {
     const vector<KnapsackItem> items(6, load(20000));
     const BinPacking packing = packBins(items, kTruck, kSettings, 5);
@@ -185,7 +225,7 @@ TEST_CASE("binPacker: at the branch node limit the best found is kept, marked un
     bool sawUnproven = false;
     for (int trial = 0; trial < 60 && !sawUnproven; ++trial) {
         const vector<KnapsackItem> items = randomItems(random, 14);
-        const BinPacking packing = packBins(items, kTruck, {1.0, 1.0, 1, 100'000, 1, 400}, 20);
+        const BinPacking packing = packBins(items, kTruck, {1.0, 1.0, 1, 100'000, 1, 400, 100'000}, 20);
         checkPacking(items, packing, 20);
         if (!packing.proven) {
             sawUnproven = true;
@@ -241,12 +281,14 @@ TEST_CASE("binPacker: 10,000 items fall back to first-fit decreasing, predictabl
 TEST_CASE("binPacker: bad settings and reservations are rejected") {
     const double nan = numeric_limits<double>::quiet_NaN();
     const vector<KnapsackItem> items{load(1920)};
-    CHECK_THROWS_AS(packBins(items, kTruck, {0.0, 1.0, 50, 1000, 100, 400}, 1), invalid_argument);
-    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, nan, 50, 1000, 100, 400}, 1), invalid_argument);
-    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 0, 1000, 100, 400}, 1), invalid_argument);
-    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 0, 100, 400}, 1), invalid_argument);
-    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 0, 400}, 1), invalid_argument);
-    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 100, 0}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {0.0, 1.0, 50, 1000, 100, 400, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, nan, 50, 1000, 100, 400, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 0, 1000, 100, 400, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 0, 100, 400, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 0, 400, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 100, 0, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 100, 400, 0}, 1), invalid_argument);
+    CHECK_THROWS_AS(packBins(items, kTruck, {1.0, 1.0, 50, 1000, 100, 400, -1}, 1), invalid_argument);
     CHECK_THROWS_AS(packBins(items, kTruck, kSettings, -1), invalid_argument);
     CHECK_THROWS_AS(packBins({load(nan)}, kTruck, kSettings, 1), invalid_argument);
     CHECK_THROWS_AS(packFirstFitDecreasing(items, kTruck, kSettings, -1), invalid_argument);
@@ -254,7 +296,7 @@ TEST_CASE("binPacker: bad settings and reservations are rejected") {
 
 TEST_CASE("binPacker: August binPacker lanes pack within capacity and reservation"
           * doctest::skip(!m4AugustTests::augustPresent())) {
-    const BinPackerSettings settings{0.001, 0.001, 50, 100'000, 2'000, 400};
+    const BinPackerSettings settings{0.001, 0.001, 50, 100'000, 2'000, 400, 100'000};
     for (size_t runIndex = 0; runIndex < m4AugustTests::kAugustRunFiles.size(); ++runIndex) {
         CAPTURE(runIndex);
         const m4AugustTests::AugustItems& august = m4AugustTests::augustItems(runIndex);

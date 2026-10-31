@@ -31,8 +31,8 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
     if (!isPositiveFinite(settings.weightGrainLb) || !isPositiveFinite(settings.areaGrainSqIn)) {
         throw invalid_argument("Pattern packer settings: weight and area grains must be positive and finite");
     }
-    if (settings.maxPatterns < 1 || settings.pricingNodeLimit < 1) {
-        throw invalid_argument("Pattern packer settings: pattern and node limits must be at least 1");
+    if (settings.maxPatterns < 1 || settings.pricingNodeLimit < 1 || settings.simplexIterationLimit < 1) {
+        throw invalid_argument("Pattern packer settings: pattern, node and simplex limits must be at least 1");
     }
     if (reservedTrucks < 0) {
         throw invalid_argument("Pattern packer: reserved trucks " + to_string(reservedTrucks) + " is negative");
@@ -93,9 +93,10 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
     CoveringLpSolution lp;
     if (!types.empty()) {
         for (int round = 0;; ++round) {
-            lp = solveCoveringLp(columns, demand);
+            lp = solveCoveringLp(columns, demand, settings.simplexIterationLimit);
             if (!lp.solved) {
                 packing.unstable = true;
+                packing.lpIterationCapHit = lp.iterationCapHit;
                 break;
             }
             if (round >= settings.maxPatterns) break;
@@ -118,7 +119,7 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
     packing.patternsGenerated = columns.size();
     if (packing.converged) {
         packing.lpValue = lp.value;
-        packing.lpTrucks = static_cast<long long>(ceil(lp.value - 1e-6));
+        packing.lpTrucks = lpCeil(lp.value);
     }
 
     // Whole copies of the LP's patterns, never more of a type than is left.
@@ -139,18 +140,20 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
         stable_sort(byUse.begin(), byUse.end(),
                     [&](size_t left, size_t right) { return lp.patternUses[left] > lp.patternUses[right]; });
         for (const size_t column : byUse) {
-            const long long copies = static_cast<long long>(floor(lp.patternUses[column] + 1e-6));
+            const long long copies = lpFloor(lp.patternUses[column]);
             for (long long copy = 0; copy < copies; ++copy) takeLoad(columns[column]);
         }
     }
-    // The rest truck by truck, each covering as much of the floor and payload as it can.
+    // The rest truck by truck, each covering as much of the floor and payload as it can. The
+    // nudge keeps a type with no area or weight worth carrying; it never decides a truck count.
+    constexpr double kEveryTypeWorthSomething = 1e-6;
     vector<double> fillValues(types.size());
     for (size_t type = 0; type < types.size(); ++type) {
         fillValues[type] = static_cast<double>(types[type].areaGrains) / static_cast<double>(problem.areaCapacity)
             + (problem.weightCapacity > 0
                    ? static_cast<double>(types[type].weightGrains) / static_cast<double>(problem.weightCapacity)
                    : 0.0)
-            + 1e-6;
+            + kEveryTypeWorthSomething;
     }
     while (any_of(residual.begin(), residual.end(), [](long long count) { return count > 0; })) {
         PatternPricer::Priced fill = pricer.best(fillValues, residual);

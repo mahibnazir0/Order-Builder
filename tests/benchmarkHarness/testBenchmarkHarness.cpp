@@ -173,6 +173,23 @@ TEST_CASE("benchmarkHarness: each invariant is caught when broken") {
     CHECK(hasViolation(checkInvariants(day.run, day.book, day.items, misreported, 64.0), "I12"));
 }
 
+TEST_CASE("benchmarkHarness: unit loads or weight lost between the lines and the items break I10") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan clean = plan(day);
+    SelectionItems balanced = day.items;
+    balanced.unitLoadsIn = balanced.unitLoadsOut = 40.0;
+    balanced.weightInLb = balanced.weightOutLb = 9.0e7;
+    CHECK_FALSE(hasViolation(checkInvariants(day.run, day.book, balanced, clean, 64.0), "I10"));
+
+    SelectionItems lostUnitLoads = balanced;
+    lostUnitLoads.unitLoadsOut = 39.0;
+    CHECK(hasViolation(checkInvariants(day.run, day.book, lostUnitLoads, clean, 64.0), "I10"));
+
+    SelectionItems lostWeight = balanced;
+    lostWeight.weightOutLb = 9.0e7 - 500.0;
+    CHECK(hasViolation(checkInvariants(day.run, day.book, lostWeight, clean, 64.0), "I10"));
+}
+
 TEST_CASE("benchmarkHarness: samePlan tells a re-run from a different plan") {
     const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
     const SelectionPlan first = plan(day);

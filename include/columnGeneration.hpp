@@ -5,6 +5,7 @@
 // bounded knapsack that prices a new pattern from its duals.
 // ============================================================================
 
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -13,6 +14,15 @@ namespace ob {
 // Pivot and reduced-cost tolerance for the LP. Coarser than kQuantityEpsilon because the
 // tableau accumulates rounding over many pivots.
 constexpr double kLpEpsilon = 1e-9;
+// How far an LP value may sit past a whole number and still round to it. Looser than
+// kLpEpsilon: a dense tableau carries 1e-7-scale error, and 3.0000004 trucks must stay 3.
+// Shared by every packer, so no method adds a truck another would not.
+constexpr double kLpRoundingTolerance = 1e-6;
+
+// Trucks for an LP value, and whole copies of an LP's pattern use, rounded within
+// kLpRoundingTolerance.
+inline long long lpCeil(double value) { return static_cast<long long>(std::ceil(value - kLpRoundingTolerance)); }
+inline long long lpFloor(double value) { return static_cast<long long>(std::floor(value + kLpRoundingTolerance)); }
 
 // One kind of item a pattern can hold, in floor and weight grains.
 struct PricingType {
@@ -22,6 +32,7 @@ struct PricingType {
 
 struct CoveringLpSolution {
     bool solved = false;
+    bool iterationCapHit = false;     // stopped at the cap: solved is false
     double value = 0.0;               // trucks the relaxation needs
     std::vector<double> typeValues;   // the duals that price new patterns
     std::vector<double> patternUses;  // trucks of each pattern the relaxation uses
@@ -30,11 +41,12 @@ struct CoveringLpSolution {
 // Fewest trucks with every type covered `demand` times, over the given patterns (each a count
 // per type). Solved through its dual: maximise sum(demand x value) with every pattern's value
 // at most one truck. Its slack basis is feasible from the start, and the pattern uses come back
-// as the duals of its rows. Dense tableau with Bland's rule, so it cannot cycle; an iteration
-// cap guards the run anyway, and returns solved = false. Every type with demand must appear in
-// some pattern, or the LP is unbounded and comes back unsolved.
+// as the duals of its rows. Dense tableau with Bland's rule, so it cannot cycle; iterationLimit
+// pivots guard the run anyway, and past it the LP returns solved = false with iterationCapHit
+// set. Every type with demand must appear in some pattern, or the LP is unbounded and comes
+// back unsolved. Throws std::invalid_argument for iterationLimit below 1.
 CoveringLpSolution solveCoveringLp(const std::vector<std::vector<int>>& patterns,
-                                   const std::vector<long long>& demand);
+                                   const std::vector<long long>& demand, long long iterationLimit);
 
 // The truck load worth most at the given values: a bounded knapsack over the types, at most
 // `available` of each, within the floor and payload, and never two types named as conflicting

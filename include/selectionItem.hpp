@@ -13,6 +13,11 @@
 // A stack can carry lines of different ship dates and priorities, since M2
 // groups by lane, not date. The item ships by its earliest ship date, at its
 // most urgent priority, and cannot leave before its latest available date.
+//
+// Which end of TPRIO is most urgent is the customer's open question, so it is a
+// setting (selection.priorityZeroIsMostUrgent) applied here alone: each item's
+// priority is an urgency rank, 0 most urgent, and every consumer downstream -
+// the selection order, the knapsack's classes - reads only that rank.
 // ============================================================================
 
 #include "shipCalendar.hpp"
@@ -50,7 +55,8 @@ struct SelectionItem {
 
     std::string shipDate;          // earliest DATFR_TA of its lines
     std::string availDate;         // latest AVAIL_DATE of its lines
-    int priority = 0;              // most urgent TPRIO of its lines: 0 is most urgent
+    int priority = 0;              // urgency rank of its most urgent line: 0 ships first
+    int tprio = 0;                 // that line's TPRIO as read, for the report
     std::string productNumber;     // bottom line's MATNR, the tie-break after priority
     ShipTiming timing = ShipTiming::InWindow;
     bool mixesShipDates = false;
@@ -103,7 +109,11 @@ struct SelectionItems {
 
 // Builds the items for every group of a Milestone 2 run, against the run's planning window.
 // Throws std::invalid_argument when Milestone 2 did not run or its results do not line up.
-SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window);
+SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window,
+                                   bool priorityZeroIsMostUrgent);
+
+// A readable TPRIO (0..kMaxPriority) as an urgency rank, 0 most urgent.
+int urgencyRank(int tprio, bool priorityZeroIsMostUrgent);
 
 // The selection order: ship date first, then priority, then product number, then position in
 // the stacks, so no two items tie (E83, E229).

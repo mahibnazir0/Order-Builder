@@ -220,8 +220,8 @@ TEST_CASE("selectionReporter: an August day prints in plain ASCII with its total
     const LaneClassification classification = classifyLanes(august.run, august.book, august.built, kRouting);
     SelectorSettings settings = selectorSettings();
     settings.knapsack = {0.001, 0.001, 200'000};
-    settings.patternPacker = {0.001, 0.001, 200, 200'000};
-    settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100};
+    settings.patternPacker = {0.001, 0.001, 200, 200'000, 100'000};
+    settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100, 100'000};
     settings.secondsPerLane = 60.0;
     const SelectionPlan selection = selectLoads(august.run, august.book, august.built, classification, settings);
     SelectionReportContext context = contextFor(ReportDetail::Detailed);

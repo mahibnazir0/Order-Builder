@@ -9,12 +9,16 @@
 // other byte replaced by '?'. Columns widen to their longest entry and nothing
 // is cut short.
 //
+// A Result line opens it: complete, or incomplete (exit 7) with every cause.
 // The sections are the specification's report list:
-//   1. Inputs                  files, plan date, window, items, routes
-//   2. Parameters              trailer, full lines, unit rules, every method's settings
+//   1. Inputs                  files, plan date, window, items, routes; stacks
+//                              rejected and placeholder rows skipped, with reasons
+//   2. Parameters              trailer, full lines, unit rules, every method's settings,
+//                              and the provisional business rules the plan rests on
 //   3. Fullness                trucks, reservations, unused, rear waste, cube, weight
 //   4. Reservations not used   per lane-date with the reason, per lane, and the day's
-//                              penalty exposure
+//                              penalty exposure; lanes reserved with no demand, and
+//                              demand lanes with no reservation
 //   5. Log of activities       per route: the methods tried and how each ended, the one
 //                              kept, proven or not, the binding limit as measured
 //   6. Trucks                  per truck: weight and cube against their full lines, rear
@@ -47,6 +51,11 @@ struct SelectionReportContext {
     SelectorSettings settings;            // the ones the plan was made with
     // What the run planned around rather than stopped on, e.g. a combo lane; printed under Inputs.
     std::vector<std::string> warnings;
+    // Why the run is incomplete (selectionShortfalls), printed as its Result; empty is complete.
+    std::vector<std::string> shortfalls;
+    // Printed under the provisional business rules, with the routing settings.
+    bool priorityZeroIsMostUrgent = true;
+    std::string defaultEquipment;
     ReportDetail detail = ReportDetail::Standard;
 };
 

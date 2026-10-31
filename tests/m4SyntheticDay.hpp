@@ -25,11 +25,13 @@ inline const std::vector<ob::CTLRecord> kCtl{{"", "TUESDAY", 2, 3, 2}};
 inline ob::SelectorSettings selectorSettings() {
     ob::SelectorSettings settings;
     settings.knapsack = {1.0, 1.0, 200'000};
-    settings.patternPacker = {1.0, 1.0, 200, 200'000};
-    settings.binPacker = {1.0, 1.0, 50, 100'000, 2'000, 100};
+    settings.patternPacker = {1.0, 1.0, 200, 200'000, 100'000};
+    settings.binPacker = {1.0, 1.0, 50, 100'000, 2'000, 100, 100'000};
     settings.floor.fullCubeFraction = 0.84;
     settings.secondsPerLane = 10.0;
     settings.threads = 1;
+    settings.fillMissesPerTruck = 10;
+    settings.weightSpreadRoundsPerTruck = 4;
     return settings;
 }
 

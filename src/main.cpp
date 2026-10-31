@@ -95,7 +95,7 @@ void print_usage(ostream& out) {
         "  4  a line was left out of a floor (section B) or has no ship date (section A)\n"
         "  5  no line ships on the rule's dates\n"
         "  6  no floor computed: --params was not given\n"
-        "  7  M4 broke an invariant, or every method failed on a lane\n";
+        "  7  M4 left goods, lanes or placeholders unhandled (see its Result)\n";
 }
 
 // Returns the value following `flag`, or an empty string if it is absent.
@@ -256,6 +256,9 @@ int main(int argc, char** argv) {
             context.settings = result.selectionParams.selector;
             context.detail = result.selectionParams.reportDetail;
             context.warnings = result.selectionWarnings;
+            context.shortfalls = ob::selectionShortfalls(result);
+            context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
+            context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
             ob::printSelectionReport(cout, result, result.reservationBook, result.selectionItems,
                                      result.laneClassification, result.selectionPlan, context);
         }

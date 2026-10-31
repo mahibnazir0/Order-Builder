@@ -38,6 +38,7 @@ struct MethodResult {
     vector<RouteTruck> trucks;
     vector<char> unfittable;  // parallel to the route's items
     bool proven = false;
+    bool lpIterationCapHit = false;
 };
 
 vector<char> unfittableFlags(const KnapsackProblem& problem, size_t count) {
@@ -72,6 +73,7 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
                             {settings.patternPacker.weightGrainLb, settings.patternPacker.areaGrainSqIn, 1}),
             items.size());
         result.proven = packing.provenOptimal;
+        result.lpIterationCapHit = packing.lpIterationCapHit;
         break;
     }
     case PackingMethod::BinPacker:
@@ -83,6 +85,7 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
         result.unfittable.assign(items.size(), 0);
         for (const size_t index : packing.unfittable) result.unfittable[index] = 1;
         result.proven = packing.proven;
+        result.lpIterationCapHit = packing.lpIterationCapHit;
         break;
     }
     }
@@ -181,13 +184,13 @@ private:
             try {
                 MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed);
                 const double seconds = clock_() - start;
-                // The last method in the chain is kept however long it took: there is nothing
-                // further down to hand on to.
-                if (seconds > settings_.secondsPerLane && step + 1 < chain.size()) {
-                    outcome.attempts.push_back({chain[step], AttemptOutcome::OverBudget, seconds, ""});
-                    continue;
-                }
-                outcome.attempts.push_back({chain[step], AttemptOutcome::Used, seconds, ""});
+                // Elapsed time never picks the method: a slower machine would then plan the same
+                // input differently. An overrun keeps the result and flags the route instead.
+                const bool overBudget = seconds > settings_.secondsPerLane;
+                outcome.attempts.push_back(
+                    {chain[step], overBudget ? AttemptOutcome::OverBudget : AttemptOutcome::Used, seconds, ""});
+                outcome.overBudget = overBudget;
+                outcome.lpIterationCapHit = result.lpIterationCapHit;
                 outcome.methodUsed = chain[step];
                 outcome.proven = result.proven;
                 kept = std::move(result);
@@ -254,10 +257,9 @@ private:
     // Goods left over, by the method or the floor, go most urgent first into the first truck
     // with room on its floor, payload and rows. The methods judge the floor by area, which rows
     // waste some of, so this takes back what the floor check had to trim. A truck stops being
-    // tried after kFillMisses refusals in a row, which bounds the floor arrangements tried.
+    // tried after fillMissesPerTruck refusals in a row, which bounds the floor arrangements tried.
     void fillRoom(const LaneRoute& route, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks,
                   vector<char>& placed, const vector<char>& unfittable) const {
-        constexpr int kFillMisses = 10;
         for (RouteTruck& truck : trucks) {
             double area = 0.0, weight = 0.0;
             for (const size_t position : truck) {
@@ -265,7 +267,7 @@ private:
                 weight += items[position].weightLb;
             }
             int misses = 0;
-            for (size_t position = 0; position < items.size() && misses < kFillMisses; ++position) {
+            for (size_t position = 0; position < items.size() && misses < settings_.fillMissesPerTruck; ++position) {
                 if (placed[position] || unfittable[position]) continue;
                 if (area + items[position].areaSqIn > capacity_.floorAreaSqIn + kQuantityEpsilon
                     || weight + items[position].weightLb > capacity_.weightLb + kQuantityEpsilon) {
@@ -323,7 +325,8 @@ private:
             }
             return make_pair(area, weight);
         };
-        for (size_t round = 0; round < 4 * trucks.size(); ++round) {
+        const size_t rounds = static_cast<size_t>(settings_.weightSpreadRoundsPerTruck) * trucks.size();
+        for (size_t round = 0; round < rounds; ++round) {
             size_t heavy = 0, light = 0;
             vector<pair<double, double>> load(trucks.size());
             for (size_t truck = 0; truck < trucks.size(); ++truck) {
@@ -387,6 +390,9 @@ void validate(const PipelineResult& run, const SelectionItems& items, const Lane
         throw invalid_argument("Selector settings: seconds per lane must be positive and finite");
     }
     if (settings.threads < 1) throw invalid_argument("Selector settings: threads must be at least 1");
+    if (settings.fillMissesPerTruck < 1 || settings.weightSpreadRoundsPerTruck < 1) {
+        throw invalid_argument("Selector settings: fill misses and weight-spread rounds must be at least 1");
+    }
     for (const LaneRoute& route : classification.routes) {
         if (route.groupIndex >= run.segregation.groups.size()) {
             throw invalid_argument("Selector: a route names group " + to_string(route.groupIndex)

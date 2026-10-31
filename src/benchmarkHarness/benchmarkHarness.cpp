@@ -224,6 +224,19 @@ vector<InvariantViolation> checkInvariants(const PipelineResult& run, const Rese
         }
     }
 
+    // Relative: a day's weight runs to 10^8 lb, past what an absolute epsilon survives summing.
+    auto differ = [](double left, double right) {
+        return fabs(left - right) > kQuantityEpsilon * max({1.0, fabs(left), fabs(right)});
+    };
+    if (differ(items.unitLoadsIn, items.unitLoadsOut)) {
+        violations.push_back({"I10", "the stacked lines hold " + fixed(items.unitLoadsIn, 3) + " unit loads, the items "
+                                         + "and rejections carry " + fixed(items.unitLoadsOut, 3)});
+    }
+    if (differ(items.weightInLb, items.weightOutLb)) {
+        violations.push_back({"I10", "the stacked lines weigh " + fixed(items.weightInLb, 3) + " lb, the items "
+                                         + "and rejections " + fixed(items.weightOutLb, 3) + " lb"});
+    }
+
     if (plan.reservations.size() != book.reservations.size()) {
         violations.push_back({"I12", "the plan reports " + to_string(plan.reservations.size()) + " of "
                                          + to_string(book.reservations.size()) + " reservations"});

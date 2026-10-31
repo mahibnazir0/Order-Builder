@@ -34,6 +34,7 @@ struct PatternPackerSettings {
     double areaGrainSqIn = 0.0;
     int maxPatterns = 0;             // column-generation rounds before stopping unconverged
     long long pricingNodeLimit = 0;  // nodes per pricing knapsack
+    long long simplexIterationLimit = 0;  // pivots per covering-LP solve
 };
 
 struct PackedTruck {
@@ -62,6 +63,7 @@ struct PatternPacking {
     // bound), so no packing needs fewer, whether or not the LP converged.
     bool provenOptimal = false;
     bool unstable = false;               // the LP or pricing could not finish: fell back
+    bool lpIterationCapHit = false;      // the LP stopped at its pivot cap
     std::size_t patternsGenerated = 0;   // columns the LP was given, starting ones included
 };
 

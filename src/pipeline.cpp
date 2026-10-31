@@ -326,7 +326,8 @@ void runSelection(PipelineResult& result) {
     const string planDate = planDateFromRequestId(result.demand.request_id);
     result.reservationBook = buildReservationBook(result.placeholders.placeholders, result.demand.ctl, planDate,
                                                   result.selectionParams.reservations);
-    result.selectionItems = buildSelectionItems(result, result.reservationBook.window);
+    result.selectionItems = buildSelectionItems(result, result.reservationBook.window,
+                                                result.selectionParams.priorityZeroIsMostUrgent);
     requireGrainsFitItems(result.selectionParams, result.selectionItems);
     result.laneClassification = classifyLanes(result, result.reservationBook, result.selectionItems,
                                               result.selectionParams.routing);
@@ -334,6 +335,7 @@ void runSelection(PipelineResult& result) {
                                        result.laneClassification, result.selectionParams.selector);
     result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
                                                  result.selectionPlan, result.selectionParams.maxUnitLoadsPerTruck);
+    result.reservationCoverage = matchDemand(result.reservationBook, result.demand.str);
     result.selectionWarnings = comboLanes(result.segregation);
     for (const InvariantViolation& violation : result.selectionViolations) {
         LOG_ERROR("M4 " + violation.invariant + ": " + violation.detail);
@@ -354,13 +356,77 @@ RunOutcome runOutcome(const PipelineResult& result) {
         return RunOutcome::FloorIncomplete;
     }
     if (selectsNothing(result)) return RunOutcome::NothingSelected;
-    if (result.ranSelection) {
-        const auto& routes = result.selectionPlan.routes;
-        const bool unsolved = any_of(routes.begin(), routes.end(),
-                                     [](const RouteOutcome& route) { return route.status == RouteStatus::Unsolved; });
-        if (!result.selectionViolations.empty() || unsolved) return RunOutcome::SelectionIncomplete;
-    }
+    if (!selectionShortfalls(result).empty()) return RunOutcome::SelectionIncomplete;
     return RunOutcome::Complete;
+}
+
+vector<string> selectionShortfalls(const PipelineResult& result) {
+    vector<string> shortfalls;
+    if (!result.ranSelection) return shortfalls;
+    auto add = [&](size_t count, const string& what) {
+        if (count > 0) shortfalls.push_back(to_string(count) + " " + what);
+    };
+    add(result.selectionViolations.size(), "invariant violations");
+
+    size_t unsolved = 0, overBudget = 0, lpCapped = 0;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (route.status == RouteStatus::Unsolved) ++unsolved;
+        if (route.overBudget) ++overBudget;
+        if (route.lpIterationCapHit) ++lpCapped;
+    }
+    add(unsolved, "routes where every method threw");
+    add(overBudget, "routes whose method overran the time budget");
+    add(lpCapped, "routes whose LP stopped at its simplex iteration cap");
+
+    // A floor eviction on a route that built every truck it was allowed is overflow, as
+    // OverReservation is; only one on a route with trucks still unbuilt is goods lost.
+    vector<char> itemOnRouteWithRoom(result.selectionItems.items.size(), 0);
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (route.trucksBuilt >= route.trucksAllowed || route.routeIndex >= lanes.size()) continue;
+        for (const size_t index : lanes[route.routeIndex].itemIndices) {
+            if (index < itemOnRouteWithRoom.size()) itemOnRouteWithRoom[index] = 1;
+        }
+    }
+    map<LeftOverReason, size_t> droppedByReason;
+    for (const LeftOverItem& left : result.selectionPlan.leftOver) {
+        switch (left.reason) {
+        case LeftOverReason::FloorEviction:
+            if (left.itemIndex < itemOnRouteWithRoom.size() && itemOnRouteWithRoom[left.itemIndex]) {
+                ++droppedByReason[left.reason];
+            }
+            break;
+        case LeftOverReason::EscalatedToM5:
+        case LeftOverReason::Unfittable:
+        case LeftOverReason::LaneUnsolved: ++droppedByReason[left.reason]; break;
+        case LeftOverReason::AfterWindow:
+        case LeftOverReason::UnavailableInWindow:
+        case LeftOverReason::NoReservation:
+        case LeftOverReason::OverReservation: break;
+        }
+    }
+    for (const auto& [reason, stacks] : droppedByReason) {
+        add(stacks, string("stacks left over: ") + leftOverReasonName(reason));
+    }
+
+    add(result.selectionItems.rejected.size(), "stacks rejected for bad line data");
+    add(result.selectionItems.linesNotFullyStacked.size(), "lines not fully stacked");
+
+    size_t badPlaceholders = 0;
+    for (const SkippedPlaceholder& skipped : result.reservationBook.skipped) {
+        switch (skipped.reason) {
+        case PlaceholderSkipReason::ZeroLoads:
+        case PlaceholderSkipReason::BeforeWindow:
+        case PlaceholderSkipReason::AfterWindow: break;
+        case PlaceholderSkipReason::MissingLane:
+        case PlaceholderSkipReason::InvalidShipDate:
+        case PlaceholderSkipReason::InvalidDeliveryDate:
+        case PlaceholderSkipReason::InvalidLoadCount:
+        case PlaceholderSkipReason::UnknownEquipment: ++badPlaceholders; break;
+        }
+    }
+    add(badPlaceholders, "placeholder rows skipped for bad data");
+    return shortfalls;
 }
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {

@@ -37,6 +37,7 @@ struct BinPackerSettings {
     // The LP holds a row per item, so above this many items that fit a truck the search does
     // not start: first-fit decreasing stands and the result says it fell back.
     int maxSearchItems = 0;
+    long long simplexIterationLimit = 0;  // pivots per covering-LP solve
 };
 
 struct BinTruck {
@@ -58,6 +59,7 @@ struct BinPacking {
     bool improvedOnWarmStart = false;
     // First-fit decreasing stands: the lane was over maxSearchItems or its LP could not be solved.
     bool fellBack = false;
+    bool lpIterationCapHit = false;  // a node's LP stopped at its pivot cap
     long long branchNodes = 0;
     bool overReservation = false;  // the best packing needs more trucks than reserved
 };
