@@ -74,7 +74,7 @@ string attemptsText(const RouteOutcome& outcome) {
         text += packingMethodName(attempt.method);
         switch (attempt.outcome) {
         case AttemptOutcome::Used: text += " used"; break;
-        case AttemptOutcome::OverBudget: text += " over budget (" + fixed(attempt.seconds, 1) + " s)"; break;
+        case AttemptOutcome::OverBudget: text += " used, OVER BUDGET (" + fixed(attempt.seconds, 1) + " s)"; break;
         case AttemptOutcome::Threw: text += " threw: " + printable(attempt.error); break;
         }
     }
@@ -150,6 +150,12 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     }
 
     out << "M4 LOAD SELECTION - " << printable(context.extractLabel) << "\n";
+    if (context.shortfalls.empty()) {
+        out << "  Result: complete\n";
+    } else {
+        out << "  Result: INCOMPLETE (exit 7)\n";
+        for (const string& shortfall : context.shortfalls) out << "    " << printable(shortfall) << "\n";
+    }
 
     printSection(out, 0);
     for (const string& file : context.inputFiles) printLine(out, "file", printable(file));
@@ -162,6 +168,35 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
     for (const string& warning : context.warnings) printLine(out, "warning", printable(warning));
+    printLine(out, "stacks rejected", count(items.rejected.size()) + " for bad line data");
+    if (!items.rejected.empty()) {
+        vector<Row> rejectedRows;
+        rejectedRows.reserve(items.rejected.size());
+        for (const RejectedItem& rejected : items.rejected) {
+            const STRRecord& line = *run.join.lines[rejected.lineIndex].str;
+            rejectedRows.push_back({count(rejected.lineIndex), printable(line.matnr),
+                                    laneText(line.locfrno, line.loctono, line.ship_cond), printable(line.datfr_ta),
+                                    grouped(rejected.item.unitLoads, 2), itemRejectionName(rejected.reason)});
+        }
+        printColumns(out, {"line", "product", "lane", "ship date", "unit loads", "reason"}, rejectedRows,
+                     {true, false, false, false, true, false});
+    }
+    printLine(out, "placeholders skipped", count(book.skipped.size()) + " rows, "
+                                               + grouped(book.skippedTrucks) + " trucks");
+    if (!book.skipped.empty()) {
+        const vector<PlaceholderRecord>& placeholders = run.placeholders.placeholders;
+        vector<Row> skippedRows;
+        skippedRows.reserve(book.skipped.size());
+        for (const SkippedPlaceholder& skipped : book.skipped) {
+            const PlaceholderRecord& row = placeholders[skipped.placeholderIndex];
+            const bool readable = row.no_of_loads >= 0 && row.no_of_loads <= kMaxLoadsPerPlaceholder;
+            skippedRows.push_back({count(skipped.placeholderIndex + 1), laneText(row.locfrno, row.loctono, row.ship_cond),
+                                   printable(row.datfr_ta), readable ? grouped(row.no_of_loads) : "unreadable",
+                                   describeSkipReason(skipped.reason)});
+        }
+        printColumns(out, {"row", "lane", "ship date", "trucks", "reason"}, skippedRows,
+                     {true, false, false, true, false});
+    }
 
     printSection(out, 1);
     const SelectorSettings& settings = context.settings;
@@ -180,19 +215,37 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                         + setting(settings.patternPacker.areaGrainSqIn) + " sq in; "
                                         + to_string(settings.patternPacker.maxPatterns) + " patterns, "
                                         + grouped(static_cast<double>(settings.patternPacker.pricingNodeLimit))
-                                        + " pricing nodes");
+                                        + " pricing nodes, " + grouped(settings.patternPacker.simplexIterationLimit)
+                                        + " simplex pivots");
     printLine(out, "binPacker", "grains " + setting(settings.binPacker.weightGrainLb) + " lb, "
                                     + setting(settings.binPacker.areaGrainSqIn) + " sq in; "
                                     + to_string(settings.binPacker.columnRoundsPerNode) + " rounds a node, "
                                     + grouped(static_cast<double>(settings.binPacker.branchNodeLimit))
                                     + " branch nodes, at most " + to_string(settings.binPacker.maxSearchItems)
-                                    + " items searched");
+                                    + " items searched, " + grouped(settings.binPacker.simplexIterationLimit)
+                                    + " simplex pivots");
     printLine(out, "floor", string(settings.floor.allowRotation ? "pallets may be turned" : "pallets never turned")
                                 + (settings.floor.maxPositions
                                        ? ", at most " + to_string(*settings.floor.maxPositions) + " positions"
                                        : ""));
-    printLine(out, "budget", setting(settings.secondsPerLane) + " s a lane, " + to_string(settings.threads) + " threads");
+    printLine(out, "budget", setting(settings.secondsPerLane) + " s a lane (overrun flags the lane, never changes the plan), "
+                                 + to_string(settings.threads) + " threads");
+    printLine(out, "fill and spread", to_string(settings.fillMissesPerTruck) + " misses a truck, "
+                                          + to_string(settings.weightSpreadRoundsPerTruck) + " weight-spread rounds a truck");
     printLine(out, "detail", detailed ? "detailed" : "standard");
+
+    out << "\n  PROVISIONAL BUSINESS RULES (not yet confirmed by the customer)\n";
+    printLine(out, "priority direction", context.priorityZeroIsMostUrgent
+                                             ? "TPRIO 0 ships first (priorityZeroIsMostUrgent = true)"
+                                             : "TPRIO 11 ships first (priorityZeroIsMostUrgent = false)");
+    printLine(out, "blank equipment", "taken as " + printable(context.defaultEquipment) + " on "
+                                          + count(book.entriesWithDefaultEquipment) + " placeholder rows");
+    printLine(out, "M5 threshold", "lanes above " + to_string(context.routing.m5Threshold)
+                                       + " trucks reserved are left to M5, unplanned");
+    printLine(out, "variety ratio", "patternPacker above " + setting(context.routing.varietyRatio)
+                                        + " unit loads per product, binPacker at or below");
+    printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"
+                                             " then the next; then most floor covered");
 
     printSection(out, 2);
     long long reserved = 0, escalated = 0;
@@ -271,6 +324,29 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     out << "\n  Penalty exposure for the day: " << grouped(static_cast<double>(plan.penaltyExposureTrucks))
         << " reserved trucks unused\n";
 
+    const ReservationCoverage& coverage = run.reservationCoverage;
+    out << "\n  Lanes reserved with no demand: " << count(coverage.reservationsWithoutDemand.size()) << " lane-dates, "
+        << grouped(coverage.penaltyExposureTrucks) << " trucks\n";
+    if (!coverage.reservationsWithoutDemand.empty()) {
+        vector<Row> rows;
+        rows.reserve(coverage.reservationsWithoutDemand.size());
+        for (const size_t index : coverage.reservationsWithoutDemand) {
+            const Reservation& reservation = book.reservations[index];
+            rows.push_back({laneText(reservation.origin, reservation.destination, reservation.shipCondition),
+                            printable(reservation.shipDate), grouped(reservation.trucks)});
+        }
+        printColumns(out, {"lane", "ship date", "trucks"}, rows, {false, false, true});
+    }
+    out << "\n  Demand lanes with no reservation: " << count(coverage.demandLanesWithoutReservation.size()) << "\n";
+    if (!coverage.demandLanesWithoutReservation.empty()) {
+        vector<Row> rows;
+        rows.reserve(coverage.demandLanesWithoutReservation.size());
+        for (const DemandLane& lane : coverage.demandLanesWithoutReservation) {
+            rows.push_back({laneText(lane.origin, lane.destination, lane.shipCondition)});
+        }
+        printColumns(out, {"lane"}, rows, {false});
+    }
+
     printSection(out, 4);
     vector<Row> routeRows;
     for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
@@ -283,7 +359,10 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
             binding = string(outcome.binding == BindingLimit::Weight ? "weight" : "floor") + " ("
                       + percent(shares.weightShare) + " payload, " + percent(shares.floorShare) + " floor)";
         }
-        const string proof = !outcome.methodUsed ? "-" : outcome.proven ? "proven" : "unproven";
+        const string proof = !outcome.methodUsed           ? "-"
+                             : outcome.lpIterationCapHit ? "LP CAP HIT"
+                             : outcome.proven            ? "proven"
+                                                         : "unproven";
         routeRows.push_back({laneText(key.locationFrom, key.locationTo, key.shipCondition),
                              groupText(groups[route.groupIndex]), printable(route.shipDate),
                              grouped(static_cast<double>(route.reservedTrucks)), statusName(outcome.status),
@@ -343,7 +422,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                                                      ? run.join.lines[item.lineIndices.front()].str->matnr
                                                                      : item.productNumber),
                                 laneText(key.locationFrom, key.locationTo, key.shipCondition), printable(item.shipDate),
-                                to_string(item.priority), grouped(item.unitLoads, 2), leftOverReasonName(left.reason)});
+                                to_string(item.tprio), grouped(item.unitLoads, 2), leftOverReasonName(left.reason)});
         }
         printColumns(out, {"stack", "product", "lane", "ship date", "priority", "unit loads", "reason"}, itemRows,
                    {true, false, false, false, true, true, false});

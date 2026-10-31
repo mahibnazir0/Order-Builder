@@ -1,7 +1,7 @@
 #pragma once
 // ============================================================================
 // selector.hpp - M4 module C8. Runs each route through its method, falls back
-// when a method fails or overruns, and assembles the day's trucks. It solves
+// when a method fails, and assembles the day's trucks. It solves
 // nothing itself.
 //
 // Work is done per lane and ship date: the groups of a lane split by
@@ -12,10 +12,12 @@
 // any thread count.
 //
 // For each group:
-//   1. its method, then the next one down when it throws or overruns the
-//      budget: knapsack -> greedy knapsack; patternPacker -> binPacker ->
-//      first-fit decreasing; binPacker -> first-fit decreasing. The last in the
-//      chain is always kept, so a group is unsolved only when every method threw
+//   1. its method, then the next one down when it throws: knapsack -> greedy
+//      knapsack; patternPacker -> binPacker -> first-fit decreasing; binPacker
+//      -> first-fit decreasing. A group is unsolved only when every method threw.
+//      Which method is kept depends on counted node limits and errors only, never
+//      on elapsed time, so a plan replays the same on any machine; a method that
+//      overruns the budget is kept and the route flagged overBudget
 //   2. floor: floorPattern arranges every truck; one that does not fit its rows
 //      drops its least urgent goods until it does
 //   3. fill: goods left over, by the method or the floor, go most urgent first
@@ -53,13 +55,21 @@ struct SelectorSettings {
     PatternPackerSettings patternPacker;
     BinPackerSettings binPacker;
     FloorPatternSettings floor;
-    double secondsPerLane = 0.0;  // a method that takes longer hands on to the next one down
+    double secondsPerLane = 0.0;  // a method that takes longer is kept, and its route flagged
     int threads = 0;              // at least 1
+    // Refusals in a row before the fill pass stops trying a truck (bounds floor arrangements).
+    int fillMissesPerTruck = 0;
+    // Weight-spreading swaps tried, per truck on the route.
+    int weightSpreadRoundsPerTruck = 0;
     // Seconds on a steady clock. Empty uses std::chrono::steady_clock; tests pass their own.
     std::function<double()> clock;
 };
 
-enum class AttemptOutcome { Used, Threw, OverBudget };
+enum class AttemptOutcome {
+    Used,
+    Threw,
+    OverBudget,  // kept, but took longer than secondsPerLane
+};
 
 struct MethodAttempt {
     PackingMethod method = PackingMethod::Knapsack;
@@ -82,6 +92,8 @@ struct RouteOutcome {
     std::vector<MethodAttempt> attempts;      // in the order tried
     std::optional<PackingMethod> methodUsed;  // the one whose trucks were kept
     bool proven = false;                      // that method proved its result optimal
+    bool overBudget = false;  // the kept method overran secondsPerLane; the run is incomplete
+    bool lpIterationCapHit = false;  // its LP stopped at the pivot cap; the run is incomplete
     long long trucksAllowed = 0;  // what the lane-date's reservation still allowed this group
     long long trucksBuilt = 0;
     // Judged on this route's trucks: weight when they carry a larger share of their payload

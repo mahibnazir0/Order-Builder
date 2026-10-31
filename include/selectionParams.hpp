@@ -12,10 +12,13 @@
 //   fullCubeFraction                       a truck is full at this share of its cube
 //   maxUnitLoadsPerTruck                   anything above is a conversion error (I6)
 //   m5Threshold, varietyRatio              the classifier's routing
+//   priorityZeroIsMostUrgent               which end of TPRIO ships first (provisional)
 //   knapsack, patternPacker, binPacker     each method's grains and limits
 //   floor                                  rotation, orientation when fixed, patterns,
 //                                          maxPositions (null for none)
 //   secondsPerLane, threads                the selector's budget and workers
+//   fillMissesPerTruck,                    the selector's fill and weight passes' bounds
+//   weightSpreadRoundsPerTruck
 //   reportDetail                           Standard or Detailed
 // ============================================================================
 
@@ -35,6 +38,7 @@ struct SelectionParams {
     LaneClassifierSettings routing;
     SelectorSettings selector;  // its clock is left empty: the run uses the steady clock
     double maxUnitLoadsPerTruck = 0.0;
+    bool priorityZeroIsMostUrgent = true;
     ReportDetail reportDetail = ReportDetail::Standard;
     std::string sourcePath;
 };

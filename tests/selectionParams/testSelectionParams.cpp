@@ -43,6 +43,11 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.reservations.knownEquipment == vector<string>{"53F"});
     CHECK(params.selector.floor.fullCubeFraction == doctest::Approx(0.84));
     CHECK(params.maxUnitLoadsPerTruck == doctest::Approx(64.0));
+    CHECK(params.priorityZeroIsMostUrgent);
+    CHECK(params.selector.fillMissesPerTruck == 10);
+    CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
+    CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
+    CHECK(params.selector.binPacker.simplexIterationLimit == 100'000);
     CHECK(params.routing.m5Threshold == 20);
     CHECK(params.selector.knapsack.nodeLimit == 200'000);
     CHECK(params.selector.binPacker.maxSearchItems == 100);
@@ -58,13 +63,14 @@ TEST_CASE("selectionParams: missingSettingFailsAtStartup - no block, and every k
     json noBlock = shippedRoot();
     noBlock.erase("selection");
     CHECK(rejectedNaming(noBlock, "selection"));
-    for (const auto& setting : shippedRoot()["selection"].items()) {
+    const json shipped = shippedRoot();
+    for (const auto& setting : shipped["selection"].items()) {
         const string key = setting.key();
         CAPTURE(key);
         CHECK(rejectedNaming(edited([&](json& block) { block.erase(key); }), key));
     }
     for (const char* block : {"knapsack", "patternPacker", "binPacker", "floor"}) {
-        for (const auto& setting : shippedRoot()["selection"][block].items()) {
+        for (const auto& setting : shipped["selection"][block].items()) {
             const string key = setting.key();
             CAPTURE(key);
             CHECK(rejectedNaming(edited([&](json& selection) { selection[block].erase(key); }), key));
@@ -81,6 +87,8 @@ TEST_CASE("selectionParams: everySettingRejectsZeroNegativeAndTheWrongType") {
         {{"patternPacker", "maxPatterns"}, true}, {{"patternPacker", "pricingNodeLimit"}, true},
         {{"binPacker", "areaGrainSqIn"}, false}, {{"binPacker", "columnRoundsPerNode"}, true},
         {{"binPacker", "branchNodeLimit"}, true}, {{"binPacker", "maxSearchItems"}, true},
+        {{"patternPacker", "simplexIterationLimit"}, true}, {{"binPacker", "simplexIterationLimit"}, true},
+        {{"fillMissesPerTruck"}, true},         {{"weightSpreadRoundsPerTruck"}, true},
         {{"threads"}, true}};
     for (const auto& number : numbers) {
         const vector<string> path = number.first;
@@ -110,6 +118,10 @@ TEST_CASE("selectionParams: ranges, names and lists out of bounds are rejected")
     CHECK(rejectedNaming(edited([](json& block) { block["knownEquipment"] = json::array(); }), "knownEquipment"));
     CHECK(rejectedNaming(edited([](json& block) { block["floor"]["fixedOrientation"] = "Sideways"; }), "fixedOrientation"));
     CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowRotation"] = "yes"; }), "allowRotation"));
+    CHECK(rejectedNaming(edited([](json& block) { block["priorityZeroIsMostUrgent"] = "yes"; }),
+                         "priorityZeroIsMostUrgent"));
+    CHECK(rejectedNaming(edited([](json& block) { block["priorityZeroIsMostUrgent"] = 0; }),
+                         "priorityZeroIsMostUrgent"));
     CHECK(rejectedNaming(edited([](json& block) { block["floor"]["maxPositions"] = 0; }), "maxPositions"));
     CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array({"WideWide"}); }), "Single"));
     CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array({"Single", "Single"}); }), "twice"));

@@ -107,7 +107,7 @@ Exit codes:
 | 4 | A floor left out a line shipping on its date, or a line has no real ship date (DATFR_TA) |
 | 5 | No line of a non-empty extract ships on the rule's dates |
 | 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
-| 7 | M4 ran (`--select`) and its plan broke an invariant, or every method failed on a lane |
+| 7 | M4 ran (`--select`) and left something unhandled: its plan broke an invariant; on a route every method threw, the kept method overran `secondsPerLane`, or the LP stopped at `simplexIterationLimit`; stacks were left over as escalated to M5, unfittable, on an unsolved lane, or evicted by the floor while their route still had reserved trucks unbuilt; a stack was rejected for bad line data or a line was not fully stacked; or a placeholder row was skipped for bad data (missing lane, bad date, unreadable load count, unknown equipment). Stacks after the window, unavailable in it, with no reservation or over it, and placeholders with zero loads or outside the window, are normal. The M4 report's `Result` line lists every cause |
 
 When several apply, the lowest code wins.
 
@@ -125,7 +125,15 @@ demand file's CTL table gives the plan date, which comes from the demand's REQUE
 Milestone 2's stacks into items, routes every group and ship date to a method, fills the
 trucks and checks the result. Every setting comes from the params file's `selection` block;
 a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
-`varietyRatio` are provisional until the benchmark settles them.
+`varietyRatio` are provisional until the benchmark settles them, and
+`priorityZeroIsMostUrgent` (which end of TPRIO ships first) until the customer confirms it;
+the report prints all three under its provisional business rules.
+
+The time budget `secondsPerLane` never decides which method's plan is kept: fallback moves
+down the chain only when a method throws, so the same input plans the same on any machine.
+A method that overruns is kept and its lane flagged, which makes the run exit 7.
+`simplexIterationLimit` (patternPacker and binPacker), `fillMissesPerTruck` and
+`weightSpreadRoundsPerTruck` bound the LP and the selector's fill and weight passes.
 
 | Step | Module | What it does |
 |---|---|---|
@@ -135,7 +143,7 @@ a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` an
 | 3 | `floorPattern` | How a truck's items stand in rows: wide-wide, wide-narrow, narrow-narrow, three-across, pinwheel |
 | 4 | `laneClassifier` | Routes each group and ship date: knapsack, patternPacker, binPacker, M5, or no truck |
 | 5-7 | `knapsack`, `patternPacker`, `binPacker` | The methods; first-fit decreasing is warm start and fallback only |
-| 8 | `selector` | Runs the methods with fallback and budget, checks every truck's rows, fills and spreads weight |
+| 8 | `selector` | Runs the methods with fallback on failure, flags any over budget, checks every truck's rows, fills and spreads weight |
 | 9 | `selectionReporter` | The printed M4 report: inputs, parameters, fullness, unused reservations, log, trucks, goods left over, item master |
 | 10 | `benchmarkHarness` | Every method on the same routes, and the invariants recounted from the trucks |
 

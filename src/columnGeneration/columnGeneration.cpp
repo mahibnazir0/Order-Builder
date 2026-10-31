@@ -2,12 +2,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <string>
 
 using namespace std;
 
 namespace ob {
 
-CoveringLpSolution solveCoveringLp(const vector<vector<int>>& patterns, const vector<long long>& demand) {
+CoveringLpSolution solveCoveringLp(const vector<vector<int>>& patterns, const vector<long long>& demand,
+                                   long long iterationLimit) {
+    if (iterationLimit < 1) {
+        throw invalid_argument("Covering LP: iteration limit must be at least 1, is " + to_string(iterationLimit));
+    }
     const size_t rows = patterns.size(), types = demand.size();
     const size_t columns = types + rows + 1;
     vector<vector<double>> tableau(rows + 1, vector<double>(columns, 0.0));
@@ -22,9 +28,7 @@ CoveringLpSolution solveCoveringLp(const vector<vector<int>>& patterns, const ve
     for (size_t type = 0; type < types; ++type) objective[type] = -static_cast<double>(demand[type]);
 
     CoveringLpSolution solution;
-    const size_t iterationCap = 50 * (rows + types) + 100;
-    for (size_t iteration = 0;; ++iteration) {
-        if (iteration > iterationCap) return solution;
+    for (long long iteration = 0;; ++iteration) {
         size_t entering = columns;
         for (size_t column = 0; column + 1 < columns; ++column) {
             if (objective[column] < -kLpEpsilon) {
@@ -33,6 +37,10 @@ CoveringLpSolution solveCoveringLp(const vector<vector<int>>& patterns, const ve
             }
         }
         if (entering == columns) break;
+        if (iteration >= iterationLimit) {
+            solution.iterationCapHit = true;
+            return solution;
+        }
         size_t leaving = rows;
         double bestRatio = 0.0;
         for (size_t row = 0; row < rows; ++row) {

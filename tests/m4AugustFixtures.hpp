@@ -78,7 +78,7 @@ inline const AugustItems& augustItems(std::size_t runIndex) {
             loaded[index].book = ob::buildReservationBook(
                 loaded[index].run.placeholders.placeholders, loaded[index].run.demand.ctl,
                 ob::planDateFromRequestId(loaded[index].run.demand.request_id), {"53F", {"53F"}});
-            loaded[index].built = ob::buildSelectionItems(loaded[index].run, loaded[index].book.window);
+            loaded[index].built = ob::buildSelectionItems(loaded[index].run, loaded[index].book.window, true);
         }
         return loaded;
     }();

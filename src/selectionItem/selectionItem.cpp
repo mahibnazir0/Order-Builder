@@ -60,7 +60,12 @@ auto selectionOrder(const SelectionItem& item) {
 
 } // anonymous namespace
 
-SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window) {
+int urgencyRank(int tprio, bool priorityZeroIsMostUrgent) {
+    return priorityZeroIsMostUrgent ? tprio : kMaxPriority - tprio;
+}
+
+SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window,
+                                   bool priorityZeroIsMostUrgent) {
     if (!run.ranMilestone2) {
         throw invalid_argument("Selection items need Milestone 2's stacks, and it did not run");
     }
@@ -132,13 +137,18 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                     if (item.lineIndices.size() == 1) {
                         item.shipDate = demand.datfr_ta;
                         item.availDate = demand.avail_date;
-                        item.priority = demand.tprio;
+                        item.priority = urgencyRank(demand.tprio, priorityZeroIsMostUrgent);
+                        item.tprio = demand.tprio;
                         item.productNumber = demand.matnr;
                     } else {
                         if (demand.datfr_ta != item.shipDate) item.mixesShipDates = true;
                         item.shipDate = min(item.shipDate, demand.datfr_ta);
                         item.availDate = max(item.availDate, demand.avail_date);
-                        item.priority = min(item.priority, demand.tprio);
+                        const int rank = urgencyRank(demand.tprio, priorityZeroIsMostUrgent);
+                        if (rank < item.priority) {
+                            item.priority = rank;
+                            item.tprio = demand.tprio;
+                        }
                     }
                 }
                 if (item.lineIndices.empty()) continue;

@@ -123,6 +123,8 @@ struct PipelineResult {
     SelectionItems selectionItems;
     LaneClassification laneClassification;
     SelectionPlan selectionPlan;
+    // Reservations on lanes with no demand, and demand lanes with no reservation.
+    ReservationCoverage reservationCoverage;
     // Recounted from the trucks after the plan is made; any entry fails the run (exit 7).
     std::vector<InvariantViolation> selectionViolations;
     // What the run found and planned around rather than stopped on, e.g. a combo lane.
@@ -147,11 +149,22 @@ enum class RunOutcome {
     NothingSelected = 5,
     // No floor was planned, so the run says nothing about trucks.
     FloorNotComputed = 6,
-    // M4 ran and its plan broke an invariant, or a lane had every method fail.
+    // M4 ran and left goods or reservations it should have handled: see selectionShortfalls.
     SelectionIncomplete = 7,
 };
 
 RunOutcome runOutcome(const PipelineResult& result);
+
+// Why an M4 run is incomplete, one line per cause; empty when it is complete or M4 did not run.
+// Every M4 drop lands here, so none can leave the run exiting 0: a broken invariant; a route
+// whose methods all threw, whose kept method overran the time budget, or whose LP stopped at
+// its pivot cap; goods left over as escalated to M5, unfittable, on an unsolved lane, or
+// evicted by the floor while their route still had trucks unbuilt; a stack rejected for bad
+// line data, or a line not fully stacked; a placeholder skipped for bad data. Goods after the
+// window, unavailable in it, without a reservation or over it (a floor eviction on a full route
+// included), and placeholders with zero loads or outside the window, are the plan working as
+// specified and are not listed.
+std::vector<std::string> selectionShortfalls(const PipelineResult& result);
 
 class Pipeline {
 public:

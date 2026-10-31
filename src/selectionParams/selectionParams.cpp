@@ -111,6 +111,8 @@ SelectionParams parseSelectionParams(const json& root) {
     params.maxUnitLoadsPerTruck =
         readQuantity(requiredField(block, "maxUnitLoadsPerTruck", name), name + ".maxUnitLoadsPerTruck");
 
+    params.priorityZeroIsMostUrgent = readBoolean(requiredField(block, "priorityZeroIsMostUrgent", name),
+                                                  name + ".priorityZeroIsMostUrgent");
     params.routing.m5Threshold = readInteger(requiredField(block, "m5Threshold", name), name + ".m5Threshold", 2);
     params.routing.varietyRatio = readQuantity(requiredField(block, "varietyRatio", name), name + ".varietyRatio");
     if (params.routing.varietyRatio > kMaxVarietyRatio) {
@@ -128,7 +130,8 @@ SelectionParams parseSelectionParams(const json& root) {
     selector.patternPacker = {readGrain(pattern, "weightGrainLb", patternName),
                               readGrain(pattern, "areaGrainSqIn", patternName),
                               static_cast<int>(readLimit(pattern, "maxPatterns", patternName)),
-                              readLimit(pattern, "pricingNodeLimit", patternName)};
+                              readLimit(pattern, "pricingNodeLimit", patternName),
+                              readLimit(pattern, "simplexIterationLimit", patternName)};
     const json& bin = requiredField(block, "binPacker", name);
     const string binName = name + ".binPacker";
     selector.binPacker = {readGrain(bin, "weightGrainLb", binName),
@@ -136,13 +139,16 @@ SelectionParams parseSelectionParams(const json& root) {
                           static_cast<int>(readLimit(bin, "columnRoundsPerNode", binName)),
                           readLimit(bin, "pricingNodeLimit", binName),
                           readLimit(bin, "branchNodeLimit", binName),
-                          static_cast<int>(readLimit(bin, "maxSearchItems", binName))};
+                          static_cast<int>(readLimit(bin, "maxSearchItems", binName)),
+                          readLimit(bin, "simplexIterationLimit", binName)};
     selector.floor = readFloor(requiredField(block, "floor", name), fullCubeFraction);
     selector.secondsPerLane = readQuantity(requiredField(block, "secondsPerLane", name), name + ".secondsPerLane");
     selector.threads = readInteger(requiredField(block, "threads", name), name + ".threads", 1);
     if (selector.threads > kMaxThreads) {
         throw runtime_error("params: " + name + ".threads must be at most " + to_string(kMaxThreads));
     }
+    selector.fillMissesPerTruck = static_cast<int>(readLimit(block, "fillMissesPerTruck", name));
+    selector.weightSpreadRoundsPerTruck = static_cast<int>(readLimit(block, "weightSpreadRoundsPerTruck", name));
 
     const string detail = readString(requiredField(block, "reportDetail", name), name + ".reportDetail");
     if (detail == "Standard") {

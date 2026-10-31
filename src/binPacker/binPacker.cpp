@@ -27,8 +27,8 @@ void validate(const BinPackerSettings& settings, int reservedTrucks) {
         throw invalid_argument("Bin packer settings: weight and area grains must be positive and finite");
     }
     if (settings.columnRoundsPerNode < 1 || settings.pricingNodeLimit < 1 || settings.branchNodeLimit < 1
-        || settings.maxSearchItems < 1) {
-        throw invalid_argument("Bin packer settings: round, node and item limits must be at least 1");
+        || settings.maxSearchItems < 1 || settings.simplexIterationLimit < 1) {
+        throw invalid_argument("Bin packer settings: round, node, item and simplex limits must be at least 1");
     }
     if (reservedTrucks < 0) {
         throw invalid_argument("Bin packer: reserved trucks " + to_string(reservedTrucks) + " is negative");
@@ -110,7 +110,7 @@ public:
                 everyCutProven = false;
                 continue;
             }
-            const long long nodeBound = static_cast<long long>(ceil(result.lpValue - 1e-6));
+            const long long nodeBound = lpCeil(result.lpValue);
             if (nodes == 1 && result.converged) lowerBound = max(lowerBound, nodeBound);
             keepIfBetter(roundToTrucks(result));
             if (result.converged && nodeBound >= static_cast<long long>(best_.size())) continue;
@@ -128,6 +128,8 @@ public:
         proven = static_cast<long long>(best_.size()) <= lowerBound || (stack.empty() && everyCutProven);
         return best_;
     }
+
+    bool lpIterationCapHit() const { return lpIterationCapHit_; }
 
 private:
     NodeResult evaluate(const BranchNode& node) {
@@ -204,8 +206,11 @@ private:
                              settings_.pricingNodeLimit, &conflicts);
         CoveringLpSolution lp;
         for (int round = 0;; ++round) {
-            lp = solveCoveringLp(patterns, demand);
-            if (!lp.solved) return result;
+            lp = solveCoveringLp(patterns, demand, settings_.simplexIterationLimit);
+            if (!lp.solved) {
+                lpIterationCapHit_ = lpIterationCapHit_ || lp.iterationCapHit;
+                return result;
+            }
             if (round >= settings_.columnRoundsPerNode) break;
             const PatternPricer::Priced priced = pricer.best(lp.typeValues, demand);
             if (priced.value <= 1.0 + kLpEpsilon) {
@@ -234,7 +239,7 @@ private:
         }
         double nearestHalf = 1.0;
         for (const auto& [groupPair, share] : together) {
-            if (share <= 1e-6 || share >= 1.0 - 1e-6) continue;
+            if (share <= kLpRoundingTolerance || share >= 1.0 - kLpRoundingTolerance) continue;
             if (fabs(share - 0.5) < nearestHalf) {
                 nearestHalf = fabs(share - 0.5);
                 result.branchPair = make_pair(members[groupPair.first].front(), members[groupPair.second].front());
@@ -298,6 +303,7 @@ private:
     const BinPackerSettings& settings_;
     size_t unitCount_;
     vector<UnitTruck> best_;
+    bool lpIterationCapHit_ = false;
     // Every pattern priced anywhere in the tree, offered again at each node that allows it.
     set<UnitTruck> pool_;
     vector<UnitTruck> poolOrder_;
@@ -409,6 +415,7 @@ BinPacking packBins(const vector<KnapsackItem>& items, const KnapsackCapacity& c
         BranchAndPrice search(problem, settings);
         trucks = search.solve(std::move(warmStart), packing.lowerBound, packing.proven, packing.fellBack,
                               packing.branchNodes);
+        packing.lpIterationCapHit = search.lpIterationCapHit();
     }
     packing.improvedOnWarmStart = static_cast<long long>(trucks.size()) < packing.ffdTrucks;
     return finish(items, problem, std::move(trucks), reservedTrucks, std::move(packing));

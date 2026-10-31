@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "../m4AugustFixtures.hpp"
+#include "columnGeneration.hpp"
 #include "laneClassifier.hpp"
 #include "patternPacker.hpp"
 #include "tolerance.hpp"
@@ -19,7 +20,7 @@ using namespace ob;
 namespace {
 
 const KnapsackCapacity kTruck{63000.0, 45000.0, 108.0};
-const PatternPackerSettings kSettings{1.0, 1.0, 200, 200'000};
+const PatternPackerSettings kSettings{1.0, 1.0, 200, 200'000, 100'000};
 
 KnapsackItem load(double area, double weight, const string& shipDate = "2026-08-06", int priority = 0,
                   double height = 60.0) {
@@ -127,6 +128,25 @@ TEST_CASE("patternPacker: a fractional LP bound is rounded up and the gap report
     CHECK(packing.gapToLp == 0);
 }
 
+TEST_CASE("patternPacker: an LP value within the rounding tolerance of a whole number adds no truck") {
+    CHECK(lpCeil(3.0 + 4e-7) == 3);
+    CHECK(lpCeil(3.0 - 4e-7) == 3);
+    CHECK(lpCeil(3.01) == 4);
+    CHECK(lpFloor(2.0 - 4e-7) == 2);
+    CHECK(lpFloor(1.99) == 1);
+}
+
+TEST_CASE("patternPacker: an LP stopped at its simplex iteration limit is reported") {
+    const vector<KnapsackItem> items = joined(copies(load(1920, 1000), 60), copies(load(2400, 600), 30));
+    PatternPackerSettings capped = kSettings;
+    capped.simplexIterationLimit = 1;
+    const PatternPacking packing = packByPatterns(items, kTruck, capped, 5);
+    checkPacking(items, packing, 5);
+    CHECK(packing.lpIterationCapHit);
+    CHECK(packing.unstable);
+    CHECK_FALSE(packByPatterns(items, kTruck, kSettings, 5).lpIterationCapHit);
+}
+
 TEST_CASE("patternPacker: a weight-bound lane never builds a pattern over the payload") {
     const vector<KnapsackItem> items = copies(load(1920, 5000), 30);
     const PatternPacking packing = packByPatterns(items, kTruck, kSettings, 4);
@@ -201,7 +221,7 @@ TEST_CASE("patternPacker: an empty lane builds nothing") {
 TEST_CASE("patternPacker: out of pattern budget it stops unconverged, still feasible") {
     // Mixing the two sizes beats either alone, so the first priced pattern is needed.
     const vector<KnapsackItem> items = joined(copies(load(40000, 1000), 4), copies(load(23000, 1000), 4));
-    const PatternPacking stopped = packByPatterns(items, kTruck, {1.0, 1.0, 1, 200'000}, 10);
+    const PatternPacking stopped = packByPatterns(items, kTruck, {1.0, 1.0, 1, 200'000, 100'000}, 10);
     const PatternPacking finished = packByPatterns(items, kTruck, kSettings, 10);
     CHECK(finished.converged);
     CHECK(finished.integerTrucks == 4);
@@ -229,10 +249,12 @@ TEST_CASE("patternPacker: a 38-truck lane of 13 products packs within budget") {
 TEST_CASE("patternPacker: bad settings and reservations are rejected") {
     const double nan = numeric_limits<double>::quiet_NaN();
     const vector<KnapsackItem> items{load(1920, 1000)};
-    CHECK_THROWS_AS(packByPatterns(items, kTruck, {0.0, 1.0, 10, 1000}, 1), invalid_argument);
-    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, nan, 10, 1000}, 1), invalid_argument);
-    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 0, 1000}, 1), invalid_argument);
-    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 10, 0}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {0.0, 1.0, 10, 1000, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, nan, 10, 1000, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 0, 1000, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 10, 0, 100'000}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 10, 1000, 0}, 1), invalid_argument);
+    CHECK_THROWS_AS(packByPatterns(items, kTruck, {1.0, 1.0, 10, 1000, -1}, 1), invalid_argument);
     CHECK_THROWS_AS(packByPatterns(items, kTruck, kSettings, -1), invalid_argument);
     CHECK_THROWS_AS(packByPatterns({load(nan, 1000)}, kTruck, kSettings, 1), invalid_argument);
     CHECK_THROWS_AS(packByPatterns({load(1920, -5)}, kTruck, kSettings, 1), invalid_argument);
@@ -240,7 +262,7 @@ TEST_CASE("patternPacker: bad settings and reservations are rejected") {
 
 TEST_CASE("patternPacker: August patternPacker lanes pack within capacity and reservation"
           * doctest::skip(!m4AugustTests::augustPresent())) {
-    const PatternPackerSettings settings{0.001, 0.001, 200, 200'000};
+    const PatternPackerSettings settings{0.001, 0.001, 200, 200'000, 100'000};
     for (size_t runIndex = 0; runIndex < m4AugustTests::kAugustRunFiles.size(); ++runIndex) {
         CAPTURE(runIndex);
         const m4AugustTests::AugustItems& august = m4AugustTests::augustItems(runIndex);

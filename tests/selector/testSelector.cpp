@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "../m4AugustFixtures.hpp"
 #include "../m4SyntheticDay.hpp"
+#include "benchmarkHarness.hpp"
 #include "selector.hpp"
 #include "tolerance.hpp"
 
@@ -107,21 +108,51 @@ TEST_CASE("selector: oneFailingLaneDoesNotAbort - every method throwing leaves t
     CHECK(selection.routes[1].trucksBuilt == 2);
 }
 
-TEST_CASE("selector: a method over budget hands on; the last in the chain is kept") {
+TEST_CASE("selector: a slow clock does not change the plan") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan unhurried = plan(day, selectorSettings());
+    SelectorSettings slow = selectorSettings();
+    auto now = make_shared<double>(0.0);
+    slow.clock = [now] { return *now += 100.0; };
+    const SelectionPlan hurried = plan(day, slow);
+    checkPlan(day, hurried);
+    CHECK(planFingerprint(hurried) == planFingerprint(unhurried));
+    CHECK(hurried.routes[0].methodUsed == unhurried.routes[0].methodUsed);
+}
+
+TEST_CASE("selector: a method over budget is kept and its route flagged") {
     const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
     SelectorSettings settings = selectorSettings();
     auto now = make_shared<double>(0.0);
     settings.clock = [now] { return *now += 100.0; };
     const SelectionPlan selection = plan(day, settings);
-    checkPlan(day, selection);
     const RouteOutcome& route = selection.routes[0];
-    REQUIRE(route.attempts.size() == 3);
+    REQUIRE(route.attempts.size() == 1);
     CHECK(route.attempts[0].outcome == AttemptOutcome::OverBudget);
-    CHECK(route.attempts[1].outcome == AttemptOutcome::OverBudget);
-    CHECK(route.attempts[2].method == PackingMethod::FirstFitDecreasing);
-    CHECK(route.attempts[2].outcome == AttemptOutcome::Used);
-    CHECK(route.methodUsed == PackingMethod::FirstFitDecreasing);
-    CHECK(route.trucksBuilt == 2);
+    CHECK(route.overBudget);
+    CHECK(route.methodUsed == route.attempts[0].method);
+}
+
+TEST_CASE("selector: a route whose LP stops at its simplex iteration limit is flagged") {
+    vector<SelectionItem> items = repeated(30, 0, 0);
+    const vector<SelectionItem> smaller(20, item(0, 1, 600.0, 0, 48.0, 30.0));
+    items.insert(items.end(), smaller.begin(), smaller.end());
+    const Day day = dayOf({group("2027")}, 2, items, {reserved("2027", 3)});
+    const vector<PackingMethod> chain{PackingMethod::PatternPacker};
+    SelectorSettings capped = selectorSettings();
+    capped.patternPacker.simplexIterationLimit = 1;
+    const RouteSolution capHit = solveRoute(day.run, day.items, day.classification, 0, chain, 3, capped);
+    CHECK(capHit.outcome.lpIterationCapHit);
+    const RouteSolution clean = solveRoute(day.run, day.items, day.classification, 0, chain, 3, selectorSettings());
+    CHECK_FALSE(clean.outcome.lpIterationCapHit);
+}
+
+TEST_CASE("selector: a method within budget leaves its route unflagged") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan selection = plan(day, selectorSettings());
+    const RouteOutcome& route = selection.routes[0];
+    CHECK_FALSE(route.overBudget);
+    CHECK(route.attempts[0].outcome == AttemptOutcome::Used);
 }
 
 TEST_CASE("selector: neverTwoGroupsOnOneTruck - two groups of a split lane that fit one truck get two") {
@@ -237,6 +268,14 @@ TEST_CASE("selector: bad settings are rejected") {
     SelectorSettings noThreads = selectorSettings();
     noThreads.threads = 0;
     CHECK_THROWS_AS(plan(day, noThreads), invalid_argument);
+    for (const int limit : {0, -1}) {
+        SelectorSettings noFill = selectorSettings();
+        noFill.fillMissesPerTruck = limit;
+        CHECK_THROWS_AS(plan(day, noFill), invalid_argument);
+        SelectorSettings noSpread = selectorSettings();
+        noSpread.weightSpreadRoundsPerTruck = limit;
+        CHECK_THROWS_AS(plan(day, noSpread), invalid_argument);
+    }
 }
 
 TEST_CASE("selector: an August day keeps every invariant, at one thread and four"
@@ -247,8 +286,8 @@ TEST_CASE("selector: an August day keeps every invariant, at one thread and four
         const LaneClassification classification = classifyLanes(august.run, august.book, august.built, kRouting);
         SelectorSettings settings = selectorSettings();
         settings.knapsack = {0.001, 0.001, 200'000};
-        settings.patternPacker = {0.001, 0.001, 200, 200'000};
-        settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100};
+        settings.patternPacker = {0.001, 0.001, 200, 200'000, 100'000};
+        settings.binPacker = {0.001, 0.001, 50, 100'000, 2'000, 100, 100'000};
         settings.secondsPerLane = 60.0;
         const SelectionPlan single = selectLoads(august.run, august.book, august.built, classification, settings);
         vector<int> seen(august.built.items.size(), 0);

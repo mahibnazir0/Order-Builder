@@ -6,6 +6,7 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace ob {
@@ -39,6 +40,23 @@ inline std::string grouped(double v, int places = 0) {
     std::reverse(out.begin(), out.end());
     if (neg) out.insert(out.begin(), '-');
     return out + frac;
+}
+
+// Counts print exactly: through the double overload a 64-bit count would round past 2^53, and
+// MSVC's /W4 /WX rejects the conversion (C4244).
+template <class Integer, std::enable_if_t<std::is_integral_v<Integer>, int> = 0>
+inline std::string grouped(Integer v) {
+    std::string digits = std::to_string(v);
+    const bool negative = !digits.empty() && digits[0] == '-';
+    if (negative) digits.erase(0, 1);
+    std::string out;
+    out.reserve(digits.size() + digits.size() / 3 + 1);
+    if (negative) out.push_back('-');
+    for (std::size_t i = 0; i < digits.size(); ++i) {
+        if (i && (digits.size() - i) % 3 == 0) out.push_back(',');
+        out.push_back(digits[i]);
+    }
+    return out;
 }
 
 // Text from the input files with every byte outside printable ASCII replaced by '?'. An em dash

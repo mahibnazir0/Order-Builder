@@ -86,9 +86,10 @@ PipelineResult runLines(const vector<DemandLine>& lines, const string& products 
     return Pipeline::run(inputs);
 }
 
-SelectionItems itemsFor(const vector<DemandLine>& lines, const string& products = kGoodProduct) {
+SelectionItems itemsFor(const vector<DemandLine>& lines, const string& products = kGoodProduct,
+                        bool priorityZeroIsMostUrgent = true) {
     const PipelineResult run = runLines(lines, products);
-    return buildSelectionItems(run, augustTuesdayWindow());
+    return buildSelectionItems(run, augustTuesdayWindow(), priorityZeroIsMostUrgent);
 }
 
 double totalUnitLoads(const SelectionItems& built) {
@@ -160,7 +161,7 @@ TEST_CASE("selectionItem: unit loads and weight in equal what the items carry (I
             line.shipDate = random() % 2 == 0 ? "2026-08-06" : "2026-08-07";
         }
         const PipelineResult run = runLines(lines);
-        const SelectionItems built = buildSelectionItems(run, augustTuesdayWindow());
+        const SelectionItems built = buildSelectionItems(run, augustTuesdayWindow(), true);
         REQUIRE(built.linesNotFullyStacked.empty());
         REQUIRE(built.unitLoadsOut == doctest::Approx(built.unitLoadsIn));
         REQUIRE(built.weightOutLb == doctest::Approx(built.weightInLb));
@@ -219,6 +220,31 @@ TEST_CASE("selectionItem: priorityZeroBeatsEleven on the same ship date") {
     vector<SelectionItem> items = itemsFor({relaxed, urgent}, products).items;
     REQUIRE_FALSE(items.empty());
     CHECK(items.front().priority == 0);
+    CHECK(items.front().tprio == 0);
+}
+
+TEST_CASE("selectionItem: a stack takes the TPRIO the setting names most urgent") {
+    const string products = kGoodProduct + "OTHER,Other,10,10,10,5,CS,2,4,2,8,TLD\n";
+    DemandLine zero, eleven;
+    zero.matnr = "OTHER";
+    zero.cases = 8.0;
+    eleven.cases = 8.0;
+    eleven.priority = "11";
+    for (const bool zeroIsMostUrgent : {true, false}) {
+        CAPTURE(zeroIsMostUrgent);
+        const vector<SelectionItem> items = itemsFor({zero, eleven}, products, zeroIsMostUrgent).items;
+        REQUIRE(items.size() == 1);
+        CHECK(items.front().lineIndices.size() == 2);
+        CHECK(items.front().tprio == (zeroIsMostUrgent ? 0 : 11));
+        CHECK(items.front().priority == 0);
+    }
+}
+
+TEST_CASE("selectionItem: urgencyRank maps each end of TPRIO to rank 0") {
+    CHECK(urgencyRank(0, true) == 0);
+    CHECK(urgencyRank(11, true) == 11);
+    CHECK(urgencyRank(0, false) == 11);
+    CHECK(urgencyRank(11, false) == 0);
 }
 
 TEST_CASE("selectionItem: same date and priority tie-break on product number") {
@@ -303,7 +329,7 @@ TEST_CASE("selectionItem: an item heavier than the payload is named, never dropp
 
 TEST_CASE("selectionItem: needs Milestone 2") {
     PipelineResult notRun;
-    CHECK_THROWS_AS(buildSelectionItems(notRun, augustTuesdayWindow()), invalid_argument);
+    CHECK_THROWS_AS(buildSelectionItems(notRun, augustTuesdayWindow(), true), invalid_argument);
 }
 
 TEST_CASE("selectionItem: the same stacks always give identical items") {
@@ -315,8 +341,8 @@ TEST_CASE("selectionItem: the same stacks always give identical items") {
         lines[index].priority = to_string(index % 3);
     }
     const PipelineResult run = runLines(lines, products);
-    const SelectionItems first = buildSelectionItems(run, augustTuesdayWindow());
-    const SelectionItems second = buildSelectionItems(run, augustTuesdayWindow());
+    const SelectionItems first = buildSelectionItems(run, augustTuesdayWindow(), true);
+    const SelectionItems second = buildSelectionItems(run, augustTuesdayWindow(), true);
     REQUIRE(first.items.size() == second.items.size());
     for (size_t index = 0; index < first.items.size(); ++index) {
         CHECK(first.items[index].lineIndices == second.items[index].lineIndices);
