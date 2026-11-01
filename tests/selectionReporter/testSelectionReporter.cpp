@@ -147,8 +147,8 @@ TEST_CASE("selectionReporter: patternNamedPerTruck, with rear waste, cube and we
     const Day day = mixedDay();
     const SelectionPlan selection = plan(day);
     const string report = reportOf(day, selection);
-    const size_t trucks = report.find(selectionReportSections()[5]);
-    const size_t after = report.find(selectionReportSections()[6]);
+    const size_t trucks = report.find(selectionReportSections()[6]);
+    const size_t after = report.find(selectionReportSections()[7]);
     REQUIRE(trucks != string::npos);
     size_t truckLines = 0;
     for (const string& line : linesOf(report.substr(trucks, after - trucks))) {
@@ -162,6 +162,68 @@ TEST_CASE("selectionReporter: patternNamedPerTruck, with rear waste, cube and we
     CHECK(truckLines == selection.trucks.size());
     CHECK(report.find("rear waste in") != string::npos);
     CHECK(report.find("full at 84.0%") != string::npos);
+}
+
+// The value printed after `label` on its line, as printLine pads it.
+string valueOf(const string& text, const string& label) {
+    for (const string& line : linesOf(text)) {
+        const size_t start = line.find_first_not_of(' ');
+        if (start == string::npos || line.compare(start, label.size(), label) != 0) continue;
+        const size_t value = line.find_first_not_of(' ', start + label.size());
+        return value == string::npos ? "" : line.substr(value);
+    }
+    return "label not printed: " + label;
+}
+
+string sectionText(const string& report, size_t section) {
+    const size_t start = report.find(selectionReportSections()[section]);
+    const size_t end = section + 1 < selectionReportSections().size()
+                           ? report.find(selectionReportSections()[section + 1]) : string::npos;
+    REQUIRE(start != string::npos);
+    return report.substr(start, end == string::npos ? string::npos : end - start);
+}
+
+TEST_CASE("selectionReporter: Rev 8 section A - each lane-date judged against its reservation, routes by method") {
+    const Day day = mixedDay();
+    const string routing = sectionText(reportOf(day, plan(day)), 2);
+    // 2027: 40 light stacks need 2 trucks of 2; 2031: 12 heavy need 2 of 2; 2028: two groups of 4 need 2 of 2.
+    CHECK(valueOf(routing, "lane-dates") == "3 with demand and trucks reserved, 6 trucks");
+    CHECK(valueOf(routing, "demand fills them") == "3");
+    CHECK(valueOf(routing, "2 to 20 reserved") == "3, packed");
+    CHECK(valueOf(routing, "packed, by products") == "3 with 1 to 3, 0 with 4 to 10, 0 with 11 or more");
+    CHECK(valueOf(routing, "group routes by method") == "knapsack 2, patternPacker 2, noDemand 1");
+}
+
+TEST_CASE("selectionReporter: Rev 8 section D - one truck in full, stack by stack") {
+    const Day day = mixedDay();
+    const SelectionPlan selection = plan(day);
+    const string truck = sectionText(reportOf(day, selection), 7);
+    CHECK(truck.find("floor space used") != string::npos);
+    CHECK(valueOf(truck, "height used") == "50 of 108 in (46.3%)");
+    CHECK(truck.find("bottom product") != string::npos);
+    size_t stackRows = 0;
+    for (const string& line : linesOf(truck)) {
+        if (line.find(" P") != string::npos) ++stackRows;
+    }
+    CHECK(stackRows == selection.trucks.front().items.size());
+}
+
+TEST_CASE("selectionReporter: Rev 8 section E - nothing lost, and why each reservation went unfilled") {
+    const Day day = mixedDay();
+    const SelectionPlan selection = plan(day);
+    const string nothingLost = sectionText(reportOf(day, selection), 9);
+    CHECK(valueOf(nothingLost, "unit loads in") == "60.0");
+    CHECK(valueOf(nothingLost, "accounted for") == "60.0 OK");
+    CHECK(valueOf(nothingLost, "nothing left to load") == "3");
+    CHECK(valueOf(nothingLost, "blocked, needs a planner") == "0");
+    CHECK(valueOf(nothingLost, "penalty exposure") == "3 unused reservations");
+}
+
+TEST_CASE("selectionReporter: Rev 8 section E shows a mismatch when goods go missing") {
+    const Day day = mixedDay();
+    SelectionPlan selection = plan(day);
+    selection.trucks.front().unitLoads -= 1.0;
+    CHECK(sectionText(reportOf(day, selection), 9).find("MISMATCH") != string::npos);
 }
 
 TEST_CASE("selectionReporter: each group of a split lane is listed on its own") {

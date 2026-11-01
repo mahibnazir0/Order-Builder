@@ -672,6 +672,6 @@ TEST_CASE("cli: --select prints the M4 report after the floor" * doctest::skip(!
     CHECK(run.exitCode != 2);
     const size_t m4 = run.output.find("M4 LOAD SELECTION");
     REQUIRE(m4 != string::npos);
-    CHECK(run.output.find("8. Item master", m4) != string::npos);
+    CHECK(run.output.find("11. Item master", m4) != string::npos);
     CHECK(run.output.find("Penalty exposure for the day:", m4) != string::npos);
 }

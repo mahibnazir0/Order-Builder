@@ -19,6 +19,8 @@ namespace ob {
 
 namespace {
 
+constexpr double kCubicInchesPerCubicFoot = 1728.0;
+
 const char* const kRule = "----------------------------------------------------------------\n";
 
 using Row = vector<string>;
@@ -101,8 +103,9 @@ string patternsText(const FloorLayout& floor) {
 
 const vector<string>& selectionReportSections() {
     static const vector<string> sections{
-        "1. Inputs",          "2. Parameters", "3. Fullness",       "4. Reservations not used",
-        "5. Log of activities", "6. Trucks",   "7. Goods left over", "8. Item master"};
+        "1. Inputs",          "2. Parameters", "3. How each lane was routed", "4. Fullness",
+        "5. Reservations not used", "6. Log of activities", "7. Trucks", "8. One truck in full",
+        "9. Goods left over", "10. Nothing lost", "11. Item master"};
     return sections;
 }
 
@@ -254,6 +257,73 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                              " then the next; then most floor covered");
 
     printSection(out, 2);
+    // Rev 8 section A: each lane-date with demand and trucks reserved, judged as a whole.
+    struct LaneDateRouting {
+        long long reserved = 0;
+        long long demandTrucks = 0;
+        set<string> products;
+    };
+    map<LaneDate, LaneDateRouting> routingByLaneDate;
+    map<SolveMethod, size_t> routesByMethod;
+    for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
+        const LaneRoute& route = classification.routes[routeIndex];
+        ++routesByMethod[route.method];
+        if (route.itemIndices.empty() || route.reservedTrucks == 0) continue;
+        LaneDateRouting& laneDate = routingByLaneDate[laneDateOf(routeIndex)];
+        laneDate.reserved = route.reservedTrucks;
+        laneDate.demandTrucks += route.demandTrucks;
+        for (const size_t index : route.itemIndices) {
+            for (const size_t lineIndex : items.items[index].lineIndices) {
+                laneDate.products.insert(run.join.lines[lineIndex].str->matnr);
+            }
+        }
+    }
+    size_t demandFills = 0, demandShort = 0, demandExceeds = 0;
+    size_t oneTruck = 0, packed = 0, toM5 = 0, fewProducts = 0, someProducts = 0, manyProducts = 0;
+    long long reservedWithDemand = 0;
+    for (const auto& [laneDate, routing] : routingByLaneDate) {
+        reservedWithDemand += routing.reserved;
+        if (routing.demandTrucks == routing.reserved) {
+            ++demandFills;
+        } else if (routing.demandTrucks < routing.reserved) {
+            ++demandShort;
+        } else {
+            ++demandExceeds;
+        }
+        if (routing.reserved == 1) {
+            ++oneTruck;
+        } else if (routing.reserved > context.routing.m5Threshold) {
+            ++toM5;
+        } else {
+            ++packed;
+            const size_t products = routing.products.size();
+            if (products <= 3) {
+                ++fewProducts;
+            } else if (products <= 10) {
+                ++someProducts;
+            } else {
+                ++manyProducts;
+            }
+        }
+    }
+    const string threshold = to_string(context.routing.m5Threshold);
+    printLine(out, "lane-dates", count(routingByLaneDate.size()) + " with demand and trucks reserved, "
+                                     + grouped(static_cast<double>(reservedWithDemand)) + " trucks");
+    printLine(out, "demand fills them", count(demandFills));
+    printLine(out, "demand falls short", count(demandShort));
+    printLine(out, "demand exceeds them", count(demandExceeds));
+    printLine(out, "one truck reserved", count(oneTruck) + ", solved exactly");
+    printLine(out, "2 to " + threshold + " reserved", count(packed) + ", packed");
+    printLine(out, "more than " + threshold + " reserved", count(toM5) + ", sent to M5");
+    printLine(out, "packed, by products", count(fewProducts) + " with 1 to 3, " + count(someProducts) + " with 4 to 10, "
+                                              + count(manyProducts) + " with 11 or more");
+    string methods;
+    for (const auto& [method, routes] : routesByMethod) {
+        methods += string(methods.empty() ? "" : ", ") + solveMethodName(method) + " " + count(routes);
+    }
+    printLine(out, "group routes by method", methods);
+
+    printSection(out, 3);
     long long reserved = 0, escalated = 0, escalatedUnused = 0;
     for (const ReservationUse& use : plan.reservations) {
         reserved += use.reserved;
@@ -280,12 +350,32 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                                     + " of them unfilled, escalated to M5");
     printLine(out, "unit loads shipped", grouped(unitLoads, 1));
     printLine(out, "average rear waste", fixed(plan.trucks.empty() ? 0.0 : rearWaste / built, 1) + " in");
-    printLine(out, "average cube", percent(plan.trucks.empty() ? 0.0 : cube / built) + " (full at "
+    const double trailerCubicFeet = floorArea * trailer.stackHeightCeilingIn / kCubicInchesPerCubicFoot;
+    const double averageCube = plan.trucks.empty() ? 0.0 : cube / built;
+    printLine(out, "average cube", percent(averageCube) + ", " + grouped(averageCube * trailerCubicFeet) + " cu ft (full at "
                                        + percent(settings.floor.fullCubeFraction) + ")");
     printLine(out, "full trucks", count(weightFull) + " by weight, " + count(cubeFull) + " by cube");
     printLine(out, "items", count(itemsOnTrucks) + " on trucks, " + count(plan.leftOver.size()) + " left over");
+    size_t filledEvery = 0, oneShort = 0, twoOrMoreShort = 0;
+    for (const ReservationUse& use : plan.reservations) {
+        const Reservation& reservation = book.reservations[use.reservationIndex];
+        if (use.escalated || !routingByLaneDate.count({reservation.origin, reservation.destination,
+                                                      reservation.shipCondition, reservation.shipDate})) {
+            continue;
+        }
+        if (use.unused() == 0) {
+            ++filledEvery;
+        } else if (use.unused() == 1) {
+            ++oneShort;
+        } else {
+            ++twoOrMoreShort;
+        }
+    }
+    printLine(out, "lane-dates with demand", count(filledEvery) + " filled every reservation, " + count(oneShort)
+                                                 + " one short, " + count(twoOrMoreShort) + " two or more short");
+    printLine(out, "your current system", "not an input to this run; the M4 benchmark sets it beside ours");
 
-    printSection(out, 3);
+    printSection(out, 4);
     map<LaneDate, map<LeftOverReason, size_t>> leftByLaneDate;
     for (const LeftOverItem& left : plan.leftOver) {
         if (routeOfItem[left.itemIndex]) ++leftByLaneDate[laneDateOf(*routeOfItem[left.itemIndex])][left.reason];
@@ -296,6 +386,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     }
     vector<Row> unusedRows;
     map<tuple<string, string, string>, long long> unusedByLane;
+    long long unusedNothingToLoad = 0, unusedBlocked = 0;
     for (const ReservationUse& use : plan.reservations) {
         if (use.unused() <= 0) continue;
         const Reservation& reservation = book.reservations[use.reservationIndex];
@@ -306,9 +397,12 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
             reason = "unfilled, escalated to M5";
         } else if (!laneDatesWithDemand.count(laneDate)) {
             reason = "unfilled, nothing to load";
+            unusedNothingToLoad += use.unused();
         } else if (left == leftByLaneDate.end()) {
             reason = "nothing more to load";
+            unusedNothingToLoad += use.unused();
         } else {
+            unusedBlocked += use.unused();
             reason = "blocked: goods left over (";
             bool first = true;
             for (const auto& [why, stacks] : left->second) {
@@ -361,7 +455,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         printColumns(out, {"lane"}, rows, {false});
     }
 
-    printSection(out, 4);
+    printSection(out, 5);
     vector<Row> routeRows;
     for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
         const LaneRoute& route = classification.routes[routeIndex];
@@ -386,7 +480,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printColumns(out, {"lane", "group", "ship date", "reserved", "status", "trucks", "result", "binds on", "methods"},
                routeRows, {false, false, false, true, false, true, false, false, false});
 
-    printSection(out, 5);
+    printSection(out, 6);
     vector<Row> truckRows;
     for (size_t truckIndex = 0; truckIndex < plan.trucks.size(); ++truckIndex) {
         const PlannedTruck& truck = plan.trucks[truckIndex];
@@ -411,7 +505,52 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                    {true, false, false, false, true, true, true, true, true, false, true, true, false, true, true});
     }
 
-    printSection(out, 6);
+    printSection(out, 7);
+    optional<size_t> shownRoute;
+    for (size_t routeIndex = 0; routeIndex < plan.routes.size(); ++routeIndex) {
+        if (plan.routes[routeIndex].trucksBuilt > 0
+            && (!shownRoute || plan.routes[routeIndex].trucksBuilt > plan.routes[*shownRoute].trucksBuilt)) {
+            shownRoute = routeIndex;
+        }
+    }
+    if (!shownRoute) {
+        out << "  No truck was built.\n";
+    } else {
+        const PlannedTruck& truck = *find_if(plan.trucks.begin(), plan.trucks.end(), [&](const PlannedTruck& planned) {
+            return planned.routeIndex == *shownRoute;
+        });
+        const GroupKey& key = groups[truck.groupIndex].key;
+        double tallestIn = 0.0;
+        for (const size_t index : truck.items) tallestIn = max(tallestIn, items.items[index].heightIn);
+        printLine(out, "truck", laneText(key.locationFrom, key.locationTo, key.shipCondition) + " "
+                                    + groupText(groups[truck.groupIndex]) + ", " + printable(truck.shipDate) + ", 1 of "
+                                    + grouped(static_cast<double>(plan.routes[*shownRoute].trucksBuilt))
+                                    + " (the route with the most trucks)");
+        printLine(out, "unit loads on board", grouped(truck.unitLoads, 1));
+        printLine(out, "floor space used", grouped(truck.areaSqIn) + " of " + grouped(floorArea) + " sq in ("
+                                               + percent(truck.areaSqIn / floorArea) + ")");
+        printLine(out, "height used", measure(tallestIn) + " of " + measure(trailer.stackHeightCeilingIn) + " in ("
+                                          + percent(tallestIn / trailer.stackHeightCeilingIn) + ")");
+        printLine(out, "weight", grouped(truck.weightLb) + " of " + grouped(trailer.weightLimitLb) + " lb ("
+                                     + percent(truck.weightLb / trailer.weightLimitLb) + ")");
+        printLine(out, "unused at the rear", fixed(truck.floor.rearWasteIn, 1) + " in");
+        printLine(out, "floor pattern", patternsText(truck.floor));
+        printLine(out, "pallets turned", count(static_cast<size_t>(truck.floor.turnedItems)));
+        out << "\n";
+        vector<Row> stackRows;
+        stackRows.reserve(truck.items.size());
+        for (size_t position = 0; position < truck.items.size(); ++position) {
+            const SelectionItem& item = items.items[truck.items[position]];
+            const string& bottom = item.productNumber.empty() ? run.join.lines[item.lineIndices.front()].str->matnr
+                                                               : item.productNumber;
+            stackRows.push_back({count(position + 1), count(item.lineIndices.size()), measure(item.heightIn),
+                                 printable(bottom), grouped(item.unitLoads, 2)});
+        }
+        printColumns(out, {"stack", "high", "height in", "bottom product", "unit loads"}, stackRows,
+                     {true, true, true, false, true});
+    }
+
+    printSection(out, 8);
     map<LeftOverReason, pair<size_t, double>> leftByReason;
     for (const LeftOverItem& left : plan.leftOver) {
         auto& [stacks, loads] = leftByReason[left.reason];
@@ -443,7 +582,41 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                    {true, false, false, false, true, true, false});
     }
 
-    printSection(out, 7);
+    printSection(out, 9);
+    // Rev 8 section E: every unit load in comes out on a truck, held back or not loadable.
+    double onTrucks = 0.0, heldBack = 0.0, notLoadable = 0.0;
+    for (const PlannedTruck& truck : plan.trucks) onTrucks += truck.unitLoads;
+    for (const LeftOverItem& left : plan.leftOver) {
+        const double unitLoadsLeft = items.items[left.itemIndex].unitLoads;
+        switch (left.reason) {
+        case LeftOverReason::AfterWindow:
+        case LeftOverReason::UnavailableInWindow:
+        case LeftOverReason::NoReservation:
+        case LeftOverReason::OverReservation:
+        case LeftOverReason::FloorEviction:
+        case LeftOverReason::UnitLoadCap: heldBack += unitLoadsLeft; break;
+        case LeftOverReason::EscalatedToM5:
+        case LeftOverReason::Unfittable:
+        case LeftOverReason::LaneUnsolved: notLoadable += unitLoadsLeft; break;
+        }
+    }
+    for (const RejectedItem& rejected : items.rejected) notLoadable += rejected.item.unitLoads;
+    for (const UnstackedLine& line : items.linesNotFullyStacked) notLoadable += line.unitLoads;
+    const double accounted = onTrucks + heldBack + notLoadable;
+    const bool balanced = fabs(accounted - items.unitLoadsIn) <= kQuantityEpsilon * max(1.0, items.unitLoadsIn);
+    printLine(out, "unit loads in", grouped(items.unitLoadsIn, 1));
+    printLine(out, "put on a truck", grouped(onTrucks, 1));
+    printLine(out, "held back, needed later", grouped(heldBack, 1));
+    printLine(out, "could not be loaded", grouped(notLoadable, 1) + " (escalated, unfittable, unsolved, rejected)");
+    printLine(out, "accounted for", grouped(accounted, 1) + (balanced ? " OK" : " MISMATCH"));
+    out << "\n";
+    printLine(out, "reservations not filled", grouped(static_cast<double>(plan.penaltyExposureTrucks)));
+    printLine(out, "  nothing left to load", grouped(static_cast<double>(unusedNothingToLoad)));
+    printLine(out, "  blocked, needs a planner", grouped(static_cast<double>(unusedBlocked)));
+    printLine(out, "  left to M5", grouped(static_cast<double>(escalatedUnused)));
+    printLine(out, "penalty exposure", grouped(static_cast<double>(plan.penaltyExposureTrucks)) + " unused reservations");
+
+    printSection(out, 10);
     map<string, const ProductRecord*> products;
     for (const PlannedTruck& truck : plan.trucks) {
         for (const size_t index : truck.items) {

@@ -49,7 +49,6 @@ struct SelectionReportContext {
     std::vector<std::string> inputFiles;  // as given to the run
     LaneClassifierSettings routing;
     SelectorSettings settings;            // the ones the plan was made with
-    // What the run planned around rather than stopped on, e.g. a combo lane; printed under Inputs.
     // Why the run is incomplete (selectionShortfalls), printed as its Result; empty is complete.
     std::vector<std::string> shortfalls;
     // Printed under the provisional business rules, with the routing settings.
@@ -65,7 +64,7 @@ void printSelectionReport(std::ostream& out, const PipelineResult& run, const Re
                           const SelectionItems& items, const LaneClassification& classification,
                           const SelectionPlan& plan, const SelectionReportContext& context);
 
-// The eight section titles, in order, as printed.
+// The section titles, in order, as printed.
 const std::vector<std::string>& selectionReportSections();
 
 } // namespace ob
