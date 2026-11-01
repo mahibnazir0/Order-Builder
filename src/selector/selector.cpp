@@ -297,7 +297,9 @@ private:
         openTrucks(route, items, trucks, placed, kept->unfittable, static_cast<size_t>(allowed));
         trucks.erase(remove_if(trucks.begin(), trucks.end(), [](const RouteTruck& truck) { return truck.empty(); }),
                      trucks.end());
-        spreadWeight(route, items, trucks);
+        // Rev 8 section 4: a weight-bound lane packs to payload and watches the space, so its
+        // weight is left where the method put it.
+        if (outcome.binding == BindingLimit::FloorArea) spreadWeight(route, items, trucks);
 
         auto fill = [&](const RouteTruck& truck) {
             double share = 0.0;

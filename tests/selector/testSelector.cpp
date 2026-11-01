@@ -302,19 +302,33 @@ TEST_CASE("selector: goods whose truck's rows do not fit are evicted, least urge
     for (const LeftOverItem& left : selection.leftOver) CHECK(day.items.items[left.itemIndex].priority == 11);
 }
 
-TEST_CASE("selector: heavySpreadAcrossTrucks - no truck weighs out while another has room") {
-    // First-fit decreasing puts the four 11,000 lb loads on one truck and fills it to 45,000.
-    vector<SelectionItem> items = distinctProducts(4, 0, 0, 11000.0);
+TEST_CASE("selector: heavySpreadAcrossTrucks - on a floor-bound lane no truck weighs out while another has room") {
+    vector<SelectionItem> items = distinctProducts(4, 0, 0, 9000.0);
     const vector<SelectionItem> light = distinctProducts(28, 0, 4, 100.0);
     items.insert(items.end(), light.begin(), light.end());
     const Day day = dayOf({group("2027")}, 32, items, {reserved("2027", 2)});
     const SelectionPlan selection = plan(day);
     checkPlan(day, selection);
+    REQUIRE(selection.routes[0].binding == BindingLimit::FloorArea);
     REQUIRE(selection.trucks.size() == 2);
-    for (const PlannedTruck& truck : selection.trucks) {
-        CHECK_FALSE(truck.weightFull);
-        CHECK(truck.weightLb <= 24000.0);
-    }
+    for (const PlannedTruck& truck : selection.trucks) CHECK(truck.weightLb <= 20000.0);
+}
+
+TEST_CASE("selector: a weight-bound lane packs to payload, its weight left where the method put it") {
+    vector<SelectionItem> items = distinctProducts(4, 0, 0, 11000.0);
+    const vector<SelectionItem> light = distinctProducts(28, 0, 4, 100.0);
+    items.insert(items.end(), light.begin(), light.end());
+    const Day day = dayOf({group("2027")}, 32, items, {reserved("2027", 2)});
+    SelectorSettings oneRound = selectorSettings();
+    oneRound.weightSpreadRoundsPerTruck = 1;
+    SelectorSettings manyRounds = selectorSettings();
+    manyRounds.weightSpreadRoundsPerTruck = 100;
+    const SelectionPlan selection = plan(day, oneRound);
+    checkPlan(day, selection);
+    REQUIRE(selection.routes[0].binding == BindingLimit::Weight);
+    CHECK(samePlan(selection, plan(day, manyRounds)));
+    CHECK(any_of(selection.trucks.begin(), selection.trucks.end(),
+                 [](const PlannedTruck& truck) { return truck.weightFull; }));
 }
 
 TEST_CASE("selector: a dense lane-date binds on weight and a light one on floor, before any truck") {
@@ -465,4 +479,5 @@ TEST_CASE("selector: a unit-load cap that is not positive and finite is rejected
         CHECK_THROWS_AS(plan(day, settings), invalid_argument);
     }
 }
+
 

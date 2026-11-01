@@ -25,9 +25,11 @@
 //      drops its least urgent goods until it does
 //   3. fill: goods left over, by the method or the floor, go most urgent first
 //      into room left in its trucks, kept only where the rows still fit
-//   4. weight: on its trucks, heavy goods are swapped from the heaviest truck to
-//      the lightest while that lowers the heavier and both still fit the floor,
-//      so no truck quietly weighs out while another has room
+//   4. weight: on a floor-bound lane-date, heavy goods are swapped from the
+//      heaviest truck to the lightest while that lowers the heavier and both
+//      still fit the floor, so no truck quietly weighs out while another has
+//      room. A weight-bound one packs to payload (Rev 8 section 4) and is left
+//      as the method packed it
 // A truck left empty is not built: its reservation is reported unused.
 //
 // Every item ends on exactly one truck or in leftOver with its reason, and
