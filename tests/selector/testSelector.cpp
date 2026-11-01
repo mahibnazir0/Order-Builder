@@ -208,6 +208,65 @@ TEST_CASE("selector: a truck a more urgent group leaves unbuilt passes to the ne
     CHECK(selection.reservations[0].built == 2);
 }
 
+// 32 stacks the classifier estimates as one truck by floor area, though only 30 fit its rows,
+// and four heavy stacks it estimates as three trucks, cut in order, though they pack into two.
+Day underEstimatedUrgentGroup() {
+    vector<SelectionItem> items = repeated(32, 0, 0);
+    const vector<double> heavyLb{27000.0, 27000.0, 18000.0, 18000.0};
+    for (size_t heavy = 0; heavy < heavyLb.size(); ++heavy) {
+        items.push_back(item(1, 1 + heavy, heavyLb[heavy], 5 + static_cast<int>(heavy)));
+    }
+    return dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 5, items, {reserved("2028", 4)});
+}
+
+size_t routeOfGroup(const Day& day, size_t groupIndex) {
+    for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
+        if (day.classification.routes[routeIndex].groupIndex == groupIndex) return routeIndex;
+    }
+    throw logic_error("no route for group " + to_string(groupIndex));
+}
+
+TEST_CASE("selector: a truck a less urgent group leaves unbuilt goes back to the more urgent group") {
+    const Day day = underEstimatedUrgentGroup();
+    const size_t urgentRoute = routeOfGroup(day, 0);
+    REQUIRE(day.classification.routes[urgentRoute].trucksAllocated == 1);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(selection.routes[urgentRoute].trucksBuilt == 2);
+    CHECK(selection.routes[routeOfGroup(day, 1)].trucksBuilt == 2);
+    CHECK(selection.leftOver.empty());
+    CHECK(selection.reservations[0].built == 4);
+}
+
+TEST_CASE("selector: goods left over while their lane-date has a reserved truck unbuilt are a shortfall") {
+    Day day = underEstimatedUrgentGroup();
+    PipelineResult& result = day.run;
+    result.ranSelection = true;
+    result.reservationBook = day.book;
+    result.selectionItems = day.items;
+    result.laneClassification = day.classification;
+    result.selectionPlan = plan(day);
+    const string named = "stacks left over while the lane-date had reserved trucks unbuilt";
+    auto namesUnbuilt = [&] {
+        const vector<string> shortfalls = selectionShortfalls(result);
+        return any_of(shortfalls.begin(), shortfalls.end(),
+                      [&](const string& shortfall) { return shortfall.find(named) != string::npos; });
+    };
+    CHECK_FALSE(namesUnbuilt());
+
+    // The plan as it was before unbuilt trucks went back: the urgent group's second truck unbuilt.
+    SelectionPlan& selection = result.selectionPlan;
+    const size_t urgentRoute = routeOfGroup(day, 0);
+    const auto lastUrgent = find_if(selection.trucks.rbegin(), selection.trucks.rend(),
+                                    [&](const PlannedTruck& truck) { return truck.routeIndex == urgentRoute; });
+    REQUIRE(lastUrgent != selection.trucks.rend());
+    for (const size_t index : lastUrgent->items) selection.leftOver.push_back({index, LeftOverReason::OverReservation});
+    selection.trucks.erase(next(lastUrgent).base());
+    --selection.routes[urgentRoute].trucksBuilt;
+    selection.routes[urgentRoute].trucksAllowed = selection.routes[urgentRoute].trucksBuilt;
+    CHECK(namesUnbuilt());
+}
+
 TEST_CASE("selector: fourFullBeatsFiveWithPenalty - four trucks are built and the fifth reported") {
     const Day day = dayOf({group("2027")}, 1, repeated(120, 0, 0), {reserved("2027", 5)});
     const SelectionPlan selection = plan(day);

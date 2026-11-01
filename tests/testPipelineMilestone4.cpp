@@ -226,15 +226,32 @@ TEST_CASE("pipelineM4: a stack left over as unfittable, unsolved or escalated fa
     }
 }
 
-TEST_CASE("pipelineM4: a stack left over the reservation leaves the run complete") {
-    for (const LeftOverReason reason : {LeftOverReason::OverReservation, LeftOverReason::AfterWindow,
-                                        LeftOverReason::UnavailableInWindow, LeftOverReason::NoReservation}) {
+TEST_CASE("pipelineM4: a stack left outside the window or without a reservation leaves the run complete") {
+    for (const LeftOverReason reason :
+         {LeftOverReason::AfterWindow, LeftOverReason::UnavailableInWindow, LeftOverReason::NoReservation}) {
         CAPTURE(leftOverReasonName(reason));
         SmallDay day("overflow");
         PipelineResult result = Pipeline::run(day.inputs);
         result.selectionPlan.leftOver.push_back({0, reason});
         CHECK(runOutcome(result) == RunOutcome::Complete);
     }
+}
+
+TEST_CASE("pipelineM4: a stack left over the reservation fails the run only where its lane-date left trucks unbuilt") {
+    SmallDay day("overReservation");
+    PipelineResult result = Pipeline::run(day.inputs);
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    const auto loaded = find_if(lanes.begin(), lanes.end(), [](const LaneRoute& lane) { return !lane.itemIndices.empty(); });
+    REQUIRE(loaded != lanes.end());
+    RouteOutcome& route = result.selectionPlan.routes[static_cast<size_t>(loaded - lanes.begin())];
+    result.selectionPlan.leftOver.push_back({loaded->itemIndices.front(), LeftOverReason::OverReservation});
+    route.trucksAllowed = loaded->reservedTrucks;
+    route.trucksBuilt = loaded->reservedTrucks;
+    CHECK(runOutcome(result) == RunOutcome::Complete);
+    route.trucksBuilt = loaded->reservedTrucks - 1;
+    route.trucksAllowed = route.trucksBuilt;
+    CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
+    CHECK(shortfallNaming(result, "while the lane-date had reserved trucks unbuilt"));
 }
 
 TEST_CASE("pipelineM4: a floor eviction fails the run only where its route left trucks unbuilt") {

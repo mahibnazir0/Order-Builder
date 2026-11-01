@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <iterator>
 #include <map>
 #include <stdexcept>
 #include <thread>
@@ -109,7 +110,6 @@ public:
           capacity_(capacityOf(run.trailer)) {}
 
     BundleResult solve(const vector<size_t>& routeIndices) const {
-        BundleResult bundle;
         // Each group may build its allocation plus what the groups solved before it left unbuilt.
         // Most urgent goods first, as items are in selection order, so spare trucks pass down.
         vector<size_t> solveOrder = routeIndices;
@@ -120,22 +120,28 @@ public:
             return leftItems.front() < rightItems.front();
         });
         const BindingLimit binding = bindingOf(routeIndices);
-        long long spare = classification_.routes[routeIndices.front()].reservedTrucks;
+        const long long reservedTrucks = classification_.routes[routeIndices.front()].reservedTrucks;
+        long long spare = reservedTrucks;
         for (const size_t routeIndex : routeIndices) spare -= classification_.routes[routeIndex].trucksAllocated;
+        bool escalated = false;
+        long long built = 0;
+        vector<RouteSolution> solutions;  // parallel to solveOrder
+        solutions.reserve(solveOrder.size());
         for (const size_t routeIndex : solveOrder) {
             const LaneRoute& route = classification_.routes[routeIndex];
-            RouteOutcome outcome;
+            RouteSolution solution;
+            RouteOutcome& outcome = solution.outcome;
             outcome.routeIndex = routeIndex;
             outcome.binding = binding;
             switch (route.method) {
             case SolveMethod::M5:
                 outcome.status = RouteStatus::Escalated;
-                bundle.escalated = true;
-                leaveAll(route, LeftOverReason::EscalatedToM5, bundle);
+                escalated = true;
+                leaveAll(route, LeftOverReason::EscalatedToM5, solution.leftOver);
                 break;
             case SolveMethod::Unrouted:
                 outcome.status = RouteStatus::Unrouted;
-                leaveAll(route, LeftOverReason::NoReservation, bundle);
+                leaveAll(route, LeftOverReason::NoReservation, solution.leftOver);
                 break;
             case SolveMethod::NoDemand:
                 outcome.status = RouteStatus::NoDemand;
@@ -144,12 +150,23 @@ public:
                 break;
             default:
                 outcome.trucksAllowed = route.trucksAllocated + spare;
-                solveGroup(route, methodChain(route.method), outcome, bundle);
+                solveGroup(route, methodChain(route.method), solution);
                 spare = outcome.trucksAllowed - outcome.trucksBuilt;
                 break;
             }
-            bundle.built += outcome.trucksBuilt;
-            bundle.outcomes.push_back(std::move(outcome));
+            built += outcome.trucksBuilt;
+            solutions.push_back(std::move(solution));
+        }
+        if (!escalated) giveUnbuiltToUrgent(solveOrder, reservedTrucks - built, solutions);
+
+        BundleResult bundle;
+        bundle.escalated = escalated;
+        for (RouteSolution& solution : solutions) {
+            bundle.built += solution.outcome.trucksBuilt;
+            bundle.trucks.insert(bundle.trucks.end(), make_move_iterator(solution.trucks.begin()),
+                                 make_move_iterator(solution.trucks.end()));
+            bundle.leftOver.insert(bundle.leftOver.end(), solution.leftOver.begin(), solution.leftOver.end());
+            bundle.outcomes.push_back(std::move(solution.outcome));
         }
         return bundle;
     }
@@ -163,7 +180,7 @@ public:
             outcome.routeIndex = routeIndex;
             outcome.status = RouteStatus::Unsolved;
             outcome.attempts.push_back({PackingMethod::FirstFitDecreasing, AttemptOutcome::Threw, 0.0, error});
-            leaveAll(classification_.routes[routeIndex], LeftOverReason::LaneUnsolved, bundle);
+            leaveAll(classification_.routes[routeIndex], LeftOverReason::LaneUnsolved, bundle.leftOver);
             bundle.outcomes.push_back(std::move(outcome));
         }
         return bundle;
@@ -171,13 +188,12 @@ public:
 
     // One group alone, through `chain`, allowed `trucksAllowed` trucks.
     RouteSolution solveAlone(size_t routeIndex, const vector<PackingMethod>& chain, long long trucksAllowed) const {
-        BundleResult bundle;
-        RouteOutcome outcome;
-        outcome.routeIndex = routeIndex;
-        outcome.trucksAllowed = trucksAllowed;
-        outcome.binding = bindingOf({routeIndex});
-        solveGroup(classification_.routes[routeIndex], chain, outcome, bundle);
-        return {std::move(outcome), std::move(bundle.trucks), std::move(bundle.leftOver)};
+        RouteSolution solution;
+        solution.outcome.routeIndex = routeIndex;
+        solution.outcome.trucksAllowed = trucksAllowed;
+        solution.outcome.binding = bindingOf({routeIndex});
+        solveGroup(classification_.routes[routeIndex], chain, solution);
+        return solution;
     }
 
 private:
@@ -196,12 +212,43 @@ private:
                                                                                 : BindingLimit::FloorArea;
     }
 
-    static void leaveAll(const LaneRoute& route, LeftOverReason reason, BundleResult& bundle) {
-        for (const size_t index : route.itemIndices) bundle.leftOver.push_back({index, reason});
+    static void leaveAll(const LaneRoute& route, LeftOverReason reason, vector<LeftOverItem>& leftOver) {
+        for (const size_t index : route.itemIndices) leftOver.push_back({index, reason});
     }
 
-    void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteOutcome& outcome,
-                    BundleResult& bundle) const {
+    // Goods a full truck could not take: over the reservation, or trimmed off a truck by its
+    // rows or the unit-load cap.
+    static bool isOverflow(const LeftOverItem& left) {
+        return left.reason == LeftOverReason::OverReservation || left.reason == LeftOverReason::FloorEviction
+               || left.reason == LeftOverReason::UnitLoadCap;
+    }
+
+    // The allocation is an estimate: a group it gave too few trucks leaves goods over the
+    // reservation, while a less urgent group builds fewer than it was given, and spare trucks
+    // pass only to groups solved later. The lane-date's trucks still unbuilt go to the most
+    // urgent group with overflow, re-solved allowed its own trucks plus those,
+    // so the lane-date never builds more than it reserved. A group that cannot use them builds
+    // no more with fewer, so each is tried once.
+    void giveUnbuiltToUrgent(const vector<size_t>& solveOrder, long long unbuilt,
+                             vector<RouteSolution>& solutions) const {
+        for (size_t position = 0; position < solveOrder.size() && unbuilt > 0; ++position) {
+            RouteSolution& current = solutions[position];
+            if (current.outcome.status != RouteStatus::Solved || !current.outcome.methodUsed) continue;
+            if (none_of(current.leftOver.begin(), current.leftOver.end(), isOverflow)) continue;
+            const LaneRoute& route = classification_.routes[solveOrder[position]];
+            RouteSolution resolved;
+            resolved.outcome.routeIndex = solveOrder[position];
+            resolved.outcome.binding = current.outcome.binding;
+            resolved.outcome.trucksAllowed = current.outcome.trucksBuilt + unbuilt;
+            solveGroup(route, methodChain(route.method), resolved);
+            if (resolved.outcome.trucksBuilt <= current.outcome.trucksBuilt) continue;
+            unbuilt -= resolved.outcome.trucksBuilt - current.outcome.trucksBuilt;
+            current = std::move(resolved);
+        }
+    }
+
+    void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteSolution& solution) const {
+        RouteOutcome& outcome = solution.outcome;
         vector<KnapsackItem> items;
         items.reserve(route.itemIndices.size());
         for (const size_t index : route.itemIndices) items.push_back(knapsackItemFrom(items_.items[index]));
@@ -229,7 +276,7 @@ private:
         }
         if (!kept) {
             outcome.status = RouteStatus::Unsolved;
-            leaveAll(route, LeftOverReason::LaneUnsolved, bundle);
+            leaveAll(route, LeftOverReason::LaneUnsolved, solution.leftOver);
             return;
         }
 
@@ -278,7 +325,7 @@ private:
             planned.floor = arrange(route, truck);
             areaShare += planned.areaSqIn / capacity_.floorAreaSqIn;
             weightShare += planned.weightLb / capacity_.weightLb;
-            bundle.trucks.push_back(std::move(planned));
+            solution.trucks.push_back(std::move(planned));
         }
         outcome.trucksBuilt = static_cast<long long>(trucks.size());
         if (!trucks.empty()) {
@@ -286,7 +333,7 @@ private:
             outcome.bindingChanged = built != outcome.binding;
         }
         for (size_t position = 0; position < items.size(); ++position) {
-            if (!placed[position]) bundle.leftOver.push_back({route.itemIndices[position], reasonFor[position]});
+            if (!placed[position]) solution.leftOver.push_back({route.itemIndices[position], reasonFor[position]});
         }
     }
 

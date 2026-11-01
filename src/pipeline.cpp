@@ -390,27 +390,57 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
             if (index < itemOnRouteWithRoom.size()) itemOnRouteWithRoom[index] = 1;
         }
     }
+    // The groups of a lane-date share its reservation, so room is judged on the lane-date too:
+    // goods left over while a sibling group left a reserved truck unbuilt are goods lost.
+    using LaneDate = tuple<string, string, string, string>;
+    map<LaneDate, pair<long long, long long>> builtAndReservedByLaneDate;
+    vector<LaneDate> laneDateOfItem(result.selectionItems.items.size());
+    const vector<SegregatedGroup>& groups = result.segregation.groups;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (route.routeIndex >= lanes.size() || route.status == RouteStatus::Escalated) continue;
+        const LaneRoute& lane = lanes[route.routeIndex];
+        if (lane.groupIndex >= groups.size()) continue;
+        const GroupKey& key = groups[lane.groupIndex].key;
+        const LaneDate laneDate{key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate};
+        auto& [built, reserved] = builtAndReservedByLaneDate[laneDate];
+        built += route.trucksBuilt;
+        reserved = lane.reservedTrucks;
+        for (const size_t index : lane.itemIndices) {
+            if (index < laneDateOfItem.size()) laneDateOfItem[index] = laneDate;
+        }
+    }
+    auto laneDateHasRoom = [&](size_t itemIndex) {
+        if (itemIndex >= laneDateOfItem.size()) return false;
+        const auto found = builtAndReservedByLaneDate.find(laneDateOfItem[itemIndex]);
+        return found != builtAndReservedByLaneDate.end() && found->second.first < found->second.second;
+    };
     map<LeftOverReason, size_t> droppedByReason;
+    size_t leftWithLaneDateRoom = 0;
     for (const LeftOverItem& left : result.selectionPlan.leftOver) {
         switch (left.reason) {
         case LeftOverReason::FloorEviction:
         case LeftOverReason::UnitLoadCap:
             if (left.itemIndex < itemOnRouteWithRoom.size() && itemOnRouteWithRoom[left.itemIndex]) {
                 ++droppedByReason[left.reason];
+            } else if (laneDateHasRoom(left.itemIndex)) {
+                ++leftWithLaneDateRoom;
             }
+            break;
+        case LeftOverReason::OverReservation:
+            if (laneDateHasRoom(left.itemIndex)) ++leftWithLaneDateRoom;
             break;
         case LeftOverReason::EscalatedToM5:
         case LeftOverReason::Unfittable:
         case LeftOverReason::LaneUnsolved: ++droppedByReason[left.reason]; break;
         case LeftOverReason::AfterWindow:
         case LeftOverReason::UnavailableInWindow:
-        case LeftOverReason::NoReservation:
-        case LeftOverReason::OverReservation: break;
+        case LeftOverReason::NoReservation: break;
         }
     }
     for (const auto& [reason, stacks] : droppedByReason) {
         add(stacks, string("stacks left over: ") + leftOverReasonName(reason));
     }
+    add(leftWithLaneDateRoom, "stacks left over while the lane-date had reserved trucks unbuilt");
 
     add(result.selectionItems.rejected.size(), "stacks rejected for bad line data");
     add(result.selectionItems.linesNotFullyStacked.size(), "lines not fully stacked");
