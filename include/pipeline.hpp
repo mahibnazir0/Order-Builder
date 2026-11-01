@@ -127,8 +127,6 @@ struct PipelineResult {
     ReservationCoverage reservationCoverage;
     // Recounted from the trucks after the plan is made; any entry fails the run (exit 7).
     std::vector<InvariantViolation> selectionViolations;
-    // What the run found and planned around rather than stopped on, e.g. a combo lane.
-    std::vector<std::string> selectionWarnings;
 
     // Milestone 3. Empty unless PipelineInputs::demandSelector was set.
     bool ranFloor = false;

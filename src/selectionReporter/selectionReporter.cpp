@@ -171,7 +171,6 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "routes", count(classification.routes.size()) + " group and ship-date routes");
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
-    for (const string& warning : context.warnings) printLine(out, "warning", printable(warning));
     printLine(out, "stacks rejected", count(items.rejected.size()) + " for bad line data");
     if (!items.rejected.empty()) {
         vector<Row> rejectedRows;

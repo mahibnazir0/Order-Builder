@@ -255,7 +255,6 @@ int main(int argc, char** argv) {
             context.routing = result.selectionParams.routing;
             context.settings = result.selectionParams.selector;
             context.detail = result.selectionParams.reportDetail;
-            context.warnings = result.selectionWarnings;
             context.shortfalls = ob::selectionShortfalls(result);
             context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
             context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;

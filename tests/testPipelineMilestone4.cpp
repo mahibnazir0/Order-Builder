@@ -152,12 +152,16 @@ TEST_CASE("pipelineM4: a grain coarser than the lightest stack stops the run, na
     }
 }
 
-TEST_CASE("pipelineM4: a lane with demand under two ship conditions is named as a combo lane") {
+TEST_CASE("pipelineM4: a lane with demand under two ship conditions stops the run, named as a combo lane") {
     const SmallDay day("combo", "," + SmallDay::line("GOOD", 16, "TF"));
-    const PipelineResult result = Pipeline::run(day.inputs);
-    REQUIRE(result.selectionWarnings.size() == 1);
-    CHECK(result.selectionWarnings[0].find("combo lane 1 -> 2") != string::npos);
-    CHECK(result.selectionWarnings[0].find("TF and TL") != string::npos);
+    try {
+        Pipeline::run(day.inputs);
+        FAIL("a combo lane was planned");
+    } catch (const runtime_error& error) {
+        const string message = error.what();
+        CHECK(message.find("combo lanes") != string::npos);
+        CHECK(message.find("1 -> 2 under TF and TL") != string::npos);
+    }
 }
 
 TEST_CASE("pipelineM4: solveRecreatedFromRecord - a run from its recorded inputs plans the same") {

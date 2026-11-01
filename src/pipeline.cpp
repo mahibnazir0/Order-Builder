@@ -304,25 +304,28 @@ void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& 
 }
 
 // Lanes with demand under more than one ship condition on the same two sites. The client's
-// specification would top up spare truckload space from them; this customer has none, so they
-// are planned apart and named rather than merged.
-vector<string> comboLanes(const SegregationResult& segregation) {
+// specification tops up spare truckload space from them, which M4 does not do, so Rev 8 section
+// 5 has the run stop and name them rather than plan them wrongly. None appears in the extracts
+// held.
+void requireNoComboLanes(const SegregationResult& segregation) {
     map<pair<string, string>, set<string>> conditions;
     for (const SegregatedGroup& group : segregation.groups) {
         conditions[{group.key.locationFrom, group.key.locationTo}].insert(group.key.shipCondition);
     }
-    vector<string> warnings;
+    string named;
     for (const auto& [sites, shipConditions] : conditions) {
         if (shipConditions.size() < 2) continue;
         string listed;
         for (const string& condition : shipConditions) listed += (listed.empty() ? "" : " and ") + condition;
-        warnings.push_back("combo lane " + sites.first + " -> " + sites.second + " has demand under " + listed
-                           + "; planned apart, not merged");
+        named += (named.empty() ? "" : "; ") + sites.first + " -> " + sites.second + " under " + listed;
     }
-    return warnings;
+    if (!named.empty()) {
+        throw runtime_error("M4 does not plan combo lanes, and the demand has some: " + named);
+    }
 }
 
 void runSelection(PipelineResult& result) {
+    requireNoComboLanes(result.segregation);
     const string planDate = planDateFromRequestId(result.demand.request_id);
     result.reservationBook = buildReservationBook(result.placeholders.placeholders, result.demand.ctl, planDate,
                                                   result.selectionParams.reservations);
@@ -336,7 +339,6 @@ void runSelection(PipelineResult& result) {
     result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
                                                  result.selectionPlan, result.selectionParams.selector.maxUnitLoadsPerTruck);
     result.reservationCoverage = matchDemand(result.reservationBook, result.demand.str);
-    result.selectionWarnings = comboLanes(result.segregation);
     for (const InvariantViolation& violation : result.selectionViolations) {
         LOG_ERROR("M4 " + violation.invariant + ": " + violation.detail);
     }

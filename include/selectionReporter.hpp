@@ -50,7 +50,6 @@ struct SelectionReportContext {
     LaneClassifierSettings routing;
     SelectorSettings settings;            // the ones the plan was made with
     // What the run planned around rather than stopped on, e.g. a combo lane; printed under Inputs.
-    std::vector<std::string> warnings;
     // Why the run is incomplete (selectionShortfalls), printed as its Result; empty is complete.
     std::vector<std::string> shortfalls;
     // Printed under the provisional business rules, with the routing settings.
