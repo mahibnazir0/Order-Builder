@@ -218,6 +218,8 @@ TEST_CASE("floorReporter: section A places every line before, on or after the ru
     CHECK(lineContaining(report, "after the last date").find(" 1  (future demand") != string::npos);
     CHECK(lineContaining(report, "  undated").find(" 1  (") != string::npos);
     CHECK(lineContaining(report, "Reserved, other dates").find("3 truck(s)") != string::npos);
+    CHECK(lineContaining(report, "Reserved, other dates").find("set against no floor")
+          != string::npos);
     CHECK(lineContaining(report, "Pulling demand forward").find("not applied") != string::npos);
     CHECK(lineContaining(report, "Demand lines selected").find("1 of 4") != string::npos);
     CHECK(lineContaining(report, "grouped, not selected").find("3") != string::npos);

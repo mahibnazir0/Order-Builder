@@ -1,0 +1,43 @@
+name: Windows MSVC
+
+# Visual Studio 2022 / native MSVC x64 on Windows Server 2022: the toolchain of the client's
+# APAL6 pipeline.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msvc:
+    name: VS2022 MSVC x64 Release
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # CMakeLists.txt compiles with /W4 /WX under MSVC, so any warning fails the build.
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # The confidential client fixtures are gitignored, so CI has none of them. The data tests
+      # skip themselves without their files, but these guard tests fail on purpose to report the
+      # data is absent, so they are excluded here, with the augustAcceptance suite that holds the
+      # August guard. Everything else runs. doctest splits filters on commas, hence "\,".
+      - name: Test
+        run: |
+          $absentDataGuards = @(
+            'acceptanceHarness: the Truck Builder solution fixtures are present\, so the validity tests ran'
+            'acceptanceHarness: the August acceptance files are present\, so the August tests ran'
+            'crossDay: the extract fixtures are present\, so the extract tests ran'
+            "new extracts: every day's fixtures are present\, so the extract tests ran"
+          )
+          .\build\Release\ob_tests.exe -tse=augustAcceptance "-tce=$($absentDataGuards -join ',')"
