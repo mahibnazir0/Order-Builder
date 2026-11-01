@@ -10,21 +10,27 @@
 // is cut short.
 //
 // A Result line opens it: complete, or incomplete (exit 7) with every cause.
-// The sections are the specification's report list:
-//   1. Inputs                  files, plan date, window, items, routes; stacks
-//                              rejected and placeholder rows skipped, with reasons
+// The sections are the specification's report list, with Rev 8's sections A to E:
+//   1. Inputs                  files, plan date, window, items, mixed-date stacks, routes;
+//                              stacks rejected and placeholder rows skipped, with reasons
 //   2. Parameters              trailer, full lines, unit rules, every method's settings,
 //                              and the provisional business rules the plan rests on
-//   3. Fullness                trucks, reservations, unused, rear waste, cube, weight
-//   4. Reservations not used   per lane-date with the reason, per lane, and the day's
+//   3. How each lane was routed  (A) lane-dates against their reservation, by size and
+//                              products, and the group routes per method
+//   4. Fullness                (B) trucks, reservations, unused, rear waste, cube, weight,
+//                              lane-dates filled or short
+//   5. Reservations not used   per lane-date with the reason, per lane, and the day's
 //                              penalty exposure; lanes reserved with no demand, and
 //                              demand lanes with no reservation
-//   5. Log of activities       per route: the methods tried and how each ended, the one
-//                              kept, proven or not, the binding limit as measured
-//   6. Trucks                  per truck: weight and cube against their full lines, rear
+//   6. Log of activities       per route: the methods tried and how each ended, the one
+//                              kept, proven or not, the lane-date's binding limit
+//   7. Trucks                  per truck: weight and cube against their full lines, rear
 //                              waste, floor patterns, pallets turned, lone top pallets
-//   7. Goods left over         by reason; every item when detailed
-//   8. Item master             the products on the trucks; their master rows when detailed
+//   8. One truck in full       (D) one truck stack by stack
+//   9. Goods left over         by reason; every item when detailed
+//   10. Nothing lost           (E) unit loads in against out, and why reservations went
+//                              unfilled
+//   11. Item master            the products on the trucks; their master rows when detailed
 // ============================================================================
 
 #include "laneClassifier.hpp"
