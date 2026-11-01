@@ -362,14 +362,17 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
 }
 
 KnapsackSelection selectByTable(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                                const KnapsackSettings& settings) {
+                                const KnapsackSettings& settings, long long maxTableCells) {
+    if (maxTableCells < 1) throw invalid_argument("Knapsack table: maxTableCells must be at least 1");
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     const size_t count = problem.candidates.size();
     const long long areaCells = problem.areaCapacity + 1, weightCells = problem.weightCapacity + 1;
     const long long cells = areaCells * weightCells;
     const long long width = static_cast<long long>(problem.classCount) + 1;
-    if (cells > kMaxKnapsackTableCells || cells * width > kMaxKnapsackTableCells * 8
-        || cells * static_cast<long long>(count) > kMaxKnapsackTableCells * 64) {
+    // The value table holds `width` entries a cell and the taken flags one bit a cell per item,
+    // so each is bounded on its own: 8 values a cell and 64 flags a cell on average.
+    if (cells > maxTableCells || cells * width > maxTableCells * 8
+        || cells * static_cast<long long>(count) > maxTableCells * 64) {
         throw invalid_argument("Knapsack table of " + to_string(cells) + " cells for "
                                + to_string(count) + " items is too large; use selectForTruck");
     }

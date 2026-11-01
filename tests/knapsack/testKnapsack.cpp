@@ -21,6 +21,8 @@ namespace {
 // A 630 x 100 in floor and a 45,000 lb payload.
 const KnapsackCapacity kTruck{63000.0, 45000.0, 108.0};
 const KnapsackSettings kFine{1.0, 1.0, 2'000'000};
+// Large enough for the coarse grains the cross-check uses.
+const long long kTableCells = 4'000'000;
 
 KnapsackItem load(double area, double weight, double unitLoads = 1.0,
                   const string& shipDate = "2026-08-06", int priority = 0, double height = 60.0) {
@@ -200,6 +202,17 @@ TEST_CASE("knapsack: fullAtHundredPercentWeight") {
     CHECK_FALSE(selectForTruck({load(1920, 25000), load(1920, 19999)}, kTruck, kFine).weightFull);
 }
 
+TEST_CASE("knapsack: the table runs at its cell limit and throws one cell under it") {
+    const KnapsackSettings coarse{250.0, 500.0, 1000};
+    const vector<KnapsackItem> items{load(1920, 1000)};
+    const KnapsackProblem problem = prepareKnapsack(items, kTruck, coarse);
+    const long long cells = (problem.areaCapacity + 1) * (problem.weightCapacity + 1);
+    CHECK(selectByTable(items, kTruck, coarse, cells).chosen == vector<size_t>{0});
+    CHECK_THROWS_AS(selectByTable(items, kTruck, coarse, cells - 1), invalid_argument);
+    CHECK_THROWS_AS(selectByTable(items, kTruck, coarse, 0), invalid_argument);
+    CHECK_THROWS_AS(selectByTable(items, kTruck, coarse, -5), invalid_argument);
+}
+
 TEST_CASE("knapsack: tableAndBranchBoundAgree and bothMatchBruteForceUnder20 (differential)") {
     mt19937 random(31102026);
     const KnapsackSettings coarse{250.0, 500.0, 5'000'000};
@@ -207,7 +220,7 @@ TEST_CASE("knapsack: tableAndBranchBoundAgree and bothMatchBruteForceUnder20 (di
         const vector<KnapsackItem> items = randomItems(random, 1 + random() % 14);
         const KnapsackProblem problem = prepareKnapsack(items, kTruck, coarse);
         const KnapsackSelection branchAndBound = selectForTruck(items, kTruck, coarse);
-        const KnapsackSelection table = selectByTable(items, kTruck, coarse);
+        const KnapsackSelection table = selectByTable(items, kTruck, coarse, kTableCells);
         REQUIRE(branchAndBound.proven);
         REQUIRE(branchAndBound.value == table.value);
         REQUIRE(branchAndBound.value == bruteForceValue(problem));
@@ -303,7 +316,7 @@ TEST_CASE("knapsack: bad items, capacity and settings are rejected") {
     CHECK_THROWS_AS(selectForTruck({load(1920, 5.0)}, kTruck, {10.0, 1.0, 1000}), invalid_argument);
     CHECK_THROWS_AS(selectForTruck({load(1920, 1000)}, kTruck, {1.0, 2000.0, 1000}), invalid_argument);
     // At 1 lb and 1 sq in grains the table would be 63,001 x 45,001 cells.
-    CHECK_THROWS_AS(selectByTable({load(1920, 1000)}, kTruck, kFine), invalid_argument);
+    CHECK_THROWS_AS(selectByTable({load(1920, 1000)}, kTruck, kFine, kTableCells), invalid_argument);
 }
 
 TEST_CASE("knapsack: August knapsack lanes fill their reserved trucks within capacity"

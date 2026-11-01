@@ -121,11 +121,10 @@ KnapsackSelection selectForTruck(const std::vector<KnapsackItem>& items,
                                  const KnapsackCapacity& capacity, const KnapsackSettings& settings);
 
 // Dynamic programming over a table of floor and weight grains. Exact, but its table grows with
-// the capacity in grains, so it is for cross-checking: it throws std::invalid_argument when
-// the table would exceed kMaxKnapsackTableCells.
-constexpr long long kMaxKnapsackTableCells = 4'000'000;
-KnapsackSelection selectByTable(const std::vector<KnapsackItem>& items,
-                                const KnapsackCapacity& capacity, const KnapsackSettings& settings);
+// the capacity in grains, so it is for cross-checking selectForTruck in tests; no run calls it.
+// Throws std::invalid_argument when the table would exceed maxTableCells cells (at least 1).
+KnapsackSelection selectByTable(const std::vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                                const KnapsackSettings& settings, long long maxTableCells);
 
 // Takes items in solve order while they fit. The warm start, and the baseline the exact
 // methods are measured against.
