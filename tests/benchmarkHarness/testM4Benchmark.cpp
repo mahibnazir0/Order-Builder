@@ -3,6 +3,8 @@
 #include "../m4AugustFixtures.hpp"
 #include "../m4SyntheticDay.hpp"
 #include "benchmarkHarness.hpp"
+#include "converter.hpp"
+#include "stackRules.hpp"
 #include "reportFormat.hpp"
 
 #include <algorithm>
@@ -139,6 +141,24 @@ struct ClientDay {
     size_t shippedLinesInDemand = 0;  // the share his loads drew from this run's demand
 };
 
+// What one of the client's loads carries: each line's unit loads times its unit load's footprint
+// and height, from the product master exactly as our items are measured.
+double clientCargoCubicIn(const InputTruck& truck, const PipelineResult& pipeline) {
+    double cubicIn = 0.0;
+    for (const InputTruckLine& line : truck.lines) {
+        const vector<ProductRecord>& rows = pipeline.index.at(line.matnr);
+        const auto product = find_if(rows.begin(), rows.end(),
+                                     [&](const ProductRecord& row) { return row.uom == line.unitOfMeasure; });
+        const optional<PalletSpec> pallet =
+            product == rows.end() ? nullopt : resolvePalletSpec(*product, pipeline.params);
+        if (!pallet) throw runtime_error("client load " + truck.id + ": no pallet for " + line.matnr);
+        const UnitLoadFootprint footprint = unitLoadFootprint(*product, *pallet, pipeline.params.footprintRule);
+        cubicIn += Converter::to_pallets(line.quantity, line.unitOfMeasure, *product) * footprint.longSideIn
+                   * footprint.shortSideIn * unitLoadHeightIn(*product, *pallet, pipeline.params);
+    }
+    return cubicIn;
+}
+
 const ClientDay& clientDay(size_t run) {
     static const array<ClientDay, 3> days = [] {
         array<ClientDay, 3> loaded;
@@ -147,8 +167,12 @@ const ClientDay& clientDay(size_t run) {
             ClientDay& day = loaded[index];
             day.achieved = augustClientLoads(index);
             for (const auto& laneDay : day.achieved.laneDays) {
+                double cargoCubicIn = 0.0;
+                for (const size_t truck : laneDay.truckIndices) {
+                    cargoCubicIn += clientCargoCubicIn(day.achieved.trucks[truck], pipeline);
+                }
                 day.laneDays.push_back({laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition,
-                                        laneDay.shipDate, static_cast<long long>(laneDay.loads)});
+                                        laneDay.shipDate, static_cast<long long>(laneDay.loads), cargoCubicIn});
             }
             unordered_set<string> demandLines;
             for (const STRRecord& line : pipeline.demand.str) demandLines.insert(line.idpr);
@@ -395,6 +419,45 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
         CHECK(day.plan.routes[routeIndex].trucksBuilt == (group.key.segregant == "S20" ? 1 : 0));
     }
     CHECK(routesSeen == 2);
+}
+
+// Rev 8 judges M4 on the cube each truck carries and the space left at its rear, not on the
+// truck count. Pinned as measured on 1 Nov so a change that empties trucks fails by name; a
+// change that fills them better passes and should re-pin.
+TEST_CASE("m4Benchmark: August fill is no worse than measured on 1 Nov" * doctest::skip()) {
+    struct Fill {
+        double cubicFeetAtLeast;
+        double rearWasteInAtMost;
+    };
+    const array<Fill, 3> measured{Fill{2889.0, 83.5}, Fill{2774.6, 104.9}, Fill{2727.0, 113.9}};
+    for (size_t run = 0; run < measured.size(); ++run) {
+        const HeldDay& day = heldDays()[run];
+        CAPTURE(day.label);
+        const FullnessSummary fullness = summariseFullness(*day.run, day.items, day.plan, kHeavyTruckLb);
+        CHECK(fullness.averageCubicFeet >= measured[run].cubicFeetAtLeast);
+        CHECK(fullness.averageRearWasteIn <= measured[run].rearWasteInAtMost);
+    }
+}
+
+TEST_CASE("m4Benchmark: the client's August loads are measured from their lines, near the cube he states"
+          * doctest::skip()) {
+    const double trailerCubicFeet = 630.0 * 100.0 * 108.0 / 1728.0;
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = heldDays()[run];
+        CAPTURE(day.label);
+        double cargoCubicIn = 0.0;
+        long long loads = 0;
+        for (const ClientLaneDay& laneDay : clientDay(run).laneDays) {
+            cargoCubicIn += laneDay.cargoCubicIn;
+            loads += laneDay.loads;
+        }
+        REQUIRE(loads > 0);
+        const double cubicFeetPerLoad = cargoCubicIn / 1728.0 / static_cast<double>(loads);
+        // The client states 3,300 to 3,400 cu ft a truck; computed from the lines his loads carry it
+        // is a little below, as the stated figure is his best, not his average.
+        CHECK(cubicFeetPerLoad > 0.75 * trailerCubicFeet);
+        CHECK(cubicFeetPerLoad < kClientStatedCubicFeetHigh);
+    }
 }
 
 TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by urgency" * doctest::skip()) {

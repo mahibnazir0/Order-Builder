@@ -390,13 +390,23 @@ ClientComparison compareWithClient(const PipelineResult& run, const ReservationB
         entry({reservation.origin, reservation.destination, reservation.shipCondition, reservation.shipDate}).reserved +=
             reservation.trucks;
     }
+    const double trailerCubicIn =
+        run.trailer.interiorLengthIn * run.trailer.interiorWidthIn * run.trailer.stackHeightCeilingIn;
     for (const ClientLaneDay& client : clientLoads) {
-        entry({client.origin, client.destination, client.shipCondition, client.shipDate}).clientLoads += client.loads;
+        LaneDayComparison& laneDay = entry({client.origin, client.destination, client.shipCondition, client.shipDate});
+        laneDay.clientLoads += client.loads;
+        laneDay.clientCube += client.cargoCubicIn / trailerCubicIn;
     }
-    for (const PlannedTruck& truck : plan.trucks) ++entry(laneDateOf(run, truck.shipDate, truck.groupIndex)).ourTrucks;
+    for (const PlannedTruck& truck : plan.trucks) {
+        LaneDayComparison& laneDay = entry(laneDateOf(run, truck.shipDate, truck.groupIndex));
+        ++laneDay.ourTrucks;
+        laneDay.ourCube += truck.floor.cubeFraction;
+    }
 
     ClientComparison comparison;
     for (auto& [laneDate, laneDay] : byLaneDate) {
+        if (laneDay.clientLoads > 0) laneDay.clientCube /= static_cast<double>(laneDay.clientLoads);
+        if (laneDay.ourTrucks > 0) laneDay.ourCube /= static_cast<double>(laneDay.ourTrucks);
         comparison.reserved += laneDay.reserved;
         comparison.clientLoads += laneDay.clientLoads;
         comparison.ourTrucks += laneDay.ourTrucks;
@@ -439,15 +449,20 @@ void printClientComparison(ostream& out, const ClientComparison& comparison) {
 
     vector<vector<string>> rows;
     for (const LaneDayComparison& laneDay : comparison.laneDays) {
-        if (laneDay.clientLoads == laneDay.ourTrucks) continue;
+        const bool emptier = laneDay.ourTrucks > 0 && laneDay.ourCube < laneDay.clientCube - kFillGapShown;
+        if (laneDay.clientLoads == laneDay.ourTrucks && !emptier) continue;
+        auto cube = [](long long trucks, double share) { return trucks > 0 ? fixed(share * 100.0, 1) + "%" : string("-"); };
         rows.push_back({printable(laneDay.origin) + " -> " + printable(laneDay.destination) + " "
                             + printable(laneDay.shipCondition),
                         printable(laneDay.shipDate), grouped(static_cast<double>(laneDay.reserved)),
-                        grouped(static_cast<double>(laneDay.clientLoads)), grouped(static_cast<double>(laneDay.ourTrucks))});
+                        grouped(static_cast<double>(laneDay.clientLoads)), grouped(static_cast<double>(laneDay.ourTrucks)),
+                        cube(laneDay.clientLoads, laneDay.clientCube), cube(laneDay.ourTrucks, laneDay.ourCube)});
     }
     if (rows.empty()) return;
-    out << "\n  Lane-days where the two differ:\n";
-    printColumns(out, {"lane", "ship date", "reserved", "client", "ours"}, rows, {false, false, true, true, true});
+    out << "\n  Lane-days where the two differ, in trucks or with ours " << fixed(kFillGapShown * 100.0, 0)
+        << " points of cube or more emptier:\n";
+    printColumns(out, {"lane", "ship date", "reserved", "client", "ours", "client cube", "our cube"}, rows,
+                 {false, false, true, true, true, true, true});
 }
 
 bool samePlan(const SelectionPlan& left, const SelectionPlan& right) {

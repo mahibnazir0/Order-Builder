@@ -36,6 +36,7 @@ struct AchievedLaneDay {
     std::string shipCondition;
     std::string shipDate;
     std::size_t loads = 0;
+    std::vector<std::size_t> truckIndices; // its loads, into AchievedRequest::trucks
 };
 
 struct ShippedLine {

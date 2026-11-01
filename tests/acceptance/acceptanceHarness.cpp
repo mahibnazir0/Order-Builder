@@ -151,9 +151,11 @@ void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& lane
                 laneDayKey(locationFrom, locationTo, shipCondition, shipDate),
                 achieved.laneDays.size());
             if (inserted.second) {
-                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, shipDate, 0});
+                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, shipDate, 0, {}});
             }
-            ++achieved.laneDays[inserted.first->second].loads;
+            AchievedLaneDay& laneDay = achieved.laneDays[inserted.first->second];
+            ++laneDay.loads;
+            laneDay.truckIndices.push_back(achieved.trucks.size() - 1);
             for (size_t lineIndex = 0; lineIndex < truck.lines.size(); ++lineIndex) {
                 addShippedLine(achieved, reader, truck.lines[lineIndex], shipDate,
                                loadField + ".LINES[" + to_string(lineIndex) + "]");

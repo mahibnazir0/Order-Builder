@@ -131,6 +131,7 @@ struct ClientLaneDay {
     std::string shipCondition;
     std::string shipDate;
     long long loads = 0;
+    double cargoCubicIn = 0.0;  // what those loads carry, worked out as our items' cube is
 };
 
 struct LaneDayComparison {
@@ -141,6 +142,9 @@ struct LaneDayComparison {
     long long reserved = 0;
     long long clientLoads = 0;
     long long ourTrucks = 0;
+    // Average share of a truck's interior cube filled; 0 where that side built nothing.
+    double clientCube = 0.0;
+    double ourCube = 0.0;
 };
 
 // Our trucks against the client's loads, lane-day by lane-day, over every lane-day either
@@ -164,7 +168,9 @@ struct ClientComparison {
 ClientComparison compareWithClient(const PipelineResult& run, const ReservationBook& book,
                                    const SelectionPlan& plan, const std::vector<ClientLaneDay>& clientLoads);
 
-// The comparison's totals and the lane-days the two sides differ on. Plain ASCII.
+// The comparison's totals and the lane-days the two sides differ on, in trucks or by more than
+// kFillGapShown of cube with ours the emptier. Plain ASCII.
+constexpr double kFillGapShown = 0.05;
 void printClientComparison(std::ostream& out, const ClientComparison& comparison);
 
 // I7: the same trucks with the same goods, the same goods left over for the same reasons, and
