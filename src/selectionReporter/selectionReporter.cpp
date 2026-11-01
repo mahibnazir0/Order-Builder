@@ -206,6 +206,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "full at", "100% of payload, or " + percent(settings.floor.fullCubeFraction) + " of cube");
     printLine(out, "units", "CS, DIS and PAL quantities divided by Cases_Unit_Load");
     printLine(out, "", "a part unit load takes a whole floor position");
+    printLine(out, "unit-load cap", "no truck over " + setting(settings.maxUnitLoadsPerTruck) + " unit loads");
     printLine(out, "routing", "M5 above " + to_string(context.routing.m5Threshold) + " trucks reserved; patternPacker above "
                                   + setting(context.routing.varietyRatio) + " unit loads per product");
     printLine(out, "knapsack", "grains " + setting(settings.knapsack.weightGrainLb) + " lb, "

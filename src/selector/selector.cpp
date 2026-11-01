@@ -213,8 +213,12 @@ private:
         for (size_t position = 0; position < items.size(); ++position) {
             if (kept->unfittable[position]) reasonFor[position] = LeftOverReason::Unfittable;
         }
-        for (RouteTruck& truck : trucks) fitFloor(route, truck, placed, reasonFor);
-        fillRoom(route, items, trucks, placed, kept->unfittable);
+        for (RouteTruck& truck : trucks) {
+            fitFloor(route, truck, placed, reasonFor);
+            fitUnitLoadCap(items, truck, placed, reasonFor);
+        }
+        for (RouteTruck& truck : trucks) fillTruck(route, items, truck, placed, kept->unfittable);
+        openTrucks(route, items, trucks, placed, kept->unfittable, static_cast<size_t>(allowed));
         trucks.erase(remove_if(trucks.begin(), trucks.end(), [](const RouteTruck& truck) { return truck.empty(); }),
                      trucks.end());
         spreadWeight(route, items, trucks);
@@ -254,38 +258,67 @@ private:
         }
     }
 
-    // Goods left over, by the method or the floor, go most urgent first into the first truck
-    // with room on its floor, payload and rows. The methods judge the floor by area, which rows
-    // waste some of, so this takes back what the floor check had to trim. A truck stops being
-    // tried after fillMissesPerTruck refusals in a row, which bounds the floor arrangements tried.
-    void fillRoom(const LaneRoute& route, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks,
-                  vector<char>& placed, const vector<char>& unfittable) const {
-        for (RouteTruck& truck : trucks) {
-            double area = 0.0, weight = 0.0;
-            for (const size_t position : truck) {
-                area += items[position].areaSqIn;
-                weight += items[position].weightLb;
+    // Goods left over, by the method, the floor or the unit-load cap, go most urgent first into
+    // the truck while it has room on its floor, payload, rows and unit-load cap. The methods judge
+    // the floor by area, which rows waste some of, so this takes back what the floor check had to
+    // trim. The truck stops being tried after fillMissesPerTruck refusals in a row, which bounds
+    // the floor arrangements tried.
+    void fillTruck(const LaneRoute& route, const vector<KnapsackItem>& items, RouteTruck& truck,
+                   vector<char>& placed, const vector<char>& unfittable) const {
+        double area = 0.0, weight = 0.0, unitLoads = 0.0;
+        for (const size_t position : truck) {
+            area += items[position].areaSqIn;
+            weight += items[position].weightLb;
+            unitLoads += items[position].unitLoads;
+        }
+        int misses = 0;
+        for (size_t position = 0; position < items.size() && misses < settings_.fillMissesPerTruck; ++position) {
+            if (placed[position] || unfittable[position]) continue;
+            if (area + items[position].areaSqIn > capacity_.floorAreaSqIn + kQuantityEpsilon
+                || weight + items[position].weightLb > capacity_.weightLb + kQuantityEpsilon
+                || unitLoads + items[position].unitLoads > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon) {
+                ++misses;
+                continue;
             }
-            int misses = 0;
-            for (size_t position = 0; position < items.size() && misses < settings_.fillMissesPerTruck; ++position) {
-                if (placed[position] || unfittable[position]) continue;
-                if (area + items[position].areaSqIn > capacity_.floorAreaSqIn + kQuantityEpsilon
-                    || weight + items[position].weightLb > capacity_.weightLb + kQuantityEpsilon) {
-                    ++misses;
-                    continue;
-                }
-                RouteTruck withItem = truck;
-                withItem.insert(upper_bound(withItem.begin(), withItem.end(), position), position);
-                if (!floorFits(arrange(route, withItem))) {
-                    ++misses;
-                    continue;
-                }
-                truck = std::move(withItem);
-                area += items[position].areaSqIn;
-                weight += items[position].weightLb;
-                placed[position] = 1;
-                misses = 0;
+            RouteTruck withItem = truck;
+            withItem.insert(upper_bound(withItem.begin(), withItem.end(), position), position);
+            if (!floorFits(arrange(route, withItem))) {
+                ++misses;
+                continue;
             }
+            truck = std::move(withItem);
+            area += items[position].areaSqIn;
+            weight += items[position].weightLb;
+            unitLoads += items[position].unitLoads;
+            placed[position] = 1;
+            misses = 0;
+        }
+    }
+
+    // Goods still left over open the reserved trucks the method did not build, one at a time,
+    // each filled as fillTruck fills. Without this a truck trimmed to the unit-load cap or the
+    // floor would leave goods behind while the reservation still had trucks.
+    void openTrucks(const LaneRoute& route, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks,
+                    vector<char>& placed, const vector<char>& unfittable, size_t allowed) const {
+        while (trucks.size() < allowed) {
+            RouteTruck opened;
+            fillTruck(route, items, opened, placed, unfittable);
+            if (opened.empty()) return;
+            trucks.push_back(std::move(opened));
+        }
+    }
+
+    // Drops the least urgent goods until the truck is within maxUnitLoadsPerTruck.
+    void fitUnitLoadCap(const vector<KnapsackItem>& items, RouteTruck& truck, vector<char>& placed,
+                        vector<LeftOverReason>& reasonFor) const {
+        double unitLoads = 0.0;
+        for (const size_t position : truck) unitLoads += items[position].unitLoads;
+        while (!truck.empty() && unitLoads > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon) {
+            const size_t drop = truck.back();
+            unitLoads -= items[drop].unitLoads;
+            placed[drop] = 0;
+            reasonFor[drop] = LeftOverReason::UnitLoadCap;
+            truck.pop_back();
         }
     }
 
@@ -324,6 +357,11 @@ private:
                 weight += items[position].weightLb;
             }
             return make_pair(area, weight);
+        };
+        auto unitLoadsOf = [&](const RouteTruck& truck) {
+            double unitLoads = 0.0;
+            for (const size_t position : truck) unitLoads += items[position].unitLoads;
+            return unitLoads;
         };
         const size_t rounds = static_cast<size_t>(settings_.weightSpreadRoundsPerTruck) * trucks.size();
         for (size_t round = 0; round < rounds; ++round) {
@@ -370,6 +408,10 @@ private:
             }
             sort(heavyAfter.begin(), heavyAfter.end());
             sort(lightAfter.begin(), lightAfter.end());
+            if (unitLoadsOf(lightAfter) > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon
+                || unitLoadsOf(heavyAfter) > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon) {
+                return;
+            }
             if (!floorFits(arrange(route, heavyAfter)) || !floorFits(arrange(route, lightAfter))) return;
             trucks[heavy] = std::move(heavyAfter);
             trucks[light] = std::move(lightAfter);
@@ -392,6 +434,9 @@ void validate(const PipelineResult& run, const SelectionItems& items, const Lane
     if (settings.threads < 1) throw invalid_argument("Selector settings: threads must be at least 1");
     if (settings.fillMissesPerTruck < 1 || settings.weightSpreadRoundsPerTruck < 1) {
         throw invalid_argument("Selector settings: fill misses and weight-spread rounds must be at least 1");
+    }
+    if (!isfinite(settings.maxUnitLoadsPerTruck) || settings.maxUnitLoadsPerTruck <= 0.0) {
+        throw invalid_argument("Selector settings: unit loads per truck must be positive and finite");
     }
     for (const LaneRoute& route : classification.routes) {
         if (route.groupIndex >= run.segregation.groups.size()) {
@@ -526,6 +571,7 @@ const char* leftOverReasonName(LeftOverReason reason) {
     case LeftOverReason::Unfittable: return "unfittable";
     case LeftOverReason::OverReservation: return "over reservation";
     case LeftOverReason::FloorEviction: return "floor eviction";
+    case LeftOverReason::UnitLoadCap: return "unit-load cap";
     case LeftOverReason::LaneUnsolved: return "lane unsolved";
     }
     return "unknown";

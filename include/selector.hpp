@@ -61,6 +61,9 @@ struct SelectorSettings {
     int fillMissesPerTruck = 0;
     // Weight-spreading swaps tried, per truck on the route.
     int weightSpreadRoundsPerTruck = 0;
+    // No truck is planned over this many unit loads: the client's own check stops a run at 64,
+    // 32 positions two high, though short unit loads stack three high within the ceiling.
+    double maxUnitLoadsPerTruck = 0.0;
     // Seconds on a steady clock. Empty uses std::chrono::steady_clock; tests pass their own.
     std::function<double()> clock;
 };
@@ -122,6 +125,7 @@ enum class LeftOverReason {
     Unfittable,           // too tall, or over the floor or payload on its own
     OverReservation,      // the reserved trucks were full
     FloorEviction,        // its truck's rows did not fit with it
+    UnitLoadCap,          // its truck was over maxUnitLoadsPerTruck with it
     LaneUnsolved,         // every method threw
 };
 

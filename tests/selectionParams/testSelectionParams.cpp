@@ -42,7 +42,7 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.reservations.defaultEquipment == "53F");
     CHECK(params.reservations.knownEquipment == vector<string>{"53F"});
     CHECK(params.selector.floor.fullCubeFraction == doctest::Approx(0.84));
-    CHECK(params.maxUnitLoadsPerTruck == doctest::Approx(64.0));
+    CHECK(params.selector.maxUnitLoadsPerTruck == doctest::Approx(64.0));
     CHECK(params.priorityZeroIsMostUrgent);
     CHECK(params.selector.fillMissesPerTruck == 10);
     CHECK(params.selector.weightSpreadRoundsPerTruck == 4);

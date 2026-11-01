@@ -211,7 +211,7 @@ vector<InvariantViolation> checkInvariants(const PipelineResult& run, const Rese
             violations.push_back({"I2", name + "'s rows do not fit the trailer"});
         }
         if (unitLoads > maxUnitLoadsPerTruck + kQuantityEpsilon) {
-            violations.push_back({"I6", name + " carries " + fixed(unitLoads, 1) + " unit loads: a conversion error, not a load"});
+            violations.push_back({"I6", name + " carries " + fixed(unitLoads, 1) + " unit loads, over the cap of " + fixed(maxUnitLoadsPerTruck, 1)});
         }
         ++trucksByLaneDate[laneDateOf(run, truck.shipDate, truck.groupIndex)];
     }

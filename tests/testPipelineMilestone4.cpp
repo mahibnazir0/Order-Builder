@@ -66,7 +66,7 @@ bool hasI10(const vector<InvariantViolation>& violations) {
 
 vector<InvariantViolation> invariantsOf(const PipelineResult& result, const SelectionItems& items,
                                         const SelectionPlan& plan) {
-    return checkInvariants(result, result.reservationBook, items, plan, result.selectionParams.maxUnitLoadsPerTruck);
+    return checkInvariants(result, result.reservationBook, items, plan, result.selectionParams.selector.maxUnitLoadsPerTruck);
 }
 
 string reportOf(const PipelineResult& result) {

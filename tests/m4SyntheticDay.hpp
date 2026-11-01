@@ -32,6 +32,7 @@ inline ob::SelectorSettings selectorSettings() {
     settings.threads = 1;
     settings.fillMissesPerTruck = 10;
     settings.weightSpreadRoundsPerTruck = 4;
+    settings.maxUnitLoadsPerTruck = 64.0;
     return settings;
 }
 
