@@ -10,7 +10,7 @@
 // The block holds:
 //   defaultEquipment, knownEquipment       blank ZZNA_EQUIP_SIZE takes the default
 //   fullCubeFraction                       a truck is full at this share of its cube
-//   maxUnitLoadsPerTruck                   anything above is a conversion error (I6)
+//   maxUnitLoadsPerTruck                   no truck is planned over it (I6)
 //   m5Threshold, varietyRatio              the classifier's routing
 //   priorityZeroIsMostUrgent               which end of TPRIO ships first (provisional)
 //   knapsack, patternPacker, binPacker     each method's grains and limits
@@ -37,7 +37,6 @@ struct SelectionParams {
     ReservationBookSettings reservations;
     LaneClassifierSettings routing;
     SelectorSettings selector;  // its clock is left empty: the run uses the steady clock
-    double maxUnitLoadsPerTruck = 0.0;
     bool priorityZeroIsMostUrgent = true;
     ReportDetail reportDetail = ReportDetail::Standard;
     std::string sourcePath;

@@ -108,7 +108,7 @@ SelectionParams parseSelectionParams(const json& root) {
     const double fullCubeFraction =
         readQuantity(requiredField(block, "fullCubeFraction", name), name + ".fullCubeFraction");
     if (fullCubeFraction > 1.0) throw runtime_error("params: " + name + ".fullCubeFraction must be at most 1");
-    params.maxUnitLoadsPerTruck =
+    params.selector.maxUnitLoadsPerTruck =
         readQuantity(requiredField(block, "maxUnitLoadsPerTruck", name), name + ".maxUnitLoadsPerTruck");
 
     params.priorityZeroIsMostUrgent = readBoolean(requiredField(block, "priorityZeroIsMostUrgent", name),

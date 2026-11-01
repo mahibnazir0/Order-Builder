@@ -334,7 +334,7 @@ void runSelection(PipelineResult& result) {
     result.selectionPlan = selectLoads(result, result.reservationBook, result.selectionItems,
                                        result.laneClassification, result.selectionParams.selector);
     result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
-                                                 result.selectionPlan, result.selectionParams.maxUnitLoadsPerTruck);
+                                                 result.selectionPlan, result.selectionParams.selector.maxUnitLoadsPerTruck);
     result.reservationCoverage = matchDemand(result.reservationBook, result.demand.str);
     result.selectionWarnings = comboLanes(result.segregation);
     for (const InvariantViolation& violation : result.selectionViolations) {
@@ -378,8 +378,8 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
     add(overBudget, "routes whose method overran the time budget");
     add(lpCapped, "routes whose LP stopped at its simplex iteration cap");
 
-    // A floor eviction on a route that built every truck it was allowed is overflow, as
-    // OverReservation is; only one on a route with trucks still unbuilt is goods lost.
+    // A floor or unit-load-cap eviction on a route that built every truck it was allowed is
+    // overflow, as OverReservation is; only one on a route with trucks still unbuilt is goods lost.
     vector<char> itemOnRouteWithRoom(result.selectionItems.items.size(), 0);
     const vector<LaneRoute>& lanes = result.laneClassification.routes;
     for (const RouteOutcome& route : result.selectionPlan.routes) {
@@ -392,6 +392,7 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
     for (const LeftOverItem& left : result.selectionPlan.leftOver) {
         switch (left.reason) {
         case LeftOverReason::FloorEviction:
+        case LeftOverReason::UnitLoadCap:
             if (left.itemIndex < itemOnRouteWithRoom.size() && itemOnRouteWithRoom[left.itemIndex]) {
                 ++droppedByReason[left.reason];
             }

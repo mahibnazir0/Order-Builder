@@ -309,3 +309,43 @@ TEST_CASE("selector: an August day keeps every invariant, at one thread and four
         }
     }
 }
+
+// Three short unit loads to a stack: 30 positions of them is 90 unit loads, over the cap of 64.
+vector<SelectionItem> tripleStacks(size_t count) {
+    vector<SelectionItem> items = repeated(count, 0, 0, 900.0);
+    for (SelectionItem& item : items) {
+        item.unitLoads = 3.0;
+        item.lineIndices = {0, 0, 0};
+    }
+    return items;
+}
+
+TEST_CASE("selector: no truck is planned over maxUnitLoadsPerTruck, however the stacks fit the floor") {
+    const Day day = dayOf({group("2027")}, 1, tripleStacks(30), {reserved("2027", 2)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    for (const PlannedTruck& truck : selection.trucks) CHECK(truck.unitLoads <= 64.0 + kQuantityEpsilon);
+    CHECK(selection.leftOver.empty());
+    CHECK(selection.trucks.size() == 2);
+    CHECK(checkInvariants(day.run, day.book, day.items, selection, 64.0).empty());
+}
+
+TEST_CASE("selector: goods over the unit-load cap with no truck left are left over, named") {
+    const Day day = dayOf({group("2027")}, 1, tripleStacks(30), {reserved("2027", 1)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks.front().unitLoads == doctest::Approx(63.0));
+    CHECK(countReason(selection, LeftOverReason::UnitLoadCap) == 9);
+}
+
+TEST_CASE("selector: a unit-load cap that is not positive and finite is rejected") {
+    const Day day = dayOf({group("2027")}, 1, tripleStacks(2), {reserved("2027", 1)});
+    for (const double cap : {0.0, -64.0, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity()}) {
+        CAPTURE(cap);
+        SelectorSettings settings = selectorSettings();
+        settings.maxUnitLoadsPerTruck = cap;
+        CHECK_THROWS_AS(plan(day, settings), invalid_argument);
+    }
+}
+
