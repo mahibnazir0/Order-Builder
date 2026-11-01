@@ -13,6 +13,9 @@
 // A stack can carry lines of different ship dates and priorities, since M2
 // groups by lane, not date. The item ships by its earliest ship date, at its
 // most urgent priority, and cannot leave before its latest available date.
+// Shipping on the latest date instead would leave goods due in the window
+// behind; so its later lines go early with it, which is pull-forward (M6's
+// otherwise). daysPulledForward records how far, and the report prints it.
 //
 // Which end of TPRIO is most urgent is the customer's open question, so it is a
 // setting (selection.priorityZeroIsMostUrgent) applied here alone: each item's
@@ -61,6 +64,7 @@ struct SelectionItem {
     std::string productNumber;     // bottom line's MATNR, the tie-break after priority
     ShipTiming timing = ShipTiming::InWindow;
     bool mixesShipDates = false;
+    long long daysPulledForward = 0;     // from shipDate to its latest line's DATFR_TA
     bool availableAfterShipDate = false; // cannot ship on its own ship date
     bool unavailableInWindow = false;    // not available by the window's last ship date
 };
@@ -112,6 +116,8 @@ struct SelectionItems {
     std::vector<UnstackedLine> linesNotFullyStacked;
 
     std::size_t itemsMixingShipDates = 0;
+    double unitLoadsMixingShipDates = 0.0;   // what those items carry
+    long long mostDaysPulledForward = 0;      // the largest daysPulledForward of a routable item
     std::size_t partialItems = 0; // items whose unit loads are not a whole number
 };
 

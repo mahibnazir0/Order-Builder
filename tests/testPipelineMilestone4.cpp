@@ -368,6 +368,16 @@ TEST_CASE("pipelineM4: the report prints the priority direction under provisiona
     }
 }
 
+TEST_CASE("pipelineM4: the report names stacks mixing ship dates and how far their lines are pulled forward") {
+    SmallDay day("mixedDates");
+    const string report = reportOf(Pipeline::run(day.inputs));
+    const size_t provisional = report.find("PROVISIONAL BUSINESS RULES");
+    REQUIRE(provisional != string::npos);
+    CHECK(report.find("mixed ship dates") < provisional);
+    CHECK(report.find("later lines pulled forward up to") != string::npos);
+    CHECK(report.find("a stack ships on its earliest line's date", provisional) != string::npos);
+}
+
 TEST_CASE("pipelineM4: noCustomerNameInCode - no source file tests a customer's name") {
     // Comments may name the customer whose data a rule was measured on, and the report may say
     // "the customer"; code may not branch on which customer it is. A literal naming one

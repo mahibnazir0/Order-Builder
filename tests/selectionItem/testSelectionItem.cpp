@@ -258,7 +258,7 @@ TEST_CASE("selectionItem: same date and priority tie-break on product number") {
     CHECK(shipsBefore(second, first));
 }
 
-TEST_CASE("selectionItem: a stack mixing ship dates ships by its earliest") {
+TEST_CASE("selectionItem: a stack mixing ship dates ships by its earliest, its later lines pulled forward") {
     // One unit load each of two products, stacked on one floor position.
     const string products = kGoodProduct + "OTHER,Other,10,10,10,5,CS,2,4,2,8,TLD\n";
     DemandLine early, late;
@@ -278,7 +278,21 @@ TEST_CASE("selectionItem: a stack mixing ship dates ships by its earliest") {
     CHECK(item.shipDate == "2026-08-06");
     CHECK(item.availDate == "2026-08-05");
     CHECK(item.priority == 2);
+    CHECK(item.daysPulledForward == 1);
     CHECK(built.itemsMixingShipDates == 1);
+    CHECK(built.unitLoadsMixingShipDates == doctest::Approx(item.unitLoads));
+    CHECK(built.mostDaysPulledForward == 1);
+}
+
+TEST_CASE("selectionItem: a stack on one ship date pulls nothing forward") {
+    DemandLine line;
+    line.cases = 8.0;
+    const SelectionItems built = itemsFor({line}, kGoodProduct);
+    REQUIRE(built.items.size() == 1);
+    CHECK_FALSE(built.items.front().mixesShipDates);
+    CHECK(built.items.front().daysPulledForward == 0);
+    CHECK(built.itemsMixingShipDates == 0);
+    CHECK(built.mostDaysPulledForward == 0);
 }
 
 TEST_CASE("selectionItem: an unreadable priority rejects the item but keeps its goods counted") {

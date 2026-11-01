@@ -164,6 +164,10 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                      + " (CTL row " + count(book.window.ctlRowIndex)
                                      + (book.window.fromDatedRow ? ", dated the plan date)" : ", the plan date's weekday)"));
     printLine(out, "items", count(items.items.size()) + " stacks, each one floor position");
+    printLine(out, "mixed ship dates", count(items.itemsMixingShipDates) + " stacks, "
+                                           + grouped(items.unitLoadsMixingShipDates, 1)
+                                           + " unit loads; later lines pulled forward up to "
+                                           + to_string(items.mostDaysPulledForward) + " days");
     printLine(out, "routes", count(classification.routes.size()) + " group and ship-date routes");
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
@@ -245,6 +249,8 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                        + " trucks reserved are left to M5, unplanned");
     printLine(out, "variety ratio", "patternPacker above " + setting(context.routing.varietyRatio)
                                         + " unit loads per product, binPacker at or below");
+    printLine(out, "mixed ship dates", "a stack ships on its earliest line's date; its later lines go with it,"
+                                           " pulled forward (M2 stacks by lane, not date)");
     printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"
                                              " then the next; then most floor covered");
 

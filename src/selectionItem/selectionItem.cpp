@@ -104,6 +104,7 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 item.stackIndex = stackIndex;
                 item.copyIndex = copyIndex;
                 optional<pair<size_t, ItemRejection>> rejection;
+                string latestShipDate;
                 for (const size_t lineIndex : stack.lineIndices) {
                     if (lineIndex >= lines.size() || !figures[lineIndex]) {
                         throw invalid_argument("Stack " + to_string(stackIndex) + " of group "
@@ -135,6 +136,7 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                                         * line.metrics.unitLoadHeightIn;
                     item.footprintLongIn = max(item.footprintLongIn, line.longSideIn);
                     item.footprintShortIn = max(item.footprintShortIn, line.shortSideIn);
+                    latestShipDate = max(latestShipDate, demand.datfr_ta);
                     if (item.lineIndices.size() == 1) {
                         item.shipDate = demand.datfr_ta;
                         item.availDate = demand.avail_date;
@@ -168,7 +170,14 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 }
                 item.availableAfterShipDate = item.availDate > item.shipDate;
                 item.unavailableInWindow = item.availDate > window.lastShipDate;
-                if (item.mixesShipDates) ++result.itemsMixingShipDates;
+                if (item.mixesShipDates) {
+                    item.daysPulledForward = daysBetween(item.shipDate, latestShipDate);
+                    ++result.itemsMixingShipDates;
+                    result.unitLoadsMixingShipDates += item.unitLoads;
+                    if (item.timing != ShipTiming::Future) {
+                        result.mostDaysPulledForward = max(result.mostDaysPulledForward, item.daysPulledForward);
+                    }
+                }
                 if (fabs(item.unitLoads - round(item.unitLoads)) > kQuantityEpsilon) {
                     ++result.partialItems;
                 }
