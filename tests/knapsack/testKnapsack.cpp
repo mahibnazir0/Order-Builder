@@ -313,7 +313,7 @@ TEST_CASE("knapsack: August knapsack lanes fill their reserved trucks within cap
         CAPTURE(runIndex);
         const m4AugustTests::AugustItems& august = m4AugustTests::augustItems(runIndex);
         const LaneClassification classification =
-            classifyLanes(august.run, august.book, august.built, {20, 5.0});
+            classifyLanes(august.run, august.book, august.built, {20, 5.0, 0.84});
         const KnapsackCapacity capacity = capacityOf(august.run.trailer);
         for (const LaneRoute& route : classification.routes) {
             if (route.method != SolveMethod::Knapsack) continue;

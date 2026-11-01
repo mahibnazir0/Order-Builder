@@ -49,6 +49,7 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
     CHECK(params.selector.binPacker.simplexIterationLimit == 100'000);
     CHECK(params.routing.m5Threshold == 20);
+    CHECK(params.routing.fullCubeFraction == doctest::Approx(params.selector.floor.fullCubeFraction));
     CHECK(params.selector.knapsack.nodeLimit == 200'000);
     CHECK(params.selector.binPacker.maxSearchItems == 100);
     CHECK(params.selector.floor.allowRotation);

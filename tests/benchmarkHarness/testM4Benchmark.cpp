@@ -401,11 +401,11 @@ TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by
     REQUIRE(m4AugustTests::augustPresent());
     using Counts = map<SolveMethod, size_t>;
     const array<Counts, 3> expected{
-        Counts{{SolveMethod::Knapsack, 136}, {SolveMethod::PatternPacker, 13}, {SolveMethod::BinPacker, 10},
+        Counts{{SolveMethod::Knapsack, 138}, {SolveMethod::PatternPacker, 12}, {SolveMethod::BinPacker, 9},
                {SolveMethod::Unrouted, 386}, {SolveMethod::NoDemand, 12}},
-        Counts{{SolveMethod::Knapsack, 199}, {SolveMethod::PatternPacker, 41}, {SolveMethod::BinPacker, 22},
+        Counts{{SolveMethod::Knapsack, 201}, {SolveMethod::PatternPacker, 40}, {SolveMethod::BinPacker, 21},
                {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 219}, {SolveMethod::NoDemand, 26}},
-        Counts{{SolveMethod::Knapsack, 184}, {SolveMethod::PatternPacker, 50}, {SolveMethod::BinPacker, 35},
+        Counts{{SolveMethod::Knapsack, 187}, {SolveMethod::PatternPacker, 48}, {SolveMethod::BinPacker, 34},
                {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
     for (size_t run = 0; run < expected.size(); ++run) {
         const HeldDay& day = heldDays()[run];
