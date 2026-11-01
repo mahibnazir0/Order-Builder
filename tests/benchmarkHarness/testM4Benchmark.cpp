@@ -325,15 +325,89 @@ TEST_CASE("m4Benchmark: every item and reservation of every held extract is rout
     }
 }
 
-TEST_CASE("m4Benchmark: the August routes per method, as measured on 1 Nov" * doctest::skip()) {
+// Rev 8: higher priority ships first, and filling the truck wins. A group of a split lane-date
+// must not take a truck it fills under half while a sibling group, with goods at least as urgent,
+// leaves half a truck or more over the reservation.
+TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibling group's goods stay"
+          * doctest::skip()) {
+    auto urgencyOf = [](const SelectionItem& item) {
+        return make_tuple(item.timing != ShipTiming::Overdue, item.shipDate, item.priority);
+    };
+    size_t splitLaneDatesChecked = 0;
+    for (const HeldDay& day : heldDays()) {
+        CAPTURE(day.label);
+        const double truckFloor = day.run->trailer.interiorLengthIn * day.run->trailer.interiorWidthIn;
+        using LaneDate = tuple<string, string, string, string>;
+        auto laneDateOf = [&](size_t groupIndex, const string& shipDate) {
+            const GroupKey& key = day.run->segregation.groups[groupIndex].key;
+            return LaneDate{key.locationFrom, key.locationTo, key.shipCondition, shipDate};
+        };
+        map<size_t, size_t> routeOfItem;
+        for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
+            for (const size_t index : day.classification.routes[routeIndex].itemIndices) routeOfItem[index] = routeIndex;
+        }
+        // Per lane-date and group: the floor its goods left over the reservation take, and the most urgent of them.
+        map<pair<LaneDate, size_t>, pair<double, const SelectionItem*>> leftOverByGroup;
+        for (const LeftOverItem& left : day.plan.leftOver) {
+            if (left.reason != LeftOverReason::OverReservation) continue;
+            const SelectionItem& item = day.items.items[left.itemIndex];
+            const LaneRoute& route = day.classification.routes[routeOfItem.at(left.itemIndex)];
+            auto& [area, mostUrgent] = leftOverByGroup[{laneDateOf(route.groupIndex, route.shipDate), route.groupIndex}];
+            area += item.footprintLongIn * item.footprintShortIn;
+            if (!mostUrgent || urgencyOf(item) < urgencyOf(*mostUrgent)) mostUrgent = &item;
+        }
+        set<LaneDate> checked;
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            if (truck.areaSqIn >= 0.5 * truckFloor) continue;
+            const LaneDate laneDate = laneDateOf(truck.groupIndex, truck.shipDate);
+            const SelectionItem* truckMostUrgent = nullptr;
+            for (const size_t index : truck.items) {
+                if (!truckMostUrgent || urgencyOf(day.items.items[index]) < urgencyOf(*truckMostUrgent)) {
+                    truckMostUrgent = &day.items.items[index];
+                }
+            }
+            for (const auto& [groupKey, left] : leftOverByGroup) {
+                if (groupKey.first != laneDate || groupKey.second == truck.groupIndex) continue;
+                checked.insert(laneDate);
+                CAPTURE(get<0>(laneDate));
+                CAPTURE(get<1>(laneDate));
+                CAPTURE(get<3>(laneDate));
+                CHECK_FALSE((left.first >= 0.5 * truckFloor && !(urgencyOf(*truckMostUrgent) < urgencyOf(*left.second))));
+            }
+        }
+        splitLaneDatesChecked += checked.size();
+    }
+    MESSAGE("split lane-dates with a half-empty truck beside a sibling's left-over goods: " << splitLaneDatesChecked);
+}
+
+TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the group that fills it"
+          * doctest::skip()) {
+    const HeldDay& day = heldDays().front();
+    REQUIRE(day.label == "Aug4");
+    size_t routesSeen = 0;
+    for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
+        const LaneRoute& route = day.classification.routes[routeIndex];
+        const SegregatedGroup& group = day.run->segregation.groups[route.groupIndex];
+        if (group.key.locationFrom != "2027" || group.key.locationTo != "2031" || group.key.shipCondition != "TF"
+            || route.shipDate != "2026-08-06") {
+            continue;
+        }
+        ++routesSeen;
+        CAPTURE(group.key.segregant);
+        CHECK(day.plan.routes[routeIndex].trucksBuilt == (group.key.segregant == "S20" ? 1 : 0));
+    }
+    CHECK(routesSeen == 2);
+}
+
+TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by urgency" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     using Counts = map<SolveMethod, size_t>;
     const array<Counts, 3> expected{
-        Counts{{SolveMethod::Knapsack, 116}, {SolveMethod::PatternPacker, 30}, {SolveMethod::BinPacker, 13},
+        Counts{{SolveMethod::Knapsack, 136}, {SolveMethod::PatternPacker, 13}, {SolveMethod::BinPacker, 10},
                {SolveMethod::Unrouted, 386}, {SolveMethod::NoDemand, 12}},
-        Counts{{SolveMethod::Knapsack, 172}, {SolveMethod::PatternPacker, 59}, {SolveMethod::BinPacker, 31},
+        Counts{{SolveMethod::Knapsack, 199}, {SolveMethod::PatternPacker, 41}, {SolveMethod::BinPacker, 22},
                {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 219}, {SolveMethod::NoDemand, 26}},
-        Counts{{SolveMethod::Knapsack, 163}, {SolveMethod::PatternPacker, 65}, {SolveMethod::BinPacker, 41},
+        Counts{{SolveMethod::Knapsack, 184}, {SolveMethod::PatternPacker, 50}, {SolveMethod::BinPacker, 35},
                {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
     for (size_t run = 0; run < expected.size(); ++run) {
         const HeldDay& day = heldDays()[run];

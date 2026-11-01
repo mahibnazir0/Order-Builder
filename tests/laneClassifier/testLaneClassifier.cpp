@@ -162,6 +162,7 @@ TEST_CASE("laneClassifier: a reservation with no demand is a route with nothing 
     const LaneRoute route = onlyRoute(classify(run, {reserved("2027", "2026-08-07", 3)}, {}));
     CHECK(route.method == SolveMethod::NoDemand);
     CHECK(route.reservedTrucks == 3);
+    CHECK(route.trucksAllocated == 3);
     CHECK(route.shortLane);
 }
 
@@ -227,11 +228,65 @@ TEST_CASE("laneClassifier: underscoredLaneIsSegregationNotMultiStop") {
 TEST_CASE("laneClassifier: classifyPerGroup - groups of one lane can take different methods") {
     const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 9);
     vector<SelectionItem> items = repeated(40, 0, 0);
-    for (size_t product = 1; product < 9; ++product) items.push_back(item(1, product));
+    for (size_t product = 1; product < 9; ++product) {
+        const vector<SelectionItem> five = repeated(5, 1, product);
+        items.insert(items.end(), five.begin(), five.end());
+    }
     const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 4)}, items);
     REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 2);
+    CHECK(classification.routes[1].trucksAllocated == 2);
     CHECK(classification.routes[0].method == SolveMethod::PatternPacker);
     CHECK(classification.routes[1].method == SolveMethod::BinPacker);
+}
+
+TEST_CASE("laneClassifier: a split lane-date's one truck goes to the group with the more urgent goods") {
+    const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
+    vector<SelectionItem> items = repeated(30, 0, 0);
+    for (SelectionItem& lessUrgent : items) lessUrgent.priority = 5;
+    const vector<SelectionItem> urgent = repeated(3, 1, 1);
+    items.insert(items.end(), urgent.begin(), urgent.end());
+    const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 1)}, items);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 0);
+    CHECK(classification.routes[1].trucksAllocated == 1);
+    CHECK(classification.routes[0].demandAboveReservation);
+    CHECK(classification.routes[0].method == SolveMethod::Knapsack);
+}
+
+TEST_CASE("laneClassifier: an overdue load outranks a fuller one dated in the window") {
+    const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
+    vector<SelectionItem> items = repeated(3, 0, 0, "2026-08-05");
+    for (SelectionItem& overdue : items) overdue.timing = ShipTiming::Overdue;
+    const vector<SelectionItem> full = repeated(30, 1, 1);
+    items.insert(items.end(), full.begin(), full.end());
+    const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 1)}, items);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 1);
+    CHECK(classification.routes[1].trucksAllocated == 0);
+}
+
+TEST_CASE("laneClassifier: among equally urgent groups the truck goes to the one that fills it") {
+    const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
+    vector<SelectionItem> items = repeated(5, 0, 0);
+    const vector<SelectionItem> full = repeated(30, 1, 1);
+    items.insert(items.end(), full.begin(), full.end());
+    const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 1)}, items);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 0);
+    CHECK(classification.routes[1].trucksAllocated == 1);
+}
+
+TEST_CASE("laneClassifier: shares add up to the reservation, the spare going to the most urgent group") {
+    const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
+    vector<SelectionItem> items = repeated(3, 0, 0);
+    vector<SelectionItem> lessUrgent = repeated(3, 1, 1);
+    for (SelectionItem& one : lessUrgent) one.priority = 5;
+    items.insert(items.end(), lessUrgent.begin(), lessUrgent.end());
+    const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 4)}, items);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 3);
+    CHECK(classification.routes[1].trucksAllocated == 1);
 }
 
 TEST_CASE("laneClassifier: a lane reserved on two dates gets one route per date") {

@@ -110,8 +110,18 @@ public:
 
     BundleResult solve(const vector<size_t>& routeIndices) const {
         BundleResult bundle;
-        long long remaining = classification_.routes[routeIndices.front()].reservedTrucks;
-        for (const size_t routeIndex : routeIndices) {
+        // Each group may build its allocation plus what the groups solved before it left unbuilt.
+        // Most urgent goods first, as items are in selection order, so spare trucks pass down.
+        vector<size_t> solveOrder = routeIndices;
+        stable_sort(solveOrder.begin(), solveOrder.end(), [&](size_t left, size_t right) {
+            const vector<size_t>& leftItems = classification_.routes[left].itemIndices;
+            const vector<size_t>& rightItems = classification_.routes[right].itemIndices;
+            if (leftItems.empty() || rightItems.empty()) return !leftItems.empty() && rightItems.empty();
+            return leftItems.front() < rightItems.front();
+        });
+        long long spare = classification_.routes[routeIndices.front()].reservedTrucks;
+        for (const size_t routeIndex : routeIndices) spare -= classification_.routes[routeIndex].trucksAllocated;
+        for (const size_t routeIndex : solveOrder) {
             const LaneRoute& route = classification_.routes[routeIndex];
             RouteOutcome outcome;
             outcome.routeIndex = routeIndex;
@@ -127,12 +137,13 @@ public:
                 break;
             case SolveMethod::NoDemand:
                 outcome.status = RouteStatus::NoDemand;
-                outcome.trucksAllowed = remaining;
+                outcome.trucksAllowed = route.trucksAllocated + spare;
+                spare = outcome.trucksAllowed;
                 break;
             default:
-                outcome.trucksAllowed = remaining;
+                outcome.trucksAllowed = route.trucksAllocated + spare;
                 solveGroup(route, methodChain(route.method), outcome, bundle);
-                remaining -= outcome.trucksBuilt;
+                spare = outcome.trucksAllowed - outcome.trucksBuilt;
                 break;
             }
             bundle.built += outcome.trucksBuilt;

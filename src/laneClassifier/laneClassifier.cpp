@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <stdexcept>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -43,20 +45,113 @@ void validate(const LaneClassifierSettings& settings, const TrailerSpec& trailer
     }
 }
 
+// What goods take of one truck on each limit demand is estimated on.
+struct TruckShares {
+    double positions = 0.0;
+    double weight = 0.0;
+    double cube = 0.0;
+
+    double largest() const { return max({positions, weight, cube}); }
+    TruckShares& operator+=(const TruckShares& other) {
+        positions += other.positions;
+        weight += other.weight;
+        cube += other.cube;
+        return *this;
+    }
+};
+
+TruckShares sharesOf(const SelectionItem& item, const TrailerSpec& trailer) {
+    const double trailerCube = trailer.interiorLengthIn * trailer.interiorWidthIn * trailer.stackHeightCeilingIn;
+    return {item.positions / static_cast<double>(trailer.stackPositions), item.weightLb / trailer.weightLimitLb,
+            item.cubeCubicIn / trailerCube};
+}
+
 long long demandTrucks(const vector<size_t>& itemIndices, const SelectionItems& items,
                        const TrailerSpec& trailer) {
-    double positions = 0.0, weightLb = 0.0, cubeCubicIn = 0.0;
-    for (const size_t index : itemIndices) {
+    TruckShares total;
+    for (const size_t index : itemIndices) total += sharesOf(items.items[index], trailer);
+    return static_cast<long long>(ceil(total.largest() - kQuantityEpsilon));
+}
+
+// One truckload of a route's goods, as its lane-date's reservation is dealt out.
+struct EstimatedLoad {
+    size_t routeIndex = 0;
+    size_t sequence = 0;    // its place among the route's loads
+    bool overdue = false;   // of its most urgent item
+    string shipDate;
+    int priority = 0;
+    double fill = 0.0;      // its largest share of a truck
+};
+
+auto urgencyOf(const EstimatedLoad& load) { return make_tuple(!load.overdue, cref(load.shipDate), load.priority); }
+
+// The route's items in order, cut into a new load wherever the next item would take the open one
+// past a truck on positions, payload or cube.
+void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const SelectionItems& items,
+                          const TrailerSpec& trailer, vector<EstimatedLoad>& loads) {
+    optional<EstimatedLoad> open;
+    TruckShares openShares;
+    size_t sequence = 0;
+    for (const size_t index : route.itemIndices) {
         const SelectionItem& item = items.items[index];
-        positions += item.positions;
-        weightLb += item.weightLb;
-        cubeCubicIn += item.cubeCubicIn;
+        const TruckShares shares = sharesOf(item, trailer);
+        if (open && (openShares.positions + shares.positions > 1.0 + kQuantityEpsilon
+                     || openShares.weight + shares.weight > 1.0 + kQuantityEpsilon
+                     || openShares.cube + shares.cube > 1.0 + kQuantityEpsilon)) {
+            open->fill = openShares.largest();
+            loads.push_back(std::move(*open));
+            open.reset();
+            openShares = {};
+        }
+        EstimatedLoad itemLoad{routeIndex, sequence, item.timing == ShipTiming::Overdue, item.shipDate, item.priority, 0.0};
+        if (!open) {
+            open = std::move(itemLoad);
+            ++sequence;
+        } else if (urgencyOf(itemLoad) < urgencyOf(*open)) {
+            open->overdue = itemLoad.overdue;
+            open->shipDate = itemLoad.shipDate;
+            open->priority = itemLoad.priority;
+        }
+        openShares += shares;
     }
-    const double trailerCube = trailer.interiorLengthIn * trailer.interiorWidthIn
-                               * trailer.stackHeightCeilingIn;
-    const double trucks = max({positions / trailer.stackPositions, weightLb / trailer.weightLimitLb,
-                               cubeCubicIn / trailerCube});
-    return static_cast<long long>(ceil(trucks - kQuantityEpsilon));
+    if (open) {
+        open->fill = openShares.largest();
+        loads.push_back(std::move(*open));
+    }
+}
+
+// Rule 2: each lane-date's reserved trucks go one estimated load at a time, most urgent first
+// and, among equally urgent, fullest first, so a group with a thin load never takes a truck
+// another group's urgent or fuller goods need (spec: higher priority ships first; filling the
+// truck wins). Trucks beyond every load go to the route holding the most urgent load, or to the
+// first route when none has demand, so the shares always add up to the reservation.
+void allocateReservations(vector<LaneRoute>& routes, const vector<SegregatedGroup>& groups,
+                          const SelectionItems& items, const TrailerSpec& trailer) {
+    map<pair<string, string>, vector<size_t>> routesByLaneDate;
+    for (size_t routeIndex = 0; routeIndex < routes.size(); ++routeIndex) {
+        const LaneRoute& route = routes[routeIndex];
+        if (route.reservedTrucks > 0) {
+            routesByLaneDate[{laneKeyOf(groups[route.groupIndex]), route.shipDate}].push_back(routeIndex);
+        }
+    }
+    for (const auto& [laneDate, routeIndices] : routesByLaneDate) {
+        vector<EstimatedLoad> loads;
+        for (const size_t routeIndex : routeIndices) {
+            appendEstimatedLoads(routeIndex, routes[routeIndex], items, trailer, loads);
+        }
+        if (loads.empty()) {
+            routes[routeIndices.front()].trucksAllocated = routes[routeIndices.front()].reservedTrucks;
+            continue;
+        }
+        sort(loads.begin(), loads.end(), [](const EstimatedLoad& left, const EstimatedLoad& right) {
+            return tuple_cat(urgencyOf(left), make_tuple(-left.fill, left.routeIndex, left.sequence))
+                   < tuple_cat(urgencyOf(right), make_tuple(-right.fill, right.routeIndex, right.sequence));
+        });
+        const long long reserved = routes[routeIndices.front()].reservedTrucks;
+        const size_t dealt = min(loads.size(), static_cast<size_t>(reserved));
+        for (size_t load = 0; load < dealt; ++load) ++routes[loads[load].routeIndex].trucksAllocated;
+        routes[loads.front().routeIndex].trucksAllocated += reserved - static_cast<long long>(dealt);
+    }
 }
 
 SolveMethod byVariety(double unitLoads, size_t distinctProducts, const LaneClassifierSettings& settings) {
@@ -155,15 +250,20 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
         }
         route.distinctProducts = products.size();
         route.demandTrucks = demandTrucks(itemIndices, items, run.trailer);
-        route.demandAboveReservation = route.demandTrucks > route.reservedTrucks;
-        route.shortLane = route.demandTrucks < route.reservedTrucks;
+        route.itemIndices = std::move(itemIndices);
+        classification.routes.push_back(std::move(route));
+    }
 
-        if (itemIndices.empty()) {
+    allocateReservations(classification.routes, groups, items, run.trailer);
+    for (LaneRoute& route : classification.routes) {
+        route.demandAboveReservation = route.demandTrucks > route.trucksAllocated;
+        route.shortLane = route.demandTrucks < route.trucksAllocated;
+        if (route.itemIndices.empty()) {
             route.method = SolveMethod::NoDemand;
         } else if (route.reservedTrucks == 0) {
             route.method = SolveMethod::Unrouted;
         } else {
-            route.method = route.reservedTrucks == 1 || route.demandAboveReservation
+            route.method = route.trucksAllocated <= 1 || route.demandAboveReservation
                 ? SolveMethod::Knapsack
                 : byVariety(route.unitLoads, route.distinctProducts, settings);
             if (route.reservedTrucks > settings.m5Threshold) {
@@ -171,8 +271,6 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
                 route.method = SolveMethod::M5;
             }
         }
-        route.itemIndices = std::move(itemIndices);
-        classification.routes.push_back(std::move(route));
     }
     return classification;
 }

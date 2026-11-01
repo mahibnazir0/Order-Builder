@@ -6,7 +6,7 @@
 //
 // A route is benchmarked by solving it alone with each method, exactly as the
 // selector would (solveRoute: the method, then the floor, fill and weight
-// passes), allowed the trucks it reserved. A method is ranked only when it ran
+// passes), allowed its share of the lane-date's reservation. A method is ranked only when it ran
 // and finished within the per-lane budget; among those the best ships the most
 // unit loads (fullness beats truck count), then uses the fewest trucks, then
 // leaves the least rear waste. Ties go to the earlier method in

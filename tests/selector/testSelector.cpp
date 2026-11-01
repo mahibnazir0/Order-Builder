@@ -180,6 +180,34 @@ TEST_CASE("selector: a split lane never takes more trucks than it reserved; the 
     CHECK(selection.reservations[0].built == 1);
 }
 
+TEST_CASE("selector: a split lane's one truck carries the more urgent group, whichever is listed first") {
+    vector<SelectionItem> items = repeated(3, 0, 0);
+    for (SelectionItem& lessUrgent : items) lessUrgent.priority = 5;
+    const vector<SelectionItem> urgent = repeated(3, 1, 1);
+    items.insert(items.end(), urgent.begin(), urgent.end());
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 1)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].groupIndex == 1);
+    CHECK(countReason(selection, LeftOverReason::OverReservation) == 3);
+}
+
+TEST_CASE("selector: a truck a more urgent group leaves unbuilt passes to the next group") {
+    vector<SelectionItem> items = repeated(3, 0, 0);
+    vector<SelectionItem> lessUrgent = repeated(3, 1, 1);
+    for (SelectionItem& one : lessUrgent) one.priority = 5;
+    items.insert(items.end(), lessUrgent.begin(), lessUrgent.end());
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 4)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(selection.routes[0].trucksAllowed == 3);
+    CHECK(selection.routes[0].trucksBuilt == 1);
+    CHECK(selection.routes[1].trucksAllowed == 3);
+    CHECK(selection.trucks.size() == 2);
+    CHECK(selection.reservations[0].built == 2);
+}
+
 TEST_CASE("selector: fourFullBeatsFiveWithPenalty - four trucks are built and the fifth reported") {
     const Day day = dayOf({group("2027")}, 1, repeated(120, 0, 0), {reserved("2027", 5)});
     const SelectionPlan selection = plan(day);

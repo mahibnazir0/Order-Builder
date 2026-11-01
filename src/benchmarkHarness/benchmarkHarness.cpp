@@ -79,7 +79,7 @@ RouteBenchmark benchmarkRoute(const PipelineResult& run, const SelectionItems& i
     RouteBenchmark benchmark;
     benchmark.routeIndex = routeIndex;
     benchmark.routedTo = route.method;
-    benchmark.reserved = route.reservedTrucks;
+    benchmark.reserved = route.trucksAllocated;
     benchmark.products = route.distinctProducts;
     benchmark.unitLoads = route.unitLoads;
     benchmark.unitLoadsPerProduct =
@@ -87,7 +87,7 @@ RouteBenchmark benchmarkRoute(const PipelineResult& run, const SelectionItems& i
 
     for (const PackingMethod method : benchmarkedMethods()) {
         const RouteSolution solution =
-            solveRoute(run, items, classification, routeIndex, {method}, route.reservedTrucks, settings);
+            solveRoute(run, items, classification, routeIndex, {method}, route.trucksAllocated, settings);
         MethodScore score;
         score.method = method;
         const MethodAttempt& attempt = solution.outcome.attempts.front();

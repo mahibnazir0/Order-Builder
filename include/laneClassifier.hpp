@@ -9,8 +9,12 @@
 //   1. segregation: a group split from its lane by a live do-not-mix pair, or
 //      any group of a lane split that way, takes the conflicts variant of its
 //      method (its trucks never carry another group)
-//   2. the reservation: no truck reserved means no route; one truck reserved,
-//      or demand above the reservation, is a selection problem -> knapsack
+//   2. the reservation: no truck reserved means no route. The groups of a lane
+//      share its lane-date reservation, dealt out one estimated truckload at a
+//      time to the most urgent goods (overdue, ship date, priority) and, among
+//      equally urgent, the fullest load; what is left goes to the group with the
+//      most urgent load. One truck allocated, or demand above the allocation,
+//      is a selection problem -> knapsack
 //   3. variety: unit loads per distinct product above varietyRatio (few
 //      products, many units) -> patternPacker, otherwise binPacker. Measured
 //      lanes of 1-3 products fall on the first side and of 11+ on the second;
@@ -63,16 +67,18 @@ struct LaneRoute {
     std::size_t groupIndex = 0;     // into PipelineResult::segregation.groups
     std::string shipDate;
     long long reservedTrucks = 0;   // the lane's reservation on shipDate
-    // Groups of this lane drawing on the same reservation. Above 1, the reservation is not yet
-    // divided between them.
+    // Groups of this lane drawing on the same reservation.
     std::size_t groupsSharingReservation = 1;
+    // This group's share of reservedTrucks (rule 2). The shares of a lane-date add up to its
+    // reservation.
+    long long trucksAllocated = 0;
     std::vector<std::size_t> itemIndices; // into SelectionItems::items, in selection order
     double unitLoads = 0.0;
     std::size_t distinctProducts = 0;
     // The fewest trucks the items could need, on positions, weight or cube alone.
     long long demandTrucks = 0;
-    bool demandAboveReservation = false;
-    bool shortLane = false;          // demand below the reservation: trucks will go unused
+    bool demandAboveReservation = false;  // above trucksAllocated
+    bool shortLane = false;          // demand below trucksAllocated: trucks will go unused
     ConflictReason conflict = ConflictReason::None;
     SolveMethod method = SolveMethod::Unrouted;
     // For a route escalated to M5, the method it would otherwise have used.
