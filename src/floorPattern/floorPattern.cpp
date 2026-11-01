@@ -49,39 +49,55 @@ public:
     // The best row these members can form, or nullopt when no allowed pattern holds them.
     optional<FloorRow> best(const vector<size_t>& members) const {
         optional<FloorRow> chosen;
-        auto consider = [&](FloorRow row) {
+        forEachCandidate(members, [&](FloorRow row) {
             if (!fitsWithin(row.widthIn, widthIn_)) return;
-            row.loneTopPallet = hasLoneTop(row);
             if (!chosen || betterRow(row, *chosen)) chosen = std::move(row);
+        });
+        return chosen;
+    }
+
+    vector<FloorRow> candidates(const vector<size_t>& members) const {
+        vector<FloorRow> rows;
+        forEachCandidate(members, [&](FloorRow row) { rows.push_back(std::move(row)); });
+        return rows;
+    }
+
+private:
+    // Hands `consider` every row the allowed patterns form from the members, too wide or not.
+    template <typename Consider>
+    void forEachCandidate(const vector<size_t>& members, Consider&& consider) const {
+        auto offer = [&](FloorRow row) {
+            row.loneTopPallet = hasLoneTop(row);
+            consider(std::move(row));
         };
         switch (members.size()) {
         case 1: {
             const size_t only = members[0];
             if (allows(FloorPatternKind::Single, false) && fitsWithin(longOf(only), widthIn_)) {
-                consider(makeRow(FloorPatternKind::Single, {{only, false}}));
+                offer(makeRow(FloorPatternKind::Single, {{only, false}}));
             } else if (allows(FloorPatternKind::Single, true)) {
-                consider(makeRow(FloorPatternKind::Single, {{only, true}}));
+                offer(makeRow(FloorPatternKind::Single, {{only, true}}));
             }
             break;
         }
         case 2: {
             const size_t first = members[0], second = members[1];
             if (allows(FloorPatternKind::WideWide, false)) {
-                consider(makeRow(FloorPatternKind::WideWide, {{first, false}, {second, false}}));
+                offer(makeRow(FloorPatternKind::WideWide, {{first, false}, {second, false}}));
             }
             if (allows(FloorPatternKind::WideNarrow, true) && allows(FloorPatternKind::WideNarrow, false)) {
-                consider(makeRow(FloorPatternKind::WideNarrow, {{first, false}, {second, true}}));
-                consider(makeRow(FloorPatternKind::WideNarrow, {{first, true}, {second, false}}));
+                offer(makeRow(FloorPatternKind::WideNarrow, {{first, false}, {second, true}}));
+                offer(makeRow(FloorPatternKind::WideNarrow, {{first, true}, {second, false}}));
             }
             if (allows(FloorPatternKind::NarrowNarrow, true)) {
-                consider(makeRow(FloorPatternKind::NarrowNarrow, {{first, true}, {second, true}}));
+                offer(makeRow(FloorPatternKind::NarrowNarrow, {{first, true}, {second, true}}));
             }
             break;
         }
         case 3:
             if (allows(FloorPatternKind::ThreeAcross, true)) {
-                consider(makeRow(FloorPatternKind::ThreeAcross,
-                                 {{members[0], true}, {members[1], true}, {members[2], true}}));
+                offer(makeRow(FloorPatternKind::ThreeAcross,
+                              {{members[0], true}, {members[1], true}, {members[2], true}}));
             }
             break;
         case 4:
@@ -89,17 +105,15 @@ public:
                 array<size_t, 4> order{members[0], members[1], members[2], members[3]};
                 sort(order.begin(), order.end());
                 do {
-                    if (auto row = pinwheel(order)) consider(std::move(*row));
+                    if (auto row = pinwheel(order)) offer(std::move(*row));
                 } while (next_permutation(order.begin(), order.end()));
             }
             break;
         default:
             break;
         }
-        return chosen;
     }
 
-private:
     double longOf(size_t item) const { return items_[item].longSideIn; }
     double shortOf(size_t item) const { return items_[item].shortSideIn; }
     double acrossOf(const FloorPlacement& placement) const {
@@ -394,6 +408,25 @@ FloorLayout arrangeFloor(const vector<FloorItem>& items, const TrailerSpec& trai
     }
     return placeableCount <= kExactFloorItems ? arrangeFloorExact(items, trailer, settings)
                                               : arrangeFloorSorted(items, trailer, settings);
+}
+
+vector<FloorRow> candidateRows(const vector<FloorItem>& items, const vector<size_t>& members,
+                               const TrailerSpec& trailer, const FloorPatternSettings& settings) {
+    validate(items, trailer, settings);
+    if (members.empty() || members.size() > 4) {
+        throw invalid_argument("A floor row holds one to four items, given " + to_string(members.size()));
+    }
+    for (size_t position = 0; position < members.size(); ++position) {
+        if (members[position] >= items.size()) {
+            throw invalid_argument("Floor row member " + to_string(members[position]) + " is not one of "
+                                   + to_string(items.size()) + " items");
+        }
+        if (find(members.begin(), members.begin() + static_cast<ptrdiff_t>(position), members[position])
+            != members.begin() + static_cast<ptrdiff_t>(position)) {
+            throw invalid_argument("Floor row member " + to_string(members[position]) + " is listed twice");
+        }
+    }
+    return RowBuilder(items, trailer.interiorWidthIn, settings).candidates(members);
 }
 
 bool twoAcrossFits(double longSideIn, double shortSideIn, double trailerWidthIn) {

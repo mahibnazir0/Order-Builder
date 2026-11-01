@@ -196,6 +196,76 @@ TEST_CASE("floorPattern: rotationOffRestrictsPatterns") {
     CHECK(arranged(copies(footprint(52, 40), 4)).usedLengthIn == doctest::Approx(92.0));
 }
 
+TEST_CASE("floorPattern: candidateRows lists the rows weighed, and arrangeFloor keeps the shortest that fits") {
+    const vector<FloorItem> pair = copies(footprint(48, 40), 2);
+    const vector<FloorRow> rows = candidateRows(pair, {0, 1}, kTrailer, defaultSettings());
+    REQUIRE(rows.size() == 4);
+    CHECK(rows[0].pattern == FloorPatternKind::WideWide);
+    CHECK(rows[0].depthIn == doctest::Approx(40.0));
+    CHECK(rows[0].widthIn == doctest::Approx(96.0));
+    CHECK(rows[1].pattern == FloorPatternKind::WideNarrow);
+    CHECK(rows[1].depthIn == doctest::Approx(48.0));
+    CHECK(rows[1].widthIn == doctest::Approx(88.0));
+    CHECK(rows[2].pattern == FloorPatternKind::WideNarrow);
+    CHECK(rows[3].pattern == FloorPatternKind::NarrowNarrow);
+    CHECK(rows[3].depthIn == doctest::Approx(48.0));
+    CHECK(rows[3].widthIn == doctest::Approx(80.0));
+    const FloorLayout layout = arranged(pair);
+    REQUIRE(layout.rows.size() == 1);
+    CHECK(layout.rows[0].pattern == FloorPatternKind::WideWide);
+    CHECK(layout.rows[0].depthIn == doctest::Approx(40.0));
+}
+
+TEST_CASE("floorPattern: candidateRows keeps a row too wide for the trailer, which arrangeFloor never builds") {
+    const vector<FloorItem> pair = copies(footprint(52, 40), 2);
+    const vector<FloorRow> rows = candidateRows(pair, {0, 1}, kTrailer, defaultSettings());
+    REQUIRE_FALSE(rows.empty());
+    CHECK(rows[0].pattern == FloorPatternKind::WideWide);
+    CHECK(rows[0].widthIn == doctest::Approx(104.0));
+    CHECK(arranged(pair).rows[0].pattern != FloorPatternKind::WideWide);
+}
+
+TEST_CASE("floorPattern: candidateRows lists the pinwheels of four 52 x 40, the shortest 92 in deep") {
+    const vector<FloorRow> rows = candidateRows(copies(footprint(52, 40), 4), {0, 1, 2, 3}, kTrailer, defaultSettings());
+    REQUIRE_FALSE(rows.empty());
+    CHECK(all_of(rows.begin(), rows.end(), [](const FloorRow& row) { return row.pattern == FloorPatternKind::Pinwheel; }));
+    const auto shortest = min_element(rows.begin(), rows.end(),
+                                      [](const FloorRow& left, const FloorRow& right) { return left.depthIn < right.depthIn; });
+    CHECK(shortest->depthIn == doctest::Approx(92.0));
+}
+
+TEST_CASE("floorPattern: candidateRows weighs only the fixed side's patterns when pallets cannot turn") {
+    FloorPatternSettings longAcross = defaultSettings();
+    longAcross.allowRotation = false;
+    const vector<FloorRow> wide = candidateRows(copies(footprint(48, 40), 2), {0, 1}, kTrailer, longAcross);
+    REQUIRE(wide.size() == 1);
+    CHECK(wide[0].pattern == FloorPatternKind::WideWide);
+    FloorPatternSettings shortAcross = longAcross;
+    shortAcross.fixedOrientation = FixedOrientation::ShortSideAcross;
+    const vector<FloorRow> narrow = candidateRows(copies(footprint(48, 40), 2), {0, 1}, kTrailer, shortAcross);
+    REQUIRE(narrow.size() == 1);
+    CHECK(narrow[0].pattern == FloorPatternKind::NarrowNarrow);
+    CHECK(candidateRows(copies(footprint(52, 40), 4), {0, 1, 2, 3}, kTrailer, longAcross).empty());
+}
+
+TEST_CASE("floorPattern: candidateRows flags a row whose members stand at different levels") {
+    const vector<FloorItem> mixed{footprint(48, 40, 2), footprint(48, 40, 1)};
+    const vector<FloorRow> rows = candidateRows(mixed, {0, 1}, kTrailer, defaultSettings());
+    REQUIRE_FALSE(rows.empty());
+    CHECK(all_of(rows.begin(), rows.end(), [](const FloorRow& row) { return row.loneTopPallet; }));
+    CHECK_FALSE(candidateRows(copies(footprint(48, 40, 2), 2), {0, 1}, kTrailer, defaultSettings())[0].loneTopPallet);
+}
+
+TEST_CASE("floorPattern: candidateRows rejects no members, five, one out of range or repeated, and a bad item") {
+    const vector<FloorItem> five = copies(footprint(48, 40), 5);
+    CHECK_THROWS_AS(candidateRows(five, {}, kTrailer, defaultSettings()), invalid_argument);
+    CHECK_THROWS_AS(candidateRows(five, {0, 1, 2, 3, 4}, kTrailer, defaultSettings()), invalid_argument);
+    CHECK_THROWS_AS(candidateRows(five, {0, 5}, kTrailer, defaultSettings()), invalid_argument);
+    CHECK_THROWS_AS(candidateRows(five, {1, 1}, kTrailer, defaultSettings()), invalid_argument);
+    CHECK_THROWS_AS(candidateRows({footprint(numeric_limits<double>::quiet_NaN(), 40)}, {0}, kTrailer, defaultSettings()),
+                    invalid_argument);
+}
+
 TEST_CASE("floorPattern: rotation off with a footprint wider than the trailer leaves it unplaceable") {
     FloorPatternSettings longAcross = defaultSettings();
     longAcross.allowRotation = false;

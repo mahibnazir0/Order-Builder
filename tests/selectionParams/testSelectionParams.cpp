@@ -53,6 +53,7 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.selector.knapsack.nodeLimit == 200'000);
     CHECK(params.selector.binPacker.maxSearchItems == 100);
     CHECK(params.selector.floor.allowRotation);
+    CHECK(params.selector.floor.fixedOrientation == FixedOrientation::LongSideAcross);
     CHECK_FALSE(params.selector.floor.maxPositions);
     CHECK(params.selector.floor.allowedPatterns.size() == 6);
     CHECK(params.selector.threads == 4);

@@ -4,16 +4,23 @@
 #include "../m4SyntheticDay.hpp"
 #include "benchmarkHarness.hpp"
 #include "converter.hpp"
+#include "floorPattern.hpp"
+#include "isoDate.hpp"
 #include "stackRules.hpp"
 #include "reportFormat.hpp"
+#include "selectionParams.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <set>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -153,20 +160,30 @@ struct ClientDay {
     size_t shippedLinesInDemand = 0;  // the share his loads drew from this run's demand
 };
 
+// The master row a line of the client's load was loaded in: its product in its unit.
+const ProductRecord& clientLineProduct(const InputTruck& truck, const InputTruckLine& line, const PipelineResult& pipeline) {
+    const vector<ProductRecord>& rows = pipeline.index.at(line.matnr);
+    const auto product = find_if(rows.begin(), rows.end(),
+                                 [&](const ProductRecord& row) { return row.uom == line.unitOfMeasure; });
+    if (product == rows.end()) throw runtime_error("client load " + truck.id + ": no " + line.unitOfMeasure + " row for " + line.matnr);
+    return *product;
+}
+
+double clientLineUnitLoads(const InputTruck& truck, const InputTruckLine& line, const PipelineResult& pipeline) {
+    return Converter::to_pallets(line.quantity, line.unitOfMeasure, clientLineProduct(truck, line, pipeline));
+}
+
 // What one of the client's loads carries: each line's unit loads times its unit load's footprint
 // and height, from the product master exactly as our items are measured.
 double clientCargoCubicIn(const InputTruck& truck, const PipelineResult& pipeline) {
     double cubicIn = 0.0;
     for (const InputTruckLine& line : truck.lines) {
-        const vector<ProductRecord>& rows = pipeline.index.at(line.matnr);
-        const auto product = find_if(rows.begin(), rows.end(),
-                                     [&](const ProductRecord& row) { return row.uom == line.unitOfMeasure; });
-        const optional<PalletSpec> pallet =
-            product == rows.end() ? nullopt : resolvePalletSpec(*product, pipeline.params);
+        const ProductRecord& product = clientLineProduct(truck, line, pipeline);
+        const optional<PalletSpec> pallet = resolvePalletSpec(product, pipeline.params);
         if (!pallet) throw runtime_error("client load " + truck.id + ": no pallet for " + line.matnr);
-        const UnitLoadFootprint footprint = unitLoadFootprint(*product, *pallet, pipeline.params.footprintRule);
-        cubicIn += Converter::to_pallets(line.quantity, line.unitOfMeasure, *product) * footprint.longSideIn
-                   * footprint.shortSideIn * unitLoadHeightIn(*product, *pallet, pipeline.params);
+        const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet, pipeline.params.footprintRule);
+        cubicIn += Converter::to_pallets(line.quantity, line.unitOfMeasure, product) * footprint.longSideIn
+                   * footprint.shortSideIn * unitLoadHeightIn(product, *pallet, pipeline.params);
     }
     return cubicIn;
 }
@@ -262,6 +279,227 @@ LargestLane largestClientLane(size_t run, size_t rank) {
 
 string percentOf(size_t part, size_t whole) {
     return fixed(whole == 0 ? 0.0 : 100.0 * static_cast<double>(part) / static_cast<double>(whole), 1) + "%";
+}
+
+string percentOf(double part, double whole) { return fixed(whole <= 0.0 ? 0.0 : 100.0 * part / whole, 1) + "%"; }
+
+bool fitsTrailerWidth(const FloorRow& row, const TrailerSpec& trailer) {
+    return row.widthIn <= trailer.interiorWidthIn + kQuantityEpsilon;
+}
+
+// Per route: whether it left goods over a full truck. Its trucks stopped for want of room; the
+// other routes' trucks ran out of goods first.
+vector<char> routesLeavingGoods(const HeldDay& day) {
+    const size_t routes = day.classification.routes.size();
+    vector<size_t> routeOfItem(day.items.items.size(), routes);
+    for (size_t route = 0; route < routes; ++route) {
+        for (const size_t index : day.classification.routes[route].itemIndices) routeOfItem[index] = route;
+    }
+    vector<char> leaving(routes, 0);
+    for (const LeftOverItem& left : day.plan.leftOver) {
+        if (left.reason == LeftOverReason::OverReservation || left.reason == LeftOverReason::FloorEviction
+            || left.reason == LeftOverReason::UnitLoadCap) {
+            leaving[routeOfItem[left.itemIndex]] = 1;
+        }
+    }
+    return leaving;
+}
+
+struct RowCounts {
+    map<FloorPatternKind, size_t> rowsByPattern;
+    size_t rows = 0;
+    size_t turnedItems = 0;
+    double usedLengthIn = 0.0;
+    double footprintLengthIn = 0.0;  // the trucks' footprints packed edge to edge across the width
+};
+
+RowCounts rowCounts(const HeldDay& day) {
+    RowCounts counts;
+    for (const PlannedTruck& truck : day.plan.trucks) {
+        for (const FloorRow& row : truck.floor.rows) ++counts.rowsByPattern[row.pattern];
+        counts.rows += truck.floor.rows.size();
+        counts.turnedItems += static_cast<size_t>(truck.floor.turnedItems);
+        counts.usedLengthIn += truck.floor.usedLengthIn;
+        for (const size_t index : truck.items) {
+            const SelectionItem& item = day.items.items[index];
+            counts.footprintLengthIn += item.footprintLongIn * item.footprintShortIn / day.run->trailer.interiorWidthIn;
+        }
+    }
+    return counts;
+}
+
+size_t trucksCarryingStacks(const HeldDay& day, size_t levels) {
+    return static_cast<size_t>(count_if(day.plan.trucks.begin(), day.plan.trucks.end(), [&](const PlannedTruck& truck) {
+        return any_of(truck.items.begin(), truck.items.end(),
+                      [&](size_t index) { return day.items.items[index].lineIndices.size() >= levels; });
+    }));
+}
+
+// The client's loads set against our plan line by line: how far each load's date lies from the
+// line's DATFR_TA, and where the line's goods are in our plan, judged by its first item.
+struct ClientLinesAgainstOurs {
+    map<long long, double> unitLoadsByDaysFromShipDate;
+    map<string, double> unitLoadsByOurState;
+    double unitLoads = 0.0;
+    double unitLoadsAfterDeliveryDate = 0.0;  // loaded after the line's DATTO_TA
+};
+
+ClientLinesAgainstOurs clientLinesAgainstOurs(const HeldDay& day, const ClientDay& client) {
+    const PipelineResult& run = *day.run;
+    const vector<JoinedLine>& lines = run.join.lines;
+    unordered_map<string, size_t> lineByIdpr;
+    lineByIdpr.reserve(lines.size());
+    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) lineByIdpr.emplace(lines[lineIndex].str->idpr, lineIndex);
+    const size_t noItem = day.items.items.size();
+    vector<size_t> firstItemOfLine(lines.size(), noItem);
+    for (size_t index = 0; index < day.items.items.size(); ++index) {
+        for (const size_t lineIndex : day.items.items[index].lineIndices) {
+            if (firstItemOfLine[lineIndex] == noItem) firstItemOfLine[lineIndex] = index;
+        }
+    }
+    vector<const PlannedTruck*> truckOfItem(day.items.items.size(), nullptr);
+    for (const PlannedTruck& truck : day.plan.trucks) {
+        for (const size_t index : truck.items) truckOfItem[index] = &truck;
+    }
+    vector<optional<LeftOverReason>> leftOverReasonOf(day.items.items.size());
+    for (const LeftOverItem& left : day.plan.leftOver) leftOverReasonOf[left.itemIndex] = left.reason;
+
+    ClientLinesAgainstOurs result;
+    for (const auto& laneDay : client.achieved.laneDays) {
+        for (const size_t truckIndex : laneDay.truckIndices) {
+            const InputTruck& load = client.achieved.trucks[truckIndex];
+            for (const InputTruckLine& line : load.lines) {
+                const double unitLoads = clientLineUnitLoads(load, line, run);
+                result.unitLoads += unitLoads;
+                const auto found = lineByIdpr.find(line.idpr);
+                if (found == lineByIdpr.end()) {
+                    result.unitLoadsByOurState["not a line of this run"] += unitLoads;
+                    continue;
+                }
+                const STRRecord& demand = *lines[found->second].str;
+                result.unitLoadsByDaysFromShipDate[daysBetween(demand.datfr_ta, load.shipDate)] += unitLoads;
+                if (load.shipDate > demand.datto_ta) result.unitLoadsAfterDeliveryDate += unitLoads;
+                const size_t item = firstItemOfLine[found->second];
+                string state;
+                if (item == noItem) {
+                    state = "no item: rejected or not stacked";
+                } else if (truckOfItem[item]) {
+                    state = truckOfItem[item]->shipDate == load.shipDate ? "on our truck, his date" : "on our truck, another date";
+                } else if (leftOverReasonOf[item]) {
+                    state = string("left: ") + leftOverReasonName(*leftOverReasonOf[item]);
+                } else {
+                    state = "on no truck and in no list";
+                }
+                result.unitLoadsByOurState[state] += unitLoads;
+            }
+        }
+    }
+    return result;
+}
+
+// One lane of one run: its reservations, our routes and what they built, our goods left on no
+// truck, and the client's loads with the ship dates of the lines they carried.
+void printLane(ostream& out, const HeldDay& day, const ClientDay& client, const string& origin,
+               const string& destination, const string& condition) {
+    const PipelineResult& run = *day.run;
+    auto onLane = [&](size_t groupIndex) {
+        const GroupKey& key = run.segregation.groups[groupIndex].key;
+        return key.locationFrom == origin && key.locationTo == destination && key.shipCondition == condition;
+    };
+    out << "  Reserved:";
+    for (const Reservation& reservation : day.book.reservations) {
+        if (reservation.origin == origin && reservation.destination == destination && reservation.shipCondition == condition) {
+            out << " " << reservation.trucks << " trucks on " << reservation.shipDate << ";";
+        }
+    }
+    out << "\n\n";
+
+    const vector<char> leavingGoods = routesLeavingGoods(day);
+    vector<vector<string>> routeRows;
+    for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
+        const LaneRoute& route = day.classification.routes[routeIndex];
+        if (!onLane(route.groupIndex)) continue;
+        const RouteOutcome& outcome = day.plan.routes[routeIndex];
+        routeRows.push_back({printable(run.segregation.groups[route.groupIndex].key.segregant), route.shipDate,
+                             solveMethodName(route.method), grouped(route.reservedTrucks), grouped(route.trucksAllocated),
+                             grouped(outcome.trucksAllowed), grouped(outcome.trucksBuilt), grouped(route.unitLoads),
+                             leavingGoods[routeIndex] ? "yes" : "no"});
+    }
+    printColumns(out, {"group", "ship date", "method", "date reserved", "allocated", "allowed", "built", "unit loads",
+                       "goods left over a full truck"},
+                 routeRows, {false, false, false, true, true, true, true, true, false});
+
+    map<pair<string, string>, double> leftByReasonAndDate;
+    for (const LeftOverItem& left : day.plan.leftOver) {
+        const SelectionItem& item = day.items.items[left.itemIndex];
+        if (onLane(item.groupIndex)) leftByReasonAndDate[{leftOverReasonName(left.reason), item.shipDate}] += item.unitLoads;
+    }
+    vector<vector<string>> leftRows;
+    for (const auto& [reasonAndDate, unitLoads] : leftByReasonAndDate) {
+        leftRows.push_back({reasonAndDate.first, reasonAndDate.second, grouped(unitLoads)});
+    }
+    out << "\n  Our goods on the lane on no truck:\n";
+    printColumns(out, {"why", "ship date", "unit loads"}, leftRows, {false, false, true});
+
+    unordered_map<string, string> shipDateByIdpr;
+    shipDateByIdpr.reserve(run.demand.str.size());
+    for (const STRRecord& line : run.demand.str) shipDateByIdpr.emplace(line.idpr, line.datfr_ta);
+    out << "\n  The client's loads on the lane, unit loads by the ship date (DATFR_TA) of the lines they carry:\n";
+    for (const auto& laneDay : client.achieved.laneDays) {
+        if (laneDay.locationFrom != origin || laneDay.locationTo != destination || laneDay.shipCondition != condition) continue;
+        map<string, double> byShipDate;
+        double unitLoads = 0.0;
+        for (const size_t truckIndex : laneDay.truckIndices) {
+            const InputTruck& load = client.achieved.trucks[truckIndex];
+            for (const InputTruckLine& line : load.lines) {
+                const double lineUnitLoads = clientLineUnitLoads(load, line, run);
+                unitLoads += lineUnitLoads;
+                const auto shipDate = shipDateByIdpr.find(line.idpr);
+                byShipDate[shipDate == shipDateByIdpr.end() ? string("not in demand") : shipDate->second] += lineUnitLoads;
+            }
+        }
+        out << "    " << laneDay.shipDate << ": " << laneDay.loads << " loads, " << grouped(unitLoads) << " unit loads;";
+        for (const auto& [shipDate, lineUnitLoads] : byShipDate) out << " " << shipDate << " " << grouped(lineUnitLoads) << ";";
+        out << "\n";
+    }
+}
+
+// One truck's rows, each beside the rows its members could have formed instead: per pattern, its
+// shortest that fits the width, else its first. floorPattern keeps the shortest that fits.
+void printTruckRows(ostream& out, const HeldDay& day, const PlannedTruck& truck, const FloorPatternSettings& settings) {
+    const TrailerSpec& trailer = day.run->trailer;
+    vector<FloorItem> floorItems;
+    floorItems.reserve(truck.items.size());
+    for (const size_t index : truck.items) floorItems.push_back(floorItemFrom(day.items.items[index]));
+    vector<vector<string>> rows;
+    for (const FloorRow& row : truck.floor.rows) {
+        string members;
+        vector<size_t> memberIndices;
+        for (const FloorPlacement& placement : row.placements) {
+            const FloorItem& item = floorItems[placement.itemIndex];
+            members += (members.empty() ? "" : ", ") + fixed(item.longSideIn, 1) + " x " + fixed(item.shortSideIn, 1)
+                       + (item.levels > 1 ? " " + to_string(item.levels) + " high" : "") + (placement.turned ? " turned" : "");
+            memberIndices.push_back(placement.itemIndex);
+        }
+        map<FloorPatternKind, FloorRow> shortestByPattern;
+        for (FloorRow& candidate : candidateRows(floorItems, memberIndices, trailer, settings)) {
+            const auto kept = shortestByPattern.find(candidate.pattern);
+            if (kept == shortestByPattern.end()) {
+                shortestByPattern.emplace(candidate.pattern, std::move(candidate));
+            } else if (fitsTrailerWidth(candidate, trailer)
+                       && (!fitsTrailerWidth(kept->second, trailer) || candidate.depthIn < kept->second.depthIn)) {
+                kept->second = std::move(candidate);
+            }
+        }
+        string weighed;
+        for (const auto& [pattern, candidate] : shortestByPattern) {
+            weighed += (weighed.empty() ? "" : "; ") + string(floorPatternName(pattern)) + " " + fixed(candidate.depthIn, 1)
+                       + (fitsTrailerWidth(candidate, trailer) ? "" : " (too wide)");
+        }
+        rows.push_back({floorPatternName(row.pattern), fixed(row.depthIn, 1), fixed(row.widthIn, 1), members, weighed});
+    }
+    printColumns(out, {"row", "deep in", "wide in", "members, long x short in", "rows weighed, deep in"}, rows,
+                 {false, true, true, false, false});
 }
 
 } // anonymous namespace
@@ -516,7 +754,11 @@ TEST_CASE("m4Benchmark: the client's largest August lanes are run with every met
     for (const auto& lane : lanes) {
         const size_t run = get<0>(lane), rank = get<1>(lane);
         const long long loads = get<2>(lane);
-        CAPTURE(augustDay(run).label);
+        // Not CAPTURE(augustDay(run).label): CAPTURE re-evaluates its expression each time an
+        // assertion is logged, and augustDay's REQUIREs then re-enter doctest's reporter, which
+        // hangs a --success run.
+        const string& label = augustDay(run).label;
+        CAPTURE(label);
         CAPTURE(rank);
         const LargestLane largest = largestClientLane(run, rank);
         CHECK(largest.clientLoads == loads);
@@ -544,14 +786,22 @@ TEST_CASE("m4Benchmark: on the August routes the methods are ranked and the rout
                                        [&](const MethodScore& score) { return score.method == *benchmark.best; });
         CHECK(bestScore->unitLoadsShipped >= routedScore->unitLoadsShipped - 1e-9);
     }
-    // Measured 31 Oct 2026: the variety ratio barely separates patternPacker from binPacker. The
-    // best split still sends more than a third of the routes it decides to the method that
-    // ranked lower, so the ratio is not yet a routing rule (E206 - E208).
+    // The data sets the routing rules, never the reverse. A variety split is a rule once it sends
+    // at most a third of the routes it decides to the method that ranked lower (E206 - E208), and
+    // the shipped ratio must then decide them as well. A routed method over the budget puts the M5
+    // threshold below its reservation (E209). On 31 Oct 2026 the data set neither.
+    const LaneClassifierSettings shipped = loadSelectionParams(crossDayTests::kStrictParamsPath).routing;
     const optional<VarietyCrossover> crossover = varietyCrossover(benchmarks);
     REQUIRE(crossover);
-    CHECK(crossover->lanesMisrouted * 3 > crossover->lanesCompared);
-    // No routed method came near the 10 s budget, so the data sets no M5 threshold yet (E209).
-    CHECK_FALSE(smallestReservationOverBudget(benchmarks));
+    MESSAGE("best variety split " << crossover->ratio << " misroutes " << crossover->lanesMisrouted << " of "
+                                  << crossover->lanesCompared << "; the shipped " << shipped.varietyRatio << " misroutes "
+                                  << varietySplitAt(benchmarks, shipped.varietyRatio).lanesMisrouted);
+    if (crossover->lanesMisrouted * 3 <= crossover->lanesCompared) {
+        CHECK(varietySplitAt(benchmarks, shipped.varietyRatio).lanesMisrouted == crossover->lanesMisrouted);
+    }
+    if (const optional<long long> overBudget = smallestReservationOverBudget(benchmarks)) {
+        CHECK(shipped.m5Threshold < *overBudget);
+    }
 }
 
 TEST_CASE("m4Benchmark: August is set beside the client's own loads, lane-day by lane-day" * doctest::skip()) {
@@ -680,6 +930,229 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
     }
     ofstream(OB_M4_BENCHMARK_REPORT) << text;
     MESSAGE("benchmark report written to " << OB_M4_BENCHMARK_REPORT);
+}
+
+TEST_CASE("m4Benchmark: August trucks mix wide-wide with pinwheel and single rows and turn pallets where that is shorter"
+          * doctest::skip()) {
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        CAPTURE(day.label);
+        RowCounts counts = rowCounts(day);
+        CHECK(counts.rowsByPattern[FloorPatternKind::WideWide] > 0);
+        CHECK(counts.rowsByPattern[FloorPatternKind::Pinwheel] > 0);
+        CHECK(counts.rowsByPattern[FloorPatternKind::Single] > 0);
+        CHECK(counts.turnedItems > 0);
+    }
+}
+
+// Measured 1 Nov 2026: 24% to 29% of August trucks carry a stack two high or more.
+TEST_CASE("m4Benchmark: at least a fifth of August trucks carry a stack two high" * doctest::skip()) {
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        CAPTURE(day.label);
+        CHECK(trucksCarryingStacks(day, 2) * 5 >= day.plan.trucks.size());
+    }
+}
+
+TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
+    const SelectorSettings settings = realDataSettings();
+    const TrailerSpec& trailer = augustDay(0).run->trailer;
+    const double floorArea = trailer.interiorLengthIn * trailer.interiorWidthIn;
+    const double trailerCubicIn = floorArea * trailer.stackHeightCeilingIn;
+    ostringstream report;
+    report << "M4 FILL DIAGNOSIS\n\n"
+           << "What stops our 4-6 August trucks filling as the client's loads do. Every figure is measured on\n"
+           << "the extracts held.\n";
+
+    report << "\n1. Floor rows\n\n  Pallets " << (settings.floor.allowRotation ? "may be turned" : "are never turned")
+           << ", and a row stands wide-wide, long sides across, unless another is shorter.\n  Allowed:";
+    for (const FloorPatternKind pattern : settings.floor.allowedPatterns) report << " " << floorPatternName(pattern);
+    report << ".\n\n";
+    const array<FloorPatternKind, 6> patterns{FloorPatternKind::WideWide,    FloorPatternKind::WideNarrow,
+                                              FloorPatternKind::NarrowNarrow, FloorPatternKind::ThreeAcross,
+                                              FloorPatternKind::Pinwheel,     FloorPatternKind::Single};
+    vector<string> patternHeader{"run", "trucks", "rows"};
+    for (const FloorPatternKind pattern : patterns) patternHeader.push_back(floorPatternName(pattern));
+    patternHeader.insert(patternHeader.end(), {"items turned", "footprints / length used"});
+    vector<vector<string>> patternRows;
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        RowCounts counts = rowCounts(day);
+        vector<string> row{day.label, grouped(day.plan.trucks.size()), grouped(counts.rows)};
+        for (const FloorPatternKind pattern : patterns) row.push_back(grouped(counts.rowsByPattern[pattern]));
+        row.push_back(grouped(counts.turnedItems));
+        row.push_back(percentOf(counts.footprintLengthIn, counts.usedLengthIn));
+        patternRows.push_back(row);
+    }
+    vector<bool> rightAligned(patternHeader.size(), true);
+    rightAligned.front() = false;
+    printColumns(report, patternHeader, patternRows, rightAligned);
+    report << "  Footprints / length used: the length the trucks' footprints would take packed edge to edge\n"
+           << "  across the width, over the length their rows take. Section 6 shows one truck's rows.\n";
+
+    report << "\n2. Stacks two high or more\n\n";
+    vector<vector<string>> stackRows;
+    map<string, pair<set<string>, set<string>>> productsByPallet;  // products, and those that carry themselves
+    map<string, pair<double, double>> unitLoadsByPallet;            // stacked two high or more, all
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        double onTrucks = 0.0, stackedOnTrucks = 0.0;
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            for (const size_t index : truck.items) {
+                const SelectionItem& item = day.items.items[index];
+                onTrucks += item.unitLoads;
+                if (item.lineIndices.size() >= 2) stackedOnTrucks += item.unitLoads;
+            }
+        }
+        const size_t stacked = trucksCarryingStacks(day, 2);
+        stackRows.push_back({day.label, grouped(day.plan.trucks.size()), grouped(stacked),
+                             percentOf(stacked, day.plan.trucks.size()), grouped(stackedOnTrucks), percentOf(stackedOnTrucks, onTrucks)});
+        for (const JoinedLine& line : day.run->join.lines) {
+            if (!line.product) continue;
+            const string product = line.product->id + " " + line.product->uom;
+            auto& [products, selfStacking] = productsByPallet[line.product->pallet_id];
+            if (!products.insert(product).second) continue;
+            const UnitLoad load = buildUnitLoad(line, day.run->params);
+            if (load.error == UnitLoadError::None && canStack(load, load, day.run->params, trailer.stackHeightCeilingIn).isFeasible) {
+                selfStacking.insert(product);
+            }
+        }
+        for (const SelectionItem& item : day.items.items) {
+            auto& [stackedUnitLoads, allUnitLoads] = unitLoadsByPallet[day.run->join.lines[item.lineIndices.front()].product->pallet_id];
+            allUnitLoads += item.unitLoads;
+            if (item.lineIndices.size() >= 2) stackedUnitLoads += item.unitLoads;
+        }
+    }
+    printColumns(report, {"run", "trucks", "with a stack 2+ high", "share", "unit loads on trucks in such stacks", "share"},
+                 stackRows, {false, true, true, true, true, true});
+    report << "\n";
+    vector<vector<string>> palletRows;
+    for (const auto& [pallet, products] : productsByPallet) {
+        const auto& [stackedUnitLoads, allUnitLoads] = unitLoadsByPallet[pallet];
+        palletRows.push_back({printable(pallet), grouped(products.first.size()), grouped(products.second.size()),
+                              grouped(stackedUnitLoads), percentOf(stackedUnitLoads, allUnitLoads)});
+    }
+    printColumns(report, {"pallet", "products", "can carry themselves", "unit loads M2 stacked 2+ high", "of all its unit loads"},
+                 palletRows, {false, true, true, true, true});
+    report << "  Over the three runs. A product can carry itself when canStack allows one of its unit loads on another.\n";
+
+    report << "\n3. What stops our trucks filling\n\n";
+    vector<vector<string>> limitRows;
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        const vector<char> leavingGoods = routesLeavingGoods(day);
+        array<size_t, 2> trucks{};
+        array<double, 2> cube{}, floor{}, rearWaste{};
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            const size_t side = leavingGoods[truck.routeIndex] ? 0 : 1;
+            ++trucks[side];
+            cube[side] += truck.floor.cubeFraction;
+            floor[side] += truck.areaSqIn / floorArea;
+            rearWaste[side] += truck.floor.rearWasteIn;
+        }
+        double clientCargo = 0.0;
+        long long clientLoads = 0;
+        for (const ClientLaneDay& laneDay : clientDay(run).laneDays) {
+            clientCargo += laneDay.cargoCubicIn;
+            clientLoads += laneDay.loads;
+        }
+        vector<string> row{day.label};
+        for (size_t side = 0; side < 2; ++side) {
+            const double count = static_cast<double>(max<size_t>(trucks[side], 1));
+            row.insert(row.end(), {grouped(trucks[side]), percentOf(cube[side], count), percentOf(floor[side], count),
+                                   fixed(rearWaste[side] / count, 1)});
+        }
+        row.push_back(percentOf(clientCargo / trailerCubicIn, static_cast<double>(max<long long>(clientLoads, 1))));
+        limitRows.push_back(row);
+    }
+    printColumns(report,
+                 {"run", "route left goods: trucks", "cube", "floor", "rear waste in", "route ran out: trucks", "cube",
+                  "floor", "rear waste in", "client cube"},
+                 limitRows, {false, true, true, true, true, true, true, true, true, true});
+    report << "  A route left goods when some of its goods stayed over a full truck: over the reservation, off\n"
+           << "  the rows, or over the unit-load cap. Its trucks stopped for want of room. A route that ran out\n"
+           << "  shipped all it had: what limits its trucks is the goods the classifier gave it.\n";
+    size_t benchmarkedRoutes = 0, sameEveryMethod = 0, sameAndShippingAll = 0;
+    for (const RouteBenchmark& benchmark : allAugustRouteBenchmarks()) {
+        ++benchmarkedRoutes;
+        const MethodScore& first = benchmark.scores.front();
+        const bool same = all_of(benchmark.scores.begin(), benchmark.scores.end(), [&](const MethodScore& score) {
+            return score.ran && score.trucks == first.trucks
+                   && fabs(score.unitLoadsShipped - first.unitLoadsShipped) <= kQuantityEpsilon;
+        });
+        if (!same) continue;
+        ++sameEveryMethod;
+        if (first.unitLoadsShipped >= benchmark.unitLoads - kQuantityEpsilon) ++sameAndShippingAll;
+    }
+    report << "  Of the " << benchmarkedRoutes << " August routes sent to patternPacker or binPacker, every method builds the\n"
+           << "  same trucks and ships the same unit loads on " << sameEveryMethod << ", and " << sameAndShippingAll
+           << " of those ship every unit load they have.\n";
+
+    report << "\n4. The client's loads against each line's ship date (DATFR_TA)\n\n";
+    array<ClientLinesAgainstOurs, 3> against;
+    set<string> states;
+    for (size_t run = 0; run < 3; ++run) {
+        against[run] = clientLinesAgainstOurs(augustDay(run), clientDay(run));
+        for (const auto& [state, unitLoads] : against[run].unitLoadsByOurState) states.insert(state);
+        double early = 0.0, onDate = 0.0, late = 0.0;
+        report << "  " << augustDay(run).label << ", unit loads by days from DATFR_TA to the load's date:";
+        for (const auto& [days, unitLoads] : against[run].unitLoadsByDaysFromShipDate) {
+            report << " " << (days > 0 ? "+" : "") << days << ": " << grouped(unitLoads) << ";";
+            if (days < 0) {
+                early += unitLoads;
+            } else if (days == 0) {
+                onDate += unitLoads;
+            } else {
+                late += unitLoads;
+            }
+        }
+        report << "\n    before DATFR_TA " << percentOf(early, against[run].unitLoads) << ", on it "
+               << percentOf(onDate, against[run].unitLoads) << ", after it " << percentOf(late, against[run].unitLoads)
+               << "; after DATTO_TA " << percentOf(against[run].unitLoadsAfterDeliveryDate, against[run].unitLoads) << "\n";
+    }
+    report << "\n  Where the unit loads the client shipped are in our plan:\n\n";
+    vector<vector<string>> stateRows;
+    for (const string& state : states) {
+        vector<string> row{state};
+        for (size_t run = 0; run < 3; ++run) {
+            const auto found = against[run].unitLoadsByOurState.find(state);
+            const double unitLoads = found == against[run].unitLoadsByOurState.end() ? 0.0 : found->second;
+            row.insert(row.end(), {grouped(unitLoads), percentOf(unitLoads, against[run].unitLoads)});
+        }
+        stateRows.push_back(row);
+    }
+    printColumns(report, {"our plan", "Aug4", "share", "Aug5", "share", "Aug6", "share"}, stateRows,
+                 {false, true, true, true, true, true, true});
+    report << "  The classifier gives each reserved lane-date only the goods whose ship date is that date. Goods\n"
+           << "  with no truck reserved on their own date are left (no reservation), and goods due after the\n"
+           << "  window are left (after window), while the lane's reserved trucks on other dates run out.\n";
+
+    report << "\n5. Aug6, 2028 -> 2574 TL: every method stops at 16 trucks of the 21 reserved\n\n";
+    printLane(report, augustDay(2), clientDay(2), "2028", "2574", "TL");
+
+    report << "\n6. Rows of the first Aug6 2028 -> 2574 TL truck on 10 Aug\n\n";
+    const HeldDay& aug6 = augustDay(2);
+    const auto shown = find_if(aug6.plan.trucks.begin(), aug6.plan.trucks.end(), [&](const PlannedTruck& truck) {
+        const GroupKey& key = aug6.run->segregation.groups[truck.groupIndex].key;
+        return key.locationFrom == "2028" && key.locationTo == "2574" && key.shipCondition == "TL" && truck.shipDate == "2026-08-10";
+    });
+    REQUIRE(shown != aug6.plan.trucks.end());
+    report << "  " << shown->items.size() << " positions in " << shown->floor.rows.size() << " rows, "
+           << fixed(shown->floor.usedLengthIn, 1) << " in used, " << fixed(shown->floor.rearWasteIn, 1) << " in rear waste.\n\n";
+    printTruckRows(report, aug6, *shown, settings.floor);
+
+    const string text = report.str();
+    CHECK(all_of(text.begin(), text.end(), [](char character) {
+        const auto code = static_cast<unsigned char>(character);
+        return character == '\n' || (code >= 0x20 && code <= 0x7e);
+    }));
+    for (const char* section : {"1. Floor rows", "2. Stacks", "3. What stops", "4. The client's loads", "5. Aug6", "6. Rows"}) {
+        CHECK(text.find(section) != string::npos);
+    }
+    ofstream(OB_M4_FILL_DIAGNOSIS) << text;
+    MESSAGE("fill diagnosis written to " << OB_M4_FILL_DIAGNOSIS);
 }
 
 } // TEST_SUITE

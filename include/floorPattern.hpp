@@ -112,6 +112,12 @@ FloorLayout arrangeFloorExact(const std::vector<FloorItem>& items, const Trailer
 FloorLayout arrangeFloorSorted(const std::vector<FloorItem>& items, const TrailerSpec& trailer,
                                const FloorPatternSettings& settings);
 
+// Every row the allowed patterns form from `members` (one to four indices into items), too wide
+// for the trailer or not: what arrangeFloor chooses each row from, to explain the choice. Throws
+// as arrangeFloor does, and for no members, more than four, an index out of range or one repeated.
+std::vector<FloorRow> candidateRows(const std::vector<FloorItem>& items, const std::vector<std::size_t>& members,
+                                    const TrailerSpec& trailer, const FloorPatternSettings& settings);
+
 // Whether two of this footprint fit side by side across the trailer in some orientation.
 bool twoAcrossFits(double longSideIn, double shortSideIn, double trailerWidthIn);
 

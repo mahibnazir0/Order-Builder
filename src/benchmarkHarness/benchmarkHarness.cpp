@@ -48,6 +48,33 @@ const MethodScore* scoreOf(const RouteBenchmark& benchmark, PackingMethod method
     return nullptr;
 }
 
+// Each route where patternPacker and binPacker both ran within budget and one ranked higher: its
+// unit loads per product, and whether patternPacker was the higher.
+vector<pair<double, bool>> separatingLanes(const vector<RouteBenchmark>& benchmarks) {
+    vector<pair<double, bool>> lanes;
+    for (const RouteBenchmark& benchmark : benchmarks) {
+        const MethodScore* pattern = scoreOf(benchmark, PackingMethod::PatternPacker);
+        const MethodScore* bin = scoreOf(benchmark, PackingMethod::BinPacker);
+        if (!pattern || !bin || !pattern->ran || !pattern->withinBudget || !bin->ran || !bin->withinBudget) continue;
+        if (scoresBetter(*pattern, *bin)) {
+            lanes.emplace_back(benchmark.unitLoadsPerProduct, true);
+        } else if (scoresBetter(*bin, *pattern)) {
+            lanes.emplace_back(benchmark.unitLoadsPerProduct, false);
+        }
+    }
+    return lanes;
+}
+
+VarietyCrossover splitAt(const vector<pair<double, bool>>& lanes, double ratio) {
+    VarietyCrossover split;
+    split.ratio = ratio;
+    split.lanesCompared = lanes.size();
+    for (const auto& [lanesRatio, patternWins] : lanes) {
+        if ((lanesRatio > ratio) != patternWins) ++split.lanesMisrouted;
+    }
+    return split;
+}
+
 } // anonymous namespace
 
 const vector<PackingMethod>& benchmarkedMethods() {
@@ -119,18 +146,7 @@ RouteBenchmark benchmarkRoute(const PipelineResult& run, const SelectionItems& i
 }
 
 optional<VarietyCrossover> varietyCrossover(const vector<RouteBenchmark>& benchmarks) {
-    // Each separating route: its unit loads per product, and whether patternPacker ranked higher.
-    vector<pair<double, bool>> lanes;
-    for (const RouteBenchmark& benchmark : benchmarks) {
-        const MethodScore* pattern = scoreOf(benchmark, PackingMethod::PatternPacker);
-        const MethodScore* bin = scoreOf(benchmark, PackingMethod::BinPacker);
-        if (!pattern || !bin || !pattern->ran || !pattern->withinBudget || !bin->ran || !bin->withinBudget) continue;
-        if (scoresBetter(*pattern, *bin)) {
-            lanes.emplace_back(benchmark.unitLoadsPerProduct, true);
-        } else if (scoresBetter(*bin, *pattern)) {
-            lanes.emplace_back(benchmark.unitLoadsPerProduct, false);
-        }
-    }
+    const vector<pair<double, bool>> lanes = separatingLanes(benchmarks);
     if (lanes.empty()) return nullopt;
     // Candidate ratios: zero, and every lane's own ratio (patternPacker strictly above).
     vector<double> candidates{0.0};
@@ -138,19 +154,16 @@ optional<VarietyCrossover> varietyCrossover(const vector<RouteBenchmark>& benchm
     sort(candidates.begin(), candidates.end());
     candidates.erase(unique(candidates.begin(), candidates.end()), candidates.end());
     VarietyCrossover best;
-    best.lanesCompared = lanes.size();
     best.lanesMisrouted = lanes.size() + 1;
     for (const double ratio : candidates) {
-        size_t misrouted = 0;
-        for (const auto& [lanesRatio, patternWins] : lanes) {
-            if ((lanesRatio > ratio) != patternWins) ++misrouted;
-        }
-        if (misrouted < best.lanesMisrouted) {
-            best.ratio = ratio;
-            best.lanesMisrouted = misrouted;
-        }
+        const VarietyCrossover split = splitAt(lanes, ratio);
+        if (split.lanesMisrouted < best.lanesMisrouted) best = split;
     }
     return best;
+}
+
+VarietyCrossover varietySplitAt(const vector<RouteBenchmark>& benchmarks, double ratio) {
+    return splitAt(separatingLanes(benchmarks), ratio);
 }
 
 optional<long long> smallestReservationOverBudget(const vector<RouteBenchmark>& benchmarks) {

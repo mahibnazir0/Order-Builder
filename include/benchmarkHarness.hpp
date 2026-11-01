@@ -86,6 +86,9 @@ struct VarietyCrossover {
 // smallest such ratio on a tie. None when no route separates the two methods.
 std::optional<VarietyCrossover> varietyCrossover(const std::vector<RouteBenchmark>& benchmarks);
 
+// The same count at a given ratio, such as the one the run ships with.
+VarietyCrossover varietySplitAt(const std::vector<RouteBenchmark>& benchmarks, double ratio);
+
 // The smallest reservation among routes whose routed method ran over the budget; none when
 // every routed method finished in time.
 std::optional<long long> smallestReservationOverBudget(const std::vector<RouteBenchmark>& benchmarks);

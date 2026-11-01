@@ -111,6 +111,38 @@ TEST_CASE("benchmarkHarness: the crossover is the ratio that misroutes fewest la
     CHECK_FALSE(varietyCrossover({}));
 }
 
+TEST_CASE("benchmarkHarness: a given ratio's split counts the separating routes it sends to the lower method") {
+    const vector<RouteBenchmark> lanes{separating(2.0, false), separating(3.0, false), separating(8.0, true),
+                                       separating(10.0, true), separating(9.0, false)};
+    const VarietyCrossover atFive = varietySplitAt(lanes, 5.0);
+    CHECK(atFive.ratio == doctest::Approx(5.0));
+    CHECK(atFive.lanesCompared == 5);
+    CHECK(atFive.lanesMisrouted == 1);
+    CHECK(varietySplitAt(lanes, 8.5).lanesMisrouted == 2);
+    CHECK(varietySplitAt(lanes, 0.0).lanesMisrouted == 3);
+}
+
+TEST_CASE("benchmarkHarness: the crossover's own split misroutes no more than any other ratio") {
+    const vector<RouteBenchmark> lanes{separating(2.0, false), separating(3.0, false), separating(8.0, true),
+                                       separating(10.0, true), separating(9.0, false)};
+    const optional<VarietyCrossover> crossover = varietyCrossover(lanes);
+    REQUIRE(crossover);
+    CHECK(varietySplitAt(lanes, crossover->ratio).lanesMisrouted == crossover->lanesMisrouted);
+    for (const double ratio : {0.0, 2.0, 2.5, 3.0, 5.0, 8.0, 9.0, 10.0, 12.0}) {
+        CHECK(varietySplitAt(lanes, ratio).lanesMisrouted >= crossover->lanesMisrouted);
+    }
+}
+
+TEST_CASE("benchmarkHarness: a split with no separating route compares and misroutes none") {
+    vector<RouteBenchmark> tied{separating(4.0, true)};
+    tied[0].scores[1] = tied[0].scores[0];
+    tied[0].scores[1].method = PackingMethod::BinPacker;
+    const VarietyCrossover split = varietySplitAt(tied, 5.0);
+    CHECK(split.lanesCompared == 0);
+    CHECK(split.lanesMisrouted == 0);
+    CHECK(varietySplitAt({}, 5.0).lanesCompared == 0);
+}
+
 TEST_CASE("benchmarkHarness: the smallest reservation over budget sets the M5 threshold") {
     vector<RouteBenchmark> benchmarks{separating(5.0, true), separating(5.0, true), separating(5.0, true)};
     benchmarks[0].reserved = 12;
