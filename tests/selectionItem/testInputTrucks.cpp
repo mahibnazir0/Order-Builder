@@ -30,13 +30,16 @@ const ProductIndex& products() {
     return index;
 }
 
+// The client's front-end check: 32 floor positions stacked two high.
+constexpr double kGateLimit = 64.0;
+
 InputTruck truckOf(vector<InputTruckLine> lines) {
     return {"T1", "791", "2026-08-06", std::move(lines)};
 }
 
 string gateError(const InputTruck& truck) {
     try {
-        requirePlausibleTrucks({truck}, products(), kMaxUnitLoadEquivalentsPerTruck);
+        requirePlausibleTrucks({truck}, products(), kGateLimit);
     } catch (const invalid_argument& error) {
         return error.what();
     }

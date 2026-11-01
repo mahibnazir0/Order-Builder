@@ -143,9 +143,6 @@ struct InputTruck {
     std::vector<InputTruckLine> lines;
 };
 
-// 32 floor positions stacked two high: no real truck carries more unit loads than this.
-constexpr double kMaxUnitLoadEquivalentsPerTruck = 64.0;
-
 // A truck's unit-load equivalents: each line's quantity over Cases_Unit_Load of its product's
 // master row in the same unit, as the Converter divides demand. Throws std::invalid_argument
 // naming the truck, line, product and unit for a quantity that is negative or not finite, a

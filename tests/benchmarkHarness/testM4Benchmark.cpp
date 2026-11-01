@@ -20,8 +20,6 @@ using namespace ob;
 
 namespace {
 
-// The figure the client's own front-end check stops a run at (I6).
-constexpr double kMaxUnitLoadsPerTruck = 64.0;
 // The spec's measure of a weight-heavy lane: a truck over 40,000 lb (E210).
 constexpr double kHeavyTruckLb = 40000.0;
 
@@ -88,7 +86,7 @@ const vector<HeldDay>& heldDays() {
             for (size_t run = 0; run < labels.size(); ++run) {
                 const PipelineResult& pipeline = m4AugustTests::augustItems(run).run;
                 if (m4AugustTests::augustSolutionsPresent()) {
-                    requirePlausibleTrucks(augustClientLoads(run).trucks, pipeline.index, kMaxUnitLoadEquivalentsPerTruck);
+                    requirePlausibleTrucks(augustClientLoads(run).trucks, pipeline.index, realDataSettings().maxUnitLoadsPerTruck);
                 }
                 held.push_back(heldDay(labels[run], pipeline));
             }
@@ -250,7 +248,7 @@ TEST_CASE("m4Benchmark: every held extract keeps every invariant" * doctest::ski
     for (const HeldDay& day : heldDays()) {
         CAPTURE(day.label);
         for (const InvariantViolation& violation :
-             checkInvariants(*day.run, day.book, day.items, day.plan, kMaxUnitLoadsPerTruck)) {
+             checkInvariants(*day.run, day.book, day.items, day.plan, realDataSettings().maxUnitLoadsPerTruck)) {
             FAIL_CHECK(violation.invariant << ": " << violation.detail);
         }
     }
@@ -287,7 +285,7 @@ TEST_CASE("m4Benchmark: I3 holds on the segregation-split lanes from 2027 and 20
             }
         }
         for (const InvariantViolation& violation :
-             checkInvariants(*day.run, day.book, day.items, day.plan, kMaxUnitLoadsPerTruck)) {
+             checkInvariants(*day.run, day.book, day.items, day.plan, realDataSettings().maxUnitLoadsPerTruck)) {
             CHECK_MESSAGE(violation.invariant != "I3", violation.detail);
         }
     }
@@ -510,7 +508,7 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
     for (const HeldDay& day : heldDays()) {
         const FullnessSummary fullness = summariseFullness(*day.run, day.items, day.plan, kHeavyTruckLb);
         const vector<InvariantViolation> violations =
-            checkInvariants(*day.run, day.book, day.items, day.plan, kMaxUnitLoadsPerTruck);
+            checkInvariants(*day.run, day.book, day.items, day.plan, realDataSettings().maxUnitLoadsPerTruck);
         ostringstream fingerprint;
         fingerprint << hex << planFingerprint(day.plan);
         dayRows.push_back({printable(day.label), grouped(static_cast<double>(day.plan.trucks.size())),
@@ -531,7 +529,7 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
            << grouped(kClientStatedCubicFeetLow) << " to " << grouped(kClientStatedCubicFeetHigh)
            << " cu ft a truck (E220, E221).\n"
            << "  The fingerprint is the same on every platform for the same plan: compare it across builds (E223).\n"
-           << "  Invariants broken: I6 counts trucks over " << fixed(kMaxUnitLoadsPerTruck, 0)
+           << "  Invariants broken: I6 counts trucks over " << fixed(realDataSettings().maxUnitLoadsPerTruck, 0)
            << " unit loads; on these extracts they are three-high PAL stacks, a rule still open.\n";
 
     report << "\n2. August against the client's own loads (E218, E219)\n";
