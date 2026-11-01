@@ -15,7 +15,9 @@
 // most urgent priority, and cannot leave before its latest available date.
 // Shipping on the latest date instead would leave goods due in the window
 // behind; so its later lines go early with it, which is pull-forward (M6's
-// otherwise). daysPulledForward records how far, and the report prints it.
+// otherwise). daysPulledForward records how far, and the report prints it. The
+// customer allows up to maxDaysPulledForward days (Rev 8 section 2.10); a stack
+// pulled further is rejected, PullForwardBeyondLimit, and fails the run.
 //
 // Which end of TPRIO is most urgent is the customer's open question, so it is a
 // setting (selection.priorityZeroIsMostUrgent) applied here alone: each item's
@@ -75,11 +77,12 @@ enum class ItemRejection {
     InvalidAvailDate,    // AVAIL_DATE is not a real date
     UnreadablePriority,  // TPRIO missing, not an integer, or outside 0..kMaxPriority
     InvalidUnitLoad,     // the line's unit-load metrics carry an error
+    PullForwardBeyondLimit, // its lines' ship dates lie more than maxDaysPulledForward apart
 };
 
 struct RejectedItem {
     SelectionItem item;          // as built, for the report and the I10 totals
-    std::size_t lineIndex = 0;   // the first line that failed
+    std::size_t lineIndex = 0;   // the first line that failed; the latest-dated one for pull-forward
     ItemRejection reason = ItemRejection::InvalidShipDate;
 };
 
@@ -124,7 +127,7 @@ struct SelectionItems {
 // Builds the items for every group of a Milestone 2 run, against the run's planning window.
 // Throws std::invalid_argument when Milestone 2 did not run or its results do not line up.
 SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window,
-                                   bool priorityZeroIsMostUrgent);
+                                   bool priorityZeroIsMostUrgent, long long maxDaysPulledForward);
 
 // A readable TPRIO (0..kMaxPriority) as an urgency rank, 0 most urgent.
 int urgencyRank(int tprio, bool priorityZeroIsMostUrgent);

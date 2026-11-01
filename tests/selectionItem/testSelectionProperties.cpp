@@ -90,6 +90,7 @@ string reportOf(const PipelineResult& result) {
     context.settings = result.selectionParams.selector;
     context.shortfalls = selectionShortfalls(result);
     context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
+    context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
     context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
     ostringstream out;
     printSelectionReport(out, result, result.reservationBook, result.selectionItems, result.laneClassification,

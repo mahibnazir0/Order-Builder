@@ -330,7 +330,8 @@ void runSelection(PipelineResult& result) {
     result.reservationBook = buildReservationBook(result.placeholders.placeholders, result.demand.ctl, planDate,
                                                   result.selectionParams.reservations);
     result.selectionItems = buildSelectionItems(result, result.reservationBook.window,
-                                                result.selectionParams.priorityZeroIsMostUrgent);
+                                                result.selectionParams.priorityZeroIsMostUrgent,
+                                                result.selectionParams.maxDaysPulledForward);
     requireGrainsFitItems(result.selectionParams, result.selectionItems);
     result.laneClassification = classifyLanes(result, result.reservationBook, result.selectionItems,
                                               result.selectionParams.routing);
@@ -442,7 +443,12 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
     }
     add(leftWithLaneDateRoom, "stacks left over while the lane-date had reserved trucks unbuilt");
 
-    add(result.selectionItems.rejected.size(), "stacks rejected for bad line data");
+    size_t pulledTooFar = 0;
+    for (const RejectedItem& rejected : result.selectionItems.rejected) {
+        if (rejected.reason == ItemRejection::PullForwardBeyondLimit) ++pulledTooFar;
+    }
+    add(result.selectionItems.rejected.size() - pulledTooFar, "stacks rejected for bad line data");
+    add(pulledTooFar, "stacks rejected for pulling lines forward beyond the limit");
     add(result.selectionItems.linesNotFullyStacked.size(), "lines not fully stacked");
 
     size_t badPlaceholders = 0;

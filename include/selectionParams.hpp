@@ -13,6 +13,8 @@
 //   maxUnitLoadsPerTruck                   no truck is planned over it (I6)
 //   m5Threshold, varietyRatio              the classifier's routing
 //   priorityZeroIsMostUrgent               which end of TPRIO ships first (provisional)
+//   maxDaysPulledForward                   how far a mixed-date stack may pull its later
+//                                          lines forward (Rev 8 section 2.10)
 //   knapsack, patternPacker, binPacker     each method's grains and limits
 //   floor                                  rotation, orientation when fixed, patterns,
 //                                          maxPositions (null for none)
@@ -38,6 +40,7 @@ struct SelectionParams {
     LaneClassifierSettings routing;
     SelectorSettings selector;  // its clock is left empty: the run uses the steady clock
     bool priorityZeroIsMostUrgent = true;
+    long long maxDaysPulledForward = 0;
     ReportDetail reportDetail = ReportDetail::Standard;
     std::string sourcePath;
 };

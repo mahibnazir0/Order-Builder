@@ -44,6 +44,7 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.selector.floor.fullCubeFraction == doctest::Approx(0.84));
     CHECK(params.selector.maxUnitLoadsPerTruck == doctest::Approx(64.0));
     CHECK(params.priorityZeroIsMostUrgent);
+    CHECK(params.maxDaysPulledForward == 10);
     CHECK(params.selector.fillMissesPerTruck == 10);
     CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
     CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
@@ -143,4 +144,12 @@ TEST_CASE("selectionParams: a cap on positions and a fixed orientation are read 
     CHECK_FALSE(params.selector.floor.allowRotation);
     CHECK(params.selector.floor.fixedOrientation == FixedOrientation::ShortSideAcross);
     CHECK(params.reportDetail == ReportDetail::Detailed);
+}
+
+TEST_CASE("selectionParams: a pull-forward limit that is negative, fractional or not a number stops the run, named") {
+    for (const json& bad : {json(-1), json(2.5), json("10"), json(nullptr)}) {
+        CAPTURE(bad.dump());
+        CHECK(rejectedNaming(edited([&](json& block) { block["maxDaysPulledForward"] = bad; }), "maxDaysPulledForward"));
+    }
+    CHECK(parseSelectionParams(edited([](json& block) { block["maxDaysPulledForward"] = 0; })).maxDaysPulledForward == 0);
 }

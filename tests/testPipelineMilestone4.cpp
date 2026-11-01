@@ -75,6 +75,7 @@ string reportOf(const PipelineResult& result) {
     context.settings = result.selectionParams.selector;
     context.shortfalls = selectionShortfalls(result);
     context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
+    context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
     context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
     ostringstream out;
     printSelectionReport(out, result, result.reservationBook, result.selectionItems, result.laneClassification,
@@ -266,6 +267,20 @@ TEST_CASE("pipelineM4: a floor eviction fails the run only where its route left 
     CHECK(runOutcome(result) == RunOutcome::Complete);
     route.trucksBuilt = route.trucksAllowed - 1;
     CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
+}
+
+TEST_CASE("pipelineM4: a stack pulled forward beyond the limit fails the run with exit 7, named") {
+    SmallDay day("pulledTooFar");
+    PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(runOutcome(result) == RunOutcome::Complete);
+    REQUIRE_FALSE(result.selectionItems.items.empty());
+    SelectionItem item = result.selectionItems.items.front();
+    item.daysPulledForward = result.selectionParams.maxDaysPulledForward + 1;
+    result.selectionItems.rejected.push_back({item, item.lineIndices.front(), ItemRejection::PullForwardBeyondLimit});
+    CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
+    CHECK(shortfallNaming(result, "pulling lines forward beyond the limit"));
+    CHECK_FALSE(shortfallNaming(result, "bad line data"));
+    CHECK(reportOf(result).find("pulled forward beyond the limit: 11 days") != string::npos);
 }
 
 TEST_CASE("pipelineM4: a route whose method overran the budget fails the run with exit 7") {

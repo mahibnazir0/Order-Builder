@@ -18,6 +18,7 @@
     "fullCubeFraction": 0.84,
     "maxUnitLoadsPerTruck": 64,
     "priorityZeroIsMostUrgent": true,
+    "maxDaysPulledForward": 10,
     "m5Threshold": 20,
     "varietyRatio": 5,
     "knapsack": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "nodeLimit": 200000 },

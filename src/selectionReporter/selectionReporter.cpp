@@ -174,15 +174,24 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "routes", count(classification.routes.size()) + " group and ship-date routes");
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
-    printLine(out, "stacks rejected", count(items.rejected.size()) + " for bad line data");
+    printLine(out, "stacks rejected", count(items.rejected.size()) + " for bad line data or pull-forward");
     if (!items.rejected.empty()) {
         vector<Row> rejectedRows;
         rejectedRows.reserve(items.rejected.size());
         for (const RejectedItem& rejected : items.rejected) {
             const STRRecord& line = *run.join.lines[rejected.lineIndex].str;
+            string reason = itemRejectionName(rejected.reason);
+            if (rejected.reason == ItemRejection::PullForwardBeyondLimit) {
+                reason += ": " + to_string(rejected.item.daysPulledForward) + " days, " + printable(line.datfr_ta)
+                          + " to " + printable(rejected.item.shipDate) + ", over " + to_string(context.maxDaysPulledForward)
+                          + "; lines";
+                for (const size_t lineIndex : rejected.item.lineIndices) {
+                    reason += " " + printable(run.join.lines[lineIndex].str->idpr);
+                }
+            }
             rejectedRows.push_back({count(rejected.lineIndex), printable(line.matnr),
                                     laneText(line.locfrno, line.loctono, line.ship_cond), printable(line.datfr_ta),
-                                    grouped(rejected.item.unitLoads, 2), itemRejectionName(rejected.reason)});
+                                    grouped(rejected.item.unitLoads, 2), reason});
         }
         printColumns(out, {"line", "product", "lane", "ship date", "unit loads", "reason"}, rejectedRows,
                      {true, false, false, false, true, false});
@@ -261,6 +270,9 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                      " pallet is Rev 8 question 3");
     printLine(out, "mixed ship dates", "a stack ships on its earliest line's date; its later lines go with it,"
                                            " pulled forward (M2 stacks by lane, not date)");
+    printLine(out, "pull-forward limit", "up to " + to_string(context.maxDaysPulledForward)
+                                             + " days (maxDaysPulledForward; customer-confirmed, Rev 8 section 2.10);"
+                                               " a stack pulled further is rejected and fails the run");
     printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"
                                              " then the next; then most floor covered");
 

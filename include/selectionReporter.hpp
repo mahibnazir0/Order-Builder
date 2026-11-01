@@ -59,6 +59,7 @@ struct SelectionReportContext {
     std::vector<std::string> shortfalls;
     // Printed under the provisional business rules, with the routing settings.
     bool priorityZeroIsMostUrgent = true;
+    long long maxDaysPulledForward = 0;
     std::string defaultEquipment;
     ReportDetail detail = ReportDetail::Standard;
 };

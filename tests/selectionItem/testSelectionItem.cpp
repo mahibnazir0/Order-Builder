@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "../m4AugustFixtures.hpp"
+#include "isoDate.hpp"
 #include "pipeline.hpp"
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
@@ -28,6 +29,8 @@ const string kProductHeader = "ID,Description,Length,Width,Height,Strength,UoM,W
 // 10 in cases, 4 to a layer, 2 layers: a 20 in unit load of 8 cases at 2 lb, on a TLD
 // pallet weighing 1 lb, so one unit load weighs 17 lb.
 const string kGoodProduct = "GOOD,Good,10,10,10,5,CS,2,4,2,8,TLD\n";
+
+const long long kMaxDays = m4AugustTests::kShippedMaxDaysPulledForward;
 
 // 2026-08-04 is a Tuesday: the August CTL table gives a window of 6-7 Aug.
 PlanningWindow augustTuesdayWindow() {
@@ -89,7 +92,7 @@ PipelineResult runLines(const vector<DemandLine>& lines, const string& products 
 SelectionItems itemsFor(const vector<DemandLine>& lines, const string& products = kGoodProduct,
                         bool priorityZeroIsMostUrgent = true) {
     const PipelineResult run = runLines(lines, products);
-    return buildSelectionItems(run, augustTuesdayWindow(), priorityZeroIsMostUrgent);
+    return buildSelectionItems(run, augustTuesdayWindow(), priorityZeroIsMostUrgent, kMaxDays);
 }
 
 double totalUnitLoads(const SelectionItems& built) {
@@ -161,7 +164,7 @@ TEST_CASE("selectionItem: unit loads and weight in equal what the items carry (I
             line.shipDate = random() % 2 == 0 ? "2026-08-06" : "2026-08-07";
         }
         const PipelineResult run = runLines(lines);
-        const SelectionItems built = buildSelectionItems(run, augustTuesdayWindow(), true);
+        const SelectionItems built = buildSelectionItems(run, augustTuesdayWindow(), true, kMaxDays);
         REQUIRE(built.linesNotFullyStacked.empty());
         REQUIRE(built.unitLoadsOut == doctest::Approx(built.unitLoadsIn));
         REQUIRE(built.weightOutLb == doctest::Approx(built.weightInLb));
@@ -284,6 +287,35 @@ TEST_CASE("selectionItem: a stack mixing ship dates ships by its earliest, its l
     CHECK(built.mostDaysPulledForward == 1);
 }
 
+// One unit load each of two products on one position, shipping `daysApart` days apart.
+SelectionItems mixedStack(int daysApart) {
+    const string products = kGoodProduct + "OTHER,Other,10,10,10,5,CS,2,4,2,8,TLD\n";
+    DemandLine early, late;
+    early.cases = 8.0;
+    late.matnr = "OTHER";
+    late.cases = 8.0;
+    late.shipDate = addDays(early.shipDate, daysApart);
+    late.deliveryDate = addDays(late.shipDate, 2);
+    return itemsFor({early, late}, products);
+}
+
+TEST_CASE("selectionItem: a stack pulling a line forward by the limit is kept") {
+    const SelectionItems built = mixedStack(static_cast<int>(kMaxDays));
+    REQUIRE(built.items.size() == 1);
+    CHECK(built.rejected.empty());
+    CHECK(built.items.front().daysPulledForward == kMaxDays);
+}
+
+TEST_CASE("selectionItem: a stack pulling a line forward past the limit is rejected, its goods counted") {
+    const SelectionItems built = mixedStack(static_cast<int>(kMaxDays) + 1);
+    CHECK(built.items.empty());
+    REQUIRE(built.rejected.size() == 1);
+    const RejectedItem& rejected = built.rejected.front();
+    CHECK(rejected.reason == ItemRejection::PullForwardBeyondLimit);
+    CHECK(rejected.item.daysPulledForward == kMaxDays + 1);
+    CHECK(rejected.item.unitLoads == doctest::Approx(built.unitLoadsIn));
+}
+
 TEST_CASE("selectionItem: a stack on one ship date pulls nothing forward") {
     DemandLine line;
     line.cases = 8.0;
@@ -344,7 +376,7 @@ TEST_CASE("selectionItem: an item heavier than the payload is named, never dropp
 
 TEST_CASE("selectionItem: needs Milestone 2") {
     PipelineResult notRun;
-    CHECK_THROWS_AS(buildSelectionItems(notRun, augustTuesdayWindow(), true), invalid_argument);
+    CHECK_THROWS_AS(buildSelectionItems(notRun, augustTuesdayWindow(), true, kMaxDays), invalid_argument);
 }
 
 TEST_CASE("selectionItem: the same stacks always give identical items") {
@@ -356,8 +388,8 @@ TEST_CASE("selectionItem: the same stacks always give identical items") {
         lines[index].priority = to_string(index % 3);
     }
     const PipelineResult run = runLines(lines, products);
-    const SelectionItems first = buildSelectionItems(run, augustTuesdayWindow(), true);
-    const SelectionItems second = buildSelectionItems(run, augustTuesdayWindow(), true);
+    const SelectionItems first = buildSelectionItems(run, augustTuesdayWindow(), true, kMaxDays);
+    const SelectionItems second = buildSelectionItems(run, augustTuesdayWindow(), true, kMaxDays);
     REQUIRE(first.items.size() == second.items.size());
     for (size_t index = 0; index < first.items.size(); ++index) {
         CHECK(first.items[index].lineIndices == second.items[index].lineIndices);

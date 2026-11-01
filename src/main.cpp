@@ -257,6 +257,7 @@ int main(int argc, char** argv) {
             context.detail = result.selectionParams.reportDetail;
             context.shortfalls = ob::selectionShortfalls(result);
             context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
+            context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
             context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
             ob::printSelectionReport(cout, result, result.reservationBook, result.selectionItems,
                                      result.laneClassification, result.selectionPlan, context);

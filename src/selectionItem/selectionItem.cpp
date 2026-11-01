@@ -66,7 +66,7 @@ int urgencyRank(int tprio, bool priorityZeroIsMostUrgent) {
 }
 
 SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWindow& window,
-                                   bool priorityZeroIsMostUrgent) {
+                                   bool priorityZeroIsMostUrgent, long long maxDaysPulledForward) {
     if (!run.ranMilestone2) {
         throw invalid_argument("Selection items need Milestone 2's stacks, and it did not run");
     }
@@ -105,6 +105,7 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 item.copyIndex = copyIndex;
                 optional<pair<size_t, ItemRejection>> rejection;
                 string latestShipDate;
+                size_t latestLineIndex = 0;
                 for (const size_t lineIndex : stack.lineIndices) {
                     if (lineIndex >= lines.size() || !figures[lineIndex]) {
                         throw invalid_argument("Stack " + to_string(stackIndex) + " of group "
@@ -136,7 +137,10 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                                         * line.metrics.unitLoadHeightIn;
                     item.footprintLongIn = max(item.footprintLongIn, line.longSideIn);
                     item.footprintShortIn = max(item.footprintShortIn, line.shortSideIn);
-                    latestShipDate = max(latestShipDate, demand.datfr_ta);
+                    if (demand.datfr_ta > latestShipDate) {
+                        latestShipDate = demand.datfr_ta;
+                        latestLineIndex = lineIndex;
+                    }
                     if (item.lineIndices.size() == 1) {
                         item.shipDate = demand.datfr_ta;
                         item.availDate = demand.avail_date;
@@ -156,6 +160,12 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 }
                 if (item.lineIndices.empty()) continue;
 
+                if (!rejection && item.mixesShipDates) {
+                    item.daysPulledForward = daysBetween(item.shipDate, latestShipDate);
+                    if (item.daysPulledForward > maxDaysPulledForward) {
+                        rejection = make_pair(latestLineIndex, ItemRejection::PullForwardBeyondLimit);
+                    }
+                }
                 if (rejection) {
                     result.rejected.push_back({std::move(item), rejection->first, rejection->second});
                     continue;
@@ -171,7 +181,6 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 item.availableAfterShipDate = item.availDate > item.shipDate;
                 item.unavailableInWindow = item.availDate > window.lastShipDate;
                 if (item.mixesShipDates) {
-                    item.daysPulledForward = daysBetween(item.shipDate, latestShipDate);
                     ++result.itemsMixingShipDates;
                     result.unitLoadsMixingShipDates += item.unitLoads;
                     if (item.timing != ShipTiming::Future) {
@@ -279,6 +288,7 @@ const char* itemRejectionName(ItemRejection reason) {
     case ItemRejection::InvalidAvailDate: return "invalid available date";
     case ItemRejection::UnreadablePriority: return "unreadable priority";
     case ItemRejection::InvalidUnitLoad: return "invalid unit load";
+    case ItemRejection::PullForwardBeyondLimit: return "pulled forward beyond the limit";
     }
     return "unknown";
 }

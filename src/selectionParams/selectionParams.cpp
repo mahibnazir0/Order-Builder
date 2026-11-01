@@ -113,6 +113,8 @@ SelectionParams parseSelectionParams(const json& root) {
 
     params.priorityZeroIsMostUrgent = readBoolean(requiredField(block, "priorityZeroIsMostUrgent", name),
                                                   name + ".priorityZeroIsMostUrgent");
+    params.maxDaysPulledForward = readInteger(requiredField(block, "maxDaysPulledForward", name),
+                                              name + ".maxDaysPulledForward", 0);
     params.routing.fullCubeFraction = fullCubeFraction;
     params.routing.m5Threshold = readInteger(requiredField(block, "m5Threshold", name), name + ".m5Threshold", 2);
     params.routing.varietyRatio = readQuantity(requiredField(block, "varietyRatio", name), name + ".varietyRatio");

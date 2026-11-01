@@ -57,7 +57,7 @@ HeldDay heldDay(const string& label, const PipelineResult& run) {
     day.run = &run;
     day.book = buildReservationBook(run.placeholders.placeholders, run.demand.ctl,
                                     planDateFromRequestId(run.demand.request_id), {"53F", {"53F"}});
-    day.items = buildSelectionItems(run, day.book.window, true);
+    day.items = buildSelectionItems(run, day.book.window, true, m4AugustTests::kShippedMaxDaysPulledForward);
     day.classification = classifyLanes(run, day.book, day.items, m4SyntheticDay::kRouting);
     day.plan = selectLoads(run, day.book, day.items, day.classification, realDataSettings());
     return day;

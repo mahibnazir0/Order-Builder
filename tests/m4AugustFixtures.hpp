@@ -16,6 +16,9 @@
 // skips these tests rather than failing them. Built once per test binary.
 namespace m4AugustTests {
 
+// selection.maxDaysPulledForward as config/orderBuilderParams.json ships it.
+inline constexpr long long kShippedMaxDaysPulledForward = 10;
+
 struct AugustRunFiles {
     std::string demandPath;
     std::string placeholderPath;
@@ -78,7 +81,8 @@ inline const AugustItems& augustItems(std::size_t runIndex) {
             loaded[index].book = ob::buildReservationBook(
                 loaded[index].run.placeholders.placeholders, loaded[index].run.demand.ctl,
                 ob::planDateFromRequestId(loaded[index].run.demand.request_id), {"53F", {"53F"}});
-            loaded[index].built = ob::buildSelectionItems(loaded[index].run, loaded[index].book.window, true);
+            loaded[index].built = ob::buildSelectionItems(loaded[index].run, loaded[index].book.window, true,
+                                                          kShippedMaxDaysPulledForward);
         }
         return loaded;
     }();
