@@ -110,6 +110,26 @@ vector<KnapsackItem> beatsFirstFitDecreasing() {
 
 } // anonymous namespace
 
+TEST_CASE("binPacker: 65 stacks a truck holds 32 of are proven to need three trucks, with no search") {
+    // 1.98 trucks of floor by volume; the LP agrees, so only counting whole stacks proves three.
+    const vector<KnapsackItem> items(65, load(1920.0, 800.0));
+    const BinPacking packing = packBins(items, kTruck, kSettings, 3);
+    checkPacking(items, packing, 3);
+    CHECK(packing.bestTrucks == 3);
+    CHECK(packing.lowerBound == 3);
+    CHECK(packing.proven);
+    CHECK(packing.branchNodes == 0);
+}
+
+TEST_CASE("binPacker: three loads no two of which share the payload need three trucks, proven") {
+    const vector<KnapsackItem> items(3, load(1920.0, 23000.0));
+    const BinPacking packing = packBins(items, kTruck, kSettings, 3);
+    checkPacking(items, packing, 3);
+    CHECK(packing.lowerBound == 3);
+    CHECK(packing.proven);
+    CHECK(packFirstFitDecreasing(items, kTruck, kSettings, 3).lowerBound == 3);
+}
+
 TEST_CASE("binPacker: empty builds zero trucks") {
     const BinPacking packing = packBins({}, kTruck, kSettings, 3);
     CHECK(packing.trucks.empty());

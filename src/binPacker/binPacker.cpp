@@ -368,6 +368,32 @@ long long volumeBound(const KnapsackProblem& problem) {
     return static_cast<long long>(ceil(max(byArea, byWeight) - kLpEpsilon));
 }
 
+// The most units one truck can hold on a limit: as many of the smallest as fit it.
+long long mostUnitsWithin(vector<long long> grains, long long capacity) {
+    sort(grains.begin(), grains.end());
+    long long used = 0, units = 0;
+    for (const long long unitGrains : grains) {
+        if (used + unitGrains > capacity) break;
+        used += unitGrains;
+        ++units;
+    }
+    return units;
+}
+
+// The volume bound misses that items come whole: 65 stacks of 1,920 sq in are 1.98 trucks of
+// floor, yet a truck holds 32, so three are needed. Without this the LP's bound stays at two
+// and branch and price searches its whole node limit for a truck it can never save.
+long long countBound(const KnapsackProblem& problem) {
+    const long long units = static_cast<long long>(problem.candidates.size());
+    if (units == 0) return 0;
+    // Every candidate fits an empty truck alone, so each limit holds at least one.
+    const long long perTruck = min(mostUnitsWithin(problem.areaGrains, problem.areaCapacity),
+                                   mostUnitsWithin(problem.weightGrains, problem.weightCapacity));
+    return (units + perTruck - 1) / perTruck;
+}
+
+long long lowerBoundOf(const KnapsackProblem& problem) { return max(volumeBound(problem), countBound(problem)); }
+
 vector<size_t> allUnits(const KnapsackProblem& problem) {
     vector<size_t> units(problem.candidates.size());
     iota(units.begin(), units.end(), size_t{0});
@@ -384,7 +410,7 @@ BinPacking packFirstFitDecreasing(const vector<KnapsackItem>& items, const Knaps
     vector<UnitTruck> trucks = firstFitDecreasing(problem, allUnits(problem));
     BinPacking packing;
     packing.ffdTrucks = static_cast<long long>(trucks.size());
-    packing.lowerBound = volumeBound(problem);
+    packing.lowerBound = lowerBoundOf(problem);
     packing.proven = packing.ffdTrucks <= packing.lowerBound;
     return finish(items, problem, std::move(trucks), reservedTrucks, std::move(packing));
 }
@@ -409,7 +435,7 @@ BinPacking packBins(const vector<KnapsackItem>& items, const KnapsackCapacity& c
     vector<UnitTruck> warmStart = firstFitDecreasing(problem, allUnits(problem));
     BinPacking packing;
     packing.ffdTrucks = static_cast<long long>(warmStart.size());
-    packing.lowerBound = volumeBound(problem);
+    packing.lowerBound = lowerBoundOf(problem);
     vector<UnitTruck> trucks;
     if (problem.candidates.empty()) {
         packing.proven = true;

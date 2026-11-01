@@ -55,7 +55,8 @@ struct BinPacking {
 
     long long ffdTrucks = 0;       // the warm start
     long long bestTrucks = 0;      // the best packing found, before the reservation cap
-    // The most trucks proven necessary: the volume bound, or the root LP's when it converged.
+    // The most trucks proven necessary: the larger of the volume bound and the count bound (no
+    // truck holds more items than the smallest that fit it), or the root LP's when it converged.
     long long lowerBound = 0;
     bool proven = false;           // bestTrucks equals lowerBound, or the tree was searched out
     bool improvedOnWarmStart = false;
