@@ -368,7 +368,10 @@ weight. `stackPositions` is still read for the Milestone 2 cube-or-weight split.
 `Layer_Width` in the master); PTL and PGM cover the larger of 48 x 40 and the layer on each
 side. Masters before 29 Sep have no layer columns: pass `--layer-sizes` with a later master to
 borrow them by ID and Pallet_ID. Without a layer size, the pallet's footprint stands in and
-the floor report counts those lines.
+the floor report counts those lines. The required `footprintRule` setting picks the PTL/PGM
+reading: `WrittenRule` (the client's rule above, shipped) or `LayerOnly` (the layer alone, as
+the master's `Effective_Layer_*` columns hold it). This is still an open question (Rev 8 Q4),
+and the M4 report lists it under its provisional rules.
 
 **Deck height.** The shipped params count the pallet deck toward unit-load height
 (`floorDeckHeight: Included`, client ruling, 12 Oct 2026), so a PTL or PGM load

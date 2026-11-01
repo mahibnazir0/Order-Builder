@@ -46,6 +46,8 @@ struct M2Params {
     // check as well as the floor, so the two can never disagree about whether a line fits.
     DeckHeightRule floorDeckHeight = DeckHeightRule::Excluded;
     // Required key, like floorDeckHeight.
+    FootprintRule footprintRule = FootprintRule::WrittenRule;
+    // Required key, like floorDeckHeight.
     FloorRoundingPoint floorRoundingPoint = FloorRoundingPoint::Group;
     // Printable path of the file these params came from; empty when parsed from memory.
     std::string sourcePath;

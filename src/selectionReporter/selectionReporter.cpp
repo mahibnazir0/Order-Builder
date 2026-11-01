@@ -251,6 +251,14 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                        + " trucks reserved are left to M5, unplanned");
     printLine(out, "variety ratio", "patternPacker above " + setting(context.routing.varietyRatio)
                                         + " unit loads per product, binPacker at or below");
+    printLine(out, "PGM/PTL footprint", run.params.footprintRule == FootprintRule::WrittenRule
+                                            ? "larger of pallet and layer (footprintRule = WrittenRule; the file's"
+                                              " Effective_Layer columns use the layer alone; Rev 8 question 4)"
+                                            : "layer alone, as the file's Effective_Layer columns (footprintRule ="
+                                              " LayerOnly; the written rule takes the larger of pallet and layer;"
+                                              " Rev 8 question 4)");
+    printLine(out, "PAL quantities", "divided by Cases_Unit_Load, as CS and DIS; whether a PAL is always one"
+                                     " pallet is Rev 8 question 3");
     printLine(out, "mixed ship dates", "a stack ships on its earliest line's date; its later lines go with it,"
                                            " pulled forward (M2 stacks by lane, not date)");
     printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"

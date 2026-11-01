@@ -254,6 +254,12 @@ M2Params parseParams(const json& root) {
     } else if (floorDeckHeight != "Excluded") {
         throw runtime_error("params: floorDeckHeight must be Excluded or Included");
     }
+    const string footprintRule = readString(requiredBlock(root, "footprintRule"), "footprintRule");
+    if (footprintRule == "LayerOnly") {
+        params.footprintRule = FootprintRule::LayerOnly;
+    } else if (footprintRule != "WrittenRule") {
+        throw runtime_error("params: footprintRule must be WrittenRule or LayerOnly");
+    }
     const string floorRoundingPoint = readString(
         requiredBlock(root, "floorRoundingPoint"), "floorRoundingPoint");
     if (floorRoundingPoint == "Lane") {

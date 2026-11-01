@@ -70,7 +70,7 @@ TEST_CASE("stackRules: a TLD or GMA load covers exactly its layer, smaller than 
     ProductRecord record = product();
     record.layerLengthIn = 47.0;
     record.layerWidthIn = 36.0;
-    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"TLD", 1.0, 0.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"TLD", 1.0, 0.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 47.0);
     CHECK(footprint.shortSideIn == 36.0);
     CHECK_FALSE(footprint.fromPalletOnly);
@@ -80,7 +80,7 @@ TEST_CASE("stackRules: a layer smaller than a real pallet covers the pallet's 48
     ProductRecord record = product();
     record.layerLengthIn = 47.0;
     record.layerWidthIn = 36.0;
-    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 48.0);
     CHECK(footprint.shortSideIn == 40.0);
 }
@@ -89,7 +89,7 @@ TEST_CASE("stackRules: a layer overhanging a real pallet covers the layer") {
     ProductRecord record = product();
     record.layerLengthIn = 57.8;
     record.layerWidthIn = 45.45;
-    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PGM", 65.0, 6.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PGM", 65.0, 6.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 57.8);
     CHECK(footprint.shortSideIn == 45.45);
 }
@@ -98,7 +98,7 @@ TEST_CASE("stackRules: a layer overhanging a real pallet on one side only takes 
     ProductRecord record = product();
     record.layerLengthIn = 50.0;
     record.layerWidthIn = 38.0;
-    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 50.0);
     CHECK(footprint.shortSideIn == 40.0);
 }
@@ -107,13 +107,26 @@ TEST_CASE("stackRules: a layer listed width first is matched long side to long s
     ProductRecord record = product();
     record.layerLengthIn = 36.0;
     record.layerWidthIn = 47.0;
-    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(record, {"PTL", 65.0, 6.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 48.0);
     CHECK(footprint.shortSideIn == 40.0);
 }
 
+TEST_CASE("stackRules: footprintRule - PTL 100014601 covers 48.94 x 40 by the written rule, its layer by LayerOnly") {
+    ProductRecord record = product();
+    record.layerLengthIn = 48.94;
+    record.layerWidthIn = 37.25;
+    const PalletSpec ptl{"PTL", 65.0, 6.0, 48.0, 40.0};
+    const UnitLoadFootprint written = unitLoadFootprint(record, ptl, FootprintRule::WrittenRule);
+    CHECK(written.longSideIn == doctest::Approx(48.94));
+    CHECK(written.shortSideIn == doctest::Approx(40.0));
+    const UnitLoadFootprint layerOnly = unitLoadFootprint(record, ptl, FootprintRule::LayerOnly);
+    CHECK(layerOnly.longSideIn == doctest::Approx(48.94));
+    CHECK(layerOnly.shortSideIn == doctest::Approx(37.25));
+}
+
 TEST_CASE("stackRules: a product with no layer size falls back to the pallet's footprint and says so") {
-    const UnitLoadFootprint footprint = unitLoadFootprint(product(), {"TLD", 1.0, 0.0, 48.0, 40.0});
+    const UnitLoadFootprint footprint = unitLoadFootprint(product(), {"TLD", 1.0, 0.0, 48.0, 40.0}, FootprintRule::WrittenRule);
     CHECK(footprint.longSideIn == 48.0);
     CHECK(footprint.shortSideIn == 40.0);
     CHECK(footprint.fromPalletOnly);

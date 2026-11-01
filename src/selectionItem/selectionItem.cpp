@@ -35,7 +35,7 @@ LineFigures lineFigures(const JoinedLine& line, const M2Params& params) {
     }
     // unitLoadMetricsFor succeeded, so the pallet resolves and the footprint is valid.
     const optional<PalletSpec> pallet = resolvePalletSpec(*line.product, params);
-    const UnitLoadFootprint footprint = unitLoadFootprint(*line.product, *pallet);
+    const UnitLoadFootprint footprint = unitLoadFootprint(*line.product, *pallet, params.footprintRule);
     figures.longSideIn = footprint.longSideIn;
     figures.shortSideIn = footprint.shortSideIn;
     return figures;

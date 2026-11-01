@@ -10,6 +10,7 @@
   "blankCriIsStackable": false,
   "stackWholePallets": true,
   "floorDeckHeight": "Included",
+  "footprintRule": "WrittenRule",
   "floorRoundingPoint": "Group",
   "selection": {
     "defaultEquipment": "53F",
