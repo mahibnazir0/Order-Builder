@@ -24,7 +24,7 @@ const PatternPackerSettings kSettings{1.0, 1.0, 200, 200'000, 100'000};
 
 KnapsackItem load(double area, double weight, const string& shipDate = "2026-08-06", int priority = 0,
                   double height = 60.0) {
-    return {area, weight, height, 1.0, shipDate, priority};
+    return {area, weight, height, 1.0, shipDate, priority, false, ""};
 }
 
 vector<KnapsackItem> copies(const KnapsackItem& item, size_t count) { return vector<KnapsackItem>(count, item); }
@@ -202,6 +202,30 @@ TEST_CASE("patternPacker: never more trucks than reserved - the least urgent goo
     CHECK(packing.integerTrucks == 2);
     for (const size_t index : packing.trucks[0].items) CHECK(items[index].priority == 0);
     CHECK(packByPatterns(items, kTruck, kSettings, 0).leftOver.size() == 64);
+}
+
+// Eight trucks of one item each: a 63,000 sq in item fills a truck, a 40,000 sq in one leaves a
+// third of it empty and no two share. Six are reserved, so two trucks must be dropped.
+vector<KnapsackItem> eightTrucks(int fullPriority, int partialPriority) {
+    return joined(copies(load(63000, 1000, "2026-08-06", fullPriority), 2),
+                  copies(load(40000, 1000, "2026-08-06", partialPriority), 6));
+}
+
+TEST_CASE("patternPacker: over the reservation the least urgent trucks are dropped, not the least full") {
+    const vector<KnapsackItem> items = eightTrucks(11, 0);
+    const PatternPacking packing = packByPatterns(items, kTruck, kSettings, 6);
+    checkPacking(items, packing, 6);
+    CHECK(packing.integerTrucks == 8);
+    REQUIRE(packing.leftOver.size() == 2);
+    for (const size_t index : packing.leftOver) CHECK(items[index].areaSqIn == 63000.0);
+}
+
+TEST_CASE("patternPacker: where fullness and urgency agree the least urgent are still the ones dropped") {
+    const vector<KnapsackItem> items = eightTrucks(0, 11);
+    const PatternPacking packing = packByPatterns(items, kTruck, kSettings, 6);
+    checkPacking(items, packing, 6);
+    REQUIRE(packing.leftOver.size() == 2);
+    for (const size_t index : packing.leftOver) CHECK(items[index].priority == 11);
 }
 
 TEST_CASE("patternPacker: items too tall or too large are left over, named") {

@@ -119,6 +119,8 @@ add_executable(ob_tests
   tests/shipCalendar/testShipCalendar.cpp
   tests/reservationBook/testReservationBook.cpp
   tests/selectionItem/testSelectionItem.cpp
+  tests/selectionItem/testInputTrucks.cpp
+  tests/selectionItem/testSelectionProperties.cpp
   tests/floorPattern/testFloorPattern.cpp
   tests/laneClassifier/testLaneClassifier.cpp
   tests/knapsack/testKnapsack.cpp

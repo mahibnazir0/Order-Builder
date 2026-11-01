@@ -102,7 +102,7 @@ string load(const string& loadId, const string& shipDate, const string& linesJso
 }
 
 string solutionWithLoads(const string& loadsJson, const string& shipCondition = "TL") {
-    return R"({"REQUEST_ID":"R1","LANES":[{"LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
+    return R"({"REQUEST_ID":"R1","LANES":[{"ID":"7","LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
         + shipCondition + R"(","LOADS":[)" + loadsJson + "]}]}";
 }
 

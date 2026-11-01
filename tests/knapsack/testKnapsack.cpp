@@ -24,7 +24,7 @@ const KnapsackSettings kFine{1.0, 1.0, 2'000'000};
 
 KnapsackItem load(double area, double weight, double unitLoads = 1.0,
                   const string& shipDate = "2026-08-06", int priority = 0, double height = 60.0) {
-    return {area, weight, height, unitLoads, shipDate, priority};
+    return {area, weight, height, unitLoads, shipDate, priority, false, ""};
 }
 
 // Chosen and left over together are the input, each index exactly once.
@@ -329,4 +329,32 @@ TEST_CASE("knapsack: August knapsack lanes fill their reserved trucks within cap
             REQUIRE(placed == items.size());
         }
     }
+}
+
+TEST_CASE("knapsack: moreUrgent orders overdue, then ship date, then priority, then product number") {
+    KnapsackItem overdue = load(1920, 1000, 1.0, "2026-08-07", 11);
+    overdue.overdue = true;
+    overdue.productNumber = "Z";
+    KnapsackItem earlier = load(1920, 1000, 1.0, "2026-08-06", 11);
+    earlier.productNumber = "Z";
+    KnapsackItem urgent = load(1920, 1000, 1.0, "2026-08-07", 0);
+    urgent.productNumber = "Z";
+    KnapsackItem lowerProduct = load(1920, 1000, 1.0, "2026-08-07", 11);
+    lowerProduct.productNumber = "A";
+    KnapsackItem last = load(1920, 1000, 1.0, "2026-08-07", 11);
+    last.productNumber = "Z";
+    const vector<KnapsackItem> ordered{overdue, earlier, urgent, lowerProduct, last};
+    for (size_t index = 0; index + 1 < ordered.size(); ++index) {
+        CAPTURE(index);
+        CHECK(moreUrgent(ordered[index], ordered[index + 1]));
+        CHECK_FALSE(moreUrgent(ordered[index + 1], ordered[index]));
+    }
+}
+
+TEST_CASE("knapsack: trucksByUrgency keeps the most urgent truck first, and the fuller of two equally urgent") {
+    const vector<KnapsackItem> items{load(1920, 1000, 1.0, "2026-08-06", 11), load(1920, 1000, 1.0, "2026-08-06", 0),
+                                     load(1920, 1000, 1.0, "2026-08-06", 5)};
+    CHECK(trucksByUrgency(items, {{0}, {2}, {1}}) == vector<size_t>{2, 1, 0});
+    CHECK(trucksByUrgency(items, {{1}, {1, 2}}) == vector<size_t>{1, 0});
+    CHECK(trucksByUrgency(items, {{0}, {0}}) == vector<size_t>{0, 1});
 }

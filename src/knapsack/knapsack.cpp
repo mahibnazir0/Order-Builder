@@ -9,6 +9,7 @@
 #include <numeric>
 #include <optional>
 #include <stdexcept>
+#include <functional>
 #include <tuple>
 #include <utility>
 
@@ -190,7 +191,33 @@ private:
 
 KnapsackItem knapsackItemFrom(const SelectionItem& item) {
     return {item.footprintLongIn * item.footprintShortIn, item.weightLb, item.heightIn,
-            item.unitLoads, item.shipDate, item.priority};
+            item.unitLoads, item.shipDate, item.priority, item.timing == ShipTiming::Overdue,
+            item.productNumber};
+}
+
+bool moreUrgent(const KnapsackItem& left, const KnapsackItem& right) {
+    return make_tuple(!left.overdue, cref(left.shipDate), left.priority, cref(left.productNumber))
+           < make_tuple(!right.overdue, cref(right.shipDate), right.priority, cref(right.productNumber));
+}
+
+vector<size_t> trucksByUrgency(const vector<KnapsackItem>& items, const vector<vector<size_t>>& trucks) {
+    vector<vector<size_t>> mostUrgentFirst = trucks;
+    auto itemMoreUrgent = [&](size_t left, size_t right) { return moreUrgent(items[left], items[right]); };
+    for (vector<size_t>& truck : mostUrgentFirst) sort(truck.begin(), truck.end(), itemMoreUrgent);
+    vector<size_t> order(trucks.size());
+    iota(order.begin(), order.end(), size_t{0});
+    // Item by item; where one truck's goods run out first and every earlier pair was equally
+    // urgent, the truck carrying more goes first.
+    stable_sort(order.begin(), order.end(), [&](size_t left, size_t right) {
+        const vector<size_t>& leftItems = mostUrgentFirst[left];
+        const vector<size_t>& rightItems = mostUrgentFirst[right];
+        for (size_t rank = 0; rank < min(leftItems.size(), rightItems.size()); ++rank) {
+            if (itemMoreUrgent(leftItems[rank], rightItems[rank])) return true;
+            if (itemMoreUrgent(rightItems[rank], leftItems[rank])) return false;
+        }
+        return leftItems.size() > rightItems.size();
+    });
+    return order;
 }
 
 KnapsackCapacity capacityOf(const TrailerSpec& trailer) {

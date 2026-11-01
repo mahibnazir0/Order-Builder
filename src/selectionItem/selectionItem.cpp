@@ -1,5 +1,6 @@
 #include "selectionItem.hpp"
 #include "pipeline.hpp"
+#include "converter.hpp"
 #include "isoDate.hpp"
 #include "stackRules.hpp"
 #include "tolerance.hpp"
@@ -153,12 +154,12 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                 }
                 if (item.lineIndices.empty()) continue;
 
-                result.unitLoadsOut += item.unitLoads;
-                result.weightOutLb += item.weightLb;
                 if (rejection) {
                     result.rejected.push_back({std::move(item), rejection->first, rejection->second});
                     continue;
                 }
+                result.unitLoadsOut += item.unitLoads;
+                result.weightOutLb += item.weightLb;
 
                 if (item.shipDate < window.firstShipDate) {
                     item.timing = ShipTiming::Overdue;
@@ -177,7 +178,10 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
     }
 
     for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
-        if (unallocated[lineIndex] > kQuantityEpsilon) result.linesNotFullyStacked.push_back(lineIndex);
+        if (unallocated[lineIndex] > kQuantityEpsilon) {
+            result.linesNotFullyStacked.push_back(
+                {lineIndex, unallocated[lineIndex], unallocated[lineIndex] * figures[lineIndex]->weightPerUnitLoadLb});
+        }
     }
 
     sort(result.items.begin(), result.items.end(), shipsBefore);
@@ -196,6 +200,63 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
         }
     }
     return result;
+}
+
+namespace {
+
+string truckLineText(const InputTruck& truck, const InputTruckLine& line) {
+    return "truck " + truck.id + " on lane " + truck.laneId + " on " + truck.shipDate + ": line IDPR " + line.idpr
+           + ", product " + line.matnr + ", " + line.unitOfMeasure;
+}
+
+double lineUnitLoadEquivalents(const InputTruck& truck, const InputTruckLine& line, const ProductIndex& products) {
+    if (!isfinite(line.quantity) || line.quantity < 0.0) {
+        throw invalid_argument(truckLineText(truck, line) + ": quantity " + to_string(line.quantity)
+                               + " is not a non-negative finite number");
+    }
+    const auto found = products.find(line.matnr);
+    if (found == products.end()) {
+        throw invalid_argument(truckLineText(truck, line) + ": the product is not in the master");
+    }
+    const auto record = find_if(found->second.begin(), found->second.end(),
+                                [&](const ProductRecord& product) { return product.uom == line.unitOfMeasure; });
+    if (record == found->second.end() || !Converter::isConvertibleUom(line.unitOfMeasure)) {
+        throw invalid_argument(truckLineText(truck, line) + ": the master has no convertible row in that unit");
+    }
+    if (record->cases_unit_load <= 0) {
+        throw invalid_argument(truckLineText(truck, line) + ": Cases_Unit_Load " + to_string(record->cases_unit_load)
+                               + " is not positive");
+    }
+    return Converter::to_pallets(line.quantity, line.unitOfMeasure, *record);
+}
+
+} // anonymous namespace
+
+double unitLoadEquivalents(const InputTruck& truck, const ProductIndex& products) {
+    double unitLoads = 0.0;
+    for (const InputTruckLine& line : truck.lines) unitLoads += lineUnitLoadEquivalents(truck, line, products);
+    return unitLoads;
+}
+
+void requirePlausibleTrucks(const vector<InputTruck>& trucks, const ProductIndex& products,
+                            double maxUnitLoadEquivalents) {
+    for (const InputTruck& truck : trucks) {
+        double unitLoads = 0.0, largest = -1.0;
+        const InputTruckLine* largestLine = nullptr;
+        for (const InputTruckLine& line : truck.lines) {
+            const double lineUnitLoads = lineUnitLoadEquivalents(truck, line, products);
+            unitLoads += lineUnitLoads;
+            if (lineUnitLoads > largest) {
+                largest = lineUnitLoads;
+                largestLine = &line;
+            }
+        }
+        if (largestLine && unitLoads > maxUnitLoadEquivalents + kQuantityEpsilon) {
+            throw invalid_argument(truckLineText(truck, *largestLine) + ": the truck carries "
+                                   + to_string(unitLoads) + " unit-load equivalents, over "
+                                   + to_string(maxUnitLoadEquivalents) + ": a conversion error, not a load");
+        }
+    }
 }
 
 bool shipsBefore(const SelectionItem& left, const SelectionItem& right) {

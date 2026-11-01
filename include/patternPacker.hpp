@@ -14,8 +14,9 @@
 // The integer answer takes each LP pattern as many whole times as the LP uses
 // it, then fills what is left truck by truck with the pattern covering the
 // most floor and payload. Items are dealt into the trucks most urgent first,
-// and never more trucks are kept than reserved: what the last trucks would
-// carry is left over, the least urgent goods.
+// and never more trucks are kept than reserved: trucks are kept most urgent
+// first by trucksByUrgency, shared with binPacker, so what is left over is the
+// least urgent goods, never merely the emptiest trucks.
 //
 // Capacity is floor area and weight, rounded as knapsack rounds them (items up,
 // capacity down); floorPattern confirms each truck's rows.

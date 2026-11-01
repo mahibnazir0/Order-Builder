@@ -85,6 +85,32 @@ TEST_CASE("selectionReporter: penaltyExposurePrinted - per lane-date with its re
     CHECK(report.find("Penalty exposure for the day: 3 reserved trucks unused") != string::npos);
 }
 
+TEST_CASE("selectionReporter: a lane above m5Threshold is in penalty exposure, named as escalated") {
+    vector<SelectionItem> items = repeated(10, 0, 0);
+    const vector<SelectionItem> escalatedLane = repeated(40, 1, 1);
+    items.insert(items.end(), escalatedLane.begin(), escalatedLane.end());
+    const Day day = dayOf({group("2027"), group("2031")}, 2, items,
+                          {reserved("2027", 1), reserved("2031", kRouting.m5Threshold + 1), reserved("2040", 2)});
+    const SelectionPlan selection = plan(day);
+    const long long escalatedTrucks = kRouting.m5Threshold + 1;
+    CHECK(selection.penaltyExposureTrucks == escalatedTrucks + 2);
+    const string report = reportOf(day, selection);
+    bool escalatedRow = false, nothingRow = false;
+    for (const string& line : linesOf(report)) {
+        if (line.find("2031 -> 2528 TL") != string::npos && line.find("unfilled, escalated to M5") != string::npos) {
+            escalatedRow = true;
+        }
+        if (line.find("2040 -> 2528 TL") != string::npos && line.find("unfilled, nothing to load") != string::npos) {
+            nothingRow = true;
+        }
+    }
+    CHECK(escalatedRow);
+    CHECK(nothingRow);
+    CHECK(report.find("Penalty exposure for the day: " + to_string(escalatedTrucks + 2) + " reserved trucks unused, "
+                      + to_string(escalatedTrucks) + " of them unfilled, escalated to M5")
+          != string::npos);
+}
+
 TEST_CASE("selectionReporter: a reservation blocked by a rule says which") {
     // Stacks 102 x 101 in fit the floor area but stand in no row of a 100 in trailer, so the
     // floor check takes them all off and both reserved trucks go unused.

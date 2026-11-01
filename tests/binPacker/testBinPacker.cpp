@@ -24,7 +24,19 @@ const KnapsackCapacity kTruck{63000.0, 45000.0, 108.0};
 const BinPackerSettings kSettings{1.0, 1.0, 50, 100'000, 2'000, 400, 100'000};
 
 KnapsackItem load(double area, double weight = 1000.0, double height = 60.0) {
-    return {area, weight, height, 1.0, "2026-08-06", 0};
+    return {area, weight, height, 1.0, "2026-08-06", 0, false, ""};
+}
+
+// Eight trucks of one item each: a 63,000 sq in item fills a truck, a 40,000 sq in one leaves a
+// third of it empty and no two share. Six are reserved, so two trucks must be dropped.
+vector<KnapsackItem> eightTrucks(int fullPriority, int partialPriority) {
+    vector<KnapsackItem> items(2, load(63000));
+    for (KnapsackItem& item : items) item.priority = fullPriority;
+    for (int index = 0; index < 6; ++index) {
+        items.push_back(load(40000));
+        items.back().priority = partialPriority;
+    }
+    return items;
 }
 
 // Every item on one truck or left over, no truck empty or over the floor or payload, no more
@@ -211,6 +223,31 @@ TEST_CASE("binPacker: neverExceedsReservation - overflow is reported, never buil
     CHECK(packing.trucks.size() == 2);
     CHECK(packing.overReservation);
     CHECK(packing.leftOver.size() == 2);
+}
+
+TEST_CASE("binPacker: over the reservation the least urgent trucks are dropped, not the least full") {
+    const vector<KnapsackItem> items = eightTrucks(11, 0);
+    for (const bool search : {true, false}) {
+        CAPTURE(search);
+        const BinPacking packing = search ? packBins(items, kTruck, kSettings, 6)
+                                          : packFirstFitDecreasing(items, kTruck, kSettings, 6);
+        checkPacking(items, packing, 6);
+        CHECK(packing.bestTrucks == 8);
+        REQUIRE(packing.leftOver.size() == 2);
+        for (const size_t index : packing.leftOver) CHECK(items[index].areaSqIn == 63000.0);
+    }
+}
+
+TEST_CASE("binPacker: where fullness and urgency agree the least urgent are still the ones dropped") {
+    const vector<KnapsackItem> items = eightTrucks(0, 11);
+    for (const bool search : {true, false}) {
+        CAPTURE(search);
+        const BinPacking packing = search ? packBins(items, kTruck, kSettings, 6)
+                                          : packFirstFitDecreasing(items, kTruck, kSettings, 6);
+        checkPacking(items, packing, 6);
+        REQUIRE(packing.leftOver.size() == 2);
+        for (const size_t index : packing.leftOver) CHECK(items[index].priority == 11);
+    }
 }
 
 TEST_CASE("binPacker: two segregated groups in one call are rejected") {

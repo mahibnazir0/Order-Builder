@@ -63,15 +63,34 @@ HeldDay heldDay(const string& label, const PipelineResult& run) {
     return day;
 }
 
+// Truck Builder's loads for one August run, read once.
+const acceptanceTests::AchievedRequest& augustClientLoads(size_t run) {
+    static const array<acceptanceTests::AchievedRequest, 3> loads = [] {
+        array<acceptanceTests::AchievedRequest, 3> read;
+        for (size_t index = 0; index < read.size(); ++index) {
+            read[index] = acceptanceTests::readAchievedLoads(m4AugustTests::kAugustSolutionDirectories[index],
+                                                             m4AugustTests::augustItems(index).run.demand.request_id);
+        }
+        return read;
+    }();
+    return loads[run];
+}
+
 // Every extract on this machine: the 4-6 August runs first, then the 17 Aug and early September
-// days, then 29 Sep - 5 Oct. Built once.
+// days, then 29 Sep - 5 Oct. Built once. The client's August trucks go through the plausibility
+// gate before anything is planned, so a conversion error stops the benchmark rather than being
+// compared against.
 const vector<HeldDay>& heldDays() {
     static const vector<HeldDay> days = [] {
         vector<HeldDay> held;
         if (m4AugustTests::augustPresent()) {
             const array<string, 3> labels{"Aug4", "Aug5", "Aug6"};
             for (size_t run = 0; run < labels.size(); ++run) {
-                held.push_back(heldDay(labels[run], m4AugustTests::augustItems(run).run));
+                const PipelineResult& pipeline = m4AugustTests::augustItems(run).run;
+                if (m4AugustTests::augustSolutionsPresent()) {
+                    requirePlausibleTrucks(augustClientLoads(run).trucks, pipeline.index, kMaxUnitLoadEquivalentsPerTruck);
+                }
+                held.push_back(heldDay(labels[run], pipeline));
             }
         }
         if (crossDayTests::allExtractsPresent()) {
@@ -128,8 +147,7 @@ const ClientDay& clientDay(size_t run) {
         for (size_t index = 0; index < loaded.size(); ++index) {
             const PipelineResult& pipeline = *heldDays()[index].run;
             ClientDay& day = loaded[index];
-            day.achieved = acceptanceTests::readAchievedLoads(m4AugustTests::kAugustSolutionDirectories[index],
-                                                              pipeline.demand.request_id);
+            day.achieved = augustClientLoads(index);
             for (const auto& laneDay : day.achieved.laneDays) {
                 day.laneDays.push_back({laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition,
                                         laneDay.shipDate, static_cast<long long>(laneDay.loads)});
@@ -236,6 +254,44 @@ TEST_CASE("m4Benchmark: every held extract keeps every invariant" * doctest::ski
             FAIL_CHECK(violation.invariant << ": " << violation.detail);
         }
     }
+}
+
+// The lanes the client splits into underscored lane ids (1697_674, 1709_1710, ...) are the do-not-mix
+// splits at origins 2027 and 2028. I3 is checked on every truck of those lanes from the lines it
+// carries, not from the items' own group indices.
+TEST_CASE("m4Benchmark: I3 holds on the segregation-split lanes from 2027 and 2028 in every held extract"
+          * doctest::skip()) {
+    size_t splitLaneTrucks = 0;
+    for (const HeldDay& day : heldDays()) {
+        CAPTURE(day.label);
+        const vector<SegregatedGroup>& groups = day.run->segregation.groups;
+        set<tuple<string, string, string>> splitLanes;
+        for (const SegregatedGroup& group : groups) {
+            const GroupKey& key = group.key;
+            if (group.splitReason == SplitReason::DoNotMix && (key.locationFrom == "2027" || key.locationFrom == "2028")) {
+                splitLanes.insert({key.locationFrom, key.locationTo, key.shipCondition});
+            }
+        }
+        vector<size_t> groupOfLine(day.run->join.lines.size(), groups.size());
+        for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex) {
+            for (const size_t lineIndex : groups[groupIndex].lineIndices) groupOfLine[lineIndex] = groupIndex;
+        }
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            const GroupKey& key = groups[truck.groupIndex].key;
+            if (!splitLanes.count({key.locationFrom, key.locationTo, key.shipCondition})) continue;
+            ++splitLaneTrucks;
+            for (const size_t index : truck.items) {
+                for (const size_t lineIndex : day.items.items[index].lineIndices) {
+                    CHECK(groupOfLine[lineIndex] == truck.groupIndex);
+                }
+            }
+        }
+        for (const InvariantViolation& violation :
+             checkInvariants(*day.run, day.book, day.items, day.plan, kMaxUnitLoadsPerTruck)) {
+            CHECK_MESSAGE(violation.invariant != "I3", violation.detail);
+        }
+    }
+    CHECK(splitLaneTrucks > 0);
 }
 
 TEST_CASE("m4Benchmark: every item and reservation of every held extract is routed exactly once"
@@ -359,13 +415,9 @@ TEST_CASE("m4Benchmark: August is set beside the client's own loads, lane-day by
         CHECK(comparison.clientLoads == static_cast<long long>(client.achieved.totalLoads()));
         CHECK(comparison.ourTrucks == static_cast<long long>(day.plan.trucks.size()));
         CHECK(comparison.reserved == day.book.reservedTrucks);
-        // Lanes left to M5 build nothing here, so the comparison counts their trucks unused;
-        // the penalty leaves them to M5.
-        long long leftToM5 = 0;
-        for (const ReservationUse& use : day.plan.reservations) {
-            if (use.escalated) leftToM5 += use.reserved - use.built;
-        }
-        CHECK(comparison.ourUnused == day.plan.penaltyExposureTrucks + leftToM5);
+        // Lanes left to M5 build nothing here, and penalty exposure counts their trucks unused
+        // as the comparison does.
+        CHECK(comparison.ourUnused == day.plan.penaltyExposureTrucks);
         // Measured 31 Oct 2026: every line his loads shipped is a line of this run's demand.
         // The spec expected about 41%, the rest autofill; these files show none.
         CHECK(client.shippedLinesInDemand == client.shippedLines);

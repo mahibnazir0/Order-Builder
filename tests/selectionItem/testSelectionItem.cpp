@@ -288,7 +288,8 @@ TEST_CASE("selectionItem: an unreadable priority rejects the item but keeps its 
     CHECK(built.items.empty());
     REQUIRE_FALSE(built.rejected.empty());
     CHECK(built.rejected.front().reason == ItemRejection::UnreadablePriority);
-    CHECK(built.unitLoadsOut == doctest::Approx(built.unitLoadsIn));
+    CHECK(built.unitLoadsOut == doctest::Approx(0.0));
+    CHECK(built.rejected.front().item.unitLoads == doctest::Approx(built.unitLoadsIn));
     CHECK(built.unitLoadsIn == doctest::Approx(2.0));
 }
 

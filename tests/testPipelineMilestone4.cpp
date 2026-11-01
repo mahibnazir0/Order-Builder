@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "m4SmallDay.hpp"
 #include "paramsFields.hpp"
 #include "pipeline.hpp"
 
@@ -15,67 +16,10 @@
 using namespace std;
 using namespace ob;
 namespace fs = filesystem;
+using m4SmallDay::kShippedParamsPath;
+using m4SmallDay::SmallDay;
 
 namespace {
-
-const string kShippedParamsPath = "config/orderBuilderParams.json";
-
-// A day of two products on one lane, planned on Tuesday 4 Aug for 6-7 Aug, with two trucks
-// reserved on 6 Aug. Written to a folder of its own and removed with it.
-struct SmallDay {
-    fs::path directory;
-    PipelineInputs inputs;
-
-    explicit SmallDay(const string& name, const string& extraLines = "", const string& extraPlaceholders = "") {
-        directory = fs::temp_directory_path() / ("obM4Pipeline_" + name);
-        fs::remove_all(directory);
-        fs::create_directories(directory);
-        const string product = (directory / "products.csv").string();
-        const string demand = (directory / "demand.json").string();
-        const string placeholder = (directory / "placeholder.json").string();
-        const string pallets = (directory / "pallets.csv").string();
-        ofstream(pallets) << "ID,Footprint_Length,Footprint_Width,Height,Weight\nTLD,48,40,0.1,1\n";
-        ofstream(product) << "ID,Description,Length,Width,Height,Strength,UoM,Weight,"
-                             "Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n"
-                             "GOOD,Good,10,10,10,5,CS,20,4,2,8,TLD\n"
-                             "OTHER,Other,10,10,10,5,CS,30,4,2,8,TLD\n";
-        ofstream(demand) << R"({"REQUEST_ID":"#STR_PA4400_20260804100000#","DNM":[],)"
-                            R"("CTL":[{"ZDATE":"","ZDAY":"TUESDAY","LEVEL_LOAD_START":2,"LEVEL_LOAD_END":3,"AUTO_O2":2}],)"
-                            R"("STR":[)"
-                         << line("GOOD", 240, "TL") << "," << line("OTHER", 160, "TL") << extraLines << "]}";
-        ofstream(placeholder) << R"({"PHOLDER":[{"LOCFRNO":"1","LOCTONO":"2","SHIP_COND":"TL","DATFR_TA":"2026-08-06",)"
-                                 R"("DATTO_TA":"2026-08-08","ZZNA_EQUIP_SIZE":"53F","NO_OF_LOADS":2,"EBELN":""})"
-                              << extraPlaceholders << "]}";
-        inputs.product_path = product;
-        inputs.demand_path = demand;
-        inputs.placeholder_path = placeholder;
-        inputs.palletPath = pallets;
-        inputs.paramsPath = kShippedParamsPath;
-        inputs.demandSelector = parseDemandSelector("calendar:2026-08-04");
-        inputs.runSelection = true;
-    }
-    ~SmallDay() {
-        error_code ignored;
-        fs::remove_all(directory, ignored);
-    }
-    SmallDay(const SmallDay&) = delete;
-    SmallDay& operator=(const SmallDay&) = delete;
-
-    static nlohmann::json lineJson(const string& matnr, int cases, const string& shipCondition) {
-        return {{"IDPR", "1"},          {"BNFPO", 10},           {"LOCFRNO", "1"},        {"LOCTONO", "2"},
-                {"MATNR", matnr},       {"DATFR_TA", "2026-08-06"}, {"DATTO_TA", "2026-08-08"},
-                {"SHIP_COND", shipCondition}, {"PLANNER_SNP", "S01"}, {"AVAIL_DATE", "2026-08-04"},
-                {"TPRIO", 0},           {"AVAIL_QTY", 0},        {"TRANS", cases},        {"UNITOFMEAS", "CS"}};
-    }
-    static string line(const string& matnr, int cases, const string& shipCondition) {
-        return lineJson(matnr, cases, shipCondition).dump();
-    }
-    static nlohmann::json placeholderJson(const string& origin, int loads) {
-        return {{"LOCFRNO", origin},        {"LOCTONO", "2"},  {"SHIP_COND", "TL"},
-                {"DATFR_TA", "2026-08-06"}, {"DATTO_TA", "2026-08-08"},
-                {"ZZNA_EQUIP_SIZE", "53F"}, {"NO_OF_LOADS", loads}, {"EBELN", ""}};
-    }
-};
 
 // The shipped params with one change made to the "selection" block, written beside `day`.
 string editedParams(const SmallDay& day, const string& key, const nlohmann::json& value) {
@@ -113,6 +57,16 @@ bool shortfallNaming(const PipelineResult& result, const string& text) {
     const vector<string> shortfalls = selectionShortfalls(result);
     return any_of(shortfalls.begin(), shortfalls.end(),
                   [&](const string& shortfall) { return shortfall.find(text) != string::npos; });
+}
+
+bool hasI10(const vector<InvariantViolation>& violations) {
+    return any_of(violations.begin(), violations.end(),
+                  [](const InvariantViolation& violation) { return violation.invariant == "I10"; });
+}
+
+vector<InvariantViolation> invariantsOf(const PipelineResult& result, const SelectionItems& items,
+                                        const SelectionPlan& plan) {
+    return checkInvariants(result, result.reservationBook, items, plan, result.selectionParams.maxUnitLoadsPerTruck);
 }
 
 string reportOf(const PipelineResult& result) {
@@ -251,6 +205,8 @@ TEST_CASE("pipelineM4: a lane above m5Threshold is escalated and fails the run w
     const PipelineResult result = Pipeline::run(day.inputs);
     CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
     CHECK(shortfallNaming(result, "escalated to M5"));
+    CHECK(result.selectionPlan.penaltyExposureTrucks == 32);
+    CHECK(reportOf(result).find("unfilled, escalated to M5") != string::npos);
 }
 
 TEST_CASE("pipelineM4: a stack left over as unfittable, unsolved or escalated fails the run with exit 7") {
@@ -445,4 +401,53 @@ TEST_CASE("pipelineM4: noCustomerNameInCode - no source file tests a customer's 
         }
     }
     CHECK(filesRead > 50);
+}
+
+TEST_CASE("pipelineM4: I10 holds on a rejected item only while its unit loads are counted") {
+    nlohmann::json priorityTwelve = SmallDay::lineJson("GOOD", 16, "TL");
+    priorityTwelve["TPRIO"] = 12;
+    const SmallDay day("i10Rejected", "," + priorityTwelve.dump());
+    const PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(result.selectionItems.rejected.size() == 1);
+    CHECK_FALSE(hasI10(result.selectionViolations));
+
+    SelectionItems rejectionDropped = result.selectionItems;
+    rejectionDropped.rejected.clear();
+    CHECK(hasI10(invariantsOf(result, rejectionDropped, result.selectionPlan)));
+}
+
+TEST_CASE("pipelineM4: I10 holds on a skipped placeholder's lane only while its goods are counted") {
+    nlohmann::json otherLane = SmallDay::lineJson("GOOD", 16, "TL");
+    otherLane["LOCFRNO"] = "3";
+    nlohmann::json unknownEquipment = SmallDay::placeholderJson("3", 1);
+    unknownEquipment["ZZNA_EQUIP_SIZE"] = "48F";
+    const SmallDay day("i10Skipped", "," + otherLane.dump(), "," + unknownEquipment.dump());
+    const PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(result.reservationBook.skipped.size() == 1);
+    CHECK_FALSE(hasI10(result.selectionViolations));
+
+    SelectionPlan leftOverDropped = result.selectionPlan;
+    const auto noReservation = remove_if(leftOverDropped.leftOver.begin(), leftOverDropped.leftOver.end(),
+                                         [](const LeftOverItem& left) { return left.reason == LeftOverReason::NoReservation; });
+    REQUIRE(noReservation != leftOverDropped.leftOver.end());
+    leftOverDropped.leftOver.erase(noReservation, leftOverDropped.leftOver.end());
+    CHECK(hasI10(invariantsOf(result, result.selectionItems, leftOverDropped)));
+}
+
+TEST_CASE("pipelineM4: I10 holds on a clean run and the run exits 0") {
+    const SmallDay day("i10Clean");
+    const PipelineResult result = Pipeline::run(day.inputs);
+    CHECK(result.selectionItems.unitLoadsIn > 0.0);
+    CHECK_FALSE(hasI10(result.selectionViolations));
+    CHECK(runOutcome(result) == RunOutcome::Complete);
+}
+
+TEST_CASE("pipelineM4: an assignment that drops an item breaks I10 and the run does not exit 0") {
+    SmallDay day("i10Dropped");
+    PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE_FALSE(result.selectionPlan.trucks.empty());
+    result.selectionPlan.trucks.front().items.pop_back();
+    result.selectionViolations = invariantsOf(result, result.selectionItems, result.selectionPlan);
+    CHECK(hasI10(result.selectionViolations));
+    CHECK(runOutcome(result) != RunOutcome::Complete);
 }
