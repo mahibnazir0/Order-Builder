@@ -100,9 +100,12 @@ struct RouteOutcome {
     bool lpIterationCapHit = false;  // its LP stopped at the pivot cap; the run is incomplete
     long long trucksAllowed = 0;  // what the lane-date's reservation still allowed this group
     long long trucksBuilt = 0;
-    // Judged on this route's trucks: weight when they carry a larger share of their payload
-    // than of their floor, otherwise floor area. None when nothing was built.
+    // The lane-date's one limit (Rev 8 section 4), decided from all its groups' goods before any
+    // truck is built: weight when they would fill more trucks on payload than on floor,
+    // otherwise floor area. None when the lane-date has no goods.
     BindingLimit binding = BindingLimit::None;
+    // The trucks built on this route bind on the other limit; reported, never swapped.
+    bool bindingChanged = false;
 };
 
 struct PlannedTruck {

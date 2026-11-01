@@ -119,12 +119,14 @@ public:
             if (leftItems.empty() || rightItems.empty()) return !leftItems.empty() && rightItems.empty();
             return leftItems.front() < rightItems.front();
         });
+        const BindingLimit binding = bindingOf(routeIndices);
         long long spare = classification_.routes[routeIndices.front()].reservedTrucks;
         for (const size_t routeIndex : routeIndices) spare -= classification_.routes[routeIndex].trucksAllocated;
         for (const size_t routeIndex : solveOrder) {
             const LaneRoute& route = classification_.routes[routeIndex];
             RouteOutcome outcome;
             outcome.routeIndex = routeIndex;
+            outcome.binding = binding;
             switch (route.method) {
             case SolveMethod::M5:
                 outcome.status = RouteStatus::Escalated;
@@ -173,11 +175,27 @@ public:
         RouteOutcome outcome;
         outcome.routeIndex = routeIndex;
         outcome.trucksAllowed = trucksAllowed;
+        outcome.binding = bindingOf({routeIndex});
         solveGroup(classification_.routes[routeIndex], chain, outcome, bundle);
         return {std::move(outcome), std::move(bundle.trucks), std::move(bundle.leftOver)};
     }
 
 private:
+    BindingLimit bindingOf(const vector<size_t>& routeIndices) const {
+        double areaSqIn = 0.0, weightLb = 0.0;
+        for (const size_t routeIndex : routeIndices) {
+            for (const size_t index : classification_.routes[routeIndex].itemIndices) {
+                const SelectionItem& item = items_.items[index];
+                areaSqIn += item.footprintLongIn * item.footprintShortIn;
+                weightLb += item.weightLb;
+            }
+        }
+        if (areaSqIn <= 0.0 && weightLb <= 0.0) return BindingLimit::None;
+        // A tie plans against floor: the customer's lanes mostly run out of space first.
+        return weightLb / capacity_.weightLb > areaSqIn / capacity_.floorAreaSqIn ? BindingLimit::Weight
+                                                                                : BindingLimit::FloorArea;
+    }
+
     static void leaveAll(const LaneRoute& route, LeftOverReason reason, BundleResult& bundle) {
         for (const size_t index : route.itemIndices) bundle.leftOver.push_back({index, reason});
     }
@@ -263,7 +281,10 @@ private:
             bundle.trucks.push_back(std::move(planned));
         }
         outcome.trucksBuilt = static_cast<long long>(trucks.size());
-        if (!trucks.empty()) outcome.binding = weightShare > areaShare ? BindingLimit::Weight : BindingLimit::FloorArea;
+        if (!trucks.empty()) {
+            const BindingLimit built = weightShare > areaShare ? BindingLimit::Weight : BindingLimit::FloorArea;
+            outcome.bindingChanged = built != outcome.binding;
+        }
         for (size_t position = 0; position < items.size(); ++position) {
             if (!placed[position]) bundle.leftOver.push_back({route.itemIndices[position], reasonFor[position]});
         }

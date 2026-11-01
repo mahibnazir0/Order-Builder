@@ -258,6 +258,36 @@ TEST_CASE("selector: heavySpreadAcrossTrucks - no truck weighs out while another
     }
 }
 
+TEST_CASE("selector: a dense lane-date binds on weight and a light one on floor, before any truck") {
+    const Day dense = dayOf({group("2027")}, 1, repeated(32, 0, 0, 1500.0), {reserved("2027", 2)});
+    CHECK(plan(dense).routes[0].binding == BindingLimit::Weight);
+    const Day light = dayOf({group("2027")}, 1, repeated(32, 0, 0, 500.0), {reserved("2027", 2)});
+    CHECK(plan(light).routes[0].binding == BindingLimit::FloorArea);
+}
+
+TEST_CASE("selector: every group of a lane-date is planned against the same limit") {
+    vector<SelectionItem> items = repeated(20, 0, 0, 2000.0);
+    const vector<SelectionItem> light = repeated(20, 1, 1, 100.0);
+    items.insert(items.end(), light.begin(), light.end());
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 2)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.routes.size() == 2);
+    CHECK(selection.routes[0].binding == BindingLimit::FloorArea);
+    CHECK(selection.routes[1].binding == BindingLimit::FloorArea);
+}
+
+TEST_CASE("selector: a group whose trucks bind on the other limit is flagged, not swapped") {
+    vector<SelectionItem> items = repeated(20, 0, 0, 2000.0);
+    const vector<SelectionItem> light = repeated(20, 1, 1, 100.0);
+    items.insert(items.end(), light.begin(), light.end());
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 2)});
+    const SelectionPlan selection = plan(day);
+    REQUIRE(selection.routes.size() == 2);
+    CHECK(selection.routes[0].bindingChanged);
+    CHECK_FALSE(selection.routes[1].bindingChanged);
+}
+
 TEST_CASE("selector: multiThreadMatchesSingle at 1, 2, 8 and more threads than lanes") {
     mt19937 random(14112026);
     vector<SegregatedGroup> groups;

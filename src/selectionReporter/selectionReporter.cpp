@@ -373,6 +373,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
             const RouteShares& shares = sharesOfRoute[routeIndex];
             binding = string(outcome.binding == BindingLimit::Weight ? "weight" : "floor") + " ("
                       + percent(shares.weightShare) + " payload, " + percent(shares.floorShare) + " floor)";
+            if (outcome.bindingChanged) binding += ", trucks bind on the other";
         }
         const string proof = !outcome.methodUsed           ? "-"
                              : outcome.lpIterationCapHit ? "LP CAP HIT"
