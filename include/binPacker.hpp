@@ -15,8 +15,10 @@
 // the result says whether branch and price improved on it, matched it, or
 // could not run.
 //
-// Never more trucks than reserved: trucks are kept fullest first and what the
-// rest would carry is left over. Capacity is floor area and weight, rounded as
+// Never more trucks than reserved: trucks are kept most urgent first (overdue,
+// then ship date, then priority, then product number; trucksByUrgency, shared
+// with patternPacker), never by how full they are, and what the rest would
+// carry is left over. Capacity is floor area and weight, rounded as
 // knapsack rounds them; floorPattern confirms each truck's rows.
 // ============================================================================
 
@@ -47,7 +49,7 @@ struct BinTruck {
 };
 
 struct BinPacking {
-    std::vector<BinTruck> trucks;          // at most the reserved count, fullest first
+    std::vector<BinTruck> trucks;          // at most the reserved count, most urgent first
     std::vector<std::size_t> leftOver;     // ascending: unfittable, or over the reservation
     std::vector<std::size_t> unfittable;   // too tall, or over the floor or payload alone
 

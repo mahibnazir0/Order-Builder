@@ -20,6 +20,7 @@
 // the selection order, the knapsack's classes - reads only that rank.
 // ============================================================================
 
+#include "joiner.hpp"
 #include "shipCalendar.hpp"
 
 #include <cstddef>
@@ -89,19 +90,26 @@ struct InfeasibleItem {
     ItemInfeasibility reason = ItemInfeasibility::OverPayload;
 };
 
+// A stacked line's unit loads that no stack had room for, and what they weigh.
+struct UnstackedLine {
+    std::size_t lineIndex = 0;
+    double unitLoads = 0.0;
+    double weightLb = 0.0;
+};
+
 struct SelectionItems {
     std::vector<SelectionItem> items;     // in shipsBefore order
     std::vector<RejectedItem> rejected;
     std::vector<InfeasibleItem> infeasible;
 
-    // I10: what the stacked lines hold, against what the items and rejections carry.
+    // I10: what the stacked lines hold (In) equals what the items carry (Out), plus what the
+    // rejected items carry, plus what linesNotFullyStacked kept back.
     double unitLoadsIn = 0.0;
     double weightInLb = 0.0;
     double unitLoadsOut = 0.0;
     double weightOutLb = 0.0;
-    // Stacked lines whose unit loads the stacks did not have room for. Must be empty: any
-    // entry means M2's stacks and the line's unit loads disagree.
-    std::vector<std::size_t> linesNotFullyStacked;
+    // Must be empty: any entry means M2's stacks and the line's unit loads disagree.
+    std::vector<UnstackedLine> linesNotFullyStacked;
 
     std::size_t itemsMixingShipDates = 0;
     std::size_t partialItems = 0; // items whose unit loads are not a whole number
@@ -118,6 +126,37 @@ int urgencyRank(int tprio, bool priorityZeroIsMostUrgent);
 // The selection order: ship date first, then priority, then product number, then position in
 // the stacks, so no two items tie (E83, E229).
 bool shipsBefore(const SelectionItem& left, const SelectionItem& right);
+
+// A truck someone else already loaded, as read from their solution: the client's Truck Builder
+// loads the benchmark plans beside.
+struct InputTruckLine {
+    std::string idpr;
+    std::string matnr;
+    double quantity = 0.0;
+    std::string unitOfMeasure;
+};
+
+struct InputTruck {
+    std::string id;
+    std::string laneId;
+    std::string shipDate;
+    std::vector<InputTruckLine> lines;
+};
+
+// 32 floor positions stacked two high: no real truck carries more unit loads than this.
+constexpr double kMaxUnitLoadEquivalentsPerTruck = 64.0;
+
+// A truck's unit-load equivalents: each line's quantity over Cases_Unit_Load of its product's
+// master row in the same unit, as the Converter divides demand. Throws std::invalid_argument
+// naming the truck, line, product and unit for a quantity that is negative or not finite, a
+// product not in the master or not in that unit, or a Cases_Unit_Load that is not positive.
+double unitLoadEquivalents(const InputTruck& truck, const ProductIndex& products);
+
+// The physical-plausibility gate, run on every input truck before any planning: a truck over
+// maxUnitLoadEquivalents is a conversion error, not a load, so the run stops. Throws
+// std::invalid_argument naming the truck and its largest line's IDPR, product and unit.
+void requirePlausibleTrucks(const std::vector<InputTruck>& trucks, const ProductIndex& products,
+                            double maxUnitLoadEquivalents);
 
 // Plain-ASCII names for reports.
 const char* itemRejectionName(ItemRejection reason);

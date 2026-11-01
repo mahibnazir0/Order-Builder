@@ -174,7 +174,7 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
     packing.provenOptimal =
         packing.integerTrucks <= max(packing.volumeBoundTrucks, packing.converged ? packing.lpTrucks : 0);
 
-    // Fullest trucks first, so the reservation keeps them and drops the emptiest.
+    // Fullest first only so trucks equally urgent keep the fuller; urgency decides the drop.
     auto loadArea = [&](const vector<int>& load) {
         long long area = 0, weight = 0;
         for (size_t type = 0; type < types.size(); ++type) {
@@ -186,24 +186,32 @@ PatternPacking packByPatterns(const vector<KnapsackItem>& items, const KnapsackC
     stable_sort(truckLoads.begin(), truckLoads.end(),
                 [&](const vector<int>& left, const vector<int>& right) { return loadArea(left) > loadArea(right); });
 
-    vector<char> placed(items.size(), 0);
+    // Every truck's items, dealt most urgent of each type first, before any truck is dropped.
+    vector<vector<size_t>> truckItems(truckLoads.size());
     vector<size_t> nextOfType(types.size(), 0);
+    for (size_t truckIndex = 0; truckIndex < truckLoads.size(); ++truckIndex) {
+        for (size_t type = 0; type < types.size(); ++type) {
+            for (int count = 0; count < truckLoads[truckIndex][type]; ++count) {
+                truckItems[truckIndex].push_back(types[type].items[nextOfType[type]++]);
+            }
+        }
+    }
+    const vector<size_t> keepOrder = trucksByUrgency(items, truckItems);
+
+    vector<char> placed(items.size(), 0);
     map<vector<int>, size_t> patternIndex;
     const size_t kept = min(truckLoads.size(), static_cast<size_t>(reservedTrucks));
-    for (size_t truckIndex = 0; truckIndex < kept; ++truckIndex) {
-        const vector<int>& load = truckLoads[truckIndex];
+    for (size_t rank = 0; rank < kept; ++rank) {
+        const size_t truckIndex = keepOrder[rank];
         PackedTruck truck;
-        const auto [found, isNew] = patternIndex.emplace(load, packing.patterns.size());
-        if (isNew) packing.patterns.push_back(load);
+        const auto [found, isNew] = patternIndex.emplace(truckLoads[truckIndex], packing.patterns.size());
+        if (isNew) packing.patterns.push_back(truckLoads[truckIndex]);
         truck.pattern = found->second;
-        for (size_t type = 0; type < types.size(); ++type) {
-            for (int count = 0; count < load[type]; ++count) {
-                const size_t index = types[type].items[nextOfType[type]++];
-                truck.items.push_back(index);
-                placed[index] = 1;
-                truck.areaUsedSqIn += items[index].areaSqIn;
-                truck.weightUsedLb += items[index].weightLb;
-            }
+        truck.items = std::move(truckItems[truckIndex]);
+        for (const size_t index : truck.items) {
+            placed[index] = 1;
+            truck.areaUsedSqIn += items[index].areaSqIn;
+            truck.weightUsedLb += items[index].weightLb;
         }
         sort(truck.items.begin(), truck.items.end());
         packing.trucks.push_back(std::move(truck));

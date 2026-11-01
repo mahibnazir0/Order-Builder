@@ -96,7 +96,8 @@ struct InvariantViolation {
 };
 
 // I1 every item on exactly one truck or left over; I10 the stacked lines' unit loads and
-// weight equal what the items and rejected items carry; I2 no truck over its floor area,
+// weight equal what the items, rejected items and unstacked lines carry, and the trucks plus
+// left-over lists carry every item's, with no conservation field left unset while items exist; I2 no truck over its floor area,
 // payload, ceiling or rows; I3 every truck one group's goods; I4 no lane-date given more trucks
 // than it reserved, and no truck on a date with none; I6 no truck over maxUnitLoadsPerTruck
 // unit loads; I12 every reservation reported, its trucks recounted from the trucks themselves;

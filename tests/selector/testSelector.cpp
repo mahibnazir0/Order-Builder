@@ -70,7 +70,8 @@ TEST_CASE("selector: m5CallsNoSolver - an escalated lane is marked, its goods an
     CHECK(selection.trucks.empty());
     CHECK(countReason(selection, LeftOverReason::EscalatedToM5) == 40);
     CHECK(selection.reservations[0].escalated);
-    CHECK(selection.penaltyExposureTrucks == 0);
+    CHECK(selection.reservations[0].unused() == 21);
+    CHECK(selection.penaltyExposureTrucks == 21);
 }
 
 TEST_CASE("selector: fallbackNamed - a method that throws is named and the next one down runs") {

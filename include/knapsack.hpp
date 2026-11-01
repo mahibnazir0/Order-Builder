@@ -40,9 +40,23 @@ struct KnapsackItem {
     double unitLoads = 0.0;
     std::string shipDate;
     int priority = 0;        // 0 most urgent
+    bool overdue = false;    // ship date before the run's window
+    std::string productNumber;
 };
 
 KnapsackItem knapsackItemFrom(const SelectionItem& item);
+
+// Whether `left` ships before `right`: overdue first, then the earlier ship date, then the more
+// urgent priority, then the lower product number, so equal goods order the same on every run.
+bool moreUrgent(const KnapsackItem& left, const KnapsackItem& right);
+
+// The order to keep a lane's trucks in when it has more than its reservation, as indices into
+// `trucks` (each a list of indices into `items`): the truck whose goods are most urgent first,
+// compared item by item from each truck's most urgent. How full a truck is never decides it;
+// trucks equally urgent keep the order given. Shared by patternPacker and binPacker so both drop
+// the same way.
+std::vector<std::size_t> trucksByUrgency(const std::vector<KnapsackItem>& items,
+                                         const std::vector<std::vector<std::size_t>>& trucks);
 
 struct KnapsackCapacity {
     double floorAreaSqIn = 0.0;

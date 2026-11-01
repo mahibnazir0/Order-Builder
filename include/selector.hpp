@@ -135,8 +135,10 @@ struct ReservationUse {
     std::size_t reservationIndex = 0;  // into ReservationBook::reservations
     long long reserved = 0;
     long long built = 0;
-    bool escalated = false;  // left to M5, so not yet counted as unused
-    long long unused() const { return escalated ? 0 : reserved - built; }
+    // Left to M5. Its trucks still carry nothing, so they are unused and in penalty exposure;
+    // the report names them apart from trucks with nothing to load.
+    bool escalated = false;
+    long long unused() const { return reserved - built; }
 };
 
 struct SelectionPlan {
@@ -144,7 +146,7 @@ struct SelectionPlan {
     std::vector<RouteOutcome> routes;     // parallel to LaneClassification::routes
     std::vector<LeftOverItem> leftOver;   // ascending by item
     std::vector<ReservationUse> reservations;  // parallel to ReservationBook::reservations
-    long long penaltyExposureTrucks = 0;  // reserved trucks left unused, M5 lanes excepted
+    long long penaltyExposureTrucks = 0;  // reserved trucks left unused, escalated ones included
 };
 
 // One group's route as the selector solves it - the method chain, then the floor, fill and

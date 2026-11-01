@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <tuple>
+#include <utility>
 
 using namespace std;
 
@@ -224,18 +225,71 @@ vector<InvariantViolation> checkInvariants(const PipelineResult& run, const Rese
         }
     }
 
+    // I10, recounted from the items, the rejections, the unstacked lines and the plan: the
+    // stacked lines' unit loads and weight go somewhere, and the trucks plus the left-over lists
+    // hold every item's. Fields at their default while items exist were never filled in, and
+    // would otherwise balance 0 = 0.
+    if (!items.items.empty()) {
+        const pair<const char*, double> conservationFields[] = {
+            {"unitLoadsIn", items.unitLoadsIn}, {"weightInLb", items.weightInLb},
+            {"unitLoadsOut", items.unitLoadsOut}, {"weightOutLb", items.weightOutLb}};
+        for (const auto& [field, value] : conservationFields) {
+            if (value == 0.0) {
+                violations.push_back({"I10", string(field) + " is 0 while " + to_string(items.items.size())
+                                                 + " items exist: the count was never made"});
+            }
+        }
+    }
+    double itemUnitLoads = 0.0, itemWeight = 0.0;
+    for (const SelectionItem& item : items.items) {
+        itemUnitLoads += item.unitLoads;
+        itemWeight += item.weightLb;
+    }
+    double rejectedUnitLoads = 0.0, rejectedWeight = 0.0;
+    for (const RejectedItem& rejected : items.rejected) {
+        rejectedUnitLoads += rejected.item.unitLoads;
+        rejectedWeight += rejected.item.weightLb;
+    }
+    double unstackedUnitLoads = 0.0, unstackedWeight = 0.0;
+    for (const UnstackedLine& line : items.linesNotFullyStacked) {
+        unstackedUnitLoads += line.unitLoads;
+        unstackedWeight += line.weightLb;
+    }
+    double plannedUnitLoads = 0.0, plannedWeight = 0.0;
+    auto countPlanned = [&](size_t index) {
+        if (index >= items.items.size()) return;
+        plannedUnitLoads += items.items[index].unitLoads;
+        plannedWeight += items.items[index].weightLb;
+    };
+    for (const PlannedTruck& truck : plan.trucks) {
+        for (const size_t index : truck.items) countPlanned(index);
+    }
+    for (const LeftOverItem& left : plan.leftOver) countPlanned(left.itemIndex);
+
     // Relative: a day's weight runs to 10^8 lb, past what an absolute epsilon survives summing.
     auto differ = [](double left, double right) {
         return fabs(left - right) > kQuantityEpsilon * max({1.0, fabs(left), fabs(right)});
     };
-    if (differ(items.unitLoadsIn, items.unitLoadsOut)) {
-        violations.push_back({"I10", "the stacked lines hold " + fixed(items.unitLoadsIn, 3) + " unit loads, the items "
-                                         + "and rejections carry " + fixed(items.unitLoadsOut, 3)});
-    }
-    if (differ(items.weightInLb, items.weightOutLb)) {
-        violations.push_back({"I10", "the stacked lines weigh " + fixed(items.weightInLb, 3) + " lb, the items "
-                                         + "and rejections " + fixed(items.weightOutLb, 3) + " lb"});
-    }
+    auto checkConserved = [&](const string& what, double in, double out, double carried, double rejected,
+                              double unstacked, double planned) {
+        if (differ(out, carried)) {
+            violations.push_back({"I10", "the items carry " + fixed(carried, 3) + what + ", the count out says "
+                                             + fixed(out, 3)});
+        }
+        if (differ(in, out + rejected + unstacked)) {
+            violations.push_back({"I10", "the stacked lines hold " + fixed(in, 3) + what + ", the items "
+                                             + fixed(out, 3) + ", the rejections " + fixed(rejected, 3)
+                                             + " and the unstacked lines " + fixed(unstacked, 3)});
+        }
+        if (differ(carried, planned)) {
+            violations.push_back({"I10", "the items carry " + fixed(carried, 3) + what + ", the trucks and left-over "
+                                             + "lists " + fixed(planned, 3)});
+        }
+    };
+    checkConserved(" unit loads", items.unitLoadsIn, items.unitLoadsOut, itemUnitLoads, rejectedUnitLoads,
+                   unstackedUnitLoads, plannedUnitLoads);
+    checkConserved(" lb", items.weightInLb, items.weightOutLb, itemWeight, rejectedWeight, unstackedWeight,
+                   plannedWeight);
 
     if (plan.reservations.size() != book.reservations.size()) {
         violations.push_back({"I12", "the plan reports " + to_string(plan.reservations.size()) + " of "

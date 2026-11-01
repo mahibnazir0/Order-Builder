@@ -115,6 +115,13 @@ inline Day dayOf(std::vector<ob::SegregatedGroup> groups, std::size_t products, 
         }
     }
     std::sort(items.begin(), items.end(), ob::shipsBefore);
+    // What buildSelectionItems would count: every unit load stacked and carried by an item.
+    for (const ob::SelectionItem& item : items) {
+        day.items.unitLoadsIn += item.unitLoads;
+        day.items.weightInLb += item.weightLb;
+    }
+    day.items.unitLoadsOut = day.items.unitLoadsIn;
+    day.items.weightOutLb = day.items.weightInLb;
     day.items.items = std::move(items);
     day.classification = ob::classifyLanes(day.run, day.book, day.items, kRouting);
     return day;

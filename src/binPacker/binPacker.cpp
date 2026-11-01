@@ -309,7 +309,7 @@ private:
     vector<UnitTruck> poolOrder_;
 };
 
-// The trucks as input indices, fullest first, at most `reservedTrucks` of them.
+// The trucks as input indices, most urgent first, at most `reservedTrucks` of them.
 BinPacking finish(const vector<KnapsackItem>& items, const KnapsackProblem& problem,
                   vector<UnitTruck> trucks, int reservedTrucks, BinPacking packing) {
     auto fill = [&](const UnitTruck& truck) {
@@ -322,17 +322,23 @@ BinPacking finish(const vector<KnapsackItem>& items, const KnapsackProblem& prob
         }
         return share;
     };
+    // Fullest first only so trucks equally urgent keep the fuller; urgency decides the drop.
     stable_sort(trucks.begin(), trucks.end(),
                 [&](const UnitTruck& left, const UnitTruck& right) { return fill(left) > fill(right); });
+    vector<vector<size_t>> truckItems(trucks.size());
+    for (size_t truckIndex = 0; truckIndex < trucks.size(); ++truckIndex) {
+        truckItems[truckIndex].reserve(trucks[truckIndex].size());
+        for (const size_t unit : trucks[truckIndex]) truckItems[truckIndex].push_back(problem.candidates[unit]);
+    }
+    const vector<size_t> keepOrder = trucksByUrgency(items, truckItems);
     packing.bestTrucks = static_cast<long long>(trucks.size());
     packing.overReservation = trucks.size() > static_cast<size_t>(reservedTrucks);
     vector<char> placed(items.size(), 0);
-    for (size_t truckIndex = 0; truckIndex < trucks.size() && truckIndex < static_cast<size_t>(reservedTrucks);
-         ++truckIndex) {
+    const size_t kept = min(trucks.size(), static_cast<size_t>(reservedTrucks));
+    for (size_t rank = 0; rank < kept; ++rank) {
         BinTruck truck;
-        for (const size_t unit : trucks[truckIndex]) {
-            const size_t index = problem.candidates[unit];
-            truck.items.push_back(index);
+        truck.items = std::move(truckItems[keepOrder[rank]]);
+        for (const size_t index : truck.items) {
             placed[index] = 1;
             truck.areaUsedSqIn += items[index].areaSqIn;
             truck.weightUsedLb += items[index].weightLb;

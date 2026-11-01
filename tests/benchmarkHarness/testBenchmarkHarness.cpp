@@ -176,18 +176,49 @@ TEST_CASE("benchmarkHarness: each invariant is caught when broken") {
 TEST_CASE("benchmarkHarness: unit loads or weight lost between the lines and the items break I10") {
     const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
     const SelectionPlan clean = plan(day);
-    SelectionItems balanced = day.items;
-    balanced.unitLoadsIn = balanced.unitLoadsOut = 40.0;
-    balanced.weightInLb = balanced.weightOutLb = 9.0e7;
-    CHECK_FALSE(hasViolation(checkInvariants(day.run, day.book, balanced, clean, 64.0), "I10"));
+    REQUIRE_FALSE(hasViolation(checkInvariants(day.run, day.book, day.items, clean, 64.0), "I10"));
 
-    SelectionItems lostUnitLoads = balanced;
-    lostUnitLoads.unitLoadsOut = 39.0;
+    SelectionItems lostUnitLoads = day.items;
+    lostUnitLoads.unitLoadsIn += 1.0;
     CHECK(hasViolation(checkInvariants(day.run, day.book, lostUnitLoads, clean, 64.0), "I10"));
 
-    SelectionItems lostWeight = balanced;
-    lostWeight.weightOutLb = 9.0e7 - 500.0;
+    SelectionItems lostWeight = day.items;
+    lostWeight.weightInLb += 500.0;
     CHECK(hasViolation(checkInvariants(day.run, day.book, lostWeight, clean, 64.0), "I10"));
+}
+
+TEST_CASE("benchmarkHarness: I10 counts the unit loads of lines not fully stacked") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan clean = plan(day);
+    SelectionItems withUnstacked = day.items;
+    withUnstacked.unitLoadsIn += 0.5;
+    withUnstacked.weightInLb += 250.0;
+    withUnstacked.linesNotFullyStacked.push_back({0, 0.5, 250.0});
+    CHECK_FALSE(hasViolation(checkInvariants(day.run, day.book, withUnstacked, clean, 64.0), "I10"));
+    withUnstacked.linesNotFullyStacked.clear();
+    CHECK(hasViolation(checkInvariants(day.run, day.book, withUnstacked, clean, 64.0), "I10"));
+}
+
+TEST_CASE("benchmarkHarness: a conservation field left unset while items exist breaks I10") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    const SelectionPlan clean = plan(day);
+    for (double SelectionItems::*field : {&SelectionItems::unitLoadsIn, &SelectionItems::weightInLb,
+                                          &SelectionItems::unitLoadsOut, &SelectionItems::weightOutLb}) {
+        SelectionItems unset = day.items;
+        unset.*field = 0.0;
+        CHECK(hasViolation(checkInvariants(day.run, day.book, unset, clean, 64.0), "I10"));
+    }
+    SelectionItems allUnset = day.items;
+    allUnset.unitLoadsIn = allUnset.unitLoadsOut = allUnset.weightInLb = allUnset.weightOutLb = 0.0;
+    CHECK(hasViolation(checkInvariants(day.run, day.book, allUnset, clean, 64.0), "I10"));
+}
+
+TEST_CASE("benchmarkHarness: an item dropped from the plan breaks I10") {
+    const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    SelectionPlan dropped = plan(day);
+    REQUIRE_FALSE(dropped.trucks.empty());
+    dropped.trucks.front().items.pop_back();
+    CHECK(hasViolation(checkInvariants(day.run, day.book, day.items, dropped, 64.0), "I10"));
 }
 
 TEST_CASE("benchmarkHarness: samePlan tells a re-run from a different plan") {

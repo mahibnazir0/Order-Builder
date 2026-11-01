@@ -248,10 +248,13 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                              " then the next; then most floor covered");
 
     printSection(out, 2);
-    long long reserved = 0, escalated = 0;
+    long long reserved = 0, escalated = 0, escalatedUnused = 0;
     for (const ReservationUse& use : plan.reservations) {
         reserved += use.reserved;
-        if (use.escalated) escalated += use.reserved;
+        if (use.escalated) {
+            escalated += use.reserved;
+            escalatedUnused += use.unused();
+        }
     }
     double unitLoads = 0.0, rearWaste = 0.0, cube = 0.0;
     size_t weightFull = 0, cubeFull = 0, itemsOnTrucks = 0;
@@ -266,7 +269,9 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     const double built = static_cast<double>(max<size_t>(1, plan.trucks.size()));
     printLine(out, "trucks built", count(plan.trucks.size()) + " of " + grouped(static_cast<double>(reserved)) + " reserved");
     printLine(out, "left to M5", grouped(static_cast<double>(escalated)) + " trucks reserved");
-    printLine(out, "unused (penalty exposure)", grouped(static_cast<double>(plan.penaltyExposureTrucks)) + " trucks");
+    printLine(out, "unused (penalty exposure)", grouped(static_cast<double>(plan.penaltyExposureTrucks))
+                                                    + " trucks, " + grouped(static_cast<double>(escalatedUnused))
+                                                    + " of them unfilled, escalated to M5");
     printLine(out, "unit loads shipped", grouped(unitLoads, 1));
     printLine(out, "average rear waste", fixed(plan.trucks.empty() ? 0.0 : rearWaste / built, 1) + " in");
     printLine(out, "average cube", percent(plan.trucks.empty() ? 0.0 : cube / built) + " (full at "
@@ -291,8 +296,10 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         const LaneDate laneDate{reservation.origin, reservation.destination, reservation.shipCondition, reservation.shipDate};
         string reason;
         const auto left = leftByLaneDate.find(laneDate);
-        if (!laneDatesWithDemand.count(laneDate)) {
-            reason = "nothing to load";
+        if (use.escalated) {
+            reason = "unfilled, escalated to M5";
+        } else if (!laneDatesWithDemand.count(laneDate)) {
+            reason = "unfilled, nothing to load";
         } else if (left == leftByLaneDate.end()) {
             reason = "nothing more to load";
         } else {
@@ -322,7 +329,8 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         printColumns(out, {"lane", "unused trucks"}, laneRows, {false, true});
     }
     out << "\n  Penalty exposure for the day: " << grouped(static_cast<double>(plan.penaltyExposureTrucks))
-        << " reserved trucks unused\n";
+        << " reserved trucks unused, " << grouped(static_cast<double>(escalatedUnused))
+        << " of them unfilled, escalated to M5\n";
 
     const ReservationCoverage& coverage = run.reservationCoverage;
     out << "\n  Lanes reserved with no demand: " << count(coverage.reservationsWithoutDemand.size()) << " lane-dates, "
