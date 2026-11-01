@@ -108,6 +108,18 @@ const vector<HeldDay>& heldDays() {
     return days;
 }
 
+// The August run at `run` (0 for 4 Aug). heldDays() holds only the extracts present, so without
+// August its first days are September's: check the label rather than trust the position.
+const HeldDay& augustDay(size_t run) {
+    REQUIRE(m4AugustTests::augustPresent());
+    const array<string, 3> labels{"Aug4", "Aug5", "Aug6"};
+    REQUIRE(run < labels.size());
+    REQUIRE(heldDays().size() > run);
+    const HeldDay& day = heldDays()[run];
+    REQUIRE(day.label == labels[run]);
+    return day;
+}
+
 // For each August run, its routes sent to patternPacker or binPacker, each benchmarked with every
 // method. Those are where the variety ratio decides; a knapsack route's demand runs far past its
 // reservation, and packing all of it with every method says nothing about the crossover.
@@ -115,7 +127,7 @@ const array<vector<RouteBenchmark>, 3>& augustRouteBenchmarks() {
     static const array<vector<RouteBenchmark>, 3> benchmarks = [] {
         array<vector<RouteBenchmark>, 3> byRun;
         for (size_t run = 0; run < byRun.size(); ++run) {
-            const HeldDay& day = heldDays()[run];
+            const HeldDay& day = augustDay(run);
             for (size_t route = 0; route < day.classification.routes.size(); ++route) {
                 const SolveMethod method = day.classification.routes[route].method;
                 if (method != SolveMethod::PatternPacker && method != SolveMethod::BinPacker) continue;
@@ -160,10 +172,11 @@ double clientCargoCubicIn(const InputTruck& truck, const PipelineResult& pipelin
 }
 
 const ClientDay& clientDay(size_t run) {
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
     static const array<ClientDay, 3> days = [] {
         array<ClientDay, 3> loaded;
         for (size_t index = 0; index < loaded.size(); ++index) {
-            const PipelineResult& pipeline = *heldDays()[index].run;
+            const PipelineResult& pipeline = *augustDay(index).run;
             ClientDay& day = loaded[index];
             day.achieved = augustClientLoads(index);
             for (const auto& laneDay : day.achieved.laneDays) {
@@ -202,7 +215,8 @@ struct LargestLane {
 
 // rank 0 is the lane the client loaded most, 1 the next.
 LargestLane largestClientLane(size_t run, size_t rank) {
-    const HeldDay& day = heldDays()[run];
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
+    const HeldDay& day = augustDay(run);
     map<tuple<string, string, string>, long long> loadsByLane;
     for (const ClientLaneDay& laneDay : clientDay(run).laneDays) {
         loadsByLane[make_tuple(laneDay.origin, laneDay.destination, laneDay.shipCondition)] += laneDay.loads;
@@ -404,8 +418,7 @@ TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibl
 
 TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the group that fills it"
           * doctest::skip()) {
-    const HeldDay& day = heldDays().front();
-    REQUIRE(day.label == "Aug4");
+    const HeldDay& day = augustDay(0);
     size_t routesSeen = 0;
     for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
         const LaneRoute& route = day.classification.routes[routeIndex];
@@ -431,7 +444,7 @@ TEST_CASE("m4Benchmark: August fill is no worse than measured on 1 Nov" * doctes
     };
     const array<Fill, 3> measured{Fill{2889.0, 83.5}, Fill{2774.6, 104.9}, Fill{2727.0, 113.9}};
     for (size_t run = 0; run < measured.size(); ++run) {
-        const HeldDay& day = heldDays()[run];
+        const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
         const FullnessSummary fullness = summariseFullness(*day.run, day.items, day.plan, kHeavyTruckLb);
         CHECK(fullness.averageCubicFeet >= measured[run].cubicFeetAtLeast);
@@ -443,7 +456,7 @@ TEST_CASE("m4Benchmark: the client's August loads are measured from their lines,
           * doctest::skip()) {
     const double trailerCubicFeet = 630.0 * 100.0 * 108.0 / 1728.0;
     for (size_t run = 0; run < 3; ++run) {
-        const HeldDay& day = heldDays()[run];
+        const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
         double cargoCubicIn = 0.0;
         long long loads = 0;
@@ -471,7 +484,7 @@ TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by
         Counts{{SolveMethod::Knapsack, 187}, {SolveMethod::PatternPacker, 48}, {SolveMethod::BinPacker, 34},
                {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
     for (size_t run = 0; run < expected.size(); ++run) {
-        const HeldDay& day = heldDays()[run];
+        const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
         Counts routesBy;
         for (const LaneRoute& route : day.classification.routes) ++routesBy[route.method];
@@ -501,7 +514,7 @@ TEST_CASE("m4Benchmark: the client's largest August lanes are run with every met
     for (const auto& lane : lanes) {
         const size_t run = get<0>(lane), rank = get<1>(lane);
         const long long loads = get<2>(lane);
-        CAPTURE(heldDays()[run].label);
+        CAPTURE(augustDay(run).label);
         CAPTURE(rank);
         const LargestLane largest = largestClientLane(run, rank);
         CHECK(largest.clientLoads == loads);
@@ -543,7 +556,7 @@ TEST_CASE("m4Benchmark: August is set beside the client's own loads, lane-day by
     REQUIRE(m4AugustTests::augustPresent());
     REQUIRE(m4AugustTests::augustSolutionsPresent());
     for (size_t run = 0; run < 3; ++run) {
-        const HeldDay& day = heldDays()[run];
+        const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
         const ClientDay& client = clientDay(run);
         const ClientComparison comparison = compareWithClient(*day.run, day.book, day.plan, client.laneDays);
@@ -598,7 +611,7 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
     report << "\n2. August against the client's own loads (E218, E219)\n";
     long long ourUnused = 0, clientUnused = 0;
     for (size_t run = 0; run < 3; ++run) {
-        const HeldDay& day = heldDays()[run];
+        const HeldDay& day = augustDay(run);
         const ClientDay& client = clientDay(run);
         const ClientComparison comparison = compareWithClient(*day.run, day.book, day.plan, client.laneDays);
         ourUnused += comparison.ourUnused;
@@ -620,7 +633,7 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
     vector<vector<string>> laneRows;
     for (const auto& [run, rank] : vector<pair<size_t, size_t>>{{0, 0}, {1, 0}, {2, 0}, {2, 1}}) {
         const LargestLane largest = largestClientLane(run, rank);
-        vector<string> row{heldDays()[run].label, printable(largest.lane), to_string(largest.clientLoads),
+        vector<string> row{augustDay(run).label, printable(largest.lane), to_string(largest.clientLoads),
                            to_string(largest.reserved), to_string(largest.routes)};
         for (const MethodScore& total : largest.totals) {
             row.push_back(to_string(total.trucks) + " / " + grouped(total.unitLoadsShipped, 1));
@@ -651,8 +664,8 @@ TEST_CASE("m4Benchmark: the benchmark report is written for the client" * doctes
     report << "  Smallest reservation whose routed method missed the " << fixed(realDataSettings().secondsPerLane, 0)
            << " s budget: " << (overBudget ? to_string(*overBudget) : string("none did")) << ".\n";
     for (size_t run = 0; run < 3; ++run) {
-        report << "\n" << heldDays()[run].label << "\n";
-        printBenchmark(report, *heldDays()[run].run, heldDays()[run].classification, augustRouteBenchmarks()[run]);
+        report << "\n" << augustDay(run).label << "\n";
+        printBenchmark(report, *augustDay(run).run, augustDay(run).classification, augustRouteBenchmarks()[run]);
     }
 
     const string text = report.str();
