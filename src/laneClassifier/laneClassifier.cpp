@@ -35,45 +35,39 @@ void validate(const LaneClassifierSettings& settings, const TrailerSpec& trailer
     if (!isfinite(settings.varietyRatio) || settings.varietyRatio <= 0.0) {
         throw invalid_argument("Lane classifier: varietyRatio must be positive and finite");
     }
-    if (!(settings.fullCubeFraction > 0.0 && settings.fullCubeFraction <= 1.0)) {
-        throw invalid_argument("Lane classifier: fullCubeFraction must be in (0, 1]");
-    }
     // These divide the demand into trucks.
     if (!isfinite(trailer.weightLimitLb) || trailer.weightLimitLb <= 0.0
         || !isfinite(trailer.interiorLengthIn) || trailer.interiorLengthIn <= 0.0
-        || !isfinite(trailer.interiorWidthIn) || trailer.interiorWidthIn <= 0.0
-        || !isfinite(trailer.stackHeightCeilingIn) || trailer.stackHeightCeilingIn <= 0.0) {
+        || !isfinite(trailer.interiorWidthIn) || trailer.interiorWidthIn <= 0.0) {
         throw invalid_argument("Lane classifier: trailer " + trailer.trailerCode
                                + " has a payload or size that is not positive and finite");
     }
 }
 
-// What goods take of one truck on each limit demand is estimated on.
+// What goods take of one truck on each limit demand is estimated on. These are the limits the
+// solvers pack to: floor area and payload. Cube is not one of them (each stack is under the
+// ceiling, so floor bounds it), and counting a truck full at fullCubeFraction of cube here would
+// estimate more trucks than the solvers build.
 struct TruckShares {
     double floor = 0.0;
     double weight = 0.0;
-    double cube = 0.0;
 
-    double largest() const { return max({floor, weight, cube}); }
+    double largest() const { return max(floor, weight); }
     TruckShares& operator+=(const TruckShares& other) {
         floor += other.floor;
         weight += other.weight;
-        cube += other.cube;
         return *this;
     }
 };
 
-TruckShares sharesOf(const SelectionItem& item, const TrailerSpec& trailer, double fullCubeFraction) {
-    const double floorSqIn = trailer.interiorLengthIn * trailer.interiorWidthIn;
-    const double fullCubicIn = floorSqIn * trailer.stackHeightCeilingIn * fullCubeFraction;
-    return {item.footprintLongIn * item.footprintShortIn / floorSqIn, item.weightLb / trailer.weightLimitLb,
-            item.cubeCubicIn / fullCubicIn};
+TruckShares sharesOf(const SelectionItem& item, const TrailerSpec& trailer) {
+    return {item.footprintLongIn * item.footprintShortIn / (trailer.interiorLengthIn * trailer.interiorWidthIn),
+            item.weightLb / trailer.weightLimitLb};
 }
 
-long long demandTrucks(const vector<size_t>& itemIndices, const SelectionItems& items,
-                       const TrailerSpec& trailer, double fullCubeFraction) {
+long long demandTrucks(const vector<size_t>& itemIndices, const SelectionItems& items, const TrailerSpec& trailer) {
     TruckShares total;
-    for (const size_t index : itemIndices) total += sharesOf(items.items[index], trailer, fullCubeFraction);
+    for (const size_t index : itemIndices) total += sharesOf(items.items[index], trailer);
     return static_cast<long long>(ceil(total.largest() - kQuantityEpsilon));
 }
 
@@ -90,18 +84,17 @@ struct EstimatedLoad {
 auto urgencyOf(const EstimatedLoad& load) { return make_tuple(!load.overdue, cref(load.shipDate), load.priority); }
 
 // The route's items in order, cut into a new load wherever the next item would take the open one
-// past a truck on floor area, payload or cube.
+// past a truck on floor area or payload.
 void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const SelectionItems& items,
-                          const TrailerSpec& trailer, double fullCubeFraction, vector<EstimatedLoad>& loads) {
+                          const TrailerSpec& trailer, vector<EstimatedLoad>& loads) {
     optional<EstimatedLoad> open;
     TruckShares openShares;
     size_t sequence = 0;
     for (const size_t index : route.itemIndices) {
         const SelectionItem& item = items.items[index];
-        const TruckShares shares = sharesOf(item, trailer, fullCubeFraction);
+        const TruckShares shares = sharesOf(item, trailer);
         if (open && (openShares.floor + shares.floor > 1.0 + kQuantityEpsilon
-                     || openShares.weight + shares.weight > 1.0 + kQuantityEpsilon
-                     || openShares.cube + shares.cube > 1.0 + kQuantityEpsilon)) {
+                     || openShares.weight + shares.weight > 1.0 + kQuantityEpsilon)) {
             open->fill = openShares.largest();
             loads.push_back(std::move(*open));
             open.reset();
@@ -130,7 +123,7 @@ void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const Selec
 // truck wins). Trucks beyond every load go to the route holding the most urgent load, or to the
 // first route when none has demand, so the shares always add up to the reservation.
 void allocateReservations(vector<LaneRoute>& routes, const vector<SegregatedGroup>& groups,
-                          const SelectionItems& items, const TrailerSpec& trailer, double fullCubeFraction) {
+                          const SelectionItems& items, const TrailerSpec& trailer) {
     map<pair<string, string>, vector<size_t>> routesByLaneDate;
     for (size_t routeIndex = 0; routeIndex < routes.size(); ++routeIndex) {
         const LaneRoute& route = routes[routeIndex];
@@ -141,7 +134,7 @@ void allocateReservations(vector<LaneRoute>& routes, const vector<SegregatedGrou
     for (const auto& [laneDate, routeIndices] : routesByLaneDate) {
         vector<EstimatedLoad> loads;
         for (const size_t routeIndex : routeIndices) {
-            appendEstimatedLoads(routeIndex, routes[routeIndex], items, trailer, fullCubeFraction, loads);
+            appendEstimatedLoads(routeIndex, routes[routeIndex], items, trailer, loads);
         }
         if (loads.empty()) {
             routes[routeIndices.front()].trucksAllocated = routes[routeIndices.front()].reservedTrucks;
@@ -253,12 +246,12 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
             }
         }
         route.distinctProducts = products.size();
-        route.demandTrucks = demandTrucks(itemIndices, items, run.trailer, settings.fullCubeFraction);
+        route.demandTrucks = demandTrucks(itemIndices, items, run.trailer);
         route.itemIndices = std::move(itemIndices);
         classification.routes.push_back(std::move(route));
     }
 
-    allocateReservations(classification.routes, groups, items, run.trailer, settings.fullCubeFraction);
+    allocateReservations(classification.routes, groups, items, run.trailer);
     for (LaneRoute& route : classification.routes) {
         route.demandAboveReservation = route.demandTrucks > route.trucksAllocated;
         route.shortLane = route.demandTrucks < route.trucksAllocated;

@@ -436,13 +436,15 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 
 // Rev 8 judges M4 on the cube each truck carries and the space left at its rear, not on the
 // truck count. Pinned as measured on 1 Nov so a change that empties trucks fails by name; a
-// change that fills them better passes and should re-pin.
+// change that fills them better passes and should re-pin. Re-pinned the same day 0.1% lower,
+// accepted, when the classifier stopped counting a truck full at 84% of cube: borderline lanes
+// moved from knapsack to the packers.
 TEST_CASE("m4Benchmark: August fill is no worse than measured on 1 Nov" * doctest::skip()) {
     struct Fill {
         double cubicFeetAtLeast;
         double rearWasteInAtMost;
     };
-    const array<Fill, 3> measured{Fill{2889.0, 83.5}, Fill{2774.6, 104.9}, Fill{2727.0, 113.9}};
+    const array<Fill, 3> measured{Fill{2886.9, 83.8}, Fill{2773.5, 105.0}, Fill{2723.8, 114.2}};
     for (size_t run = 0; run < measured.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -477,11 +479,11 @@ TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by
     REQUIRE(m4AugustTests::augustPresent());
     using Counts = map<SolveMethod, size_t>;
     const array<Counts, 3> expected{
-        Counts{{SolveMethod::Knapsack, 138}, {SolveMethod::PatternPacker, 12}, {SolveMethod::BinPacker, 9},
+        Counts{{SolveMethod::Knapsack, 133}, {SolveMethod::PatternPacker, 16}, {SolveMethod::BinPacker, 10},
                {SolveMethod::Unrouted, 386}, {SolveMethod::NoDemand, 12}},
-        Counts{{SolveMethod::Knapsack, 201}, {SolveMethod::PatternPacker, 40}, {SolveMethod::BinPacker, 21},
+        Counts{{SolveMethod::Knapsack, 198}, {SolveMethod::PatternPacker, 42}, {SolveMethod::BinPacker, 22},
                {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 219}, {SolveMethod::NoDemand, 26}},
-        Counts{{SolveMethod::Knapsack, 187}, {SolveMethod::PatternPacker, 48}, {SolveMethod::BinPacker, 34},
+        Counts{{SolveMethod::Knapsack, 178}, {SolveMethod::PatternPacker, 57}, {SolveMethod::BinPacker, 34},
                {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
     for (size_t run = 0; run < expected.size(); ++run) {
         const HeldDay& day = augustDay(run);

@@ -291,7 +291,7 @@ TEST_CASE("patternPacker: August patternPacker lanes pack within capacity and re
         CAPTURE(runIndex);
         const m4AugustTests::AugustItems& august = m4AugustTests::augustItems(runIndex);
         const LaneClassification classification =
-            classifyLanes(august.run, august.book, august.built, {20, 5.0, 0.84});
+            classifyLanes(august.run, august.book, august.built, {20, 5.0});
         const KnapsackCapacity capacity = capacityOf(august.run.trailer);
         for (const LaneRoute& route : classification.routes) {
             if (route.method != SolveMethod::PatternPacker) continue;

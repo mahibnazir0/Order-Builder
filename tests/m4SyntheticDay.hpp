@@ -18,7 +18,7 @@
 namespace m4SyntheticDay {
 
 inline const ob::TrailerSpec kTrailer{"53FT_NA", 630.0, 100.0, 108.0, 45000.0, 32, std::nullopt};
-inline const ob::LaneClassifierSettings kRouting{20, 5.0, 0.84};
+inline const ob::LaneClassifierSettings kRouting{20, 5.0};
 inline const std::string kPlanDate = "2026-08-04";  // a Tuesday: the window is 6-7 Aug
 inline const std::vector<ob::CTLRecord> kCtl{{"", "TUESDAY", 2, 3, 2}};
 

@@ -61,7 +61,6 @@ enum class ConflictReason {
 struct LaneClassifierSettings {
     int m5Threshold = 0;        // at least 2
     double varietyRatio = 0.0;  // unit loads per product; positive and finite
-    double fullCubeFraction = 0.0;  // a truck is full at this share of its cube; in (0, 1]
 };
 
 struct LaneRoute {
@@ -76,8 +75,8 @@ struct LaneRoute {
     std::vector<std::size_t> itemIndices; // into SelectionItems::items, in selection order
     double unitLoads = 0.0;
     std::size_t distinctProducts = 0;
-    // The fewest trucks the items could need, on floor area, payload or cube alone; cube counts a
-    // truck full at fullCubeFraction (Rev 8: a stack is judged by the floor it takes).
+    // The fewest trucks the items could need, on floor area or payload alone: the limits the
+    // solvers pack to (Rev 8: a stack is judged by the floor it takes).
     long long demandTrucks = 0;
     bool demandAboveReservation = false;  // above trucksAllocated
     bool shortLane = false;          // demand below trucksAllocated: trucks will go unused

@@ -17,7 +17,7 @@ using namespace ob;
 namespace {
 
 const TrailerSpec kTrailer{"53FT_NA", 630.0, 100.0, 108.0, 45000.0, 32, nullopt};
-const LaneClassifierSettings kSettings{20, 5.0, 0.84};
+const LaneClassifierSettings kSettings{20, 5.0};
 
 // 2026-08-04 is a Tuesday: the window is 6-7 Aug.
 const string kPlanDate = "2026-08-04";
@@ -146,7 +146,7 @@ TEST_CASE("laneClassifier: the largest lane goes to M5 at threshold 20 and patte
     }
     const vector<PlaceholderRecord> reservation{reserved("2027", "2026-08-06", 41)};
     CHECK(onlyRoute(classify(run, reservation, items)).method == SolveMethod::M5);
-    const LaneRoute at50 = onlyRoute(classify(run, reservation, items, {50, 5.0, 0.84}));
+    const LaneRoute at50 = onlyRoute(classify(run, reservation, items, {50, 5.0}));
     CHECK(at50.method == SolveMethod::PatternPacker);
     CHECK(at50.distinctProducts == 13);
 }
@@ -191,20 +191,19 @@ TEST_CASE("laneClassifier: demand trucks count weight and cube as well as positi
     CHECK(onlyRoute(classify(run, {reserved("2027", "2026-08-06", 3)}, heavy)).demandTrucks == 2);
 }
 
-TEST_CASE("laneClassifier: demand trucks count cube full at fullCubeFraction, exactly on the boundary") {
+TEST_CASE("laneClassifier: tall stacks are counted in trucks on floor area, as the solvers pack them") {
     const PipelineResult run = runWith({group("2027")}, 1);
-    // 0.84 of a 630 x 100 x 108 in trailer is 5,715,360 cu in: 40 items of 142,884 cu in fill it exactly.
-    vector<SelectionItem> items = repeated(40, 0, 0);
+    // 150 two-high stacks at the 108 in ceiling: five trucks of 30 positions. Counted full at 84%
+    // of cube they would read as six.
+    vector<SelectionItem> items = repeated(150, 0, 0);
     for (SelectionItem& one : items) {
-        one.footprintLongIn = 20.0;
-        one.footprintShortIn = 20.0;
-        one.weightLb = 100.0;
-        one.cubeCubicIn = 142884.0;
+        one.heightIn = 108.0;
+        one.weightLb = 500.0;
+        one.cubeCubicIn = 48.0 * 40.0 * 108.0;
     }
-    const vector<PlaceholderRecord> reservation{reserved("2027", "2026-08-06", 3)};
-    CHECK(onlyRoute(classify(run, reservation, items)).demandTrucks == 1);
-    items.push_back(items.front());
-    CHECK(onlyRoute(classify(run, reservation, items)).demandTrucks == 2);
+    const LaneRoute route = onlyRoute(classify(run, {reserved("2027", "2026-08-06", 5)}, items));
+    CHECK(route.demandTrucks == 5);
+    CHECK_FALSE(route.demandAboveReservation);
 }
 
 TEST_CASE("laneClassifier: large footprints reach a truck on floor area before 32 stacks") {
@@ -231,7 +230,7 @@ TEST_CASE("laneClassifier: routingRatioFromBenchmark - the variety ratio decides
     const vector<PlaceholderRecord> reservation{reserved("2027", "2026-08-06", 2)};
     CHECK(onlyRoute(classify(run, reservation, few)).method == SolveMethod::PatternPacker);
     CHECK(onlyRoute(classify(run, reservation, many)).method == SolveMethod::BinPacker);
-    CHECK(onlyRoute(classify(run, reservation, few, {20, 10.0, 0.84})).method == SolveMethod::BinPacker);
+    CHECK(onlyRoute(classify(run, reservation, few, {20, 10.0})).method == SolveMethod::BinPacker);
 }
 
 TEST_CASE("laneClassifier: underscoredLaneIsSegregationNotMultiStop") {
@@ -408,11 +407,9 @@ TEST_CASE("laneClassifier: settings out of range are rejected") {
     const PipelineResult run = runWith({group("2027")}, 1);
     const double nan = numeric_limits<double>::quiet_NaN();
     const double infinity = numeric_limits<double>::infinity();
-    for (const LaneClassifierSettings bad : {LaneClassifierSettings{1, 5.0, 0.84}, LaneClassifierSettings{-3, 5.0, 0.84},
-                                             LaneClassifierSettings{20, 0.0, 0.84}, LaneClassifierSettings{20, -5.0, 0.84},
-                                             LaneClassifierSettings{20, nan, 0.84}, LaneClassifierSettings{20, infinity, 0.84},
-                                             LaneClassifierSettings{20, 5.0, 0.0}, LaneClassifierSettings{20, 5.0, 1.5},
-                                             LaneClassifierSettings{20, 5.0, nan}}) {
+    for (const LaneClassifierSettings bad : {LaneClassifierSettings{1, 5.0}, LaneClassifierSettings{-3, 5.0},
+                                             LaneClassifierSettings{20, 0.0}, LaneClassifierSettings{20, -5.0},
+                                             LaneClassifierSettings{20, nan}, LaneClassifierSettings{20, infinity}}) {
         CHECK_THROWS_AS(classify(run, {}, {}, bad), invalid_argument);
     }
     PipelineResult badTrailer = runWith({group("2027")}, 1);
