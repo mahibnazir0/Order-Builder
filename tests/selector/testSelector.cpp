@@ -76,18 +76,29 @@ Day patternPackerDay() {
     return dayOf({group("2027")}, 3, items, {reserved("2027", 6)});
 }
 
-// Fourteen distinct trailer-wide loads, floor and payload both tight: one branch node leaves a
-// truck the full search saves.
-Day binPackerDay() {
-    const vector<pair<double, double>> areaAndWeight{
-        {25136, 21599}, {22210, 18703}, {30155, 1637},  {22304, 15043}, {34926, 8797},
-        {30807, 10858}, {18620, 17624}, {23526, 18930}, {12730, 13685}, {29918, 12370},
-        {35857, 12962}, {18878, 11059}, {18805, 20806}, {16824, 12700}};
+// Distinct trailer-wide loads, one per (floor sq in, lb), on one lane reserving a truck each.
+Day trailerWideDay(const vector<pair<double, double>>& areaAndWeight) {
     vector<SelectionItem> items;
     for (size_t index = 0; index < areaAndWeight.size(); ++index) {
         items.push_back(item(0, index, areaAndWeight[index].second, 0, areaAndWeight[index].first / 100.0, 100.0));
     }
-    return dayOf({group("2027")}, areaAndWeight.size(), items, {reserved("2027", 14)});
+    return dayOf({group("2027")}, areaAndWeight.size(), items, {reserved("2027", static_cast<int>(areaAndWeight.size()))});
+}
+
+// Floor and payload both tight: first-fit decreasing needs more trucks than the bounds prove,
+// so only the search proves the packing.
+Day binPackerDay() {
+    return trailerWideDay({{25136, 21599}, {22210, 18703}, {30155, 1637},  {22304, 15043}, {34926, 8797},
+                           {30807, 10858}, {18620, 17624}, {23526, 18930}, {12730, 13685}, {29918, 12370},
+                           {35857, 12962}, {18878, 11059}, {18805, 20806}, {16824, 12700}});
+}
+
+Day randomBinPackerDay(mt19937& random) {
+    vector<pair<double, double>> areaAndWeight;
+    for (size_t index = 0; index < 14; ++index) {
+        areaAndWeight.emplace_back(static_cast<double>(4000 + random() % 32000), static_cast<double>(500 + random() % 24000));
+    }
+    return trailerWideDay(areaAndWeight);
 }
 
 } // anonymous namespace
@@ -102,11 +113,22 @@ TEST_CASE("selector: a knapsack route stopped at its node limit is provisional, 
 }
 
 TEST_CASE("selector: a binPacker route stopped at its branch node limit is provisional, named by lane, date and limit") {
-    Day day = binPackerDay();
+    // Whether the root node alone proves a packing turns on its LP's floating point, which MSVC
+    // and clang round differently, so days are drawn until one node leaves one unproven.
+    mt19937 random(8112026);
     SelectorSettings limited = selectorSettings();
     limited.binPacker.branchNodeLimit = 1;
-    CHECK(provisionalLineOf(day, limited) == "2027 -> 2528 TL, 2026-08-06: binPacker stopped at its branch node limit of 1");
-    CHECK(day.run.selectionPlan.routes[0].methodUsed == PackingMethod::BinPacker);
+    bool sawUnproven = false;
+    for (int trial = 0; trial < 1000 && !sawUnproven; ++trial) {
+        Day day = randomBinPackerDay(random);
+        if (day.classification.routes[0].method != SolveMethod::BinPacker) continue;
+        const string line = provisionalLineOf(day, limited);
+        if (line.empty()) continue;
+        sawUnproven = true;
+        CHECK(line == "2027 -> 2528 TL, 2026-08-06: binPacker stopped at its branch node limit of 1");
+        CHECK(day.run.selectionPlan.routes[0].methodUsed == PackingMethod::BinPacker);
+    }
+    CHECK(sawUnproven);
 }
 
 TEST_CASE("selector: a patternPacker route stopped at its pattern limit is provisional, named by lane, date and limit") {
