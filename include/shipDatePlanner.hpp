@@ -28,8 +28,9 @@
 // A lane-date is offered pulled-forward goods, earliest due first, until the
 // classifier's estimate of its goods (floor area and payload, the solvers'
 // limits) reaches its reservation: offering every later good to every date
-// would only slow the solvers. A lane-date above m5Threshold is left to M5 and
-// offered none.
+// would only slow the solvers. A truck carries one group's goods, so each
+// group's part-filled truck is first topped up with the group's own later
+// goods. A lane-date above m5Threshold is left to M5 and offered none.
 //
 // With both rules off the plan is classifyLanes then selectLoads, each good on
 // its own date, exactly as before the rules existed.

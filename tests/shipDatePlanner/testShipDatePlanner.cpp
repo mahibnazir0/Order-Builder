@@ -30,8 +30,8 @@ SelectionItem dueOn(const string& shipDate, int priority = 0, size_t groupIndex 
 }
 
 // Due after the window, as buildSelectionItems marks such a good.
-SelectionItem dueAfterWindow(const string& shipDate, int priority = 0) {
-    SelectionItem built = dueOn(shipDate, priority);
+SelectionItem dueAfterWindow(const string& shipDate, int priority = 0, size_t groupIndex = 0) {
+    SelectionItem built = dueOn(shipDate, priority, groupIndex);
     built.timing = ShipTiming::Future;
     return built;
 }
@@ -180,6 +180,22 @@ TEST_CASE("shipDatePlanner: no good is pulled onto a truck before it is availabl
     const ShipDatePlan result = planned(day, kPullOnly);
     CHECK(dueDatesOnTrucks(day, result.plan, kAug6).empty());
     CHECK(countDue(dueDatesOnTrucks(day, result.plan, kAug7), "2026-08-10") == 5);
+}
+
+TEST_CASE("shipDatePlanner: a group's part-filled truck is topped up with its own later goods first") {
+    // Two segregated groups share the lane's two trucks. The lane's goods due soonest are S03's, but
+    // a truck carries one group's goods: S01's truck is filled with S01's own, due later still.
+    const Day day = dayOf({group("2027", SplitReason::None, "S01"), group("2027", SplitReason::None, "S03")}, 2,
+                          joined(joined(copies(5, dueOn(kAug6, 0, 0)), copies(25, dueOn(kAug6, 0, 1))),
+                                 joined(copies(40, dueAfterWindow("2026-08-08", 0, 1)),
+                                        copies(30, dueAfterWindow("2026-08-09", 0, 0)))),
+                          {reserved("2027", 2, kAug6)});
+    const ShipDatePlan result = planned(day, kPullOnly);
+    REQUIRE(result.plan.trucks.size() == 2);
+    for (const PlannedTruck& truck : result.plan.trucks) {
+        CAPTURE(truck.groupIndex);
+        CHECK(truck.items.size() == 30);
+    }
 }
 
 TEST_CASE("shipDatePlanner: a lane-date left to M5 is offered no goods due later") {

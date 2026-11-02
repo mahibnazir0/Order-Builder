@@ -143,7 +143,8 @@ client, let it ship on another reserved date of its lane:
 - `pullForwardToFill` (16 Oct 2026): a reserved truck with room takes goods due later, once
   they are available, if no line of the good is due more than `maxDaysPulledForward` (10) days
   after the truck. They rank after that date's own goods, so they only fill room, and never
-  decide which segregated group gets a truck.
+  decide which segregated group gets a truck. Each group's part-filled truck is topped up with
+  that group's own later goods first.
 
 With either on, `shipDatePlanner` plans the window one date at a time, earliest first, so a
 date gets exactly the goods its earlier dates left. Each good still ends once, on a truck or

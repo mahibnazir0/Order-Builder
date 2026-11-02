@@ -1,8 +1,10 @@
 #include "shipDatePlanner.hpp"
 #include "isoDate.hpp"
 #include "pipeline.hpp"
+#include "tolerance.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <numeric>
 #include <set>
@@ -155,28 +157,51 @@ private:
         }
     }
 
-    // Each lane with trucks reserved on `date` is offered goods due later, earliest due first, until
-    // its goods are estimated to fill them.
+    // Each lane with trucks reserved on `date` is offered goods due later, earliest due first. A
+    // truck carries one group's goods, so each group's last, part-filled truck is first topped up
+    // with the group's own, which costs no other group a truck; then, while the reservation has
+    // room, the lane's goods fill the trucks left, until they are estimated to fill it.
     void offerPulledForward(const string& date, vector<string>& routeDates) const {
         for (size_t lane = 0; lane < lanes_.items.size(); ++lane) {
             const auto reserved = lanes_.reservedTrucks[lane].find(date);
             if (reserved == lanes_.reservedTrucks[lane].end() || reserved->second > routing_.m5Threshold) continue;
             const double trucks = static_cast<double>(reserved->second);
-            TruckShares offered;
+            TruckShares laneOffered;
+            map<size_t, TruckShares> groupOffered;
             for (const size_t index : lanes_.items[lane]) {
-                if (routeDates[index] == date) offered += truckSharesOf(items_.items[index], run_.trailer);
+                if (routeDates[index] != date) continue;
+                const TruckShares shares = truckSharesOf(items_.items[index], run_.trailer);
+                laneOffered += shares;
+                groupOffered[items_.items[index].groupIndex] += shares;
             }
-            for (const size_t index : lanes_.items[lane]) {
-                if (offered.largest() >= trucks) break;
-                const SelectionItem& item = items_.items[index];
-                if (item.shipDate <= date || settled_[index] || routeDates[index] == date) continue;
-                const long long daysAhead = daysBetween(date, item.shipDate);
-                // Items run in ship-date order, so every one after this is due later still.
-                if (daysAhead > maxDaysPulledForward_) break;
-                if (item.availDate > date || daysAhead + item.daysPulledForward > maxDaysPulledForward_) continue;
-                routeDates[index] = date;
-                offered += truckSharesOf(item, run_.trailer);
+            for (auto& [group, offered] : groupOffered) {
+                const double wholeTrucks = ceil(offered.largest() - kQuantityEpsilon);
+                offerLater(lane, date, group, wholeTrucks, offered, &laneOffered, routeDates);
             }
+            offerLater(lane, date, nullopt, trucks, laneOffered, nullptr, routeDates);
+        }
+    }
+
+    // Offers the lane's goods due later on `date`, earliest due first and only `group`'s when one is
+    // named, until `offered` reaches `trucks`. Each good offered counts in `offered`, and in
+    // `alsoCounted` when given.
+    void offerLater(size_t lane, const string& date, optional<size_t> group, double trucks, TruckShares& offered,
+                    TruckShares* alsoCounted, vector<string>& routeDates) const {
+        for (const size_t index : lanes_.items[lane]) {
+            if (offered.largest() >= trucks) return;
+            const SelectionItem& item = items_.items[index];
+            if ((group && item.groupIndex != *group) || item.shipDate <= date || settled_[index]
+                || routeDates[index] == date) {
+                continue;
+            }
+            const long long daysAhead = daysBetween(date, item.shipDate);
+            // Items run in ship-date order, so every one after this is due later still.
+            if (daysAhead > maxDaysPulledForward_) return;
+            if (item.availDate > date || daysAhead + item.daysPulledForward > maxDaysPulledForward_) continue;
+            routeDates[index] = date;
+            const TruckShares shares = truckSharesOf(item, run_.trailer);
+            offered += shares;
+            if (alsoCounted) *alsoCounted += shares;
         }
     }
 
