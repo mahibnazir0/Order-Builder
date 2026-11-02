@@ -153,11 +153,17 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     }
 
     out << "M4 LOAD SELECTION - " << printable(context.extractLabel) << "\n";
-    if (context.shortfalls.empty()) {
-        out << "  Result: complete\n";
-    } else {
+    if (!context.shortfalls.empty()) {
         out << "  Result: INCOMPLETE (exit 7)\n";
         for (const string& shortfall : context.shortfalls) out << "    " << printable(shortfall) << "\n";
+    } else if (!context.provisional.empty()) {
+        out << "  Result: PROVISIONAL (exit 8)\n";
+    } else {
+        out << "  Result: complete\n";
+    }
+    if (!context.provisional.empty()) {
+        out << "  Routes whose plan is not proven: " << count(context.provisional.size()) << "\n";
+        for (const string& route : context.provisional) out << "    " << printable(route) << "\n";
     }
 
     printSection(out, 0);

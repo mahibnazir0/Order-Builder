@@ -1,5 +1,6 @@
 #include "selector.hpp"
 #include "pipeline.hpp"
+#include "reportFormat.hpp"
 #include "tolerance.hpp"
 
 #include <algorithm>
@@ -40,6 +41,7 @@ struct MethodResult {
     vector<char> unfittable;  // parallel to the route's items
     bool proven = false;
     bool lpIterationCapHit = false;
+    string unprovenBecause;  // empty when proven
 };
 
 vector<char> unfittableFlags(const KnapsackProblem& problem, size_t count) {
@@ -64,17 +66,33 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
         }
         result.unfittable = unfittableFlags(prepareKnapsack(items, capacity, knapsack), items.size());
         result.proven = method == PackingMethod::Knapsack && lane.proven;
+        if (method == PackingMethod::GreedyKnapsack) {
+            result.unprovenBecause = "greedy knapsack proves nothing";
+        } else if (!lane.proven) {
+            result.unprovenBecause = "knapsack stopped at its node limit of " + grouped(knapsack.nodeLimit) + " on a truck";
+        }
         break;
     }
     case PackingMethod::PatternPacker: {
-        const PatternPacking packing = packByPatterns(items, capacity, settings.patternPacker, allowed);
+        const PatternPackerSettings& patternSettings = settings.patternPacker;
+        const PatternPacking packing = packByPatterns(items, capacity, patternSettings, allowed);
         for (const PackedTruck& truck : packing.trucks) result.trucks.push_back(truck.items);
         result.unfittable = unfittableFlags(
-            prepareKnapsack(items, capacity,
-                            {settings.patternPacker.weightGrainLb, settings.patternPacker.areaGrainSqIn, 1}),
+            prepareKnapsack(items, capacity, {patternSettings.weightGrainLb, patternSettings.areaGrainSqIn, 1}),
             items.size());
         result.proven = packing.provenOptimal;
         result.lpIterationCapHit = packing.lpIterationCapHit;
+        if (packing.provenOptimal) break;
+        if (packing.unstable) {
+            result.unprovenBecause = "patternPacker's LP or pricing could not finish";
+        } else if (!packing.converged) {
+            result.unprovenBecause = "patternPacker stopped unconverged, at its pattern limit of "
+                                     + grouped(patternSettings.maxPatterns)
+                                     + " or a pricing node limit of " + grouped(patternSettings.pricingNodeLimit);
+        } else {
+            result.unprovenBecause = "patternPacker's rounding is " + grouped(packing.gapToLp)
+                                     + " truck(s) over its LP bound";
+        }
         break;
     }
     case PackingMethod::BinPacker:
@@ -87,6 +105,21 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
         for (const size_t index : packing.unfittable) result.unfittable[index] = 1;
         result.proven = packing.proven;
         result.lpIterationCapHit = packing.lpIterationCapHit;
+        if (packing.proven) break;
+        const BinPackerSettings& binSettings = settings.binPacker;
+        if (method == PackingMethod::FirstFitDecreasing) {
+            result.unprovenBecause = "first-fit decreasing is over its lower bound";
+        } else if (packing.fellBack) {
+            result.unprovenBecause = "binPacker did not search, being over its search item limit of "
+                                     + grouped(binSettings.maxSearchItems)
+                                     + " or its root LP unsolved: first-fit decreasing stands";
+        } else if (packing.branchNodes >= binSettings.branchNodeLimit) {
+            result.unprovenBecause = "binPacker stopped at its branch node limit of " + grouped(binSettings.branchNodeLimit);
+        } else {
+            result.unprovenBecause = "binPacker's column generation stopped unconverged at a branch node, at its round limit of "
+                                     + grouped(binSettings.columnRoundsPerNode)
+                                     + " or a pricing node limit of " + grouped(binSettings.pricingNodeLimit);
+        }
         break;
     }
     }
@@ -269,6 +302,7 @@ private:
                 outcome.lpIterationCapHit = result.lpIterationCapHit;
                 outcome.methodUsed = chain[step];
                 outcome.proven = result.proven;
+                outcome.unprovenBecause = std::move(result.unprovenBecause);
                 kept = std::move(result);
             } catch (const exception& error) {
                 outcome.attempts.push_back({chain[step], AttemptOutcome::Threw, clock_() - start, error.what()});

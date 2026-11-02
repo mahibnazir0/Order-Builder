@@ -47,7 +47,123 @@ size_t countReason(const SelectionPlan& selection, LeftOverReason reason) {
                                         [&](const LeftOverItem& left) { return left.reason == reason; }));
 }
 
+// The day planned into its run, as a pipeline leaves it for the M4 Result.
+void storePlan(Day& day, const SelectorSettings& settings = selectorSettings()) {
+    PipelineResult& result = day.run;
+    result.ranSelection = true;
+    result.reservationBook = day.book;
+    result.selectionItems = day.items;
+    result.laneClassification = day.classification;
+    result.selectionPlan = plan(day, settings);
+}
+
+// The day's one route, planned with `settings`, as selectionProvisional names it; empty when
+// the route's plan is proven.
+string provisionalLineOf(Day& day, const SelectorSettings& settings) {
+    storePlan(day, settings);
+    const vector<string> provisional = selectionProvisional(day.run);
+    REQUIRE(provisional.size() <= 1);
+    return provisional.empty() ? "" : provisional.front();
+}
+
+Day knapsackDay() { return dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 1)}); }
+
+// Three sizes of a few products: the first priced pattern is needed to prove the trucks.
+Day patternPackerDay() {
+    vector<SelectionItem> items(23, item(0, 0, 800.0, 0, 57.0, 35.0));
+    items.insert(items.end(), 15, item(0, 1, 800.0, 0, 67.0, 34.0));
+    items.insert(items.end(), 11, item(0, 2, 800.0, 0, 86.0, 45.0));
+    return dayOf({group("2027")}, 3, items, {reserved("2027", 6)});
+}
+
+// Fourteen distinct trailer-wide loads, floor and payload both tight: one branch node leaves a
+// truck the full search saves.
+Day binPackerDay() {
+    const vector<pair<double, double>> areaAndWeight{
+        {25136, 21599}, {22210, 18703}, {30155, 1637},  {22304, 15043}, {34926, 8797},
+        {30807, 10858}, {18620, 17624}, {23526, 18930}, {12730, 13685}, {29918, 12370},
+        {35857, 12962}, {18878, 11059}, {18805, 20806}, {16824, 12700}};
+    vector<SelectionItem> items;
+    for (size_t index = 0; index < areaAndWeight.size(); ++index) {
+        items.push_back(item(0, index, areaAndWeight[index].second, 0, areaAndWeight[index].first / 100.0, 100.0));
+    }
+    return dayOf({group("2027")}, areaAndWeight.size(), items, {reserved("2027", 14)});
+}
+
 } // anonymous namespace
+
+TEST_CASE("selector: a knapsack route stopped at its node limit is provisional, named by lane, date and limit") {
+    Day day = knapsackDay();
+    SelectorSettings limited = selectorSettings();
+    limited.knapsack.nodeLimit = 1;
+    CHECK(provisionalLineOf(day, limited) == "2027 -> 2528 TL, 2026-08-06: knapsack stopped at its node limit of 1 on a truck");
+    CHECK(day.run.selectionPlan.routes[0].methodUsed == PackingMethod::Knapsack);
+    CHECK(runOutcome(day.run) != RunOutcome::Complete);
+}
+
+TEST_CASE("selector: a binPacker route stopped at its branch node limit is provisional, named by lane, date and limit") {
+    Day day = binPackerDay();
+    SelectorSettings limited = selectorSettings();
+    limited.binPacker.branchNodeLimit = 1;
+    CHECK(provisionalLineOf(day, limited) == "2027 -> 2528 TL, 2026-08-06: binPacker stopped at its branch node limit of 1");
+    CHECK(day.run.selectionPlan.routes[0].methodUsed == PackingMethod::BinPacker);
+}
+
+TEST_CASE("selector: a patternPacker route stopped at its pattern limit is provisional, named by lane, date and limit") {
+    Day day = patternPackerDay();
+    SelectorSettings limited = selectorSettings();
+    limited.patternPacker.maxPatterns = 1;
+    CHECK(provisionalLineOf(day, limited)
+          == "2027 -> 2528 TL, 2026-08-06: patternPacker stopped unconverged, at its pattern limit of 1 or a pricing node limit of 200,000");
+    CHECK(day.run.selectionPlan.routes[0].methodUsed == PackingMethod::PatternPacker);
+}
+
+TEST_CASE("selector: a binPacker route that skips its search is provisional, first-fit decreasing named") {
+    Day day = binPackerDay();
+    SelectorSettings limited = selectorSettings();
+    limited.binPacker.maxSearchItems = 1;
+    CHECK(provisionalLineOf(day, limited).find("binPacker did not search") != string::npos);
+}
+
+TEST_CASE("selector: a route kept by greedy knapsack after knapsack threw is provisional, the throw named") {
+    Day day = knapsackDay();
+    SelectorSettings broken = selectorSettings();
+    broken.knapsack.nodeLimit = 0;
+    CHECK(provisionalLineOf(day, broken)
+          == "2027 -> 2528 TL, 2026-08-06: greedy knapsack proves nothing; greedyKnapsack kept after knapsack threw");
+}
+
+TEST_CASE("selector: a proven route kept after another method threw is provisional, the throw named") {
+    Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
+    SelectorSettings broken = selectorSettings();
+    broken.patternPacker.weightGrainLb = 0.0;
+    CHECK(provisionalLineOf(day, broken) == "2027 -> 2528 TL, 2026-08-06: binPacker kept after patternPacker threw");
+    CHECK(day.run.selectionPlan.routes[0].proven);
+}
+
+TEST_CASE("selector: the same routes searched within their limits are proven and not provisional") {
+    for (Day (*const dayMaker)() : {knapsackDay, binPackerDay, patternPackerDay}) {
+        Day day = dayMaker();
+        CHECK(provisionalLineOf(day, selectorSettings()).empty());
+        CHECK(day.run.selectionPlan.routes[0].proven);
+        CHECK(day.run.selectionPlan.routes[0].unprovenBecause.empty());
+    }
+}
+
+TEST_CASE("selector: provisional routes keep the route order, each with its group") {
+    vector<SelectionItem> items = repeated(40, 0, 0);
+    const vector<SelectionItem> other = repeated(40, 1, 1);
+    items.insert(items.end(), other.begin(), other.end());
+    Day day = dayOf({group("2028"), group("2027", SplitReason::DoNotMix, "S01")}, 2, items,
+                    {reserved("2027", 1), reserved("2028", 1)});
+    SelectorSettings limited = selectorSettings();
+    limited.knapsack.nodeLimit = 1;
+    storePlan(day, limited);
+    const vector<string> provisional = selectionProvisional(day.run);
+    REQUIRE(provisional.size() == 2);
+    CHECK(provisional[0].rfind("2028 -> 2528 TL, 2026-08-06", 0) == 0);
+    CHECK(provisional[1].rfind("2027 -> 2528 TL group S01, 2026-08-06", 0) == 0);
+}
 
 TEST_CASE("selector: a lane is solved by its method and every item accounted for") {
     const Day day = dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 2)});
@@ -240,12 +356,8 @@ TEST_CASE("selector: a truck a less urgent group leaves unbuilt goes back to the
 
 TEST_CASE("selector: goods left over while their lane-date has a reserved truck unbuilt are a shortfall") {
     Day day = underEstimatedUrgentGroup();
+    storePlan(day);
     PipelineResult& result = day.run;
-    result.ranSelection = true;
-    result.reservationBook = day.book;
-    result.selectionItems = day.items;
-    result.laneClassification = day.classification;
-    result.selectionPlan = plan(day);
     const string named = "stacks left over while the lane-date had reserved trucks unbuilt";
     auto namesUnbuilt = [&] {
         const vector<string> shortfalls = selectionShortfalls(result);

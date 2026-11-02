@@ -108,6 +108,7 @@ Exit codes:
 | 5 | No line of a non-empty extract ships on the rule's dates |
 | 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
 | 7 | M4 ran (`--select`) and left something unhandled: its plan broke an invariant; on a route every method threw, the kept method overran `secondsPerLane`, or the LP stopped at `simplexIterationLimit`; stacks were left over as escalated to M5, unfittable, on an unsolved lane, or evicted by the floor while their route still had reserved trucks unbuilt; a stack was rejected for bad line data or a line was not fully stacked; or a placeholder row was skipped for bad data (missing lane, bad date, unreadable load count, unknown equipment). Stacks after the window, unavailable in it, with no reservation or over it, and placeholders with zero loads or outside the window, are normal. The M4 report's `Result` line lists every cause |
+| 8 | M4 ran and handled everything, but its plan is provisional: on a route the kept method did not prove its result, because it stopped at a search limit (`knapsack.nodeLimit`, `binPacker.branchNodeLimit`, `columnRoundsPerNode`, `maxSearchItems`, `patternPacker.maxPatterns` or a `pricingNodeLimit`) or because a fallback was kept (greedy knapsack, first-fit decreasing, or any method after one that threw). The M4 report lists each such route by lane, group and ship date with the reason, under its `Result` line |
 
 When several apply, the lowest code wins.
 

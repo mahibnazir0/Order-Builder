@@ -30,6 +30,8 @@
 //   5  no line of a non-empty extract ships on the rule's dates
 //   6  no floor was computed: --params was not given
 //   7  M4 ran and its plan broke an invariant, or every method failed on a lane
+//   8  M4 ran and handled everything, but a lane's plan is not proven: its method
+//      stopped at a search limit, or a fallback was kept
 // ============================================================================
 
 #include "demandSelector.hpp"
@@ -95,7 +97,8 @@ void print_usage(ostream& out) {
         "  4  a line was left out of a floor (section B) or has no ship date (section A)\n"
         "  5  no line ships on the rule's dates\n"
         "  6  no floor computed: --params was not given\n"
-        "  7  M4 left goods, lanes or placeholders unhandled (see its Result)\n";
+        "  7  M4 left goods, lanes or placeholders unhandled (see its Result)\n"
+        "  8  M4's plan is provisional: a lane's search stopped at a limit (see its Result)\n";
 }
 
 // Returns the value following `flag`, or an empty string if it is absent.
@@ -256,6 +259,7 @@ int main(int argc, char** argv) {
             context.settings = result.selectionParams.selector;
             context.detail = result.selectionParams.reportDetail;
             context.shortfalls = ob::selectionShortfalls(result);
+            context.provisional = ob::selectionProvisional(result);
             context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
             context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
             context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;

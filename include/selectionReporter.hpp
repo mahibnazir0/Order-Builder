@@ -57,6 +57,8 @@ struct SelectionReportContext {
     SelectorSettings settings;            // the ones the plan was made with
     // Why the run is incomplete (selectionShortfalls), printed as its Result; empty is complete.
     std::vector<std::string> shortfalls;
+    // The routes whose plan is not proven (selectionProvisional), printed under the Result.
+    std::vector<std::string> provisional;
     // Printed under the provisional business rules, with the routing settings.
     bool priorityZeroIsMostUrgent = true;
     long long maxDaysPulledForward = 0;

@@ -149,6 +149,9 @@ enum class RunOutcome {
     FloorNotComputed = 6,
     // M4 ran and left goods or reservations it should have handled: see selectionShortfalls.
     SelectionIncomplete = 7,
+    // M4 ran and handled everything, but a route's plan is not proven: its method stopped at a
+    // search limit, or a fallback was kept. See selectionProvisional.
+    SelectionProvisional = 8,
 };
 
 RunOutcome runOutcome(const PipelineResult& result);
@@ -163,6 +166,13 @@ RunOutcome runOutcome(const PipelineResult& result);
 // included), and placeholders with zero loads or outside the window, are the plan working as
 // specified and are not listed.
 std::vector<std::string> selectionShortfalls(const PipelineResult& result);
+
+// The solved routes whose plan stands but is not proven, one line each in route order, naming
+// the lane, group and ship date: why the kept method's result is unproven (a knapsack, branch
+// or pattern limit hit, binPacker's search skipped, or greedy knapsack or first-fit decreasing
+// kept) and which methods threw before it. Empty when M4 did not run, or every solved route was
+// proven by the first method it tried.
+std::vector<std::string> selectionProvisional(const PipelineResult& result);
 
 class Pipeline {
 public:

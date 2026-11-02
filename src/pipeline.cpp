@@ -360,7 +360,36 @@ RunOutcome runOutcome(const PipelineResult& result) {
     }
     if (selectsNothing(result)) return RunOutcome::NothingSelected;
     if (!selectionShortfalls(result).empty()) return RunOutcome::SelectionIncomplete;
+    if (!selectionProvisional(result).empty()) return RunOutcome::SelectionProvisional;
     return RunOutcome::Complete;
+}
+
+vector<string> selectionProvisional(const PipelineResult& result) {
+    vector<string> provisional;
+    if (!result.ranSelection) return provisional;
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    const vector<SegregatedGroup>& groups = result.segregation.groups;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (!route.methodUsed || route.routeIndex >= lanes.size()) continue;
+        string threw;
+        for (const MethodAttempt& attempt : route.attempts) {
+            if (attempt.outcome != AttemptOutcome::Threw) continue;
+            threw += (threw.empty() ? "" : " and ") + string(packingMethodName(attempt.method));
+        }
+        if (route.unprovenBecause.empty() && threw.empty()) continue;
+        string why = route.unprovenBecause;
+        if (!threw.empty()) {
+            why += (why.empty() ? "" : "; ") + string(packingMethodName(*route.methodUsed)) + " kept after " + threw
+                   + " threw";
+        }
+        const LaneRoute& lane = lanes[route.routeIndex];
+        if (lane.groupIndex >= groups.size()) continue;
+        const GroupKey& key = groups[lane.groupIndex].key;
+        provisional.push_back(key.locationFrom + " -> " + key.locationTo + " " + key.shipCondition
+                              + (key.isSegregated ? " group " + key.segregant : "") + ", " + lane.shipDate + ": "
+                              + why);
+    }
+    return provisional;
 }
 
 vector<string> selectionShortfalls(const PipelineResult& result) {

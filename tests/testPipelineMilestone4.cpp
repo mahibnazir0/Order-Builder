@@ -74,6 +74,7 @@ string reportOf(const PipelineResult& result) {
     context.routing = result.selectionParams.routing;
     context.settings = result.selectionParams.selector;
     context.shortfalls = selectionShortfalls(result);
+    context.provisional = selectionProvisional(result);
     context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
     context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
     context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
@@ -297,6 +298,33 @@ TEST_CASE("pipelineM4: a route whose LP stopped at its iteration limit fails the
     result.selectionPlan.routes.front().lpIterationCapHit = true;
     CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
     CHECK(shortfallNaming(result, "simplex iteration"));
+}
+
+// Lane 3 -> 2 with 50 stacks for its one reserved truck: a knapsack lane whose search has to
+// choose what rides.
+nlohmann::json overfullLaneLine() {
+    nlohmann::json overfull = SmallDay::lineJson("GOOD", 2000, "TL");
+    overfull["LOCFRNO"] = "3";
+    return overfull;
+}
+
+TEST_CASE("pipelineM4: a knapsack stopped at its node limit makes the run provisional, exit 8, named by lane and date") {
+    SmallDay day("nodeLimit", "," + overfullLaneLine().dump(), "," + SmallDay::placeholderJson("3", 1).dump());
+    nlohmann::json knapsack = readParamsFile(kShippedParamsPath)["selection"]["knapsack"];
+    knapsack["nodeLimit"] = 1;
+    day.inputs.paramsPath = paramsWith(day, {{"knapsack", knapsack}});
+    const PipelineResult result = Pipeline::run(day.inputs);
+    CHECK(static_cast<int>(runOutcome(result)) == 8);
+    const string report = reportOf(result);
+    CHECK(report.find("Result: PROVISIONAL (exit 8)") != string::npos);
+    CHECK(report.find("3 -> 2 TL, 2026-08-06: knapsack stopped at its node limit of 1") != string::npos);
+}
+
+TEST_CASE("pipelineM4: the same knapsack lane searched within its node limit exits 0") {
+    const SmallDay day("withinNodeLimit", "," + overfullLaneLine().dump(), "," + SmallDay::placeholderJson("3", 1).dump());
+    const PipelineResult result = Pipeline::run(day.inputs);
+    CHECK(runOutcome(result) == RunOutcome::Complete);
+    CHECK(reportOf(result).find("Result: complete") != string::npos);
 }
 
 TEST_CASE("pipelineM4: a line rejected as an item fails the run with exit 7 and is printed") {

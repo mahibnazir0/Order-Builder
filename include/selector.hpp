@@ -20,7 +20,9 @@
 //      -> first-fit decreasing. A group is unsolved only when every method threw.
 //      Which method is kept depends on counted node limits and errors only, never
 //      on elapsed time, so a plan replays the same on any machine; a method that
-//      overruns the budget is kept and the route flagged overBudget
+//      overruns the budget is kept and the route flagged overBudget. A kept method
+//      that did not prove its result (a search limit hit, or a fallback that
+//      proves nothing) says why in unprovenBecause
 //   2. floor: floorPattern arranges every truck; one that does not fit its rows
 //      drops its least urgent goods until it does
 //   3. fill: goods left over, by the method or the floor, go most urgent first
@@ -100,6 +102,9 @@ struct RouteOutcome {
     std::vector<MethodAttempt> attempts;      // in the order tried
     std::optional<PackingMethod> methodUsed;  // the one whose trucks were kept
     bool proven = false;                      // that method proved its result optimal
+    // Why it did not, in words: the search limit it stopped at, or that it proves nothing.
+    // Empty when proven. Such a route makes the run provisional (selectionProvisional).
+    std::string unprovenBecause;
     bool overBudget = false;  // the kept method overran secondsPerLane; the run is incomplete
     bool lpIterationCapHit = false;  // its LP stopped at the pivot cap; the run is incomplete
     long long trucksAllowed = 0;  // what the lane-date's reservation still allowed this group
