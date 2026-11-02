@@ -66,6 +66,11 @@ struct KnapsackCapacity {
 
 KnapsackCapacity capacityOf(const TrailerSpec& trailer);
 
+// The most grains a capacity, or all of a problem's items together, may count, and the most
+// thousandths of a unit load. Every sum the solvers form stays under it, so none overflows long
+// long and each is exact in a double. The 53 ft trailer's floor is 6.3e7 grains at 0.001 sq in.
+constexpr long long kMaxGrains = 1LL << 53;
+
 // No defaults: each comes from the run's settings.
 struct KnapsackSettings {
     double weightGrainLb = 0.0;  // positive, and no larger than the lightest item
@@ -109,10 +114,12 @@ struct KnapsackSelection {
 };
 
 // Throws std::invalid_argument naming the problem for an item with a non-finite or negative
-// figure, no unit loads, a ship date that is not a real date or a priority outside
-// 0..kMaxPriority; a capacity that is negative or non-finite, or a ceiling that is not
-// positive; or settings with a grain that is not positive and finite, larger than the
-// lightest item's weight or smallest item's area, or a node limit below 1.
+// figure, no unit loads, unit loads past kMaxGrains thousandths, a ship date that is not a
+// real date or a priority outside 0..kMaxPriority; a capacity that is negative or non-finite,
+// or a ceiling that is not positive; settings with a grain that is not positive and finite,
+// larger than the lightest item's weight or smallest item's area, or a node limit below 1; or
+// a floor, payload or the candidates' total that counts past kMaxGrains grains. An item too
+// large to count is too large for the truck, and set aside as such.
 KnapsackProblem prepareKnapsack(const std::vector<KnapsackItem>& items,
                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings);
 

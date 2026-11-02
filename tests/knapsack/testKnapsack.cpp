@@ -319,6 +319,64 @@ TEST_CASE("knapsack: bad items, capacity and settings are rejected") {
     CHECK_THROWS_AS(selectByTable({load(1920, 1000)}, kTruck, kFine, kTableCells), invalid_argument);
 }
 
+TEST_CASE("knapsack: a grain so fine the floor or payload counts past kMaxGrains is rejected") {
+    for (const double grain : {1e-12, 1e-300, numeric_limits<double>::denorm_min()}) {
+        CAPTURE(grain);
+        CHECK_THROWS_AS(prepareKnapsack({}, kTruck, {1.0, grain, 1000}), invalid_argument);
+        CHECK_THROWS_AS(prepareKnapsack({}, kTruck, {grain, 1.0, 1000}), invalid_argument);
+        CHECK_THROWS_AS(selectForTruck({load(1920, 1000)}, kTruck, {grain, grain, 1000}), invalid_argument);
+        CHECK_THROWS_AS(selectGreedy({load(1920, 1000)}, kTruck, {grain, grain, 1000}), invalid_argument);
+    }
+}
+
+TEST_CASE("knapsack: a floor or payload counting past kMaxGrains at a normal grain is rejected") {
+    for (const double huge : {1e17, 1e300, numeric_limits<double>::max()}) {
+        CAPTURE(huge);
+        CHECK_THROWS_AS(prepareKnapsack({}, {huge, 45000.0, 108.0}, kFine), invalid_argument);
+        CHECK_THROWS_AS(prepareKnapsack({}, {63000.0, huge, 108.0}, kFine), invalid_argument);
+    }
+}
+
+TEST_CASE("knapsack: an item too large to count in grains is set aside as too large") {
+    for (const double huge : {1e17, 1e300, numeric_limits<double>::max()}) {
+        CAPTURE(huge);
+        const KnapsackProblem problem = prepareKnapsack({load(huge, 1000), load(1920, huge), load(1920, 1000)}, kTruck, kFine);
+        CHECK(problem.tooLarge == vector<size_t>{0, 1});
+        CHECK(problem.candidates == vector<size_t>{2});
+    }
+}
+
+TEST_CASE("knapsack: unit loads too many to count in thousandths are rejected") {
+    for (const double huge : {1e17, 1e300}) {
+        CAPTURE(huge);
+        CHECK_THROWS_AS(prepareKnapsack({load(1920, 1000, huge)}, kTruck, kFine), invalid_argument);
+    }
+}
+
+TEST_CASE("knapsack: items whose grains together pass kMaxGrains are rejected, not summed past long long") {
+    // At 1e-12 sq in a 9,000 sq in floor is 9.0e15 grains, just under kMaxGrains, and each item
+    // 1.92e15: four of them are under it together, five over.
+    const KnapsackSettings fineArea{1.0, 1e-12, 1000};
+    const KnapsackCapacity wideFloor{9000.0, 45000.0, 108.0};
+    CHECK_NOTHROW(prepareKnapsack(vector<KnapsackItem>(4, load(1920, 10)), wideFloor, fineArea));
+    CHECK_THROWS_AS(prepareKnapsack(vector<KnapsackItem>(5, load(1920, 10)), wideFloor, fineArea), invalid_argument);
+}
+
+TEST_CASE("knapsack: a table whose floor times payload cells pass long long is rejected, not multiplied") {
+    // 63,000,000,001 floor cells by 45,000,000,001 payload cells: 2.8e21, past 9.2e18.
+    CHECK_THROWS_AS(selectByTable({load(1920, 1000)}, kTruck, {1e-6, 1e-6, 1}, kTableCells), invalid_argument);
+}
+
+TEST_CASE("knapsack: the shipped grain of 0.001 counts the 53 ft trailer and selects as before") {
+    const KnapsackSettings shipped{0.001, 0.001, 200'000};
+    const KnapsackProblem problem = prepareKnapsack({load(1920, 1000)}, kTruck, shipped);
+    CHECK(problem.areaCapacity == 63'000'000);
+    CHECK(problem.weightCapacity == 45'000'000);
+    CHECK(problem.areaGrains == vector<long long>{1'920'000});
+    const vector<KnapsackItem> items(40, load(1920, 1000));
+    CHECK(selectForTruck(items, kTruck, shipped).chosen.size() == selectForTruck(items, kTruck, kFine).chosen.size());
+}
+
 TEST_CASE("knapsack: August knapsack lanes fill their reserved trucks within capacity"
           * doctest::skip(!m4AugustTests::augustPresent())) {
     const KnapsackSettings settings{0.001, 0.001, 200'000};

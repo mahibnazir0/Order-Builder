@@ -284,6 +284,28 @@ TEST_CASE("patternPacker: bad settings and reservations are rejected") {
     CHECK_THROWS_AS(packByPatterns({load(1920, -5)}, kTruck, kSettings, 1), invalid_argument);
 }
 
+TEST_CASE("patternPacker: a grain or capacity counting past kMaxGrains is rejected, as knapsack rejects it") {
+    const vector<KnapsackItem> items = copies(load(1920, 1000), 40);
+    for (const double grain : {1e-12, 1e-300, numeric_limits<double>::denorm_min()}) {
+        CAPTURE(grain);
+        CHECK_THROWS_AS(packByPatterns(items, kTruck, {grain, grain, 200, 200'000, 100'000}, 2), invalid_argument);
+    }
+    CHECK_THROWS_AS(packByPatterns(items, {1e300, 45000.0, 108.0}, kSettings, 2), invalid_argument);
+}
+
+TEST_CASE("patternPacker: an item too large to count in grains is left over, not packed") {
+    const PatternPacking packing = packByPatterns({load(1e300, 1000), load(1920, 1000)}, kTruck, kSettings, 2);
+    CHECK(packing.leftOver == vector<size_t>{0});
+    CHECK(packing.trucks.size() == 1);
+}
+
+TEST_CASE("patternPacker: the shipped grain of 0.001 packs as 1 lb and 1 sq in grains do") {
+    const vector<KnapsackItem> items = joined(copies(load(40000, 1000), 4), copies(load(23000, 1000), 4));
+    const PatternPacking shipped = packByPatterns(items, kTruck, {0.001, 0.001, 200, 200'000, 100'000}, 10);
+    checkPacking(items, shipped, 10);
+    CHECK(shipped.integerTrucks == packByPatterns(items, kTruck, kSettings, 10).integerTrucks);
+}
+
 TEST_CASE("patternPacker: August patternPacker lanes pack within capacity and reservation"
           * doctest::skip(!m4AugustTests::augustPresent())) {
     const PatternPackerSettings settings{0.001, 0.001, 200, 200'000, 100'000};

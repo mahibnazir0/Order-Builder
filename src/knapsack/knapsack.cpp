@@ -8,6 +8,7 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <functional>
 #include <tuple>
@@ -21,6 +22,12 @@ namespace {
 
 bool isPositiveFinite(double value) { return isfinite(value) && value > 0.0; }
 bool isNonNegativeFinite(double value) { return isfinite(value) && value >= 0.0; }
+
+string shortNumber(double value) {
+    ostringstream text;
+    text << value;
+    return text.str();
+}
 
 void validate(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
               const KnapsackSettings& settings) {
@@ -42,6 +49,9 @@ void validate(const vector<KnapsackItem>& items, const KnapsackCapacity& capacit
         if (!isNonNegativeFinite(item.weightLb)) throw invalid_argument(name + ": weight must be finite and not negative");
         if (!isNonNegativeFinite(item.heightIn)) throw invalid_argument(name + ": height must be finite and not negative");
         if (!isPositiveFinite(item.unitLoads)) throw invalid_argument(name + ": unit loads must be positive and finite");
+        if (item.unitLoads * 1000.0 > static_cast<double>(kMaxGrains)) {
+            throw invalid_argument(name + ": " + shortNumber(item.unitLoads) + " unit loads are too many to count");
+        }
         if (!isIsoDate(item.shipDate)) throw invalid_argument(name + ": ship date '" + item.shipDate + "' is not a date");
         if (item.priority < 0 || item.priority > kMaxPriority) {
             throw invalid_argument(name + ": priority " + to_string(item.priority) + " is outside 0.."
@@ -58,13 +68,29 @@ void validate(const vector<KnapsackItem>& items, const KnapsackCapacity& capacit
     }
 }
 
-long long grainsUp(double value, double grain) {
-    return static_cast<long long>(ceil(value / grain - kQuantityEpsilon));
+// Whole grains, as a double: a figure past kMaxGrains is compared or rejected before any cast,
+// since casting a double beyond long long's range is undefined.
+double grainsUp(double value, double grain) { return ceil(value / grain - kQuantityEpsilon); }
+double grainsDown(double value, double grain) { return floor(value / grain + kQuantityEpsilon); }
+
+long long countedGrains(double grains, const string& what) {
+    if (!(grains <= static_cast<double>(kMaxGrains))) {
+        throw invalid_argument(what + " counts " + shortNumber(grains) + " grains, past the "
+                               + shortNumber(static_cast<double>(kMaxGrains)) + " the solvers count; use a coarser grain");
+    }
+    return static_cast<long long>(grains);
 }
 
-long long grainsDown(double value, double grain) {
-    return static_cast<long long>(floor(value / grain + kQuantityEpsilon));
+void addCounted(long long& total, long long count, const string& what) {
+    total += count;  // both at most kMaxGrains, so the sum cannot overflow
+    if (total > kMaxGrains) {
+        throw invalid_argument("Knapsack: the items' " + what + " together count past "
+                               + shortNumber(static_cast<double>(kMaxGrains)) + " grains; use a coarser grain");
+    }
 }
+
+// Whether factor * count is over limit, without forming a product that could overflow.
+bool productOver(long long factor, long long count, long long limit) { return count > 0 && factor > limit / count; }
 
 KnapsackValue valueOf(const KnapsackProblem& problem, const vector<char>& taken) {
     KnapsackValue value(problem.classCount + 1, 0);
@@ -229,8 +255,12 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
                                 const KnapsackSettings& settings) {
     validate(items, capacity, settings);
     KnapsackProblem problem;
-    problem.areaCapacity = grainsDown(capacity.floorAreaSqIn, settings.areaGrainSqIn);
-    problem.weightCapacity = grainsDown(capacity.weightLb, settings.weightGrainLb);
+    problem.areaCapacity = countedGrains(grainsDown(capacity.floorAreaSqIn, settings.areaGrainSqIn),
+                                         "Knapsack: the floor of " + shortNumber(capacity.floorAreaSqIn)
+                                             + " sq in at a grain of " + shortNumber(settings.areaGrainSqIn));
+    problem.weightCapacity = countedGrains(grainsDown(capacity.weightLb, settings.weightGrainLb),
+                                           "Knapsack: the payload of " + shortNumber(capacity.weightLb)
+                                               + " lb at a grain of " + shortNumber(settings.weightGrainLb));
 
     vector<pair<string, int>> classKeys;
     for (size_t index = 0; index < items.size(); ++index) {
@@ -238,8 +268,8 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
         // A unit load exactly at the ceiling fits; only taller is excluded.
         if (item.heightIn > capacity.ceilingIn + kQuantityEpsilon) {
             problem.tooTall.push_back(index);
-        } else if (grainsUp(item.areaSqIn, settings.areaGrainSqIn) > problem.areaCapacity
-                   || grainsUp(item.weightLb, settings.weightGrainLb) > problem.weightCapacity) {
+        } else if (grainsUp(item.areaSqIn, settings.areaGrainSqIn) > static_cast<double>(problem.areaCapacity)
+                   || grainsUp(item.weightLb, settings.weightGrainLb) > static_cast<double>(problem.weightCapacity)) {
             problem.tooLarge.push_back(index);
         } else {
             problem.candidates.push_back(index);
@@ -262,11 +292,16 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
     problem.amount.reserve(count);
     problem.areaGrains.reserve(count);
     problem.weightGrains.reserve(count);
+    // Each candidate is within the capacity, so within kMaxGrains, and each cast is defined.
+    long long totalAmount = 0, totalArea = 0, totalWeight = 0;
     for (const size_t index : problem.candidates) {
         problem.classOf.push_back(classIndexOf(index));
         problem.amount.push_back(llround(items[index].unitLoads * 1000.0));
-        problem.areaGrains.push_back(grainsUp(items[index].areaSqIn, settings.areaGrainSqIn));
-        problem.weightGrains.push_back(grainsUp(items[index].weightLb, settings.weightGrainLb));
+        problem.areaGrains.push_back(static_cast<long long>(grainsUp(items[index].areaSqIn, settings.areaGrainSqIn)));
+        problem.weightGrains.push_back(static_cast<long long>(grainsUp(items[index].weightLb, settings.weightGrainLb)));
+        addCounted(totalAmount, problem.amount.back(), "unit loads");
+        addCounted(totalArea, problem.areaGrains.back(), "floor area");
+        addCounted(totalWeight, problem.weightGrains.back(), "weight");
     }
     return problem;
 }
@@ -367,15 +402,19 @@ KnapsackSelection selectByTable(const vector<KnapsackItem>& items, const Knapsac
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     const size_t count = problem.candidates.size();
     const long long areaCells = problem.areaCapacity + 1, weightCells = problem.weightCapacity + 1;
-    const long long cells = areaCells * weightCells;
     const long long width = static_cast<long long>(problem.classCount) + 1;
     // The value table holds `width` entries a cell and the taken flags one bit a cell per item,
     // so each is bounded on its own: 8 values a cell and 64 flags a cell on average.
-    if (cells > maxTableCells || cells * width > maxTableCells * 8
-        || cells * static_cast<long long>(count) > maxTableCells * 64) {
-        throw invalid_argument("Knapsack table of " + to_string(cells) + " cells for "
-                               + to_string(count) + " items is too large; use selectForTruck");
+    const long long most = numeric_limits<long long>::max();
+    const long long valueLimit = maxTableCells > most / 8 ? most : maxTableCells * 8;
+    const long long flagLimit = maxTableCells > most / 64 ? most : maxTableCells * 64;
+    if (productOver(areaCells, weightCells, maxTableCells)
+        || productOver(areaCells * weightCells, width, valueLimit)
+        || productOver(areaCells * weightCells, static_cast<long long>(count), flagLimit)) {
+        throw invalid_argument("Knapsack table of " + shortNumber(static_cast<double>(areaCells) * static_cast<double>(weightCells))
+                               + " cells for " + to_string(count) + " items is too large; use selectForTruck");
     }
+    const long long cells = areaCells * weightCells;
 
     // table[cell] is the best value within that much floor and weight, over the items so far.
     vector<long long> table(static_cast<size_t>(cells * width), 0);

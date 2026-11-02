@@ -277,9 +277,10 @@ void recordInputs(const PipelineInputs& inputs) {
     if (!manifest) throw runtime_error("cannot write " + (directory / "record.txt").string());
 }
 
-// A grain coarser than an item would round it into grains it does not fill, so every lane's
-// method would throw and fall back. Checked once against the real items instead.
-void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& items) {
+// A grain coarser than an item would round it into grains it does not fill, and one so fine the
+// trailer's floor or payload counts past kMaxGrains cannot be counted, so either way every lane's
+// method would throw and fall back. Checked once against the real items and trailer instead.
+void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& items, const TrailerSpec& trailer) {
     double lightest = 0.0, smallest = 0.0;
     for (const SelectionItem& item : items.items) {
         const double area = item.footprintLongIn * item.footprintShortIn;
@@ -299,6 +300,12 @@ void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& 
         if (smallest > 0.0 && grain.second > smallest) {
             throw runtime_error("params: selection." + method + ".areaGrainSqIn is coarser than the smallest stack ("
                                 + to_string(smallest) + " sq in)");
+        }
+        try {
+            prepareKnapsack({}, capacityOf(trailer), {grain.first, grain.second, 1});
+        } catch (const invalid_argument& error) {
+            throw runtime_error("params: selection." + method + ".weightGrainLb or areaGrainSqIn is too fine for trailer "
+                                + trailer.trailerCode + ": " + error.what());
         }
     }
 }
@@ -332,7 +339,7 @@ void runSelection(PipelineResult& result) {
     result.selectionItems = buildSelectionItems(result, result.reservationBook.window,
                                                 result.selectionParams.priorityZeroIsMostUrgent,
                                                 result.selectionParams.maxDaysPulledForward);
-    requireGrainsFitItems(result.selectionParams, result.selectionItems);
+    requireGrainsFitItems(result.selectionParams, result.selectionItems, result.trailer);
     result.laneClassification = classifyLanes(result, result.reservationBook, result.selectionItems,
                                               result.selectionParams.routing);
     result.selectionPlan = selectLoads(result, result.reservationBook, result.selectionItems,

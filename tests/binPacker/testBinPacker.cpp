@@ -351,6 +351,32 @@ TEST_CASE("binPacker: bad settings and reservations are rejected") {
     CHECK_THROWS_AS(packFirstFitDecreasing(items, kTruck, kSettings, -1), invalid_argument);
 }
 
+TEST_CASE("binPacker: a grain or capacity counting past kMaxGrains is rejected, as knapsack rejects it") {
+    const vector<KnapsackItem> items{load(1920), load(2400)};
+    for (const double grain : {1e-12, 1e-300, numeric_limits<double>::denorm_min()}) {
+        CAPTURE(grain);
+        const BinPackerSettings fine{grain, grain, 50, 100'000, 2'000, 400, 100'000};
+        CHECK_THROWS_AS(packBins(items, kTruck, fine, 2), invalid_argument);
+        CHECK_THROWS_AS(packFirstFitDecreasing(items, kTruck, fine, 2), invalid_argument);
+    }
+    CHECK_THROWS_AS(packBins(items, {1e300, 45000.0, 108.0}, kSettings, 2), invalid_argument);
+    CHECK_THROWS_AS(packFirstFitDecreasing(items, {63000.0, 1e300, 108.0}, kSettings, 2), invalid_argument);
+}
+
+TEST_CASE("binPacker: an item too large to count in grains is unfittable") {
+    const BinPacking packing = packBins({load(1e300), load(1920)}, kTruck, kSettings, 2);
+    CHECK(packing.unfittable == vector<size_t>{0});
+    CHECK(packing.trucks.size() == 1);
+}
+
+TEST_CASE("binPacker: the shipped grain of 0.001 packs as 1 lb and 1 sq in grains do") {
+    mt19937 random(2112026);
+    const vector<KnapsackItem> items = randomItems(random, 14);
+    const BinPacking shipped = packBins(items, kTruck, {0.001, 0.001, 50, 100'000, 2'000, 400, 100'000}, 20);
+    checkPacking(items, shipped, 20);
+    CHECK(shipped.bestTrucks == packBins(items, kTruck, kSettings, 20).bestTrucks);
+}
+
 TEST_CASE("binPacker: August binPacker lanes pack within capacity and reservation"
           * doctest::skip(!m4AugustTests::augustPresent())) {
     const BinPackerSettings settings{0.001, 0.001, 50, 100'000, 2'000, 400, 100'000};

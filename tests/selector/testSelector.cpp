@@ -438,6 +438,23 @@ TEST_CASE("selector: a solver running out of memory falls back, then leaves its 
     CHECK(selection.routes[routeOfGroup(day, 1)].status == RouteStatus::Solved);
 }
 
+TEST_CASE("selector: grains too fine to count the trailer leave every route unsolved, each method's error named") {
+    const Day day = twoLaneDay();
+    for (const double grain : {1e-12, 1e-300, numeric_limits<double>::denorm_min()}) {
+        CAPTURE(grain);
+        SelectorSettings settings = selectorSettings();
+        settings.knapsack.areaGrainSqIn = grain;
+        settings.patternPacker.areaGrainSqIn = grain;
+        settings.binPacker.areaGrainSqIn = grain;
+        const SelectionPlan selection = plan(day, settings);
+        checkPlan(day, selection);
+        for (const RouteOutcome& route : selection.routes) {
+            CHECK(route.status == RouteStatus::Unsolved);
+            for (const MethodAttempt& attempt : route.attempts) CHECK(attempt.error.find("use a coarser grain") != string::npos);
+        }
+    }
+}
+
 TEST_CASE("selector: fourFullBeatsFiveWithPenalty - four trucks are built and the fifth reported") {
     const Day day = dayOf({group("2027")}, 1, repeated(120, 0, 0), {reserved("2027", 5)});
     const SelectionPlan selection = plan(day);

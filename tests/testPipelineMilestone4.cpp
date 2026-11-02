@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -151,6 +152,21 @@ TEST_CASE("pipelineM4: a grain coarser than the lightest stack stops the run, na
         FAIL("a coarse grain ran");
     } catch (const runtime_error& error) {
         CHECK(string(error.what()).find("weightGrainLb") != string::npos);
+    }
+}
+
+TEST_CASE("pipelineM4: a grain too fine to count the trailer's floor stops the run, named") {
+    for (const double grain : {1e-12, 1e-300, numeric_limits<double>::denorm_min()}) {
+        CAPTURE(grain);
+        SmallDay day("fineGrain");
+        PipelineInputs inputs = day.inputs;
+        inputs.paramsPath = editedParams(day, "areaGrainSqIn", grain);
+        try {
+            Pipeline::run(inputs);
+            FAIL("a grain too fine to count ran");
+        } catch (const runtime_error& error) {
+            CHECK(string(error.what()).find("areaGrainSqIn is too fine for trailer 53FT_NA") != string::npos);
+        }
     }
 }
 
