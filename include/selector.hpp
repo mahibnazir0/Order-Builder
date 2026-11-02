@@ -17,7 +17,8 @@
 // For each group:
 //   1. its method, then the next one down when it throws: knapsack -> greedy
 //      knapsack; patternPacker -> binPacker -> first-fit decreasing; binPacker
-//      -> first-fit decreasing. A group is unsolved only when every method threw.
+//      -> first-fit decreasing. A group is unsolved only when every method threw,
+//      or its lane-date threw outside them or something not a std::exception.
 //      Which method is kept depends on counted node limits and errors only, never
 //      on elapsed time, so a plan replays the same on any machine; a method that
 //      overruns the budget is kept and the route flagged overBudget. A kept method
@@ -73,6 +74,9 @@ struct SelectorSettings {
     double maxUnitLoadsPerTruck = 0.0;
     // Seconds on a steady clock. Empty uses std::chrono::steady_clock; tests pass their own.
     std::function<double()> clock;
+    // Called as each method starts on a route; empty in a run. Tests throw from it to stand in
+    // for a solver that fails.
+    std::function<void(std::size_t routeIndex, PackingMethod method)> beforeMethod;
 };
 
 enum class AttemptOutcome {

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <iterator>
 #include <map>
 #include <stdexcept>
@@ -291,6 +292,7 @@ private:
         for (size_t step = 0; step < chain.size() && !kept; ++step) {
             const double start = clock_();
             try {
+                if (settings_.beforeMethod) settings_.beforeMethod(outcome.routeIndex, chain[step]);
                 MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed);
                 const double seconds = clock_() - start;
                 // Elapsed time never picks the method: a slower machine would then plan the same
@@ -578,6 +580,16 @@ function<double()> clockOf(const SelectorSettings& settings) {
     return [] { return chrono::duration<double>(chrono::steady_clock::now().time_since_epoch()).count(); };
 }
 
+string thrownMessage(const exception_ptr& thrown) {
+    try {
+        rethrow_exception(thrown);
+    } catch (const exception& error) {
+        return error.what();
+    } catch (...) {
+        return "an exception that is not a std::exception";
+    }
+}
+
 } // anonymous namespace
 
 RouteSolution solveRoute(const PipelineResult& run, const SelectionItems& items,
@@ -611,14 +623,18 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
 
     const BundleSolver solver(run, items, classification, settings, clock);
     vector<BundleResult> results(bundles.size());
+    vector<exception_ptr> failures(bundles.size());
     atomic<size_t> next{0};
     auto work = [&] {
         for (size_t bundle = next++; bundle < bundles.size(); bundle = next++) {
-            // One lane's failure, whatever it is, must not take the run down.
+            // One lane's failure, whatever it is, must not take the run down. The handler only
+            // keeps the exception, which cannot throw: the unsolved result allocates, so it is
+            // built on the main thread, where a failure reaches the caller instead of terminating
+            // the process.
             try {
                 results[bundle] = solver.solve(bundles[bundle].second);
-            } catch (const exception& error) {
-                results[bundle] = solver.unsolved(bundles[bundle].second, error.what());
+            } catch (...) {
+                failures[bundle] = current_exception();
             }
         }
     };
@@ -628,6 +644,9 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
     for (size_t worker = 1; worker < workers; ++worker) pool.emplace_back(work);
     work();
     for (thread& worker : pool) worker.join();
+    for (size_t bundle = 0; bundle < bundles.size(); ++bundle) {
+        if (failures[bundle]) results[bundle] = solver.unsolved(bundles[bundle].second, thrownMessage(failures[bundle]));
+    }
 
     SelectionPlan plan;
     plan.routes.resize(classification.routes.size());

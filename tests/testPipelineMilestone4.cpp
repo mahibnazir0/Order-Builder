@@ -332,6 +332,31 @@ TEST_CASE("pipelineM4: the same knapsack lane searched within its node limit exi
     CHECK(reportOf(result).find("Result: complete") != string::npos);
 }
 
+TEST_CASE("pipelineM4: a solver throwing a non-standard exception fails the run with exit 7, its lane named unsolved") {
+    SmallDay day("nonStandardThrow", "," + overfullLaneLine().dump(), "," + SmallDay::placeholderJson("3", 1).dump());
+    PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(runOutcome(result) == RunOutcome::Complete);
+    const vector<LaneRoute>& routes = result.laneClassification.routes;
+    const auto laneThree = find_if(routes.begin(), routes.end(), [&](const LaneRoute& route) {
+        return result.segregation.groups[route.groupIndex].key.locationFrom == "3";
+    });
+    REQUIRE(laneThree != routes.end());
+    const size_t failingRoute = static_cast<size_t>(laneThree - routes.begin());
+
+    SelectorSettings settings = result.selectionParams.selector;
+    settings.beforeMethod = [failingRoute](size_t routeIndex, PackingMethod) {
+        if (routeIndex == failingRoute) throw string("not a std::exception");
+    };
+    result.selectionPlan = selectLoads(result, result.reservationBook, result.selectionItems, result.laneClassification, settings);
+    CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
+    CHECK(shortfallNaming(result, "routes where every method threw"));
+    CHECK(reportOf(result).find("an exception that is not a std::exception") != string::npos);
+    for (size_t routeIndex = 0; routeIndex < routes.size(); ++routeIndex) {
+        const RouteStatus expected = routeIndex == failingRoute ? RouteStatus::Unsolved : RouteStatus::Solved;
+        CHECK(result.selectionPlan.routes[routeIndex].status == expected);
+    }
+}
+
 TEST_CASE("pipelineM4: a line rejected as an item fails the run with exit 7 and is printed") {
     nlohmann::json priorityTwelve = SmallDay::lineJson("GOOD", 16, "TL");
     priorityTwelve["TPRIO"] = 12;

@@ -379,6 +379,65 @@ TEST_CASE("selector: goods left over while their lane-date has a reserved truck 
     CHECK(namesUnbuilt());
 }
 
+// Lane 2027 with one truck for ten stacks, lane 2028 with two for forty.
+Day twoLaneDay() {
+    vector<SelectionItem> items = repeated(10, 0, 0);
+    const vector<SelectionItem> other = repeated(40, 1, 1);
+    items.insert(items.end(), other.begin(), other.end());
+    return dayOf({group("2027"), group("2028")}, 2, items, {reserved("2027", 1), reserved("2028", 2)});
+}
+
+vector<vector<size_t>> trucksOfRoute(const SelectionPlan& selection, size_t routeIndex) {
+    vector<vector<size_t>> trucks;
+    for (const PlannedTruck& truck : selection.trucks) {
+        if (truck.routeIndex == routeIndex) trucks.push_back(truck.items);
+    }
+    return trucks;
+}
+
+TEST_CASE("selector: a solver throwing a non-standard exception leaves its lane unsolved and the others planned") {
+    const Day day = twoLaneDay();
+    const size_t failingRoute = routeOfGroup(day, 0);
+    const size_t otherRoute = routeOfGroup(day, 1);
+    const SelectionPlan unhooked = plan(day);
+    vector<uint64_t> fingerprints;
+    for (const int threads : {1, 4}) {
+        CAPTURE(threads);
+        SelectorSettings settings = selectorSettings();
+        settings.threads = threads;
+        settings.beforeMethod = [failingRoute](size_t routeIndex, PackingMethod) {
+            if (routeIndex == failingRoute) throw 42;
+        };
+        const SelectionPlan selection = plan(day, settings);
+        checkPlan(day, selection);
+        const RouteOutcome& failed = selection.routes[failingRoute];
+        CHECK(failed.status == RouteStatus::Unsolved);
+        REQUIRE_FALSE(failed.attempts.empty());
+        CHECK(failed.attempts.back().error == "an exception that is not a std::exception");
+        CHECK(countReason(selection, LeftOverReason::LaneUnsolved) == 10);
+        CHECK(selection.routes[otherRoute].status == RouteStatus::Solved);
+        CHECK(trucksOfRoute(selection, otherRoute) == trucksOfRoute(unhooked, otherRoute));
+        fingerprints.push_back(planFingerprint(selection));
+    }
+    CHECK(fingerprints[0] == fingerprints[1]);
+}
+
+TEST_CASE("selector: a solver running out of memory falls back, then leaves its lane unsolved") {
+    const Day day = twoLaneDay();
+    const size_t failingRoute = routeOfGroup(day, 0);
+    SelectorSettings settings = selectorSettings();
+    settings.beforeMethod = [failingRoute](size_t routeIndex, PackingMethod) {
+        if (routeIndex == failingRoute) throw bad_alloc();
+    };
+    const SelectionPlan selection = plan(day, settings);
+    checkPlan(day, selection);
+    const RouteOutcome& failed = selection.routes[failingRoute];
+    CHECK(failed.status == RouteStatus::Unsolved);
+    REQUIRE(failed.attempts.size() == 2);
+    for (const MethodAttempt& attempt : failed.attempts) CHECK(attempt.outcome == AttemptOutcome::Threw);
+    CHECK(selection.routes[routeOfGroup(day, 1)].status == RouteStatus::Solved);
+}
+
 TEST_CASE("selector: fourFullBeatsFiveWithPenalty - four trucks are built and the fifth reported") {
     const Day day = dayOf({group("2027")}, 1, repeated(120, 0, 0), {reserved("2027", 5)});
     const SelectionPlan selection = plan(day);
