@@ -105,6 +105,19 @@ TEST_CASE("missing mandatory field is an error, and stops further checks" * doct
     CHECK(count_rule(r, "missing_fields") == 1);
 }
 
+TEST_CASE("a demand line whose lane code has leading or trailing spaces is an error and is excluded" * doctest::skip(!crossDayTests::august17Present())) {
+    Fixture f;
+    JoinResult j = f.join;
+    static STRRecord padded = *j.lines[0].str;
+    padded.locfrno += " ";
+    j.lines[0].str = &padded;
+
+    ValidationReport r = Validator::validate(j);
+    CHECK(count_rule(r, "padded_lane_code") == 1);
+    CHECK(r.errors == 1);
+    CHECK(Validator::excludedLineFlags(r, j.lines.size())[0]);
+}
+
 TEST_CASE("a demand line with a blank SHIP_COND is an error and is excluded" * doctest::skip(!crossDayTests::august17Present())) {
     Fixture f;
     JoinResult j = f.join;
@@ -902,6 +915,26 @@ TEST_CASE("a placeholder with NO_OF_LOADS above the maximum is an error") {
     REQUIRE(r.issues.size() == 1);
     CHECK(r.issues[0].placeholder_index == 1);
     CHECK(r.issues[0].line_index == -1);
+}
+
+TEST_CASE("a placeholder whose lane code has leading or trailing spaces is an error and its trucks are excluded") {
+    vector<PlaceholderRecord> placeholders(3);
+    for (PlaceholderRecord& placeholder : placeholders) {
+        placeholder.locfrno = "2023";
+        placeholder.loctono = "2528";
+        placeholder.ship_cond = "TL";
+        placeholder.no_of_loads = 4;
+    }
+    placeholders[0].locfrno = " 2023";
+    placeholders[1].loctono = "2528 ";
+    placeholders[2].ship_cond = "TL ";
+
+    ValidationReport r;
+    Validator::validate_placeholders(placeholders, r);
+    CHECK(count_rule(r, "padded_lane_code") == 3);
+    CHECK(r.errors == 3);
+    const vector<bool> excluded = Validator::excludedPlaceholderFlags(r, placeholders.size());
+    CHECK(all_of(excluded.begin(), excluded.end(), [](bool flag) { return flag; }));
 }
 
 TEST_CASE("a placeholder with a blank SHIP_COND is an error and its trucks are excluded") {

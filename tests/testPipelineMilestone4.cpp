@@ -206,12 +206,17 @@ TEST_CASE("pipelineM4: a clean run exits 0 and reports no shortfall") {
 }
 
 TEST_CASE("pipelineM4: a lane above m5Threshold is escalated and fails the run with exit 7") {
-    nlohmann::json more = SmallDay::placeholderJson("1", 30);
-    const SmallDay day("escalated", "", "," + more.dump());
+    nlohmann::json laneThree = SmallDay::lineJson("GOOD", 16, "TL");
+    laneThree["LOCFRNO"] = "3";
+    const SmallDay day("escalated", "," + laneThree.dump(), "," + SmallDay::placeholderJson("3", 30).dump());
     const PipelineResult result = Pipeline::run(day.inputs);
     CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
     CHECK(shortfallNaming(result, "escalated to M5"));
-    CHECK(result.selectionPlan.penaltyExposureTrucks == 32);
+    for (const ReservationUse& use : result.selectionPlan.reservations) {
+        if (result.reservationBook.reservations[use.reservationIndex].origin != "3") continue;
+        CHECK(use.escalated);
+        CHECK(use.unused() == 30);
+    }
     CHECK(reportOf(result).find("unfilled, escalated to M5") != string::npos);
 }
 
@@ -364,6 +369,15 @@ TEST_CASE("pipelineM4: a placeholder skipped for bad data fails the run with exi
         CHECK(shortfallNaming(result, "placeholder rows skipped"));
         CHECK(reportOf(result).find(describeSkipReason(result.reservationBook.skipped.front().reason)) != string::npos);
     }
+}
+
+TEST_CASE("pipelineM4: a lane and date reserved on two rows fails the run with exit 7, both rows printed") {
+    const SmallDay day("duplicateReservation", "", "," + SmallDay::placeholderJson("1", 1).dump());
+    const PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(result.reservationBook.skipped.size() == 2);
+    CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
+    CHECK(shortfallNaming(result, "placeholder rows skipped"));
+    CHECK(reportOf(result).find("duplicate lane and ship date") != string::npos);
 }
 
 TEST_CASE("pipelineM4: a placeholder with zero loads or after the window leaves the run complete") {

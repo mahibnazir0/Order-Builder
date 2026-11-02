@@ -123,17 +123,50 @@ TEST_CASE("reservationBook: one lane on two ship dates stays two reservations") 
     CHECK(book.reservedTrucks == 5);
 }
 
-TEST_CASE("reservationBook: rows for the same lane and date are summed in file order") {
+TEST_CASE("reservationBook: two rows for the same lane and date are both skipped as duplicates, never summed") {
     const ReservationBook book = bookFor({placeholder("2027", "2026-08-06", 3),
                                           placeholder("2031", "2026-08-06", 1),
                                           placeholder("2027", "2026-08-06", 2, "")});
-    const Reservation* summed = findReservation(book, "2027", "2528", "TL", "2026-08-06");
-    REQUIRE(summed != nullptr);
-    CHECK(summed->trucks == 5);
-    REQUIRE(summed->entries.size() == 2);
-    CHECK(summed->entries[0].placeholderIndex == 0);
-    CHECK(summed->entries[1].placeholderIndex == 2);
-    CHECK(summed->entries[1].equipmentDefaulted);
+    CHECK(findReservation(book, "2027", "2528", "TL", "2026-08-06") == nullptr);
+    REQUIRE(book.reservations.size() == 1);
+    CHECK(book.reservations[0].origin == "2031");
+    CHECK(book.reservedTrucks == 1);
+    CHECK(book.skippedTrucks == 5);
+    REQUIRE(book.skipped.size() == 2);
+    CHECK(book.skipped[0].placeholderIndex == 0);
+    CHECK(book.skipped[1].placeholderIndex == 2);
+    for (const SkippedPlaceholder& skipped : book.skipped) {
+        CHECK(skipped.reason == PlaceholderSkipReason::DuplicateLaneDate);
+    }
+}
+
+TEST_CASE("reservationBook: a lane code with leading or trailing spaces is skipped, not reserved as another lane") {
+    PlaceholderRecord paddedOrigin = placeholder("2027 ", "2026-08-06", 2);
+    PlaceholderRecord paddedDestination = placeholder("2027", "2026-08-06", 2);
+    paddedDestination.loctono = " 2528";
+    PlaceholderRecord paddedCondition = placeholder("2027", "2026-08-06", 2);
+    paddedCondition.ship_cond = "TL\t";
+    for (const PlaceholderRecord& padded : {paddedOrigin, paddedDestination, paddedCondition}) {
+        CAPTURE(padded.locfrno + "|" + padded.loctono + "|" + padded.ship_cond);
+        CHECK(onlySkipReason(padded) == PlaceholderSkipReason::PaddedLaneCode);
+    }
+}
+
+TEST_CASE("reservationBook: lane codes differing only by whitespace never share or split a reservation") {
+    const ReservationBook book = bookFor({placeholder("2027", "2026-08-06", 3), placeholder("2027 ", "2026-08-06", 2)});
+    REQUIRE(book.reservations.size() == 1);
+    CHECK(book.reservations[0].origin == "2027");
+    CHECK(book.reservations[0].trucks == 3);
+    REQUIRE(book.skipped.size() == 1);
+    CHECK(book.skipped[0].placeholderIndex == 1);
+}
+
+TEST_CASE("reservationBook: lane codes differing only by letter case are two lanes, compared exactly") {
+    const ReservationBook book = bookFor({placeholder("LANE-A", "2026-08-06", 3), placeholder("lane-a", "2026-08-06", 2)});
+    CHECK(book.skipped.empty());
+    REQUIRE(book.reservations.size() == 2);
+    CHECK(findReservation(book, "LANE-A", "2528", "TL", "2026-08-06")->trucks == 3);
+    CHECK(findReservation(book, "lane-a", "2528", "TL", "2026-08-06")->trucks == 2);
 }
 
 TEST_CASE("reservationBook: splitReservationNeverSummedAcrossDates") {
@@ -142,18 +175,22 @@ TEST_CASE("reservationBook: splitReservationNeverSummedAcrossDates") {
         const vector<PlaceholderRecord> rows = genSplitReservation(random);
         const ReservationBook book = bookFor(rows);
 
-        map<ReservationKey, long long> expected;
+        // A lane and date reserved on one row only; one on several rows is skipped as a duplicate.
+        map<ReservationKey, vector<long long>> rowsByKey;
         long long totalTrucks = 0;
         for (const PlaceholderRecord& row : rows) {
             totalTrucks += row.no_of_loads;
             if (row.no_of_loads > 0 && row.datfr_ta >= "2026-08-06" && row.datfr_ta <= "2026-08-07") {
-                expected[{row.locfrno, row.loctono, row.ship_cond, row.datfr_ta}] += row.no_of_loads;
+                rowsByKey[{row.locfrno, row.loctono, row.ship_cond, row.datfr_ta}].push_back(row.no_of_loads);
             }
+        }
+        map<ReservationKey, long long> expected;
+        for (const auto& [key, trucks] : rowsByKey) {
+            if (trucks.size() == 1) expected[key] = trucks.front();
         }
         REQUIRE(trucksByKey(book) == expected);
         REQUIRE(book.reservedTrucks + book.skippedTrucks == totalTrucks);
-        REQUIRE(book.reservations.size() + book.skipped.size()
-                <= rows.size());
+        REQUIRE(book.reservations.size() + book.skipped.size() == rows.size());
 
         vector<PlaceholderRecord> shuffled = rows;
         shuffle(shuffled.begin(), shuffled.end(), random);

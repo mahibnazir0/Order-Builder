@@ -73,6 +73,8 @@ ReservationBook buildReservationBook(const vector<PlaceholderRecord>& placeholde
         if (isBlank(placeholder.locfrno) || isBlank(placeholder.loctono)
             || isBlank(placeholder.ship_cond)) {
             reason = PlaceholderSkipReason::MissingLane;
+        } else if (hasPaddedLaneCode(placeholder.locfrno, placeholder.loctono, placeholder.ship_cond)) {
+            reason = PlaceholderSkipReason::PaddedLaneCode;
         } else if (!isIsoDate(placeholder.datfr_ta)) {
             reason = PlaceholderSkipReason::InvalidShipDate;
         } else if (!isIsoDate(placeholder.datto_ta) || placeholder.datto_ta < placeholder.datfr_ta) {
@@ -104,24 +106,30 @@ ReservationBook buildReservationBook(const vector<PlaceholderRecord>& placeholde
         row.trucks = trucks;
         row.entries.push_back({index, trucks, equipment, equipmentBlank});
         rows.push_back(std::move(row));
-        book.reservedTrucks += trucks;
-        if (equipmentBlank) ++book.entriesWithDefaultEquipment;
     }
 
-    // Stable, so rows merged into one reservation keep their file order.
     stable_sort(rows.begin(), rows.end(), [](const Reservation& left, const Reservation& right) {
         return reservationOrder(left) < reservationOrder(right);
     });
-    for (Reservation& row : rows) {
-        if (!book.reservations.empty()
-            && reservationOrder(book.reservations.back()) == reservationOrder(row)) {
-            Reservation& merged = book.reservations.back();
-            merged.trucks += row.trucks;
-            merged.entries.push_back(std::move(row.entries.front()));
+    for (size_t first = 0; first < rows.size();) {
+        size_t last = first + 1;
+        while (last < rows.size() && reservationOrder(rows[last]) == reservationOrder(rows[first])) ++last;
+        if (last - first == 1) {
+            book.reservedTrucks += rows[first].trucks;
+            if (rows[first].entries.front().equipmentDefaulted) ++book.entriesWithDefaultEquipment;
+            book.reservations.push_back(std::move(rows[first]));
         } else {
-            book.reservations.push_back(std::move(row));
+            for (size_t duplicate = first; duplicate < last; ++duplicate) {
+                book.skipped.push_back({rows[duplicate].entries.front().placeholderIndex,
+                                        PlaceholderSkipReason::DuplicateLaneDate});
+                book.skippedTrucks += rows[duplicate].trucks;
+            }
         }
+        first = last;
     }
+    sort(book.skipped.begin(), book.skipped.end(), [](const SkippedPlaceholder& left, const SkippedPlaceholder& right) {
+        return left.placeholderIndex < right.placeholderIndex;
+    });
     return book;
 }
 
@@ -177,6 +185,7 @@ ReservationCoverage matchDemand(const ReservationBook& book, const vector<STRRec
 const char* describeSkipReason(PlaceholderSkipReason reason) {
     switch (reason) {
     case PlaceholderSkipReason::MissingLane: return "missing lane";
+    case PlaceholderSkipReason::PaddedLaneCode: return "lane code with leading or trailing spaces";
     case PlaceholderSkipReason::InvalidShipDate: return "invalid ship date";
     case PlaceholderSkipReason::InvalidDeliveryDate: return "invalid delivery date";
     case PlaceholderSkipReason::InvalidLoadCount: return "invalid load count";
@@ -184,6 +193,7 @@ const char* describeSkipReason(PlaceholderSkipReason reason) {
     case PlaceholderSkipReason::UnknownEquipment: return "unknown equipment";
     case PlaceholderSkipReason::BeforeWindow: return "before window";
     case PlaceholderSkipReason::AfterWindow: return "after window";
+    case PlaceholderSkipReason::DuplicateLaneDate: return "duplicate lane and ship date";
     }
     return "unknown";
 }

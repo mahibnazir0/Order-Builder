@@ -4,9 +4,11 @@
 // lane and ship date for one planning run.
 //
 // A reservation is keyed on origin + destination + ship condition + ship date
-// (DATFR_TA). A lane reserved on several dates keeps one reservation per date,
-// never one lane total: 183 August lane groups are split this way. Rows for the
-// same lane and date are summed.
+// (DATFR_TA), the codes matched exactly. A lane reserved on several dates keeps
+// one reservation per date, never one lane total: 183 August lane groups are
+// split this way. A lane and date on more than one row is not reserved at all:
+// nothing says whether such rows are two bookings or one sent twice, so every
+// one of them is skipped as a duplicate rather than summed or picked from.
 //
 // The run's window of ship dates comes from the demand file's CTL calendar
 // (shipCalendar's planningWindow), the same window Milestone 3 floors by.
@@ -47,6 +49,7 @@ struct Reservation {
 
 enum class PlaceholderSkipReason {
     MissingLane,         // blank LOCFRNO, LOCTONO or SHIP_COND
+    PaddedLaneCode,      // LOCFRNO, LOCTONO or SHIP_COND with leading or trailing whitespace
     InvalidShipDate,     // DATFR_TA is not a real YYYY-MM-DD date
     InvalidDeliveryDate, // DATTO_TA is not a real date, or is before DATFR_TA
     InvalidLoadCount,    // NO_OF_LOADS missing, negative, non-integer or above the cap
@@ -54,6 +57,7 @@ enum class PlaceholderSkipReason {
     UnknownEquipment,    // ZZNA_EQUIP_SIZE is not one of the known equipment types
     BeforeWindow,        // ship date before the run's window
     AfterWindow,         // ship date after the run's window
+    DuplicateLaneDate,   // another row reserves the same lane and ship date
 };
 
 struct SkippedPlaceholder {

@@ -487,6 +487,8 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
         case PlaceholderSkipReason::BeforeWindow:
         case PlaceholderSkipReason::AfterWindow: break;
         case PlaceholderSkipReason::MissingLane:
+        case PlaceholderSkipReason::PaddedLaneCode:
+        case PlaceholderSkipReason::DuplicateLaneDate:
         case PlaceholderSkipReason::InvalidShipDate:
         case PlaceholderSkipReason::InvalidDeliveryDate:
         case PlaceholderSkipReason::InvalidLoadCount:

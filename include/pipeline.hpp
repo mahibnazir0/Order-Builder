@@ -161,10 +161,10 @@ RunOutcome runOutcome(const PipelineResult& result);
 // whose methods all threw, whose kept method overran the time budget, or whose LP stopped at
 // its pivot cap; goods left over as escalated to M5, unfittable, on an unsolved lane, or
 // evicted by the floor while their route still had trucks unbuilt; a stack rejected for bad
-// line data, or a line not fully stacked; a placeholder skipped for bad data. Goods after the
-// window, unavailable in it, without a reservation or over it (a floor eviction on a full route
-// included), and placeholders with zero loads or outside the window, are the plan working as
-// specified and are not listed.
+// line data, or a line not fully stacked; a placeholder skipped for bad data, a duplicated lane
+// and ship date among them. Goods after the window, unavailable in it, without a reservation or
+// over it (a floor eviction on a full route included), and placeholders with zero loads or
+// outside the window, are the plan working as specified and are not listed.
 std::vector<std::string> selectionShortfalls(const PipelineResult& result);
 
 // The solved routes whose plan stands but is not proven, one line each in route order, naming
