@@ -550,7 +550,8 @@ TEST_CASE("cli: --help exits 0 and documents every option and exit code") {
                                           "calendar:YYYY-MM-DD", "shipDates:YYYY-MM-DD[:YYYY-MM-DD]",
                                           "0  success", "1  validation errors", "2  could not run",
                                           "3  a line is in no stack", "4  a line was left out of a floor",
-                                          "5  no line ships on the rule's dates", "6  no floor computed"}) {
+                                          "5  no line ships on the rule's dates", "6  no floor computed",
+                                          "7  M4 left goods", "8  M4's plan is provisional"}) {
         CAPTURE(documented);
         CHECK(contains(run.output, documented));
     }
