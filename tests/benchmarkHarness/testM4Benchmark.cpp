@@ -344,57 +344,159 @@ struct ClientLinesAgainstOurs {
     double unitLoadsAfterDeliveryDate = 0.0;  // loaded after the line's DATTO_TA
 };
 
-ClientLinesAgainstOurs clientLinesAgainstOurs(const HeldDay& day, const ClientDay& client) {
-    const PipelineResult& run = *day.run;
-    const vector<JoinedLine>& lines = run.join.lines;
-    unordered_map<string, size_t> lineByIdpr;
-    lineByIdpr.reserve(lines.size());
-    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) lineByIdpr.emplace(lines[lineIndex].str->idpr, lineIndex);
-    const size_t noItem = day.items.items.size();
-    vector<size_t> firstItemOfLine(lines.size(), noItem);
-    for (size_t index = 0; index < day.items.items.size(); ++index) {
-        for (const size_t lineIndex : day.items.items[index].lineIndices) {
-            if (firstItemOfLine[lineIndex] == noItem) firstItemOfLine[lineIndex] = index;
+// Where a demand line's goods are in our plan, judged by its first item.
+class LinesInOurPlan {
+public:
+    explicit LinesInOurPlan(const HeldDay& day)
+        : day_(day), firstItemOfLine_(day.run->join.lines.size(), day.items.items.size()),
+          truckOfItem_(day.items.items.size(), nullptr), leftOverReasonOf_(day.items.items.size()) {
+        const vector<JoinedLine>& lines = day.run->join.lines;
+        lineByIdpr_.reserve(lines.size());
+        for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) lineByIdpr_.emplace(lines[lineIndex].str->idpr, lineIndex);
+        for (size_t index = 0; index < day.items.items.size(); ++index) {
+            for (const size_t lineIndex : day.items.items[index].lineIndices) {
+                if (firstItemOfLine_[lineIndex] == day.items.items.size()) firstItemOfLine_[lineIndex] = index;
+            }
         }
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            for (const size_t index : truck.items) truckOfItem_[index] = &truck;
+        }
+        for (const LeftOverItem& left : day.plan.leftOver) leftOverReasonOf_[left.itemIndex] = left.reason;
     }
-    vector<const PlannedTruck*> truckOfItem(day.items.items.size(), nullptr);
-    for (const PlannedTruck& truck : day.plan.trucks) {
-        for (const size_t index : truck.items) truckOfItem[index] = &truck;
-    }
-    vector<optional<LeftOverReason>> leftOverReasonOf(day.items.items.size());
-    for (const LeftOverItem& left : day.plan.leftOver) leftOverReasonOf[left.itemIndex] = left.reason;
 
+    // The demand line with this IDPR, or nullptr when it is not a line of this run.
+    const STRRecord* line(const string& idpr) const {
+        const auto found = lineByIdpr_.find(idpr);
+        return found == lineByIdpr_.end() ? nullptr : day_.run->join.lines[found->second].str;
+    }
+
+    // "on our truck, his date", "left: no reservation", ...; loadDate is the client's.
+    string state(const string& idpr, const string& loadDate) const {
+        const auto found = lineByIdpr_.find(idpr);
+        if (found == lineByIdpr_.end()) return "not a line of this run";
+        const size_t item = firstItemOfLine_[found->second];
+        if (item == day_.items.items.size()) return "no item: rejected or not stacked";
+        if (truckOfItem_[item]) return truckOfItem_[item]->shipDate == loadDate ? "on our truck, his date" : "on our truck, another date";
+        if (leftOverReasonOf_[item]) return string("left: ") + leftOverReasonName(*leftOverReasonOf_[item]);
+        return "on no truck and in no list";
+    }
+
+private:
+    const HeldDay& day_;
+    unordered_map<string, size_t> lineByIdpr_;
+    vector<size_t> firstItemOfLine_;
+    vector<const PlannedTruck*> truckOfItem_;
+    vector<optional<LeftOverReason>> leftOverReasonOf_;
+};
+
+ClientLinesAgainstOurs clientLinesAgainstOurs(const HeldDay& day, const ClientDay& client) {
+    const LinesInOurPlan ourPlan(day);
     ClientLinesAgainstOurs result;
     for (const auto& laneDay : client.achieved.laneDays) {
         for (const size_t truckIndex : laneDay.truckIndices) {
             const InputTruck& load = client.achieved.trucks[truckIndex];
             for (const InputTruckLine& line : load.lines) {
-                const double unitLoads = clientLineUnitLoads(load, line, run);
+                const double unitLoads = clientLineUnitLoads(load, line, *day.run);
                 result.unitLoads += unitLoads;
-                const auto found = lineByIdpr.find(line.idpr);
-                if (found == lineByIdpr.end()) {
-                    result.unitLoadsByOurState["not a line of this run"] += unitLoads;
-                    continue;
-                }
-                const STRRecord& demand = *lines[found->second].str;
-                result.unitLoadsByDaysFromShipDate[daysBetween(demand.datfr_ta, load.shipDate)] += unitLoads;
-                if (load.shipDate > demand.datto_ta) result.unitLoadsAfterDeliveryDate += unitLoads;
-                const size_t item = firstItemOfLine[found->second];
-                string state;
-                if (item == noItem) {
-                    state = "no item: rejected or not stacked";
-                } else if (truckOfItem[item]) {
-                    state = truckOfItem[item]->shipDate == load.shipDate ? "on our truck, his date" : "on our truck, another date";
-                } else if (leftOverReasonOf[item]) {
-                    state = string("left: ") + leftOverReasonName(*leftOverReasonOf[item]);
-                } else {
-                    state = "on no truck and in no list";
-                }
-                result.unitLoadsByOurState[state] += unitLoads;
+                result.unitLoadsByOurState[ourPlan.state(line.idpr, load.shipDate)] += unitLoads;
+                const STRRecord* demand = ourPlan.line(line.idpr);
+                if (!demand) continue;
+                result.unitLoadsByDaysFromShipDate[daysBetween(demand->datfr_ta, load.shipDate)] += unitLoads;
+                if (load.shipDate > demand->datto_ta) result.unitLoadsAfterDeliveryDate += unitLoads;
             }
         }
     }
     return result;
+}
+
+// What would show our lane key failing his lanes: his loads on a lane and date that a placeholder
+// row names inside our window, yet our book does not reserve; and his unit loads carried on a lane
+// other than their demand line's, which would mean the two files spell a lane differently.
+struct LaneKeyMisses {
+    long long loads = 0;
+    double unitLoadsOffTheirLane = 0.0;
+};
+
+// Why the client's unit loads that our plan leaves as "no reservation" or "after window" are left:
+// whether his load's own lane and date match a reservation in our book (lane key and CTL window
+// both), whether the line rides his load's lane, and how far his load's date is from the line's
+// DATFR_TA.
+LaneKeyMisses printClientMatching(ostream& out, const HeldDay& day, const ClientDay& client) {
+    LaneKeyMisses misses;
+    const LinesInOurPlan ourPlan(day);
+    const PlanningWindow& window = day.book.window;
+    const vector<PlaceholderRecord>& placeholders = day.run->placeholders.placeholders;
+    map<string, long long> loadsByLaneDate;
+    map<tuple<string, string, string>, double> byMatch;   // our state, his load's lane-date, the line's lane
+    map<pair<string, string>, double> byDays;               // our state, his load's date from DATFR_TA
+    map<string, double> totalByState;
+    for (const auto& laneDay : client.achieved.laneDays) {
+        const bool reserved = findReservation(day.book, laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition,
+                                              laneDay.shipDate) != nullptr;
+        const bool inWindow = laneDay.shipDate >= window.firstShipDate && laneDay.shipDate <= window.lastShipDate;
+        const string loadLaneDate = reserved  ? "reserved in our book"
+                                    : inWindow ? "in our window, not reserved"
+                                               : "outside our window";
+        string why = loadLaneDate;
+        if (!reserved) {
+            // A placeholder row naming exactly this lane and date, if any, and what the book did with it.
+            const auto row = find_if(placeholders.begin(), placeholders.end(), [&](const PlaceholderRecord& placeholder) {
+                return placeholder.locfrno == laneDay.locationFrom && placeholder.loctono == laneDay.locationTo
+                       && placeholder.ship_cond == laneDay.shipCondition && placeholder.datfr_ta == laneDay.shipDate;
+            });
+            if (row == placeholders.end()) {
+                why += ": no placeholder row for it";
+            } else {
+                const size_t rowIndex = static_cast<size_t>(row - placeholders.begin());
+                const auto skipped = find_if(day.book.skipped.begin(), day.book.skipped.end(),
+                                             [&](const SkippedPlaceholder& skip) { return skip.placeholderIndex == rowIndex; });
+                if (skipped == day.book.skipped.end() && inWindow) misses.loads += static_cast<long long>(laneDay.loads);
+                why += skipped == day.book.skipped.end() ? string(": its row is in no reservation")
+                                                         : string(": its row skipped, ") + describeSkipReason(skipped->reason);
+            }
+        }
+        loadsByLaneDate[why] += static_cast<long long>(laneDay.loads);
+        for (const size_t truckIndex : laneDay.truckIndices) {
+            const InputTruck& load = client.achieved.trucks[truckIndex];
+            for (const InputTruckLine& line : load.lines) {
+                const string state = ourPlan.state(line.idpr, load.shipDate);
+                if (state != "left: no reservation" && state != "left: after window") continue;
+                const STRRecord& demand = *ourPlan.line(line.idpr);
+                const bool sameLane = demand.locfrno == laneDay.locationFrom && demand.loctono == laneDay.locationTo
+                                      && demand.ship_cond == laneDay.shipCondition;
+                const double unitLoads = clientLineUnitLoads(load, line, *day.run);
+                if (!sameLane) misses.unitLoadsOffTheirLane += unitLoads;
+                byMatch[{state, loadLaneDate, sameLane ? "yes" : "no"}] += unitLoads;
+                const long long days = daysBetween(demand.datfr_ta, load.shipDate);
+                byDays[{state, (days > 0 ? "+" : "") + to_string(days)}] += unitLoads;
+                totalByState[state] += unitLoads;
+            }
+        }
+    }
+    long long loads = 0;
+    for (const auto& [why, count] : loadsByLaneDate) loads += count;
+    out << "  His " << grouped(loads) << " loads by their lane and date, against our book (window "
+        << window.firstShipDate << " to " << window.lastShipDate << "):\n";
+    for (const auto& [why, count] : loadsByLaneDate) {
+        out << "    " << why << ": " << grouped(count) << " (" << percentOf(static_cast<double>(count), static_cast<double>(loads)) << ")\n";
+    }
+    out << "\n  His unit loads our plan leaves as no reservation or after window:\n";
+    vector<vector<string>> matchRows;
+    for (const auto& [key, unitLoads] : byMatch) {
+        const auto& [state, loadLaneDate, sameLane] = key;
+        matchRows.push_back({state, loadLaneDate, sameLane, grouped(unitLoads), percentOf(unitLoads, totalByState[state])});
+    }
+    printColumns(out, {"our plan", "his load's lane and date", "line on that lane", "unit loads", "share"}, matchRows,
+                 {false, false, false, true, true});
+    out << "\n  The same unit loads by days from the line's DATFR_TA to his load's date:\n";
+    for (const auto& [state, total] : totalByState) {
+        out << "    " << state << ":";
+        for (const auto& [key, unitLoads] : byDays) {
+            if (key.first == state) out << " " << key.second << ": " << grouped(unitLoads) << ";";
+        }
+        out << "\n";
+    }
+    return misses;
 }
 
 // One lane of one run: its reservations, our routes and what they built, our goods left on no
@@ -1213,6 +1315,19 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     report << "  The classifier gives each reserved lane-date only the goods whose ship date is that date. Goods\n"
            << "  with no truck reserved on their own date are left (no reservation), and goods due after the\n"
            << "  window are left (after window), while the lane's reserved trucks on other dates run out.\n";
+    report << "\n  Matching: is a lane key or the CTL window keeping his goods off our trucks?\n";
+    for (size_t run = 0; run < 3; ++run) {
+        CAPTURE(run);
+        report << "\n  " << augustDay(run).label << "\n";
+        const LaneKeyMisses misses = printClientMatching(report, augustDay(run), clientDay(run));
+        CHECK(misses.loads == 0);
+        CHECK(misses.unitLoadsOffTheirLane == 0.0);
+    }
+    report << "\n  Every unit load above rides a load on its own line's lane, and every placeholder row inside\n"
+           << "  the window that names his load's lane and date is a reservation in our book (both checked):\n"
+           << "  the lane key matches his lanes. The CTL window's share is his loads outside our window, listed\n"
+           << "  per run. The rest reach other dates because his loads carry lines due days earlier or later\n"
+           << "  (the days table), which the ship-date rule keeps off ours: section 7 prices it.\n";
 
     report << "\n5. Aug6, 2028 -> 2574 TL: every method stops at 16 trucks of the 21 reserved\n\n";
     printLane(report, augustDay(2), clientDay(2), "2028", "2574", "TL");
