@@ -260,6 +260,9 @@ TEST_CASE("benchmarkHarness: samePlan tells a re-run from a different plan") {
     SelectionPlan changed = first;
     swap(changed.trucks[0].items.back(), changed.trucks[1].items.back());
     CHECK_FALSE(samePlan(first, changed));
+    SelectionPlan moved = first;
+    moved.moved.push_back({0, 0, LeftOverReason::OverReservation, false});
+    CHECK_FALSE(samePlan(first, moved));
 }
 
 TEST_CASE("benchmarkHarness: the benchmark prints one plain-ASCII row per route") {

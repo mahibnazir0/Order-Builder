@@ -78,6 +78,7 @@ string reportOf(const PipelineResult& result) {
     context.provisional = selectionProvisional(result);
     context.priorityZeroIsMostUrgent = result.selectionParams.priorityZeroIsMostUrgent;
     context.maxDaysPulledForward = result.selectionParams.maxDaysPulledForward;
+    context.shipDates = result.selectionParams.shipDates;
     context.defaultEquipment = result.selectionParams.reservations.defaultEquipment;
     ostringstream out;
     printSelectionReport(out, result, result.reservationBook, result.selectionItems, result.laneClassification,

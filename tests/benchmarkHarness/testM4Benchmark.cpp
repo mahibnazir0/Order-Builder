@@ -65,8 +65,11 @@ HeldDay heldDay(const string& label, const PipelineResult& run) {
     day.book = buildReservationBook(run.placeholders.placeholders, run.demand.ctl,
                                     planDateFromRequestId(run.demand.request_id), {"53F", {"53F"}});
     day.items = buildSelectionItems(run, day.book.window, true, m4AugustTests::kShippedMaxDaysPulledForward);
-    day.classification = classifyLanes(run, day.book, day.items, m4SyntheticDay::kRouting);
-    day.plan = selectLoads(run, day.book, day.items, day.classification, realDataSettings());
+    ShipDatePlan planned = planShipDates(run, day.book, day.items, m4AugustTests::kShippedRouting, realDataSettings(),
+                                         m4AugustTests::kShippedShipDateRules,
+                                         m4AugustTests::kShippedMaxDaysPulledForward);
+    day.classification = std::move(planned.classification);
+    day.plan = std::move(planned.plan);
     return day;
 }
 
@@ -287,20 +290,21 @@ bool fitsTrailerWidth(const FloorRow& row, const TrailerSpec& trailer) {
     return row.widthIn <= trailer.interiorWidthIn + kQuantityEpsilon;
 }
 
-// Per route: whether it left goods over a full truck. Its trucks stopped for want of room; the
-// other routes' trucks ran out of goods first.
+bool isOverflow(LeftOverReason reason) {
+    return reason == LeftOverReason::OverReservation || reason == LeftOverReason::FloorEviction
+           || reason == LeftOverReason::UnitLoadCap;
+}
+
+// Per route: whether it left goods over a full truck, there or moved on to another date. Its
+// trucks stopped for want of room; the other routes' trucks ran out of goods first.
 vector<char> routesLeavingGoods(const HeldDay& day) {
-    const size_t routes = day.classification.routes.size();
-    vector<size_t> routeOfItem(day.items.items.size(), routes);
-    for (size_t route = 0; route < routes; ++route) {
-        for (const size_t index : day.classification.routes[route].itemIndices) routeOfItem[index] = route;
-    }
-    vector<char> leaving(routes, 0);
+    const vector<optional<size_t>> routeOfItem = finalRouteOfItems(day.classification, day.plan, day.items.items.size());
+    vector<char> leaving(day.classification.routes.size(), 0);
     for (const LeftOverItem& left : day.plan.leftOver) {
-        if (left.reason == LeftOverReason::OverReservation || left.reason == LeftOverReason::FloorEviction
-            || left.reason == LeftOverReason::UnitLoadCap) {
-            leaving[routeOfItem[left.itemIndex]] = 1;
-        }
+        if (isOverflow(left.reason) && routeOfItem[left.itemIndex]) leaving[*routeOfItem[left.itemIndex]] = 1;
+    }
+    for (const MovedItem& move : day.plan.moved) {
+        if (isOverflow(move.reason)) leaving[move.routeIndex] = 1;
     }
     return leaving;
 }
@@ -532,46 +536,11 @@ void printLane(ostream& out, const HeldDay& day, const ClientDay& client, const 
                  routeRows, {false, false, false, true, true, true, true, true, false});
 
     map<pair<string, string>, double> leftByReasonAndDate;
-    map<LeftOverReason, double> leftByReason;
     for (const LeftOverItem& left : day.plan.leftOver) {
         const SelectionItem& item = day.items.items[left.itemIndex];
-        if (!onLane(item.groupIndex)) continue;
-        leftByReasonAndDate[{leftOverReasonName(left.reason), item.shipDate}] += item.unitLoads;
-        leftByReason[left.reason] += item.unitLoads;
+        if (onLane(item.groupIndex)) leftByReasonAndDate[{leftOverReasonName(left.reason), item.shipDate}] += item.unitLoads;
     }
 
-    out << "\n  Why each reserved truck left unbuilt stays empty:\n";
-    for (const Reservation& reservation : day.book.reservations) {
-        if (reservation.origin != origin || reservation.destination != destination || reservation.shipCondition != condition) {
-            continue;
-        }
-        long long built = 0;
-        bool goodsLeftOver = false;
-        string shipped;
-        for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
-            const LaneRoute& route = day.classification.routes[routeIndex];
-            if (!onLane(route.groupIndex) || route.shipDate != reservation.shipDate) continue;
-            built += day.plan.routes[routeIndex].trucksBuilt;
-            goodsLeftOver = goodsLeftOver || leavingGoods[routeIndex];
-            if (route.unitLoads > 0.0) {
-                shipped += (shipped.empty() ? "" : ", ") + printable(run.segregation.groups[route.groupIndex].key.segregant)
-                           + " " + grouped(route.unitLoads);
-            }
-        }
-        const long long unbuilt = reservation.trucks - built;
-        if (unbuilt <= 0) continue;
-        out << "    " << reservation.shipDate << ": " << unbuilt << " of " << reservation.trucks << " unbuilt. ";
-        if (goodsLeftOver) {
-            out << "A group left goods over a full truck: a selection shortfall, not a want of goods.\n";
-            continue;
-        }
-        out << "Every group shipped all it was routed (" << (shipped.empty() ? string("none") : shipped)
-            << " unit loads).\n      The lane's goods on no truck, in unit loads: "
-            << grouped(leftByReason[LeftOverReason::NoReservation]) << " due on a day with no truck reserved, "
-            << grouped(leftByReason[LeftOverReason::AfterWindow]) << " after the window, "
-            << grouped(leftByReason[LeftOverReason::UnavailableInWindow]) << " not available in it.\n"
-            << "      A good ships only on its own ship date (DATFR_TA), so none of them can fill this truck.\n";
-    }
     vector<vector<string>> leftRows;
     for (const auto& [reasonAndDate, unitLoads] : leftByReasonAndDate) {
         leftRows.push_back({reasonAndDate.first, reasonAndDate.second, grouped(unitLoads)});
@@ -640,41 +609,161 @@ void printTruckRows(ostream& out, const HeldDay& day, const PlannedTruck& truck,
                  {false, true, true, false, false});
 }
 
-// The day's items as a looser ship-date rule would route them, to measure what the rule costs; no
-// plan is ever made this way. A good left with no truck reserved on its own date rides the lane's
-// next reserved date it is available by. With pullForward, a good due after the window also rides
-// the lane's last reserved date it is available by, when that is at most maxDays before its own,
-// as the least urgent good there.
-SelectionItems itemsUnderLooserShipDates(const HeldDay& day, bool pullForward, long long maxDays) {
-    map<tuple<string, string, string>, vector<string>> reservedDatesByLane;  // ascending: the book is sorted
-    for (const Reservation& reservation : day.book.reservations) {
-        reservedDatesByLane[{reservation.origin, reservation.destination, reservation.shipCondition}].push_back(
-            reservation.shipDate);
+// The day planned again with other ship-date rules, to price them; the run plans only with the shipped ones.
+SelectionPlan plannedUnder(const HeldDay& day, const ShipDateRules& rules, const SelectorSettings& settings) {
+    return planShipDates(*day.run, day.book, day.items, m4AugustTests::kShippedRouting, settings, rules,
+                         m4AugustTests::kShippedMaxDaysPulledForward)
+        .plan;
+}
+
+// Why a good on no truck could not ride a truck of `date`, by what the ship-date rules allow there.
+string whyNotOn(const SelectionItem& item, LeftOverReason reason, const string& date) {
+    if (reason == LeftOverReason::Unfittable) return "fits no truck";
+    if (reason == LeftOverReason::EscalatedToM5) return "left to M5";
+    if (item.availDate > date) return "not available by then";
+    if (item.shipDate > date
+        && daysBetween(date, item.shipDate) + item.daysPulledForward > m4AugustTests::kShippedMaxDaysPulledForward) {
+        return "due over " + to_string(m4AugustTests::kShippedMaxDaysPulledForward) + " days later";
     }
-    SelectionItems items = day.items;
-    for (const LeftOverItem& left : day.plan.leftOver) {
-        const bool noReservation = left.reason == LeftOverReason::NoReservation;
-        if (!noReservation && !(pullForward && left.reason == LeftOverReason::AfterWindow)) continue;
-        SelectionItem& item = items.items[left.itemIndex];
-        const GroupKey& key = day.run->segregation.groups[item.groupIndex].key;
-        const auto lane = reservedDatesByLane.find({key.locationFrom, key.locationTo, key.shipCondition});
-        if (lane == reservedDatesByLane.end()) continue;
-        const vector<string>& dates = lane->second;
-        if (noReservation) {
-            const auto next = lower_bound(dates.begin(), dates.end(), max(item.shipDate, item.availDate));
-            if (next != dates.end()) item.shipDate = *next;
-            continue;
+    return "allowed that date, not loaded";
+}
+
+using LaneKey = tuple<string, string, string>;
+
+LaneKey laneKeyOf(const HeldDay& day, size_t groupIndex) {
+    const GroupKey& key = day.run->segregation.groups[groupIndex].key;
+    return {key.locationFrom, key.locationTo, key.shipCondition};
+}
+
+// Why a lane-date's trucks carry no more: the lane's goods on no truck, by why none could ride
+// that date, and the cause that follows. A truck takes only its own group's goods, so a truck's
+// cause is judged on its group's alone; a reservation's on every group of the lane.
+class LaneDateCauses {
+public:
+    explicit LaneDateCauses(const HeldDay& day) : day_(day) {
+        for (const LeftOverItem& left : day.plan.leftOver) {
+            leftByLane_[laneKeyOf(day, day.items.items[left.itemIndex].groupIndex)].push_back(&left);
         }
-        const auto last = find_if(dates.rbegin(), dates.rend(), [&](const string& date) {
-            return date >= item.availDate && daysBetween(date, item.shipDate) <= maxDays;
-        });
-        if (last == dates.rend()) continue;
-        item.shipDate = *last;
-        item.timing = ShipTiming::InWindow;
-        item.priority = kMaxPriority;
     }
-    stable_sort(items.items.begin(), items.items.end(), shipsBefore);
-    return items;
+
+    // The cause, and the goods on no truck in unit loads by why, for trucks of `date`.
+    pair<string, map<string, double>> of(const LaneKey& lane, const string& date,
+                                         optional<size_t> groupIndex = nullopt) const {
+        map<string, double> unitLoadsByWhy;
+        const auto found = leftByLane_.find(lane);
+        if (found != leftByLane_.end()) {
+            for (const LeftOverItem* left : found->second) {
+                const SelectionItem& item = day_.items.items[left->itemIndex];
+                if (groupIndex && item.groupIndex != *groupIndex) continue;
+                unitLoadsByWhy[whyNotOn(item, left->reason, date)] += item.unitLoads;
+            }
+        }
+        const string cause = unitLoadsByWhy.count("allowed that date, not loaded") ? "goods allowed that date were not loaded"
+                             : !unitLoadsByWhy.empty() ? "goods left on the lane, none allowed that date"
+                                                       : "no goods left on the lane";
+        return {cause, unitLoadsByWhy};
+    }
+
+private:
+    const HeldDay& day_;
+    map<LaneKey, vector<const LeftOverItem*>> leftByLane_;
+};
+
+// Every reserved truck left unbuilt, by lane-date, with its cause; returns the trucks by cause.
+map<string, long long> printUnbuiltTrucks(ostream& out, const HeldDay& day) {
+    const LaneDateCauses causes(day);
+    const vector<char> leavingGoods = routesLeavingGoods(day);
+    set<tuple<string, string, string, string>> laneDatesLeavingGoods;
+    for (size_t route = 0; route < day.classification.routes.size(); ++route) {
+        if (!leavingGoods[route]) continue;
+        const LaneRoute& laneRoute = day.classification.routes[route];
+        const auto [origin, destination, condition] = laneKeyOf(day, laneRoute.groupIndex);
+        laneDatesLeavingGoods.insert({origin, destination, condition, laneRoute.shipDate});
+    }
+    map<string, long long> trucksByCause;
+    vector<vector<string>> rows;
+    for (const ReservationUse& use : day.plan.reservations) {
+        if (use.unused() <= 0) continue;
+        const Reservation& reservation = day.book.reservations[use.reservationIndex];
+        string cause, detail;
+        if (use.escalated) {
+            cause = "left to M5";
+        } else if (laneDatesLeavingGoods.count({reservation.origin, reservation.destination, reservation.shipCondition,
+                                                reservation.shipDate})) {
+            cause = "a group left goods over a full truck";
+        } else {
+            map<string, double> unitLoadsByWhy;
+            tie(cause, unitLoadsByWhy) =
+                causes.of({reservation.origin, reservation.destination, reservation.shipCondition}, reservation.shipDate);
+            for (const auto& [why, unitLoads] : unitLoadsByWhy) {
+                detail += (detail.empty() ? "" : "; ") + why + " " + grouped(unitLoads);
+            }
+        }
+        trucksByCause[cause] += use.unused();
+        rows.push_back({reservation.origin + " -> " + reservation.destination + " " + reservation.shipCondition,
+                        reservation.shipDate, grouped(use.reserved), grouped(use.built), grouped(use.unused()), cause,
+                        detail.empty() ? string("-") : detail});
+    }
+    printColumns(out, {"lane", "ship date", "reserved", "built", "unbuilt", "cause", "the lane's goods on no truck, unit loads"},
+                 rows, {false, false, true, true, true, false, false});
+    return trucksByCause;
+}
+
+// Where a run's trucks lose cube, by what stopped each truck: in cu ft per truck, the trailer's
+// cube less the cargo, split into the rear left empty, the gaps across the width beside the rows,
+// and the air above the stacks (the ceiling, less what the stacks reach).
+struct LostCube {
+    size_t trucks = 0;
+    double cargo = 0.0;
+    double rear = 0.0;
+    double acrossWidth = 0.0;
+    double aboveStacks = 0.0;
+
+    void add(const LostCube& other) {
+        trucks += other.trucks;
+        cargo += other.cargo;
+        rear += other.rear;
+        acrossWidth += other.acrossWidth;
+        aboveStacks += other.aboveStacks;
+    }
+};
+
+map<string, LostCube> lostCubeByStop(const HeldDay& day) {
+    const TrailerSpec& trailer = day.run->trailer;
+    const vector<char> leavingGoods = routesLeavingGoods(day);
+    const LaneDateCauses causes(day);
+    map<string, LostCube> byStop;
+    for (const PlannedTruck& truck : day.plan.trucks) {
+        double footprints = 0.0, cargo = 0.0;
+        for (const size_t index : truck.items) {
+            const SelectionItem& item = day.items.items[index];
+            footprints += item.footprintLongIn * item.footprintShortIn;
+            cargo += item.cubeCubicIn;
+        }
+        const double floorShare = truck.floor.usedLengthIn / trailer.interiorLengthIn;
+        const double weightShare = truck.weightLb / trailer.weightLimitLb;
+        const string stop = !leavingGoods[truck.routeIndex]
+                                ? "ran out: " + causes.of(laneKeyOf(day, truck.groupIndex), truck.shipDate, truck.groupIndex).first
+                            : weightShare >= floorShare ? "stopped by weight, goods left"
+                                                        : "stopped by floor, goods left";
+        LostCube& lost = byStop[stop];
+        ++lost.trucks;
+        lost.cargo += cargo / 1728.0;
+        lost.rear += truck.floor.rearWasteIn * trailer.interiorWidthIn * trailer.stackHeightCeilingIn / 1728.0;
+        lost.acrossWidth += (truck.floor.usedLengthIn * trailer.interiorWidthIn - footprints) * trailer.stackHeightCeilingIn / 1728.0;
+        lost.aboveStacks += (footprints * trailer.stackHeightCeilingIn - cargo) / 1728.0;
+    }
+    return byStop;
+}
+
+vector<string> lostCubeRow(const string& run, const string& stop, const LostCube& lost, size_t runTrucks,
+                           const TrailerSpec& trailer) {
+    const double trucks = static_cast<double>(max<size_t>(lost.trucks, 1));
+    const double rearCubicFeetPerInch = trailer.interiorWidthIn * trailer.stackHeightCeilingIn / 1728.0;
+    return {run, stop, grouped(lost.trucks), percentOf(lost.trucks, runTrucks), grouped(lost.cargo / trucks),
+            grouped((lost.rear + lost.acrossWidth + lost.aboveStacks) / trucks), grouped(lost.rear / trucks),
+            fixed(lost.rear / trucks / rearCubicFeetPerInch, 1), grouped(lost.acrossWidth / trucks),
+            grouped(lost.aboveStacks / trucks)};
 }
 
 // One plan's row of section 7.
@@ -769,9 +858,11 @@ TEST_CASE("m4Benchmark: every item and reservation of every held extract is rout
             const bool hasItems = !route.itemIndices.empty();
             CHECK((route.method == SolveMethod::NoDemand) == !hasItems);
             CHECK((route.method == SolveMethod::Unrouted) == (hasItems && route.reservedTrucks == 0));
-            CHECK((route.method == SolveMethod::M5) == (hasItems && route.reservedTrucks > m4SyntheticDay::kRouting.m5Threshold));
+            CHECK((route.method == SolveMethod::M5) == (hasItems && route.reservedTrucks > m4AugustTests::kShippedRouting.m5Threshold));
         }
         for (const UnroutedItem& left : classification.itemsLeftOut) ++seen[left.itemIndex];
+        // A good offered to a date that did not load it is on that date's route too.
+        for (const MovedItem& move : day.plan.moved) --seen[move.itemIndex];
         CHECK(all_of(seen.begin(), seen.end(), [](int count) { return count == 1; }));
         const ReservationCoverage coverage = matchDemand(day.book, day.run->demand.str);
         const set<size_t> withoutDemand(coverage.reservationsWithoutDemand.begin(),
@@ -803,16 +894,15 @@ TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibl
             const GroupKey& key = day.run->segregation.groups[groupIndex].key;
             return LaneDate{key.locationFrom, key.locationTo, key.shipCondition, shipDate};
         };
-        map<size_t, size_t> routeOfItem;
-        for (size_t routeIndex = 0; routeIndex < day.classification.routes.size(); ++routeIndex) {
-            for (const size_t index : day.classification.routes[routeIndex].itemIndices) routeOfItem[index] = routeIndex;
-        }
+        const vector<optional<size_t>> routeOfItem =
+            finalRouteOfItems(day.classification, day.plan, day.items.items.size());
         // Per lane-date and group: the floor its goods left over the reservation take, and the most urgent of them.
         map<pair<LaneDate, size_t>, pair<double, const SelectionItem*>> leftOverByGroup;
         for (const LeftOverItem& left : day.plan.leftOver) {
             if (left.reason != LeftOverReason::OverReservation) continue;
             const SelectionItem& item = day.items.items[left.itemIndex];
-            const LaneRoute& route = day.classification.routes[routeOfItem.at(left.itemIndex)];
+            REQUIRE(routeOfItem[left.itemIndex]);
+            const LaneRoute& route = day.classification.routes[*routeOfItem[left.itemIndex]];
             auto& [area, mostUrgent] = leftOverByGroup[{laneDateOf(route.groupIndex, route.shipDate), route.groupIndex}];
             area += item.footprintLongIn * item.footprintShortIn;
             if (!mostUrgent || urgencyOf(item) < urgencyOf(*mostUrgent)) mostUrgent = &item;
@@ -860,16 +950,15 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 }
 
 // Rev 8 judges M4 on the cube each truck carries and the space left at its rear, not on the
-// truck count. Pinned as measured on 1 Nov so a change that empties trucks fails by name; a
-// change that fills them better passes and should re-pin. Re-pinned the same day 0.1% lower,
-// accepted, when the classifier stopped counting a truck full at 84% of cube: borderline lanes
-// moved from knapsack to the packers.
-TEST_CASE("m4Benchmark: August fill is no worse than measured on 1 Nov" * doctest::skip()) {
+// truck count. Pinned as measured so a change that empties trucks fails by name; a change that
+// fills them better passes and should re-pin. Re-pinned on 2 Nov 2026 when the client's
+// ship-date rules went in (2,887 / 2,774 / 2,724 cu ft before).
+TEST_CASE("m4Benchmark: August fill is no worse than measured on 2 Nov" * doctest::skip()) {
     struct Fill {
         double cubicFeetAtLeast;
         double rearWasteInAtMost;
     };
-    const array<Fill, 3> measured{Fill{2886.9, 83.8}, Fill{2773.5, 105.0}, Fill{2723.8, 114.2}};
+    const array<Fill, 3> measured{Fill{3141.7, 39.0}, Fill{3155.6, 34.6}, Fill{3150.5, 36.1}};
     for (size_t run = 0; run < measured.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -903,13 +992,15 @@ TEST_CASE("m4Benchmark: the client's August loads are measured from their lines,
 TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by urgency" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     using Counts = map<SolveMethod, size_t>;
+    // Pulled-forward goods take most reserved lane-dates past their reservation, so most go to
+    // knapsack.
     const array<Counts, 3> expected{
-        Counts{{SolveMethod::Knapsack, 133}, {SolveMethod::PatternPacker, 16}, {SolveMethod::BinPacker, 10},
-               {SolveMethod::Unrouted, 386}, {SolveMethod::NoDemand, 12}},
-        Counts{{SolveMethod::Knapsack, 198}, {SolveMethod::PatternPacker, 42}, {SolveMethod::BinPacker, 22},
-               {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 219}, {SolveMethod::NoDemand, 26}},
-        Counts{{SolveMethod::Knapsack, 178}, {SolveMethod::PatternPacker, 57}, {SolveMethod::BinPacker, 34},
-               {SolveMethod::Unrouted, 399}, {SolveMethod::NoDemand, 41}}};
+        Counts{{SolveMethod::Knapsack, 157}, {SolveMethod::BinPacker, 9}, {SolveMethod::Unrouted, 383},
+               {SolveMethod::NoDemand, 5}},
+        Counts{{SolveMethod::Knapsack, 265}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 8},
+               {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 194}, {SolveMethod::NoDemand, 14}},
+        Counts{{SolveMethod::Knapsack, 294}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 10},
+               {SolveMethod::Unrouted, 274}, {SolveMethod::NoDemand, 5}}};
     for (size_t run = 0; run < expected.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -925,10 +1016,10 @@ TEST_CASE("m4Benchmark: every held extract plans the same at one thread, again, 
     fourThreads.threads = 4;
     for (const HeldDay& day : heldDays()) {
         CAPTURE(day.label);
-        const SelectionPlan again = selectLoads(*day.run, day.book, day.items, day.classification, realDataSettings());
+        const SelectionPlan again = plannedUnder(day, m4AugustTests::kShippedShipDateRules, realDataSettings());
         CHECK(samePlan(day.plan, again));
         CHECK(planFingerprint(day.plan) == planFingerprint(again));
-        CHECK(samePlan(day.plan, selectLoads(*day.run, day.book, day.items, day.classification, fourThreads)));
+        CHECK(samePlan(day.plan, plannedUnder(day, m4AugustTests::kShippedShipDateRules, fourThreads)));
     }
 }
 
@@ -976,7 +1067,9 @@ TEST_CASE("m4Benchmark: on the August routes the methods are ranked and the rout
     // The data sets the routing rules, never the reverse. A variety split is a rule once it sends
     // at most a third of the routes it decides to the method that ranked lower (E206 - E208), and
     // the shipped ratio must then decide them as well. A routed method over the budget puts the M5
-    // threshold below its reservation (E209). On 31 Oct 2026 the data set neither.
+    // threshold below its reservation (E209). On 31 Oct 2026 the data set neither. On 2 Nov 2026,
+    // under the ship-date rules, the packers differ on 7 August routes and a split at 101 unit
+    // loads per product misroutes 2 of them: the shipped varietyRatio is that split.
     const LaneClassifierSettings shipped = loadSelectionParams(crossDayTests::kStrictParamsPath).routing;
     const optional<VarietyCrossover> crossover = varietyCrossover(benchmarks);
     REQUIRE(crossover);
@@ -1141,6 +1234,7 @@ TEST_CASE("m4Benchmark: at least a fifth of August trucks carry a stack two high
     }
 }
 
+
 TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     REQUIRE(m4AugustTests::augustSolutionsPresent());
@@ -1260,7 +1354,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
                  limitRows, {false, true, true, true, true, true, true, true, true, true});
     report << "  A route left goods when some of its goods stayed over a full truck: over the reservation, off\n"
            << "  the rows, or over the unit-load cap. Its trucks stopped for want of room. A route that ran out\n"
-           << "  shipped all it had: what limits its trucks is the goods the classifier gave it.\n";
+           << "  shipped every good the ship-date rules let reach its date: what limits its trucks is those goods.\n";
     size_t benchmarkedRoutes = 0, sameEveryMethod = 0, sameAndShippingAll = 0;
     for (const RouteBenchmark& benchmark : allAugustRouteBenchmarks()) {
         ++benchmarkedRoutes;
@@ -1312,9 +1406,10 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     }
     printColumns(report, {"our plan", "Aug4", "share", "Aug5", "share", "Aug6", "share"}, stateRows,
                  {false, true, true, true, true, true, true});
-    report << "  The classifier gives each reserved lane-date only the goods whose ship date is that date. Goods\n"
-           << "  with no truck reserved on their own date are left (no reservation), and goods due after the\n"
-           << "  window are left (after window), while the lane's reserved trucks on other dates run out.\n";
+    report << "  A good reaches a reserved lane-date on its own ship date, carried on from an earlier date that\n"
+           << "  could not take it (carryUnshippedForward), or pulled forward to fill room, due at most "
+           << m4AugustTests::kShippedMaxDaysPulledForward << " days later\n"
+           << "  (pullForwardToFill). Section 8 names what keeps the rest off.\n";
     report << "\n  Matching: is a lane key or the CTL window keeping his goods off our trucks?\n";
     for (size_t run = 0; run < 3; ++run) {
         CAPTURE(run);
@@ -1327,13 +1422,22 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
            << "  the window that names his load's lane and date is a reservation in our book (both checked):\n"
            << "  the lane key matches his lanes. The CTL window's share is his loads outside our window, listed\n"
            << "  per run. The rest reach other dates because his loads carry lines due days earlier or later\n"
-           << "  (the days table), which the ship-date rule keeps off ours: section 7 prices it.\n";
+           << "  (the days table); section 7 prices each ship-date rule.\n";
 
-    report << "\n5. Aug6, 2028 -> 2574 TL: every method stops at 16 trucks of the 21 reserved\n\n";
-    printLane(report, augustDay(2), clientDay(2), "2028", "2574", "TL");
+    const HeldDay& aug6 = augustDay(2);
+    long long aug6LaneBuilt = 0, aug6LaneReserved = 0;
+    for (const ReservationUse& use : aug6.plan.reservations) {
+        const Reservation& reservation = aug6.book.reservations[use.reservationIndex];
+        if (reservation.origin != "2028" || reservation.destination != "2574" || reservation.shipCondition != "TL") continue;
+        aug6LaneBuilt += use.built;
+        aug6LaneReserved += use.reserved;
+    }
+    report << "\n5. Aug6, 2028 -> 2574 TL: " << aug6LaneBuilt << " trucks of the " << aug6LaneReserved
+           << " reserved\n\n";
+    printLane(report, aug6, clientDay(2), "2028", "2574", "TL");
+    report << "  Section 8 names the cause of each reserved truck left unbuilt, on this lane and every other.\n";
 
     report << "\n6. Rows of the first Aug6 2028 -> 2574 TL truck on 10 Aug\n\n";
-    const HeldDay& aug6 = augustDay(2);
     const auto shown = find_if(aug6.plan.trucks.begin(), aug6.plan.trucks.end(), [&](const PlannedTruck& truck) {
         const GroupKey& key = aug6.run->segregation.groups[truck.groupIndex].key;
         return key.locationFrom == "2028" && key.locationTo == "2574" && key.shipCondition == "TL" && truck.shipDate == "2026-08-10";
@@ -1343,8 +1447,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
            << fixed(shown->floor.usedLengthIn, 1) << " in used, " << fixed(shown->floor.rearWasteIn, 1) << " in rear waste.\n\n";
     printTruckRows(report, aug6, *shown, settings.floor);
 
-    report << "\n7. What the client's rules cost: the same goods planned with one rule loosened\n\n";
-    const long long maxDaysPulledForward = m4AugustTests::kShippedMaxDaysPulledForward;
+    report << "\n7. What each ship-date rule is worth: the same goods planned under each\n\n";
     SelectorSettings fourThreads = settings;
     fourThreads.threads = 4;
     SelectorSettings uncapped = fourThreads;
@@ -1352,16 +1455,16 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     vector<vector<string>> costRows;
     for (size_t run = 0; run < 3; ++run) {
         const HeldDay& day = augustDay(run);
-        costRows.push_back(ruleCostRow("as planned", day, day.items, day.plan, settings.maxUnitLoadsPerTruck));
-        for (const bool pullForward : {false, true}) {
-            const SelectionItems items = itemsUnderLooserShipDates(day, pullForward, maxDaysPulledForward);
-            const LaneClassification classification = classifyLanes(*day.run, day.book, items, m4SyntheticDay::kRouting);
-            costRows.push_back(ruleCostRow(pullForward ? "and goods due later fill them" : "no-reservation goods ride the next",
-                                           day, items, selectLoads(*day.run, day.book, items, classification, fourThreads),
+        const pair<const char*, ShipDateRules> looser[] = {{"own ship date only (both rules off)", {false, false}},
+                                                           {"carryUnshippedForward only", {true, false}},
+                                                           {"pullForwardToFill only", {false, true}}};
+        for (const auto& [label, rules] : looser) {
+            costRows.push_back(ruleCostRow(label, day, day.items, plannedUnder(day, rules, fourThreads),
                                            settings.maxUnitLoadsPerTruck));
         }
-        costRows.push_back(ruleCostRow("no unit-load cap", day, day.items,
-                                       selectLoads(*day.run, day.book, day.items, day.classification, uncapped),
+        costRows.push_back(ruleCostRow("as planned: both rules on", day, day.items, day.plan, settings.maxUnitLoadsPerTruck));
+        costRows.push_back(ruleCostRow("both rules, no unit-load cap", day, day.items,
+                                       plannedUnder(day, m4AugustTests::kShippedShipDateRules, uncapped),
                                        settings.maxUnitLoadsPerTruck));
         const ClientDay& client = clientDay(run);
         double clientCargoCubicIn = 0.0;
@@ -1378,18 +1481,67 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     printColumns(report, {"run", "plan", "trucks", "unused", "cu ft a truck", "rear waste in", "unit loads shipped",
                           "invariants broken"},
                  costRows, {false, false, true, true, true, true, true, false});
-    report << "  Each row plans the same goods with the real classifier and selector, one rule changed:\n"
-           << "  - no-reservation goods ride the next: a good due on a day its lane has no truck reserved rides the\n"
-           << "    lane's next reserved date. M4 leaves it (no reservation): DATFR_TA is the ship date.\n"
-           << "  - and goods due later fill them: as well, a good due after the window rides the lane's last\n"
-           << "    reserved date it is available by, at most " << maxDaysPulledForward
-           << " days (maxDaysPulledForward) before its own, as the least\n"
-           << "    urgent good there. M4 pulls lines forward only inside a mixed-date stack.\n"
-           << "  - no unit-load cap: the rules as they stand, but no truck stopped at "
-           << fixed(settings.maxUnitLoadsPerTruck, 0) << " unit loads (I6). Its broken\n"
-           << "    invariants are the trucks over that cap.\n"
+    report << "  Each row plans the same goods with the real planner, classifier and selector:\n"
+           << "  - carryUnshippedForward (Tom, 28 Oct): a good its date's trucks do not take - none reserved,\n"
+           << "    or the reserved ones full - rides the lane's next reserved date, ahead of that date's goods.\n"
+           << "  - pullForwardToFill (Tom, 16 Oct): a reserved truck with room takes goods due up to "
+           << m4AugustTests::kShippedMaxDaysPulledForward << " days\n"
+           << "    later (maxDaysPulledForward), once available, after its own date's goods.\n"
+           << "  - no unit-load cap: both rules, but no truck stopped at " << fixed(settings.maxUnitLoadsPerTruck, 0)
+           << " unit loads (I6). Its broken invariants\n"
+           << "    are the trucks over that cap.\n"
            << "  The client's row: Truck Builder's loads, the reserved trucks it left empty, the cube of the\n"
            << "  lines it shipped, and the rear waste it states, which no file holds to measure.\n";
+
+    report << "\n8. What is left: every reserved truck left unbuilt, and the cube each truck lacks\n";
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        report << "\n  " << day.label << ", reserved trucks left unbuilt:\n\n";
+        const map<string, long long> trucksByCause = printUnbuiltTrucks(report, day);
+        long long unbuilt = 0;
+        for (const auto& [cause, trucks] : trucksByCause) unbuilt += trucks;
+        CHECK(unbuilt == day.plan.penaltyExposureTrucks);
+        report << "\n  " << day.label << ": " << unbuilt << " unbuilt;";
+        for (const auto& [cause, trucks] : trucksByCause) report << " " << cause << " " << trucks << ";";
+        report << "\n";
+    }
+    report << "\n  Causes: \"no goods left on the lane\" - every good of the lane is on a truck, so nothing could\n"
+           << "  fill it; \"goods left on the lane, none allowed that date\" - the lane still has goods, but each is\n"
+           << "  due over the pull-forward limit after the truck, not available by its date, fits no truck, or\n"
+           << "  is left to M5; \"left to M5\" - the lane-date is over m5Threshold and M4 plans none of it.\n"
+           << "  \"Goods allowed that date were not loaded\" or \"a group left goods over a full truck\" would be\n"
+           << "  the planner's own shortfall.\n";
+
+    report << "\n  The cube each truck lacks, in cu ft a truck, by what stopped it. The trailer holds "
+           << grouped(trailerCubicIn / 1728.0) << " cu ft;\n"
+           << "  what it does not carry is the rear left empty, the gaps across the width beside its rows, and\n"
+           << "  the air above its stacks, under the " << fixed(trailer.stackHeightCeilingIn, 0) << " in ceiling.\n\n";
+    vector<vector<string>> lostRows;
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        LostCube all, forRoom;
+        for (const auto& [stop, lost] : lostCubeByStop(day)) {
+            lostRows.push_back(lostCubeRow(day.label, stop, lost, day.plan.trucks.size(), trailer));
+            all.add(lost);
+            if (stop.rfind("stopped by", 0) == 0) forRoom.add(lost);
+        }
+        lostRows.push_back(lostCubeRow(day.label, "stopped for room, floor or weight", forRoom, day.plan.trucks.size(), trailer));
+        lostRows.push_back(lostCubeRow(day.label, "every truck", all, day.plan.trucks.size(), trailer));
+        CHECK(all.trucks == day.plan.trucks.size());
+    }
+    const double statedLostCubicFeet = trailerCubicIn / 1728.0 - kClientStatedCubicFeetHigh;
+    const double statedRearCubicFeet = kClientStatedRearWasteIn * trailer.interiorWidthIn * trailer.stackHeightCeilingIn / 1728.0;
+    lostRows.push_back({"client", "stated: 3,400 cu ft, 14.5 in at the rear", "-", "-", grouped(kClientStatedCubicFeetHigh),
+                        grouped(statedLostCubicFeet), grouped(statedRearCubicFeet), fixed(kClientStatedRearWasteIn, 1), "-",
+                        grouped(statedLostCubicFeet - statedRearCubicFeet) + " both"});
+    printColumns(report, {"run", "what stopped the truck", "trucks", "share", "cargo", "lacks", "rear", "rear in",
+                          "across width", "above stacks"},
+                 lostRows, {false, false, true, true, true, true, true, true, true, true});
+    report << "  A truck ran out when its route shipped every good the ship-date rules let reach its date, for\n"
+           << "  the cause named as for an unbuilt truck. One\n"
+           << "  that left goods stopped on the limit nearer full: weight when its payload share is at least the\n"
+           << "  share of the length its rows take, otherwise floor. The client's split is his two stated\n"
+           << "  figures (Rev 8 section 1): no file holds his rows or stacks to split them further.\n";
 
     const string text = report.str();
     CHECK(all_of(text.begin(), text.end(), [](char character) {
@@ -1397,7 +1549,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
         return character == '\n' || (code >= 0x20 && code <= 0x7e);
     }));
     for (const char* section : {"1. Floor rows", "2. Stacks", "3. What stops", "4. The client's loads", "5. Aug6", "6. Rows",
-                                "7. What the client's rules cost", "Why each reserved truck left unbuilt"}) {
+                                "7. What each ship-date rule is worth", "8. What is left"}) {
         CHECK(text.find(section) != string::npos);
     }
     ofstream(OB_M4_FILL_DIAGNOSIS) << text;

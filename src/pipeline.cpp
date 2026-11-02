@@ -340,10 +340,12 @@ void runSelection(PipelineResult& result) {
                                                 result.selectionParams.priorityZeroIsMostUrgent,
                                                 result.selectionParams.maxDaysPulledForward);
     requireGrainsFitItems(result.selectionParams, result.selectionItems, result.trailer);
-    result.laneClassification = classifyLanes(result, result.reservationBook, result.selectionItems,
-                                              result.selectionParams.routing);
-    result.selectionPlan = selectLoads(result, result.reservationBook, result.selectionItems,
-                                       result.laneClassification, result.selectionParams.selector);
+    ShipDatePlan planned = planShipDates(result, result.reservationBook, result.selectionItems,
+                                         result.selectionParams.routing, result.selectionParams.selector,
+                                         result.selectionParams.shipDates,
+                                         result.selectionParams.maxDaysPulledForward);
+    result.laneClassification = std::move(planned.classification);
+    result.selectionPlan = std::move(planned.plan);
     result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
                                                  result.selectionPlan, result.selectionParams.selector.maxUnitLoadsPerTruck);
     result.reservationCoverage = matchDemand(result.reservationBook, result.demand.str);
@@ -417,38 +419,46 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
     add(overBudget, "routes whose method overran the time budget");
     add(lpCapped, "routes whose LP stopped at its simplex iteration cap");
 
+    // Room is judged where a good ended: a good carried on or pulled forward was offered to
+    // other dates too, and their room is not what left it.
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    const vector<RouteOutcome>& outcomes = result.selectionPlan.routes;
+    const vector<optional<size_t>> finalRoute =
+        finalRouteOfItems(result.laneClassification, result.selectionPlan, result.selectionItems.items.size());
+    auto endedOn = [&](size_t itemIndex) -> optional<size_t> {
+        if (itemIndex >= finalRoute.size() || !finalRoute[itemIndex] || *finalRoute[itemIndex] >= lanes.size()
+            || *finalRoute[itemIndex] >= outcomes.size()) {
+            return nullopt;
+        }
+        return finalRoute[itemIndex];
+    };
     // A floor or unit-load-cap eviction on a route that built every truck it was allowed is
     // overflow, as OverReservation is; only one on a route with trucks still unbuilt is goods lost.
-    vector<char> itemOnRouteWithRoom(result.selectionItems.items.size(), 0);
-    const vector<LaneRoute>& lanes = result.laneClassification.routes;
-    for (const RouteOutcome& route : result.selectionPlan.routes) {
-        if (route.trucksBuilt >= route.trucksAllowed || route.routeIndex >= lanes.size()) continue;
-        for (const size_t index : lanes[route.routeIndex].itemIndices) {
-            if (index < itemOnRouteWithRoom.size()) itemOnRouteWithRoom[index] = 1;
-        }
-    }
+    auto routeHasRoom = [&](size_t itemIndex) {
+        const optional<size_t> route = endedOn(itemIndex);
+        return route && outcomes[*route].trucksBuilt < outcomes[*route].trucksAllowed;
+    };
     // The groups of a lane-date share its reservation, so room is judged on the lane-date too:
     // goods left over while a sibling group left a reserved truck unbuilt are goods lost.
     using LaneDate = tuple<string, string, string, string>;
-    map<LaneDate, pair<long long, long long>> builtAndReservedByLaneDate;
-    vector<LaneDate> laneDateOfItem(result.selectionItems.items.size());
     const vector<SegregatedGroup>& groups = result.segregation.groups;
-    for (const RouteOutcome& route : result.selectionPlan.routes) {
+    auto laneDateOf = [&](const LaneRoute& lane) {
+        const GroupKey& key = groups[lane.groupIndex].key;
+        return LaneDate{key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate};
+    };
+    map<LaneDate, pair<long long, long long>> builtAndReservedByLaneDate;
+    for (const RouteOutcome& route : outcomes) {
         if (route.routeIndex >= lanes.size() || route.status == RouteStatus::Escalated) continue;
         const LaneRoute& lane = lanes[route.routeIndex];
         if (lane.groupIndex >= groups.size()) continue;
-        const GroupKey& key = groups[lane.groupIndex].key;
-        const LaneDate laneDate{key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate};
-        auto& [built, reserved] = builtAndReservedByLaneDate[laneDate];
+        auto& [built, reserved] = builtAndReservedByLaneDate[laneDateOf(lane)];
         built += route.trucksBuilt;
         reserved = lane.reservedTrucks;
-        for (const size_t index : lane.itemIndices) {
-            if (index < laneDateOfItem.size()) laneDateOfItem[index] = laneDate;
-        }
     }
     auto laneDateHasRoom = [&](size_t itemIndex) {
-        if (itemIndex >= laneDateOfItem.size()) return false;
-        const auto found = builtAndReservedByLaneDate.find(laneDateOfItem[itemIndex]);
+        const optional<size_t> route = endedOn(itemIndex);
+        if (!route || lanes[*route].groupIndex >= groups.size()) return false;
+        const auto found = builtAndReservedByLaneDate.find(laneDateOf(lanes[*route]));
         return found != builtAndReservedByLaneDate.end() && found->second.first < found->second.second;
     };
     map<LeftOverReason, size_t> droppedByReason;
@@ -457,7 +467,7 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
         switch (left.reason) {
         case LeftOverReason::FloorEviction:
         case LeftOverReason::UnitLoadCap:
-            if (left.itemIndex < itemOnRouteWithRoom.size() && itemOnRouteWithRoom[left.itemIndex]) {
+            if (routeHasRoom(left.itemIndex)) {
                 ++droppedByReason[left.reason];
             } else if (laneDateHasRoom(left.itemIndex)) {
                 ++leftWithLaneDateRoom;

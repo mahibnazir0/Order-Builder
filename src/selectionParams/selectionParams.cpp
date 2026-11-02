@@ -115,6 +115,10 @@ SelectionParams parseSelectionParams(const json& root) {
                                                   name + ".priorityZeroIsMostUrgent");
     params.maxDaysPulledForward = readInteger(requiredField(block, "maxDaysPulledForward", name),
                                               name + ".maxDaysPulledForward", 0);
+    params.shipDates.carryUnshippedForward = readBoolean(requiredField(block, "carryUnshippedForward", name),
+                                                         name + ".carryUnshippedForward");
+    params.shipDates.pullForwardToFill = readBoolean(requiredField(block, "pullForwardToFill", name),
+                                                     name + ".pullForwardToFill");
     params.routing.m5Threshold = readInteger(requiredField(block, "m5Threshold", name), name + ".m5Threshold", 2);
     params.routing.varietyRatio = readQuantity(requiredField(block, "varietyRatio", name), name + ".varietyRatio");
     if (params.routing.varietyRatio > kMaxVarietyRatio) {

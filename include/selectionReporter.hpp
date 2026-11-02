@@ -37,6 +37,7 @@
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
 #include "selector.hpp"
+#include "shipDatePlanner.hpp"
 
 #include <iosfwd>
 #include <string>
@@ -62,6 +63,7 @@ struct SelectionReportContext {
     // Printed under the provisional business rules, with the routing settings.
     bool priorityZeroIsMostUrgent = true;
     long long maxDaysPulledForward = 0;
+    ShipDateRules shipDates;
     std::string defaultEquipment;
     ReportDetail detail = ReportDetail::Standard;
 };

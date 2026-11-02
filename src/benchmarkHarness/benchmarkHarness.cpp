@@ -499,7 +499,11 @@ bool samePlan(const SelectionPlan& left, const SelectionPlan& right) {
     for (size_t index = 0; index < left.reservations.size(); ++index) {
         if (left.reservations[index].built != right.reservations[index].built) return false;
     }
-    return true;
+    return equal(left.moved.begin(), left.moved.end(), right.moved.begin(), right.moved.end(),
+                 [](const MovedItem& one, const MovedItem& other) {
+                     return one.itemIndex == other.itemIndex && one.routeIndex == other.routeIndex
+                            && one.reason == other.reason && one.pulledForward == other.pulledForward;
+                 });
 }
 
 void printBenchmark(ostream& out, const PipelineResult& run, const LaneClassification& classification,

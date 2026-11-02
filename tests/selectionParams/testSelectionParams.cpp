@@ -3,6 +3,7 @@
 #include "selectionParams.hpp"
 
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -45,6 +46,9 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.selector.maxUnitLoadsPerTruck == doctest::Approx(64.0));
     CHECK(params.priorityZeroIsMostUrgent);
     CHECK(params.maxDaysPulledForward == 10);
+    CHECK(params.shipDates.carryUnshippedForward);
+    CHECK(params.shipDates.pullForwardToFill);
+    CHECK(params.routing.varietyRatio == doctest::Approx(101.0));
     CHECK(params.selector.fillMissesPerTruck == 10);
     CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
     CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
@@ -147,9 +151,30 @@ TEST_CASE("selectionParams: a cap on positions and a fixed orientation are read 
 }
 
 TEST_CASE("selectionParams: a pull-forward limit that is negative, fractional or not a number stops the run, named") {
-    for (const json& bad : {json(-1), json(2.5), json("10"), json(nullptr)}) {
+    for (const json& bad : {json(-1), json(2.5), json("10"), json(nullptr), json(numeric_limits<double>::quiet_NaN()),
+                            json(numeric_limits<double>::infinity())}) {
         CAPTURE(bad.dump());
         CHECK(rejectedNaming(edited([&](json& block) { block["maxDaysPulledForward"] = bad; }), "maxDaysPulledForward"));
     }
     CHECK(parseSelectionParams(edited([](json& block) { block["maxDaysPulledForward"] = 0; })).maxDaysPulledForward == 0);
+}
+
+TEST_CASE("selectionParams: either ship-date rule missing, or not true or false, stops the run, named") {
+    for (const string key : {"carryUnshippedForward", "pullForwardToFill"}) {
+        CAPTURE(key);
+        CHECK(rejectedNaming(edited([&](json& block) { block.erase(key); }), key));
+        for (const json& bad : {json("true"), json(1), json(nullptr), json::array()}) {
+            CAPTURE(bad.dump());
+            CHECK(rejectedNaming(edited([&](json& block) { block[key] = bad; }), key));
+        }
+    }
+}
+
+TEST_CASE("selectionParams: each ship-date rule turns off alone") {
+    const SelectionParams carryOff = parseSelectionParams(edited([](json& block) { block["carryUnshippedForward"] = false; }));
+    CHECK_FALSE(carryOff.shipDates.carryUnshippedForward);
+    CHECK(carryOff.shipDates.pullForwardToFill);
+    const SelectionParams pullOff = parseSelectionParams(edited([](json& block) { block["pullForwardToFill"] = false; }));
+    CHECK(pullOff.shipDates.carryUnshippedForward);
+    CHECK_FALSE(pullOff.shipDates.pullForwardToFill);
 }

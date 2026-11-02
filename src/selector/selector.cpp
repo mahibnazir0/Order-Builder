@@ -661,9 +661,7 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
     stable_sort(plan.trucks.begin(), plan.trucks.end(),
                 [](const PlannedTruck& left, const PlannedTruck& right) { return left.routeIndex < right.routeIndex; });
     for (const UnroutedItem& left : classification.itemsLeftOut) {
-        plan.leftOver.push_back({left.itemIndex, left.reason == UnroutedItemReason::AfterWindow
-                                                     ? LeftOverReason::AfterWindow
-                                                     : LeftOverReason::UnavailableInWindow});
+        plan.leftOver.push_back({left.itemIndex, leftOverReasonOf(left.reason)});
     }
     sort(plan.leftOver.begin(), plan.leftOver.end(),
          [](const LeftOverItem& left, const LeftOverItem& right) { return left.itemIndex < right.itemIndex; });
@@ -683,6 +681,11 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
         plan.reservations.push_back(use);
     }
     return plan;
+}
+
+LeftOverReason leftOverReasonOf(UnroutedItemReason reason) {
+    return reason == UnroutedItemReason::AfterWindow ? LeftOverReason::AfterWindow
+                                                     : LeftOverReason::UnavailableInWindow;
 }
 
 const char* packingMethodName(PackingMethod method) {

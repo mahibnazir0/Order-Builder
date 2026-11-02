@@ -4,6 +4,7 @@
 #include "pipeline.hpp"
 #include "reservationBook.hpp"
 #include "selectionItem.hpp"
+#include "shipDatePlanner.hpp"
 
 #include <array>
 #include <filesystem>
@@ -16,8 +17,11 @@
 // skips these tests rather than failing them. Built once per test binary.
 namespace m4AugustTests {
 
-// selection.maxDaysPulledForward as config/orderBuilderParams.json ships it.
+// selection.maxDaysPulledForward, carryUnshippedForward, pullForwardToFill, m5Threshold and
+// varietyRatio as config/orderBuilderParams.json ships them.
 inline constexpr long long kShippedMaxDaysPulledForward = 10;
+inline constexpr ob::ShipDateRules kShippedShipDateRules{true, true};
+inline const ob::LaneClassifierSettings kShippedRouting{20, 101.0};
 
 struct AugustRunFiles {
     std::string demandPath;

@@ -13,8 +13,11 @@
 //   maxUnitLoadsPerTruck                   no truck is planned over it (I6)
 //   m5Threshold, varietyRatio              the classifier's routing
 //   priorityZeroIsMostUrgent               which end of TPRIO ships first (provisional)
-//   maxDaysPulledForward                   how far a mixed-date stack may pull its later
-//                                          lines forward (Rev 8 section 2.10)
+//   maxDaysPulledForward                   how far a good may be pulled forward: a mixed-date
+//                                          stack's later lines, or a good filling a reserved
+//                                          truck ahead of its date (Rev 8 section 2.10)
+//   carryUnshippedForward,                 the customer's ship-date rules, each on or off
+//   pullForwardToFill                      (shipDatePlanner)
 //   knapsack, patternPacker, binPacker     each method's grains and limits
 //   floor                                  rotation, orientation when fixed, patterns,
 //                                          maxPositions (null for none)
@@ -29,6 +32,7 @@
 #include "reservationBook.hpp"
 #include "selectionReporter.hpp"
 #include "selector.hpp"
+#include "shipDatePlanner.hpp"
 
 #include <string>
 #include <vector>
@@ -41,6 +45,7 @@ struct SelectionParams {
     SelectorSettings selector;  // its clock is left empty: the run uses the steady clock
     bool priorityZeroIsMostUrgent = true;
     long long maxDaysPulledForward = 0;
+    ShipDateRules shipDates;
     ReportDetail reportDetail = ReportDetail::Standard;
     std::string sourcePath;
 };

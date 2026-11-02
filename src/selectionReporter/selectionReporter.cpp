@@ -1,4 +1,5 @@
 #include "selectionReporter.hpp"
+#include "isoDate.hpp"
 #include "pipeline.hpp"
 #include "reportFormat.hpp"
 #include "tolerance.hpp"
@@ -99,6 +100,49 @@ string patternsText(const FloorLayout& floor) {
     return text.empty() ? "-" : text;
 }
 
+// The goods planned on a date not their own (shipDatePlanner): carried over from a date that could
+// not take them, and pulled forward onto a truck ahead of their date.
+void printDateMoves(ostream& out, const SelectionItems& items, const LaneClassification& classification,
+                    const SelectionPlan& plan) {
+    vector<string> truckDateOf(items.items.size());
+    for (const PlannedTruck& truck : plan.trucks) {
+        for (const size_t index : truck.items) truckDateOf[index] = truck.shipDate;
+    }
+    vector<string> firstOffered(items.items.size());
+    for (const MovedItem& move : plan.moved) {
+        string& first = firstOffered[move.itemIndex];
+        if (!move.pulledForward && (first.empty() || classification.routes[move.routeIndex].shipDate < first)) {
+            first = classification.routes[move.routeIndex].shipDate;
+        }
+    }
+    size_t carried = 0, carriedLoaded = 0, pulled = 0;
+    double carriedUnitLoads = 0.0, pulledUnitLoads = 0.0;
+    long long mostDaysCarried = 0, mostDaysPulled = 0;
+    for (size_t index = 0; index < items.items.size(); ++index) {
+        const SelectionItem& item = items.items[index];
+        const string& truckDate = truckDateOf[index];
+        if (!firstOffered[index].empty()) {
+            ++carried;
+            carriedUnitLoads += item.unitLoads;
+            if (!truckDate.empty()) {
+                ++carriedLoaded;
+                mostDaysCarried = max(mostDaysCarried, daysBetween(firstOffered[index], truckDate));
+            }
+        }
+        if (!truckDate.empty() && truckDate < item.shipDate) {
+            ++pulled;
+            pulledUnitLoads += item.unitLoads;
+            mostDaysPulled = max(mostDaysPulled, daysBetween(truckDate, item.shipDate) + item.daysPulledForward);
+        }
+    }
+    printLine(out, "carried over", count(carried) + " stacks, " + grouped(carriedUnitLoads, 1)
+                                       + " unit loads, their date's trucks could not take; " + count(carriedLoaded)
+                                       + " loaded on a later date, up to " + to_string(mostDaysCarried) + " days on");
+    printLine(out, "pulled forward", count(pulled) + " stacks, " + grouped(pulledUnitLoads, 1)
+                                         + " unit loads loaded ahead of their date, up to " + to_string(mostDaysPulled)
+                                         + " days");
+}
+
 } // anonymous namespace
 
 const vector<string>& selectionReportSections() {
@@ -113,7 +157,10 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                           const SelectionItems& items, const LaneClassification& classification,
                           const SelectionPlan& plan, const SelectionReportContext& context) {
     if (plan.routes.size() != classification.routes.size()
-        || plan.reservations.size() != book.reservations.size()) {
+        || plan.reservations.size() != book.reservations.size()
+        || any_of(plan.moved.begin(), plan.moved.end(), [&](const MovedItem& move) {
+               return move.itemIndex >= items.items.size() || move.routeIndex >= classification.routes.size();
+           })) {
         throw invalid_argument("Selection report: the plan was not made from this classification and book");
     }
     for (const ReservationUse& use : plan.reservations) {
@@ -130,11 +177,8 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     const double floorArea = trailer.interiorLengthIn * trailer.interiorWidthIn;
     const bool detailed = context.detail == ReportDetail::Detailed;
 
-    // Which route, and so which lane-date, each routed item belongs to.
-    vector<optional<size_t>> routeOfItem(items.items.size());
-    for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
-        for (const size_t index : classification.routes[routeIndex].itemIndices) routeOfItem[index] = routeIndex;
-    }
+    // Which route, and so which lane-date, each routed item ended on.
+    const vector<optional<size_t>> routeOfItem = finalRouteOfItems(classification, plan, items.items.size());
     auto laneDateOf = [&](size_t routeIndex) {
         const LaneRoute& route = classification.routes[routeIndex];
         const GroupKey& key = groups[route.groupIndex].key;
@@ -178,6 +222,7 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                            + " unit loads; later lines pulled forward up to "
                                            + to_string(items.mostDaysPulledForward) + " days");
     printLine(out, "routes", count(classification.routes.size()) + " group and ship-date routes");
+    printDateMoves(out, items, classification, plan);
     printLine(out, "reservations", count(book.reservations.size()) + " lane-dates, "
                                        + grouped(static_cast<double>(book.reservedTrucks)) + " trucks");
     printLine(out, "stacks rejected", count(items.rejected.size()) + " for bad line data or pull-forward");
@@ -279,6 +324,16 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "pull-forward limit", "up to " + to_string(context.maxDaysPulledForward)
                                              + " days (maxDaysPulledForward; customer-confirmed, Rev 8 section 2.10);"
                                                " a stack pulled further is rejected and fails the run");
+    printLine(out, "unshipped goods", context.shipDates.carryUnshippedForward
+                                          ? "carried to the lane's next reserved date, ahead of its own goods"
+                                            " (carryUnshippedForward; customer-confirmed 28 Oct 2026)"
+                                          : "left where their date's trucks cannot take them (carryUnshippedForward"
+                                            " off)");
+    printLine(out, "reserved trucks with room", context.shipDates.pullForwardToFill
+                                                    ? "filled with goods due later, within the pull-forward limit"
+                                                      " (pullForwardToFill; customer-confirmed 16 Oct 2026)"
+                                                    : "left with room: no good ships before its own date"
+                                                      " (pullForwardToFill off)");
     printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"
                                              " then the next; then most floor covered");
 

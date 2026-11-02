@@ -162,10 +162,23 @@ struct ReservationUse {
     long long unused() const { return reserved - built; }
 };
 
+// A route's goods it did not load that were offered again on a later date (shipDatePlanner): an
+// item there is in more than one route's itemIndices, and ends only once, on a truck or left
+// over, on the last.
+struct MovedItem {
+    std::size_t itemIndex = 0;
+    std::size_t routeIndex = 0;  // the route that did not load it
+    LeftOverReason reason = LeftOverReason::OverReservation;  // why it did not
+    // Offered ahead of its own date to fill the route's trucks, and not needed there. Otherwise
+    // carried over: its date's trucks could not take it.
+    bool pulledForward = false;
+};
+
 struct SelectionPlan {
     std::vector<PlannedTruck> trucks;     // by route, then fullest first
     std::vector<RouteOutcome> routes;     // parallel to LaneClassification::routes
     std::vector<LeftOverItem> leftOver;   // ascending by item
+    std::vector<MovedItem> moved;         // ascending by item, then route; empty from selectLoads
     std::vector<ReservationUse> reservations;  // parallel to ReservationBook::reservations
     long long penaltyExposureTrucks = 0;  // reserved trucks left unused, escalated ones included
 };
@@ -191,6 +204,9 @@ RouteSolution solveRoute(const PipelineResult& run, const SelectionItems& items,
 SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book,
                           const SelectionItems& items, const LaneClassification& classification,
                           const SelectorSettings& settings);
+
+// What a good the classifier left out of every route is left over as.
+LeftOverReason leftOverReasonOf(UnroutedItemReason reason);
 
 // "knapsack", "firstFitDecreasing", ... Plain ASCII.
 const char* packingMethodName(PackingMethod method);

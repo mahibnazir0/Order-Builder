@@ -44,30 +44,9 @@ void validate(const LaneClassifierSettings& settings, const TrailerSpec& trailer
     }
 }
 
-// What goods take of one truck on each limit demand is estimated on. These are the limits the
-// solvers pack to: floor area and payload. Cube is not one of them (each stack is under the
-// ceiling, so floor bounds it), and counting a truck full at fullCubeFraction of cube here would
-// estimate more trucks than the solvers build.
-struct TruckShares {
-    double floor = 0.0;
-    double weight = 0.0;
-
-    double largest() const { return max(floor, weight); }
-    TruckShares& operator+=(const TruckShares& other) {
-        floor += other.floor;
-        weight += other.weight;
-        return *this;
-    }
-};
-
-TruckShares sharesOf(const SelectionItem& item, const TrailerSpec& trailer) {
-    return {item.footprintLongIn * item.footprintShortIn / (trailer.interiorLengthIn * trailer.interiorWidthIn),
-            item.weightLb / trailer.weightLimitLb};
-}
-
 long long demandTrucks(const vector<size_t>& itemIndices, const SelectionItems& items, const TrailerSpec& trailer) {
     TruckShares total;
-    for (const size_t index : itemIndices) total += sharesOf(items.items[index], trailer);
+    for (const size_t index : itemIndices) total += truckSharesOf(items.items[index], trailer);
     return static_cast<long long>(ceil(total.largest() - kQuantityEpsilon));
 }
 
@@ -78,27 +57,29 @@ struct EstimatedLoad {
     bool overdue = false;   // of its most urgent item
     string shipDate;
     int priority = 0;
-    double fill = 0.0;      // its largest share of a truck
+    double fill = 0.0;      // the largest share of a truck its goods due by the route's date take
 };
 
 auto urgencyOf(const EstimatedLoad& load) { return make_tuple(!load.overdue, cref(load.shipDate), load.priority); }
 
 // The route's items in order, cut into a new load wherever the next item would take the open one
-// past a truck on floor area or payload.
+// past a truck on floor area or payload. Goods due after the route's date, pulled forward
+// (shipDatePlanner), only fill room: they never make a load the fuller one.
 void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const SelectionItems& items,
                           const TrailerSpec& trailer, vector<EstimatedLoad>& loads) {
     optional<EstimatedLoad> open;
-    TruckShares openShares;
+    TruckShares openShares, openDueShares;
     size_t sequence = 0;
     for (const size_t index : route.itemIndices) {
         const SelectionItem& item = items.items[index];
-        const TruckShares shares = sharesOf(item, trailer);
+        const TruckShares shares = truckSharesOf(item, trailer);
         if (open && (openShares.floor + shares.floor > 1.0 + kQuantityEpsilon
                      || openShares.weight + shares.weight > 1.0 + kQuantityEpsilon)) {
-            open->fill = openShares.largest();
+            open->fill = openDueShares.largest();
             loads.push_back(std::move(*open));
             open.reset();
             openShares = {};
+            openDueShares = {};
         }
         EstimatedLoad itemLoad{routeIndex, sequence, item.timing == ShipTiming::Overdue, item.shipDate, item.priority, 0.0};
         if (!open) {
@@ -110,9 +91,10 @@ void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const Selec
             open->priority = itemLoad.priority;
         }
         openShares += shares;
+        if (item.shipDate <= route.shipDate) openDueShares += shares;
     }
     if (open) {
-        open->fill = openShares.largest();
+        open->fill = openDueShares.largest();
         loads.push_back(std::move(*open));
     }
 }
@@ -167,12 +149,65 @@ string routeDate(const SelectionItem& item, const PlanningWindow& window,
     return earliest;
 }
 
+// book.reservations is sorted by lane then date, so each lane's dates come out ascending.
+unordered_map<string, vector<string>> reservedDatesByLane(const ReservationBook& book) {
+    unordered_map<string, vector<string>> datesByLane;
+    for (const Reservation& reservation : book.reservations) {
+        datesByLane[laneKey(reservation.origin, reservation.destination, reservation.shipCondition)].push_back(
+            reservation.shipDate);
+    }
+    return datesByLane;
+}
+
+void requireRunGroup(const SelectionItem& item, size_t itemIndex, size_t groupCount) {
+    if (item.groupIndex >= groupCount) {
+        throw invalid_argument("Item " + to_string(itemIndex) + " names group " + to_string(item.groupIndex) + " of "
+                               + to_string(groupCount));
+    }
+}
+
 } // anonymous namespace
+
+TruckShares truckSharesOf(const SelectionItem& item, const TrailerSpec& trailer) {
+    return {item.footprintLongIn * item.footprintShortIn / (trailer.interiorLengthIn * trailer.interiorWidthIn),
+            item.weightLb / trailer.weightLimitLb};
+}
+
+ItemRouting routeItems(const PipelineResult& run, const ReservationBook& book, const SelectionItems& items) {
+    const vector<SegregatedGroup>& groups = run.segregation.groups;
+    const unordered_map<string, vector<string>> reservedDates = reservedDatesByLane(book);
+    ItemRouting routing;
+    routing.routeDates.resize(items.items.size());
+    for (size_t itemIndex = 0; itemIndex < items.items.size(); ++itemIndex) {
+        const SelectionItem& item = items.items[itemIndex];
+        requireRunGroup(item, itemIndex, groups.size());
+        if (item.timing == ShipTiming::Future) {
+            routing.itemsLeftOut.push_back({itemIndex, UnroutedItemReason::AfterWindow});
+        } else if (item.unavailableInWindow) {
+            routing.itemsLeftOut.push_back({itemIndex, UnroutedItemReason::UnavailableInWindow});
+        } else {
+            const auto laneDates = reservedDates.find(laneKeyOf(groups[item.groupIndex]));
+            const vector<string>* dates = laneDates == reservedDates.end() ? nullptr : &laneDates->second;
+            routing.routeDates[itemIndex] = routeDate(item, book.window, dates);
+        }
+    }
+    return routing;
+}
 
 LaneClassification classifyLanes(const PipelineResult& run, const ReservationBook& book,
                                  const SelectionItems& items,
                                  const LaneClassifierSettings& settings) {
+    return classifyLanes(run, book, items, settings, routeItems(run, book, items));
+}
+
+LaneClassification classifyLanes(const PipelineResult& run, const ReservationBook& book,
+                                 const SelectionItems& items, const LaneClassifierSettings& settings,
+                                 const ItemRouting& routing) {
     validate(settings, run.trailer);
+    if (routing.routeDates.size() != items.items.size()) {
+        throw invalid_argument("Lane classifier: " + to_string(routing.routeDates.size()) + " route dates for "
+                               + to_string(items.items.size()) + " items");
+    }
     const vector<SegregatedGroup>& groups = run.segregation.groups;
 
     unordered_map<string, vector<size_t>> groupsByLane;
@@ -180,38 +215,19 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
     for (size_t groupIndex = 0; groupIndex < groups.size(); ++groupIndex) {
         groupsByLane[laneKeyOf(groups[groupIndex])].push_back(groupIndex);
     }
-
-    // book.reservations is sorted by lane then date, so each lane's dates come out ascending.
-    unordered_map<string, vector<string>> reservedDatesByLane;
-    for (const Reservation& reservation : book.reservations) {
-        reservedDatesByLane[laneKey(reservation.origin, reservation.destination,
-                                    reservation.shipCondition)]
-            .push_back(reservation.shipDate);
-    }
+    const unordered_map<string, vector<string>> reservedDates = reservedDatesByLane(book);
 
     LaneClassification classification;
+    classification.itemsLeftOut = routing.itemsLeftOut;
     // Ordered, so routes come out by group and then date whatever the item order.
     map<pair<size_t, string>, vector<size_t>> itemsByRoute;
     for (size_t itemIndex = 0; itemIndex < items.items.size(); ++itemIndex) {
-        const SelectionItem& item = items.items[itemIndex];
-        if (item.groupIndex >= groups.size()) {
-            throw invalid_argument("Item " + to_string(itemIndex) + " names group "
-                                   + to_string(item.groupIndex) + " of "
-                                   + to_string(groups.size()));
-        }
-        if (item.timing == ShipTiming::Future) {
-            classification.itemsLeftOut.push_back({itemIndex, UnroutedItemReason::AfterWindow});
-        } else if (item.unavailableInWindow) {
-            classification.itemsLeftOut.push_back({itemIndex, UnroutedItemReason::UnavailableInWindow});
-        } else {
-            const auto laneDates = reservedDatesByLane.find(laneKeyOf(groups[item.groupIndex]));
-            const vector<string>* dates =
-                laneDates == reservedDatesByLane.end() ? nullptr : &laneDates->second;
-            itemsByRoute[{item.groupIndex, routeDate(item, book.window, dates)}].push_back(itemIndex);
-        }
+        requireRunGroup(items.items[itemIndex], itemIndex, groups.size());
+        const string& date = routing.routeDates[itemIndex];
+        if (!date.empty()) itemsByRoute[{items.items[itemIndex].groupIndex, date}].push_back(itemIndex);
     }
     // A reservation with nothing to load still needs a route, to be reported as unused.
-    for (const auto& [lane, dates] : reservedDatesByLane) {
+    for (const auto& [lane, dates] : reservedDates) {
         const auto laneGroups = groupsByLane.find(lane);
         if (laneGroups == groupsByLane.end()) continue;
         for (const size_t groupIndex : laneGroups->second) {

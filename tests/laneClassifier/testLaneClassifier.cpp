@@ -376,6 +376,53 @@ TEST_CASE("laneClassifier: future and unavailable items are left out and listed"
     CHECK(onlyRoute(classification).itemIndices == vector<size_t>{2});
 }
 
+TEST_CASE("laneClassifier: routeItems gives each item the date its route would have, and lists the rest") {
+    const PipelineResult run = runWith({group("2027")}, 1);
+    SelectionItem future = item(0, 0, "2026-08-09");
+    future.timing = ShipTiming::Future;
+    const vector<SelectionItem> items{item(0, 0, "2026-08-07"), future};
+    const ItemRouting routing = routeItems(run, bookOf({reserved("2027", "2026-08-07", 1)}), itemsOf(items));
+    CHECK(routing.routeDates == vector<string>{"2026-08-07", ""});
+    REQUIRE(routing.itemsLeftOut.size() == 1);
+    CHECK(routing.itemsLeftOut[0].itemIndex == 1);
+}
+
+TEST_CASE("laneClassifier: routed by given dates, an item is on that date's route and one with none on no route") {
+    const PipelineResult run = runWith({group("2027")}, 1);
+    const ReservationBook book = bookOf({reserved("2027", "2026-08-06", 1), reserved("2027", "2026-08-07", 1)});
+    const SelectionItems items = itemsOf(repeated(3, 0, 0, "2026-08-06"));
+    const ItemRouting routing{{"2026-08-07", "", "2026-08-06"}, {{1, UnroutedItemReason::AfterWindow}}};
+    const LaneClassification classification = classifyLanes(run, book, items, kSettings, routing);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].itemIndices == vector<size_t>{2});
+    CHECK(classification.routes[1].shipDate == "2026-08-07");
+    CHECK(classification.routes[1].itemIndices == vector<size_t>{0});
+    REQUIRE(classification.itemsLeftOut.size() == 1);
+    CHECK(classification.itemsLeftOut[0].itemIndex == 1);
+}
+
+TEST_CASE("laneClassifier: goods pulled forward from a later date never make a group's load the fuller one") {
+    // One truck on 6 Aug for two equally urgent groups: S01 has 20 goods due that day, S03 5 and 25
+    // due 8 Aug, pulled forward. The truck goes to the more goods due that day.
+    const PipelineResult run = runWith({group("2027", SplitReason::None, "S01"), group("2027", SplitReason::None, "S03")}, 2);
+    vector<SelectionItem> items = repeated(20, 0, 0);
+    const vector<SelectionItem> s03Due = repeated(5, 1, 1), s03Later = repeated(25, 1, 1, "2026-08-08");
+    items.insert(items.end(), s03Due.begin(), s03Due.end());
+    items.insert(items.end(), s03Later.begin(), s03Later.end());
+    const ItemRouting routing{vector<string>(items.size(), "2026-08-06"), {}};
+    const LaneClassification classification =
+        classifyLanes(run, bookOf({reserved("2027", "2026-08-06", 1)}), itemsOf(items), kSettings, routing);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 1);
+    CHECK(classification.routes[1].trucksAllocated == 0);
+}
+
+TEST_CASE("laneClassifier: route dates that are not one per item are rejected") {
+    const PipelineResult run = runWith({group("2027")}, 1);
+    const ItemRouting routing{{"2026-08-06"}, {}};
+    CHECK_THROWS_AS(classifyLanes(run, bookOf({}), itemsOf(repeated(2, 0, 0)), kSettings, routing), invalid_argument);
+}
+
 TEST_CASE("laneClassifier: everyGroupExactlyOneCase (property)") {
     mt19937 random(25102026);
     const array<string, 3> dates{"2026-08-05", "2026-08-06", "2026-08-07"};

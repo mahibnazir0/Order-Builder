@@ -59,6 +59,7 @@ add_library(ob_core STATIC
   src/columnGeneration/columnGeneration.cpp
   src/binPacker/binPacker.cpp
   src/selector/selector.cpp
+  src/shipDatePlanner/shipDatePlanner.cpp
   src/selectionReporter/selectionReporter.cpp
   src/benchmarkHarness/benchmarkHarness.cpp
   src/selectionParams/selectionParams.cpp
@@ -127,6 +128,7 @@ add_executable(ob_tests
   tests/patternPacker/testPatternPacker.cpp
   tests/binPacker/testBinPacker.cpp
   tests/selector/testSelector.cpp
+  tests/shipDatePlanner/testShipDatePlanner.cpp
   tests/selectionReporter/testSelectionReporter.cpp
   tests/benchmarkHarness/testBenchmarkHarness.cpp
   tests/benchmarkHarness/testM4Benchmark.cpp

@@ -128,7 +128,27 @@ trucks and checks the result. Every setting comes from the params file's `select
 a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
 `varietyRatio` are provisional until the benchmark settles them, and
 `priorityZeroIsMostUrgent` (which end of TPRIO ships first) until the customer confirms it;
-the report prints all three under its provisional business rules.
+the report prints all three under its provisional business rules. `varietyRatio` is 101, the
+split the August benchmark gives under the ship-date rules below: patternPacker and binPacker
+differ on only 7 August routes there, by 1 to 4 unit loads, and binPacker matches or beats
+patternPacker on all but 2 of them.
+
+**Ship dates.** A good's own ship date is its DATFR_TA, but two settings, each confirmed by the
+client, let it ship on another reserved date of its lane:
+
+- `carryUnshippedForward` (28 Oct 2026): a good its date's trucks do not take, because none is
+  reserved on the lane that day or the reserved ones are full, spills over to the lane's next
+  reserved date in the window. It ranks there by ship date and then priority, as every good
+  does, so it goes ahead of that date's own goods.
+- `pullForwardToFill` (16 Oct 2026): a reserved truck with room takes goods due later, once
+  they are available, if no line of the good is due more than `maxDaysPulledForward` (10) days
+  after the truck. They rank after that date's own goods, so they only fill room, and never
+  decide which segregated group gets a truck.
+
+With either on, `shipDatePlanner` plans the window one date at a time, earliest first, so a
+date gets exactly the goods its earlier dates left. Each good still ends once, on a truck or
+left over. The report counts the goods carried over and pulled forward. With both off, every
+good ships on its own date only, as before 2 Nov 2026. The shipped config has both on.
 
 The time budget `secondsPerLane` never decides which method's plan is kept: fallback moves
 down the chain only when a method throws, so the same input plans the same on any machine.
@@ -147,6 +167,7 @@ A method that overruns is kept and its lane flagged, which makes the run exit 7.
 | 8 | `selector` | Runs the methods with fallback on failure, flags any over budget, checks every truck's rows, fills and spreads weight |
 | 9 | `selectionReporter` | The printed M4 report: inputs, parameters, fullness, unused reservations, log, trucks, goods left over, item master |
 | 10 | `benchmarkHarness` | Every method on the same routes, and the invariants recounted from the trucks |
+| 11 | `shipDatePlanner` | With the ship-date rules on, plans the window date by date: carries unshipped goods to the next reserved date and pulls later goods forward into trucks with room |
 
 Example, the 4 August plan:
 
