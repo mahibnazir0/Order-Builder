@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cmath>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -21,7 +23,9 @@ struct LayoutScore {
     size_t loneTopRows = 0;
     size_t nonDefaultRows = 0;
 
-    LayoutScore plus(const FloorRow& row) const {
+    // A FloorRow, or a row not yet built (RowShape).
+    template <typename Row>
+    LayoutScore plus(const Row& row) const {
         return {lengthIn + row.depthIn, loneTopRows + (row.loneTopPallet ? 1 : 0),
                 nonDefaultRows + (row.pattern == FloorPatternKind::WideWide ? 0 : 1)};
     }
@@ -34,11 +38,33 @@ bool betterThan(const LayoutScore& left, const LayoutScore& right) {
     return left.nonDefaultRows < right.nonDefaultRows;
 }
 
-bool betterRow(const FloorRow& left, const FloorRow& right) {
+template <typename Row>
+bool betterRow(const Row& left, const Row& right) {
     return betterThan(LayoutScore{}.plus(left), LayoutScore{}.plus(right));
 }
 
 bool fitsWithin(double size, double limit) { return size <= limit + kQuantityEpsilon; }
+
+// A candidate row before it is built, its placements held in place: an arrangement weighs
+// dozens of candidates for every row it keeps, so they are compared without allocating.
+struct RowShape {
+    FloorPatternKind pattern = FloorPatternKind::Single;
+    array<FloorPlacement, 4> placements{};
+    size_t count = 0;
+    double widthIn = 0.0;
+    double depthIn = 0.0;
+    bool loneTopPallet = false;
+};
+
+FloorRow rowOf(const RowShape& shape) {
+    FloorRow row;
+    row.pattern = shape.pattern;
+    row.placements.assign(shape.placements.begin(), shape.placements.begin() + static_cast<ptrdiff_t>(shape.count));
+    row.depthIn = shape.depthIn;
+    row.widthIn = shape.widthIn;
+    row.loneTopPallet = shape.loneTopPallet;
+    return row;
+}
 
 class RowBuilder {
 public:
@@ -48,17 +74,19 @@ public:
 
     // The best row these members can form, or nullopt when no allowed pattern holds them.
     optional<FloorRow> best(const vector<size_t>& members) const {
-        optional<FloorRow> chosen;
-        forEachCandidate(members, [&](FloorRow row) {
-            if (!fitsWithin(row.widthIn, widthIn_)) return;
-            if (!chosen || betterRow(row, *chosen)) chosen = std::move(row);
+        if (members.size() == 4) return bestPinwheel(members);
+        optional<RowShape> chosen;
+        forEachCandidate(members, [&](const RowShape& shape) {
+            if (!fitsWithin(shape.widthIn, widthIn_)) return;
+            if (!chosen || betterRow(shape, *chosen)) chosen = shape;
         });
-        return chosen;
+        if (!chosen) return nullopt;
+        return rowOf(*chosen);
     }
 
     vector<FloorRow> candidates(const vector<size_t>& members) const {
         vector<FloorRow> rows;
-        forEachCandidate(members, [&](FloorRow row) { rows.push_back(std::move(row)); });
+        forEachCandidate(members, [&](const RowShape& shape) { rows.push_back(rowOf(shape)); });
         return rows;
     }
 
@@ -66,38 +94,38 @@ private:
     // Hands `consider` every row the allowed patterns form from the members, too wide or not.
     template <typename Consider>
     void forEachCandidate(const vector<size_t>& members, Consider&& consider) const {
-        auto offer = [&](FloorRow row) {
-            row.loneTopPallet = hasLoneTop(row);
-            consider(std::move(row));
+        auto offer = [&](RowShape shape) {
+            shape.loneTopPallet = hasLoneTop(shape);
+            consider(shape);
         };
         switch (members.size()) {
         case 1: {
             const size_t only = members[0];
             if (allows(FloorPatternKind::Single, false) && fitsWithin(longOf(only), widthIn_)) {
-                offer(makeRow(FloorPatternKind::Single, {{only, false}}));
+                offer(makeShape(FloorPatternKind::Single, {{only, false}}));
             } else if (allows(FloorPatternKind::Single, true)) {
-                offer(makeRow(FloorPatternKind::Single, {{only, true}}));
+                offer(makeShape(FloorPatternKind::Single, {{only, true}}));
             }
             break;
         }
         case 2: {
             const size_t first = members[0], second = members[1];
             if (allows(FloorPatternKind::WideWide, false)) {
-                offer(makeRow(FloorPatternKind::WideWide, {{first, false}, {second, false}}));
+                offer(makeShape(FloorPatternKind::WideWide, {{first, false}, {second, false}}));
             }
             if (allows(FloorPatternKind::WideNarrow, true) && allows(FloorPatternKind::WideNarrow, false)) {
-                offer(makeRow(FloorPatternKind::WideNarrow, {{first, false}, {second, true}}));
-                offer(makeRow(FloorPatternKind::WideNarrow, {{first, true}, {second, false}}));
+                offer(makeShape(FloorPatternKind::WideNarrow, {{first, false}, {second, true}}));
+                offer(makeShape(FloorPatternKind::WideNarrow, {{first, true}, {second, false}}));
             }
             if (allows(FloorPatternKind::NarrowNarrow, true)) {
-                offer(makeRow(FloorPatternKind::NarrowNarrow, {{first, true}, {second, true}}));
+                offer(makeShape(FloorPatternKind::NarrowNarrow, {{first, true}, {second, true}}));
             }
             break;
         }
         case 3:
             if (allows(FloorPatternKind::ThreeAcross, true)) {
-                offer(makeRow(FloorPatternKind::ThreeAcross,
-                              {{members[0], true}, {members[1], true}, {members[2], true}}));
+                offer(makeShape(FloorPatternKind::ThreeAcross,
+                                {{members[0], true}, {members[1], true}, {members[2], true}}));
             }
             break;
         case 4:
@@ -105,7 +133,7 @@ private:
                 array<size_t, 4> order{members[0], members[1], members[2], members[3]};
                 sort(order.begin(), order.end());
                 do {
-                    if (auto row = pinwheel(order)) offer(std::move(*row));
+                    if (const optional<RowShape> shape = pinwheel(order)) offer(*shape);
                 } while (next_permutation(order.begin(), order.end()));
             }
             break;
@@ -132,23 +160,22 @@ private:
         return turned == (settings_.fixedOrientation == FixedOrientation::ShortSideAcross);
     }
 
-    FloorRow makeRow(FloorPatternKind pattern, vector<FloorPlacement> placements) const {
-        FloorRow row;
-        row.pattern = pattern;
+    RowShape makeShape(FloorPatternKind pattern, initializer_list<FloorPlacement> placements) const {
+        RowShape shape;
+        shape.pattern = pattern;
         for (const FloorPlacement& placement : placements) {
-            row.widthIn += acrossOf(placement);
-            row.depthIn = max(row.depthIn, deepOf(placement));
+            shape.widthIn += acrossOf(placement);
+            shape.depthIn = max(shape.depthIn, deepOf(placement));
+            shape.placements[shape.count++] = placement;
         }
-        row.placements = std::move(placements);
-        return row;
+        return shape;
     }
 
-    bool hasLoneTop(const FloorRow& row) const {
-        if (row.placements.size() == 1) return items_[row.placements[0].itemIndex].levels > 1;
-        const int firstLevels = items_[row.placements[0].itemIndex].levels;
-        return any_of(row.placements.begin(), row.placements.end(), [&](const FloorPlacement& placement) {
-            return items_[placement.itemIndex].levels != firstLevels;
-        });
+    bool hasLoneTop(const RowShape& shape) const {
+        if (shape.count == 1) return items_[shape.placements[0].itemIndex].levels > 1;
+        const int firstLevels = items_[shape.placements[0].itemIndex].levels;
+        return any_of(shape.placements.begin(), shape.placements.begin() + static_cast<ptrdiff_t>(shape.count),
+                      [&](const FloorPlacement& placement) { return items_[placement.itemIndex].levels != firstLevels; });
     }
 
     struct Rectangle {
@@ -160,10 +187,36 @@ private:
                && a.front < b.back - kQuantityEpsilon && b.front < a.back - kQuantityEpsilon;
     }
 
+    // The trailer length a pinwheel in this order takes: the deepest back edge of pinwheel()'s
+    // rectangles, figured the same way, so the two agree exactly.
+    double pinwheelDepth(const array<size_t, 4>& order) const {
+        const size_t frontLeft = order[0], frontRight = order[1], backLeft = order[2], backRight = order[3];
+        return max({shortOf(frontLeft), longOf(frontRight), shortOf(frontLeft) + longOf(backLeft),
+                    longOf(frontRight) + shortOf(backRight)});
+    }
+
+    // Every pinwheel of the same four items is the same pattern with the same lone-top flag, so
+    // best()'s comparison comes down to depth: the shallowest order that fits, the first of equal
+    // depth. An order no shallower than the one kept is passed over before its overlaps are tested.
+    optional<FloorRow> bestPinwheel(const vector<size_t>& members) const {
+        if (!allows(FloorPatternKind::Pinwheel, true) || !allows(FloorPatternKind::Pinwheel, false)) return nullopt;
+        array<size_t, 4> order{members[0], members[1], members[2], members[3]};
+        sort(order.begin(), order.end());
+        optional<RowShape> chosen;
+        do {
+            if (chosen && !(pinwheelDepth(order) < chosen->depthIn - kQuantityEpsilon)) continue;
+            const optional<RowShape> shape = pinwheel(order);
+            if (shape && fitsWithin(shape->widthIn, widthIn_)) chosen = shape;
+        } while (next_permutation(order.begin(), order.end()));
+        if (!chosen) return nullopt;
+        chosen->loneTopPallet = hasLoneTop(*chosen);
+        return rowOf(*chosen);
+    }
+
     // Four items round a centre: front-left and back-right long side across, front-right and
     // back-left turned. Each item is pushed back against the one in front of it, so the two
     // rows interlock where the turned items reach past the wide ones.
-    optional<FloorRow> pinwheel(const array<size_t, 4>& order) const {
+    optional<RowShape> pinwheel(const array<size_t, 4>& order) const {
         const size_t frontLeft = order[0], frontRight = order[1], backLeft = order[2],
                      backRight = order[3];
         const array<Rectangle, 4> rectangles{{
@@ -178,14 +231,15 @@ private:
                 if (overlap(rectangles[first], rectangles[second])) return nullopt;
             }
         }
-        FloorRow row;
-        row.pattern = FloorPatternKind::Pinwheel;
-        row.placements = {{frontLeft, false}, {frontRight, true}, {backLeft, true}, {backRight, false}};
+        RowShape shape;
+        shape.pattern = FloorPatternKind::Pinwheel;
+        shape.placements = {{{frontLeft, false}, {frontRight, true}, {backLeft, true}, {backRight, false}}};
+        shape.count = 4;
         for (const Rectangle& rectangle : rectangles) {
-            row.widthIn = max(row.widthIn, rectangle.right);
-            row.depthIn = max(row.depthIn, rectangle.back);
+            shape.widthIn = max(shape.widthIn, rectangle.right);
+            shape.depthIn = max(shape.depthIn, rectangle.back);
         }
-        return row;
+        return shape;
     }
 
     const vector<FloorItem>& items_;
@@ -279,12 +333,14 @@ vector<FloorRow> groupNeighbours(const vector<size_t>& order, const RowBuilder& 
                                  LayoutScore& score) {
     vector<SearchState> states(order.size() + 1);
     states[0].reached = true;
+    vector<size_t> members;
+    members.reserve(4);
     for (size_t end = 1; end <= order.size(); ++end) {
         for (size_t size = 1; size <= 4 && size <= end; ++size) {
             const SearchState& from = states[end - size];
             if (!from.reached) continue;
-            const vector<size_t> members(order.begin() + static_cast<ptrdiff_t>(end - size),
-                                         order.begin() + static_cast<ptrdiff_t>(end));
+            members.assign(order.begin() + static_cast<ptrdiff_t>(end - size),
+                           order.begin() + static_cast<ptrdiff_t>(end));
             optional<FloorRow> row = rows.best(members);
             if (!row) continue;
             const LayoutScore candidate = from.score.plus(*row);
@@ -362,19 +418,22 @@ FloorLayout arrangeFloorExact(const vector<FloorItem>& items, const TrailerSpec&
     const size_t full = (size_t{1} << count) - 1;
     vector<SearchState> states(full + 1);
     states[0].reached = true;
+    vector<size_t> members;
+    members.reserve(4);
     for (size_t placed = 0; placed < full; ++placed) {
         if (!states[placed].reached) continue;
         size_t lowest = 0;
         while (placed & (size_t{1} << lowest)) ++lowest;
         const size_t others = full & ~placed & ~(size_t{1} << lowest);
         // Every subset of `others`, by the standard decreasing-submask walk, plus the empty one.
+        // A row holds at most four, so larger subsets are passed over before any work.
         for (size_t extra = others;; extra = (extra - 1) & others) {
             const size_t rowMask = extra | (size_t{1} << lowest);
-            vector<size_t> members;
-            for (size_t bit = 0; bit < count; ++bit) {
-                if (rowMask & (size_t{1} << bit)) members.push_back(placeableIndices[bit]);
-            }
-            if (members.size() <= 4) {
+            if (bitset<kExactFloorItems>(rowMask).count() <= 4) {
+                members.clear();
+                for (size_t bit = 0; bit < count; ++bit) {
+                    if (rowMask & (size_t{1} << bit)) members.push_back(placeableIndices[bit]);
+                }
                 if (optional<FloorRow> row = rows.best(members)) {
                     const LayoutScore candidate = states[placed].score.plus(*row);
                     SearchState& next = states[placed | rowMask];
