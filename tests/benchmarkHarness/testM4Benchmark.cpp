@@ -877,13 +877,26 @@ TEST_CASE("m4Benchmark: every item and reservation of every held extract is rout
     }
 }
 
-// Rev 8: higher priority ships first, and filling the truck wins. A group of a split lane-date
-// must not take a truck it fills under half while a sibling group, with goods at least as urgent,
-// leaves half a truck or more over the reservation.
-TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibling group's goods stay"
+// Rev 8: higher priority ships first, and filling the truck wins; Tom Moore, 4 Nov 2026: urgency is
+// judged on the whole load, unit loads class by class. A group of a split lane-date must not take a
+// truck it fills under half while a sibling group leaves half a truck or more over the reservation
+// that would ship more of the most urgent goods.
+TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibling's more urgent load stays"
           * doctest::skip()) {
-    auto urgencyOf = [](const SelectionItem& item) {
-        return make_tuple(item.timing != ShipTiming::Overdue, item.shipDate, item.priority);
+    using UrgencyClass = pair<string, int>;  // ship date, priority: the shipped pastDueOrder, AgeFirst
+    // Unit loads per class, most urgent class first, as vectors compare: more of the first wins.
+    auto valueOf = [](const vector<const SelectionItem*>& load) {
+        map<UrgencyClass, double> byClass;
+        for (const SelectionItem* item : load) byClass[{item->shipDate, item->priority}] += item->unitLoads;
+        return byClass;
+    };
+    auto beats = [](const map<UrgencyClass, double>& left, const map<UrgencyClass, double>& right) {
+        auto leftClass = left.begin(), rightClass = right.begin();
+        for (; leftClass != left.end() && rightClass != right.end(); ++leftClass, ++rightClass) {
+            if (leftClass->first != rightClass->first) return leftClass->first < rightClass->first;
+            if (fabs(leftClass->second - rightClass->second) > kQuantityEpsilon) return leftClass->second > rightClass->second;
+        }
+        return leftClass != left.end();
     };
     size_t splitLaneDatesChecked = 0;
     for (const HeldDay& day : heldDays()) {
@@ -896,34 +909,37 @@ TEST_CASE("m4Benchmark: no split lane-date sends a half-empty truck while a sibl
         };
         const vector<optional<size_t>> routeOfItem =
             finalRouteOfItems(day.classification, day.plan, day.items.items.size());
-        // Per lane-date and group: the floor its goods left over the reservation take, and the most urgent of them.
-        map<pair<LaneDate, size_t>, pair<double, const SelectionItem*>> leftOverByGroup;
+        // Per lane-date and group: its goods left over the reservation, most urgent first.
+        map<pair<LaneDate, size_t>, vector<const SelectionItem*>> leftOverByGroup;
         for (const LeftOverItem& left : day.plan.leftOver) {
             if (left.reason != LeftOverReason::OverReservation) continue;
-            const SelectionItem& item = day.items.items[left.itemIndex];
             REQUIRE(routeOfItem[left.itemIndex]);
             const LaneRoute& route = day.classification.routes[*routeOfItem[left.itemIndex]];
-            auto& [area, mostUrgent] = leftOverByGroup[{laneDateOf(route.groupIndex, route.shipDate), route.groupIndex}];
-            area += item.footprintLongIn * item.footprintShortIn;
-            if (!mostUrgent || urgencyOf(item) < urgencyOf(*mostUrgent)) mostUrgent = &item;
+            leftOverByGroup[{laneDateOf(route.groupIndex, route.shipDate), route.groupIndex}].push_back(
+                &day.items.items[left.itemIndex]);
         }
         set<LaneDate> checked;
         for (const PlannedTruck& truck : day.plan.trucks) {
             if (truck.areaSqIn >= 0.5 * truckFloor) continue;
             const LaneDate laneDate = laneDateOf(truck.groupIndex, truck.shipDate);
-            const SelectionItem* truckMostUrgent = nullptr;
-            for (const size_t index : truck.items) {
-                if (!truckMostUrgent || urgencyOf(day.items.items[index]) < urgencyOf(*truckMostUrgent)) {
-                    truckMostUrgent = &day.items.items[index];
-                }
-            }
+            vector<const SelectionItem*> carried;
+            for (const size_t index : truck.items) carried.push_back(&day.items.items[index]);
             for (const auto& [groupKey, left] : leftOverByGroup) {
                 if (groupKey.first != laneDate || groupKey.second == truck.groupIndex) continue;
                 checked.insert(laneDate);
+                // The truckload the sibling's left-over goods would make, most urgent first.
+                vector<const SelectionItem*> load;
+                double area = 0.0;
+                for (const SelectionItem* item : left) {
+                    const double itemArea = item->footprintLongIn * item->footprintShortIn;
+                    if (area + itemArea > truckFloor) break;
+                    area += itemArea;
+                    load.push_back(item);
+                }
                 CAPTURE(get<0>(laneDate));
                 CAPTURE(get<1>(laneDate));
                 CAPTURE(get<3>(laneDate));
-                CHECK_FALSE((left.first >= 0.5 * truckFloor && !(urgencyOf(*truckMostUrgent) < urgencyOf(*left.second))));
+                CHECK_FALSE((area >= 0.5 * truckFloor && beats(valueOf(load), valueOf(carried))));
             }
         }
         splitLaneDatesChecked += checked.size();
@@ -954,6 +970,26 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 // fills them better passes and should re-pin. Re-pinned on 2 Nov 2026 when the client's
 // ship-date rules went in (2,887 / 2,774 / 2,724 cu ft before), and again the same day when each
 // group's part-filled truck was topped up with its own later goods first.
+// M4 is judged on every one-truck lane solved exactly. Since 5 Nov 2026 the knapsack proves a truck on
+// its rows and the unit-load cap, not floor area alone; the rest stop at the node limit and are
+// listed as provisional. Pinned as measured, so a change that proves fewer fails by name.
+TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 5 Nov"
+          * doctest::skip()) {
+    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{80, 81}, {130, 136}, {145, 152}}};
+    for (size_t run = 0; run < provenOfRoutes.size(); ++run) {
+        const HeldDay& day = augustDay(run);
+        CAPTURE(day.label);
+        size_t routes = 0, proven = 0;
+        for (size_t route = 0; route < day.classification.routes.size(); ++route) {
+            const LaneRoute& lane = day.classification.routes[route];
+            if (lane.method != SolveMethod::Knapsack || lane.trucksAllocated != 1) continue;
+            ++routes;
+            if (day.plan.routes[route].proven) ++proven;
+        }
+        CHECK(make_pair(proven, routes) == provenOfRoutes[run]);
+    }
+}
+
 TEST_CASE("m4Benchmark: August fill is no worse than measured on 2 Nov" * doctest::skip()) {
     struct Fill {
         double cubicFeetAtLeast;
@@ -994,14 +1030,15 @@ TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by
     REQUIRE(m4AugustTests::augustPresent());
     using Counts = map<SolveMethod, size_t>;
     // Pulled-forward goods take most reserved lane-dates past their reservation, so most go to
-    // knapsack.
+    // knapsack. Re-pinned on 5 Nov 2026 for the variety ratio of 69, which sends one route a day
+    // from binPacker to patternPacker, and for trucks dealt on whole-load urgency.
     const array<Counts, 3> expected{
-        Counts{{SolveMethod::Knapsack, 158}, {SolveMethod::BinPacker, 8}, {SolveMethod::Unrouted, 383},
-               {SolveMethod::NoDemand, 5}},
-        Counts{{SolveMethod::Knapsack, 265}, {SolveMethod::BinPacker, 7}, {SolveMethod::M5, 3},
-               {SolveMethod::Unrouted, 194}, {SolveMethod::NoDemand, 16}},
+        Counts{{SolveMethod::Knapsack, 158}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 7},
+               {SolveMethod::Unrouted, 382}, {SolveMethod::NoDemand, 5}},
+        Counts{{SolveMethod::Knapsack, 265}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 6},
+               {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 194}, {SolveMethod::NoDemand, 16}},
         Counts{{SolveMethod::Knapsack, 293}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 8},
-               {SolveMethod::Unrouted, 274}, {SolveMethod::NoDemand, 8}}};
+               {SolveMethod::Unrouted, 273}, {SolveMethod::NoDemand, 8}}};
     for (size_t run = 0; run < expected.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -1070,7 +1107,9 @@ TEST_CASE("m4Benchmark: on the August routes the methods are ranked and the rout
     // the shipped ratio must then decide them as well. A routed method over the budget puts the M5
     // threshold below its reservation (E209). On 31 Oct 2026 the data set neither. On 2 Nov 2026,
     // under the ship-date rules, the packers differ on 7 August routes and a split at 101 unit
-    // loads per product misroutes 2 of them: the shipped varietyRatio is that split.
+    // loads per product misroutes 2 of them: the shipped varietyRatio was that split. On 5 Nov 2026,
+    // with each lane-date's trucks dealt on whole-load urgency, 101 misrouted 3 and any split from
+    // 14.25 to below 69.5 misroutes 2: the shipped 69 is the highest, moving the fewest routes.
     const LaneClassifierSettings shipped = loadSelectionParams(crossDayTests::kStrictParamsPath).routing;
     const optional<VarietyCrossover> crossover = varietyCrossover(benchmarks);
     REQUIRE(crossover);
@@ -1410,7 +1449,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     report << "  A good reaches a reserved lane-date on its own ship date, carried on from an earlier date that\n"
            << "  could not take it (carryUnshippedForward), or pulled forward to fill room, due at most "
            << m4AugustTests::kShippedMaxDaysPulledForward << " days later\n"
-           << "  (pullForwardToFill). Section 8 names what keeps the rest off.\n";
+           << "  (pullForward). Section 8 names what keeps the rest off.\n";
     report << "\n  Matching: is a lane key or the CTL window keeping his goods off our trucks?\n";
     for (size_t run = 0; run < 3; ++run) {
         CAPTURE(run);
@@ -1458,7 +1497,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
         const HeldDay& day = augustDay(run);
         const pair<const char*, ShipDateRules> looser[] = {{"own ship date only (both rules off)", {false, false}},
                                                            {"carryUnshippedForward only", {true, false}},
-                                                           {"pullForwardToFill only", {false, true}}};
+                                                           {"pullForward only", {false, true}}};
         for (const auto& [label, rules] : looser) {
             costRows.push_back(ruleCostRow(label, day, day.items, plannedUnder(day, rules, fourThreads),
                                            settings.maxUnitLoadsPerTruck));
@@ -1485,7 +1524,7 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
     report << "  Each row plans the same goods with the real planner, classifier and selector:\n"
            << "  - carryUnshippedForward (Tom, 28 Oct): a good its date's trucks do not take - none reserved,\n"
            << "    or the reserved ones full - rides the lane's next reserved date, ahead of that date's goods.\n"
-           << "  - pullForwardToFill (Tom, 16 Oct): a reserved truck with room takes goods due up to "
+           << "  - pullForward (Tom, 16 Oct): a reserved truck with room takes goods due up to "
            << m4AugustTests::kShippedMaxDaysPulledForward << " days\n"
            << "    later (maxDaysPulledForward), once available, after its own date's goods.\n"
            << "  - no unit-load cap: both rules, but no truck stopped at " << fixed(settings.maxUnitLoadsPerTruck, 0)

@@ -110,7 +110,7 @@ private:
         for (size_t index = 0; index < items_.items.size(); ++index) {
             if (!settled_[index] && plannedDate_[index] == date) routing.routeDates[index] = date;
         }
-        if (rules_.pullForwardToFill) offerPulledForward(date, routing.routeDates);
+        if (rules_.pullForward) offerPulledForward(date, routing.routeDates);
 
         LaneClassification classification = classifyLanes(run_, book_, items_, routing_, routing);
         // The classifier keeps an empty route for every reservation of the run; this pass plans one date.
@@ -291,7 +291,7 @@ ShipDatePlan planShipDates(const PipelineResult& run, const ReservationBook& boo
         throw invalid_argument("Ship-date planner: maxDaysPulledForward must be at least 0, is "
                                + to_string(maxDaysPulledForward));
     }
-    if (!rules.carryUnshippedForward && !rules.pullForwardToFill) {
+    if (!rules.carryUnshippedForward && !rules.pullForward) {
         ShipDatePlan result;
         result.classification = classifyLanes(run, book, items, routing);
         result.plan = selectLoads(run, book, items, result.classification, selector);

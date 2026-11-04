@@ -11,10 +11,12 @@
 //      method (its trucks never carry another group)
 //   2. the reservation: no truck reserved means no route. The groups of a lane
 //      share its lane-date reservation, dealt out one estimated truckload at a
-//      time to the most urgent goods (overdue, ship date, priority) and, among
-//      equally urgent, the fullest load; what is left goes to the group with the
-//      most urgent load. One truck allocated, or demand above the allocation,
-//      is a selection problem -> knapsack
+//      time to the load shipping most of the most urgent goods - its unit loads
+//      class by class (rank date, priority, ship date: pastDueOrder), as the
+//      selector compares trucks - and, among loads equal on every class, the
+//      fullest; what is left goes to the group whose load was dealt first. One
+//      truck allocated, or demand above the allocation, is a selection problem
+//      -> knapsack
 //   3. variety: unit loads per distinct product above varietyRatio (few
 //      products, many units) -> patternPacker, otherwise binPacker. Measured
 //      lanes of 1-3 products fall on the first side and of 11+ on the second;
@@ -26,7 +28,8 @@
 // An item is routed to its ship date, or to the day it becomes available when
 // that is later. An overdue item is routed to its lane's first reserved date in
 // the window, so it rides the first truck rather than none. Items after the
-// window, or not available within it, are left out and listed.
+// window, or not available within it, are left out and listed. Each route's
+// items are in the order its truck ranks them (shipsBeforeOn its date).
 // ============================================================================
 
 #include "reservationBook.hpp"
@@ -62,6 +65,7 @@ enum class ConflictReason {
 struct LaneClassifierSettings {
     int m5Threshold = 0;        // at least 2
     double varietyRatio = 0.0;  // unit loads per product; positive and finite
+    PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
 };
 
 struct LaneRoute {
@@ -73,7 +77,7 @@ struct LaneRoute {
     // This group's share of reservedTrucks (rule 2). The shares of a lane-date add up to its
     // reservation.
     long long trucksAllocated = 0;
-    std::vector<std::size_t> itemIndices; // into SelectionItems::items, in selection order
+    std::vector<std::size_t> itemIndices; // into SelectionItems::items, most urgent first (shipsBeforeOn)
     double unitLoads = 0.0;
     std::size_t distinctProducts = 0;
     // The fewest trucks the items could need, on floor area or payload alone: the limits the
@@ -101,6 +105,8 @@ struct LaneClassification {
     // Sorted by group, then ship date.
     std::vector<LaneRoute> routes;
     std::vector<UnroutedItem> itemsLeftOut;
+    // How the routes' goods were ranked, and how the selector ranks them on their trucks.
+    PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
 };
 
 // Where each item goes: the ship date of its route, or empty for an item in no route.

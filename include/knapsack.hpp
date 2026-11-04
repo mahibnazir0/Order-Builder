@@ -3,17 +3,22 @@
 // knapsack.hpp - M4 module C5. Exact selection of what one truck carries, and
 // truck by truck for a lane whose demand exceeds its reservation.
 //
-// The objective is lexicographic by urgency: items are classed by ship date
-// and then priority, and a selection is better when it carries more unit loads
-// of the most urgent class, then of the next, and so on; between selections
-// equal on every class, the one covering more floor wins. So an overdue item
-// always beats an on-time one, and priority 0 always beats 11, whatever
-// either's size, while the truck is still filled as far as it will go.
+// The objective is lexicographic by urgency: items are classed by rank date
+// (rankDateOf: the ship date, unless priority ranks first among goods past
+// due), then priority, then ship date, and a selection is better when it
+// carries more unit loads of the most urgent class, then of the next, and so
+// on; between selections equal on every class, the one covering more floor
+// wins. So, age first, an overdue item always beats an on-time one, and
+// priority 0 always beats 11 on the same date, whatever either's size, while
+// the truck is still filled as far as it will go.
 //
 // Capacity is floor area and weight. Each item's height is checked against the
 // ceiling on its own; with every item under it, cube is bounded by floor area
 // and needs no constraint of its own. Floor area is a necessary condition, not
-// an arrangement: floorPattern confirms the rows.
+// an arrangement, so the caller may pass a TruckCheck - the selector passes the
+// truck's rows and its unit-load cap - and the search then chooses only loads
+// it accepts. A proof is then a proof of the load the truck carries, not of a
+// load some later step must trim.
 //
 // Weights and areas are counted in whole grains, each item rounded UP and the
 // capacity DOWN, so rounding can only reject a load that would physically fit,
@@ -28,6 +33,7 @@
 #include "trailerSpec.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -40,14 +46,20 @@ struct KnapsackItem {
     double unitLoads = 0.0;
     std::string shipDate;
     int priority = 0;        // 0 most urgent
-    bool overdue = false;    // ship date before the run's window
     std::string productNumber;
+    // What a truck's rows see of the item, so goods the search treats as copies of one another
+    // stand on the floor alike too.
+    double longSideIn = 0.0;
+    double shortSideIn = 0.0;
+    int levels = 1;
+    // The date it ranks by on its truck (rankDateOf). Empty ranks it by its ship date.
+    std::string rankDate{};
 };
 
 KnapsackItem knapsackItemFrom(const SelectionItem& item);
 
-// Whether `left` ships before `right`: overdue first, then the earlier ship date, then the more
-// urgent priority, then the lower product number, so equal goods order the same on every run.
+// Whether `left` ships before `right`: the earlier rank date, then the more urgent priority, then
+// the earlier ship date, then the lower product number, so equal goods order the same on every run.
 bool moreUrgent(const KnapsackItem& left, const KnapsackItem& right);
 
 // The order to keep a lane's trucks in when it has more than its reservation, as indices into
@@ -114,8 +126,8 @@ struct KnapsackSelection {
 };
 
 // Throws std::invalid_argument naming the problem for an item with a non-finite or negative
-// figure, no unit loads, unit loads past kMaxGrains thousandths, a ship date that is not a
-// real date or a priority outside 0..kMaxPriority; a capacity that is negative or non-finite,
+// figure, no unit loads, unit loads past kMaxGrains thousandths, a ship or rank date that is not
+// a real date or a priority outside 0..kMaxPriority; a capacity that is negative or non-finite,
 // or a ceiling that is not positive; settings with a grain that is not positive and finite,
 // larger than the lightest item's weight or smallest item's area, or a node limit below 1; or
 // a floor, payload or the candidates' total that counts past kMaxGrains grains. An item too
@@ -123,9 +135,16 @@ struct KnapsackSelection {
 KnapsackProblem prepareKnapsack(const std::vector<KnapsackItem>& items,
                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings);
 
-// Branch and bound: the method the selector runs.
+// A limit on one truck beyond floor area and weight, judged on the goods chosen for it (indices
+// into the caller's items, in no particular order). The search never adds to a load the check
+// refuses, so the check must refuse every load that holds one it refuses, as rows that do not fit
+// do not fit with more goods on the floor. Empty accepts every load.
+using TruckCheck = std::function<bool(const std::vector<std::size_t>& chosen)>;
+
+// Branch and bound: the method the selector runs. Exact over the loads `fits` accepts.
 KnapsackSelection selectForTruck(const std::vector<KnapsackItem>& items,
-                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings);
+                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings,
+                                 const TruckCheck& fits = TruckCheck());
 
 // Dynamic programming over a table of floor and weight grains. Exact, but its table grows with
 // the capacity in grains, so it is for cross-checking selectForTruck in tests; no run calls it.
@@ -145,10 +164,10 @@ struct LaneSelection {
 };
 
 // Fills `trucks` trucks one after another, each exactly by selectForTruck from what the trucks
-// before it left. Exact per truck, not across them.
+// before it left, every one judged by `fits`. Exact per truck, not across them.
 LaneSelection selectForTrucks(const std::vector<KnapsackItem>& items,
                               const KnapsackCapacity& capacity, const KnapsackSettings& settings,
-                              int trucks);
+                              int trucks, const TruckCheck& fits = TruckCheck());
 
 const char* bindingLimitName(BindingLimit limit);
 

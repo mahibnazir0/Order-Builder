@@ -281,6 +281,22 @@ bool shipsBefore(const SelectionItem& left, const SelectionItem& right) {
     return selectionOrder(left) < selectionOrder(right);
 }
 
+string rankDateOf(const string& shipDate, const string& truckDate, PastDueOrder order) {
+    return order == PastDueOrder::PriorityFirst && shipDate < truckDate ? truckDate : shipDate;
+}
+
+bool shipsBeforeOn(const SelectionItem& left, const SelectionItem& right, const string& truckDate, PastDueOrder order) {
+    const string leftRank = rankDateOf(left.shipDate, truckDate, order);
+    const string rightRank = rankDateOf(right.shipDate, truckDate, order);
+    if (leftRank != rightRank) return leftRank < rightRank;
+    if (left.priority != right.priority) return left.priority < right.priority;
+    return shipsBefore(left, right);
+}
+
+const char* pastDueOrderName(PastDueOrder order) {
+    return order == PastDueOrder::PriorityFirst ? "PriorityFirst" : "AgeFirst";
+}
+
 const char* itemRejectionName(ItemRejection reason) {
     switch (reason) {
     case ItemRejection::InvalidShipDate: return "invalid ship date";

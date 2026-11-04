@@ -488,6 +488,18 @@ TEST_CASE("pipelineM4: the report prints the priority direction under provisiona
     }
 }
 
+TEST_CASE("pipelineM4: the report prints how past-due goods rank under provisional rules") {
+    for (const string order : {"AgeFirst", "PriorityFirst"}) {
+        CAPTURE(order);
+        SmallDay day("pastDueReport" + order);
+        day.inputs.paramsPath = paramsWith(day, {{"pastDueOrder", order}});
+        const string report = reportOf(Pipeline::run(day.inputs));
+        const size_t provisional = report.find("PROVISIONAL BUSINESS RULES");
+        REQUIRE(provisional != string::npos);
+        CHECK(report.find("pastDueOrder = " + order, provisional) != string::npos);
+    }
+}
+
 TEST_CASE("pipelineM4: the report names stacks mixing ship dates and how far their lines are pulled forward") {
     SmallDay day("mixedDates");
     const string report = reportOf(Pipeline::run(day.inputs));
@@ -496,6 +508,54 @@ TEST_CASE("pipelineM4: the report names stacks mixing ship dates and how far the
     CHECK(report.find("mixed ship dates") < provisional);
     CHECK(report.find("later lines pulled forward up to") != string::npos);
     CHECK(report.find("a stack ships on its earliest line's date", provisional) != string::npos);
+}
+
+// The small day with two more unit loads of GOOD due 6 Aug and one due 8 Aug, after the 6-7 Aug
+// window. Five unit loads stand to a stack, so the three fit one stack of mixed ship dates.
+SmallDay dayWithLineDue8Aug(const string& name) {
+    nlohmann::json later = SmallDay::lineJson("GOOD", 8, "TL");
+    later["DATFR_TA"] = "2026-08-08";
+    later["DATTO_TA"] = "2026-08-10";
+    return SmallDay(name, "," + SmallDay::line("GOOD", 16, "TL") + "," + later.dump());
+}
+
+// Unit loads on the trucks from lines due after the truck's ship date.
+double unitLoadsShippedEarly(const PipelineResult& result) {
+    double early = 0.0;
+    for (const PlannedTruck& truck : result.selectionPlan.trucks) {
+        for (const size_t index : truck.items) {
+            const SelectionItem& item = result.selectionItems.items[index];
+            for (const size_t lineIndex : item.lineIndices) {
+                if (result.join.lines[lineIndex].str->datfr_ta > truck.shipDate) early += 1.0;
+            }
+        }
+    }
+    return early;
+}
+
+TEST_CASE("pipelineM4: with pull-forward on, a line due 8 Aug rides a 6 Aug stack") {
+    SmallDay day = dayWithLineDue8Aug("pullForwardOn");
+    day.inputs.paramsPath = paramsWith(day, {{"carryUnshippedForward", false}, {"pullForward", true}});
+    const PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(result.ranSelection);
+    CHECK(result.selectionItems.itemsMixingShipDates > 0);
+    CHECK(unitLoadsShippedEarly(result) > 0.0);
+}
+
+TEST_CASE("pipelineM4: with pull-forward off, no stack mixes ship dates and no line ships before its date") {
+    SmallDay day = dayWithLineDue8Aug("pullForwardOff");
+    day.inputs.paramsPath = paramsWith(day, {{"carryUnshippedForward", false}, {"pullForward", false}});
+    const PipelineResult result = Pipeline::run(day.inputs);
+    REQUIRE(result.ranSelection);
+    CHECK(result.selectionItems.itemsMixingShipDates == 0);
+    CHECK(unitLoadsShippedEarly(result) == 0.0);
+    CHECK(result.selectionItems.rejected.empty());
+    size_t leftAfterWindow = 0;
+    for (const LeftOverItem& left : result.selectionPlan.leftOver) {
+        if (left.reason == LeftOverReason::AfterWindow) ++leftAfterWindow;
+    }
+    CHECK(leftAfterWindow == 1);
+    CHECK(runOutcome(result) == RunOutcome::Complete);
 }
 
 TEST_CASE("pipelineM4: the report lists the footprint rule and PAL reading as provisional rules") {

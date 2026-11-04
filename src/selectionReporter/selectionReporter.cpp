@@ -319,23 +319,36 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
                                               " Rev 8 question 4)");
     printLine(out, "PAL quantities", "divided by Cases_Unit_Load, as CS and DIS; whether a PAL is always one"
                                      " pallet is Rev 8 question 3");
-    printLine(out, "mixed ship dates", "a stack ships on its earliest line's date; its later lines go with it,"
-                                           " pulled forward (M2 stacks by lane, not date)");
-    printLine(out, "pull-forward limit", "up to " + to_string(context.maxDaysPulledForward)
-                                             + " days (maxDaysPulledForward; customer-confirmed, Rev 8 section 2.10);"
-                                               " a stack pulled further is rejected and fails the run");
+    printLine(out, "mixed ship dates", context.shipDates.pullForward
+                                           ? "a stack ships on its earliest line's date; its later lines go with it,"
+                                             " pulled forward (M2 stacks by lane, within the pull-forward limit)"
+                                           : "none: M2 stacks only lines due the same day (pullForward off)");
+    printLine(out, "pull-forward limit", context.shipDates.pullForward
+                                             ? "up to " + to_string(context.maxDaysPulledForward)
+                                                   + " days (maxDaysPulledForward; customer-confirmed, Rev 8 section"
+                                                     " 2.10); M2 never stacks lines further apart"
+                                             : string("0 days: no line ships before its own date (pullForward off)"));
+    const bool priorityFirst = context.routing.pastDueOrder == PastDueOrder::PriorityFirst;
+    printLine(out, "past-due goods", priorityFirst
+                                         ? "rank with the truck's own date's goods by priority, then oldest first"
+                                           " (pastDueOrder = PriorityFirst)"
+                                         : "ship ahead of the truck's own date's goods, oldest first, whatever their"
+                                           " priority (pastDueOrder = AgeFirst)");
     printLine(out, "unshipped goods", context.shipDates.carryUnshippedForward
-                                          ? "carried to the lane's next reserved date, ahead of its own goods"
+                                          ? "carried to the lane's next reserved date, ranked there as past due"
                                             " (carryUnshippedForward; customer-confirmed 28 Oct 2026)"
                                           : "left where their date's trucks cannot take them (carryUnshippedForward"
                                             " off)");
-    printLine(out, "reserved trucks with room", context.shipDates.pullForwardToFill
+    printLine(out, "reserved trucks with room", context.shipDates.pullForward
                                                     ? "filled with goods due later, within the pull-forward limit"
-                                                      " (pullForwardToFill; customer-confirmed 16 Oct 2026)"
-                                                    : "left with room: no good ships before its own date"
-                                                      " (pullForwardToFill off)");
-    printLine(out, "knapsack objective", "most unit loads of the most urgent class (ship date, then priority),"
-                                             " then the next; then most floor covered");
+                                                      " (pullForward; customer-confirmed 16 Oct 2026)"
+                                                    : "left with room: no line ships before its own date"
+                                                      " (pullForward off)");
+    printLine(out, "knapsack objective", string("most unit loads of the most urgent class (")
+                                             + (priorityFirst ? "priority, then ship date, among goods due by the"
+                                                                " truck's date" : "ship date, then priority")
+                                             + "), then the next; then most floor covered, on rows that fit and"
+                                               " within the unit-load cap");
 
     printSection(out, 2);
     // Rev 8 section A: each lane-date with demand and trucks reserved, judged as a whole.

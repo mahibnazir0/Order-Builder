@@ -282,6 +282,22 @@ TEST_CASE("laneClassifier: a split lane-date's one truck goes to the group with 
     CHECK(classification.routes[0].method == SolveMethod::Knapsack);
 }
 
+TEST_CASE("laneClassifier: one truck goes to the load shipping more of the most urgent goods, not the fuller one") {
+    // Group A: 1 unit load at priority 0 and 29 at 11. Group B: 20 at priority 0. Both have a load
+    // at priority 0, and A's is fuller, but B's ships 20 priority-0 unit loads to A's one.
+    const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
+    vector<SelectionItem> items = repeated(1, 0, 0);
+    vector<SelectionItem> lowPriority = repeated(29, 0, 0);
+    for (SelectionItem& one : lowPriority) one.priority = 11;
+    items.insert(items.end(), lowPriority.begin(), lowPriority.end());
+    const vector<SelectionItem> urgent = repeated(20, 1, 1);
+    items.insert(items.end(), urgent.begin(), urgent.end());
+    const LaneClassification classification = classify(run, {reserved("2028", "2026-08-06", 1)}, items);
+    REQUIRE(classification.routes.size() == 2);
+    CHECK(classification.routes[0].trucksAllocated == 0);
+    CHECK(classification.routes[1].trucksAllocated == 1);
+}
+
 TEST_CASE("laneClassifier: an overdue load outranks a fuller one dated in the window") {
     const PipelineResult run = runWith({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2);
     vector<SelectionItem> items = repeated(3, 0, 0, "2026-08-05");

@@ -52,8 +52,8 @@ vector<char> unfittableFlags(const KnapsackProblem& problem, size_t count) {
     return flags;
 }
 
-MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
-                       const KnapsackCapacity& capacity, const SelectorSettings& settings, int allowed) {
+MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                       const SelectorSettings& settings, int allowed, const TruckCheck& truckFits) {
     MethodResult result;
     switch (method) {
     case PackingMethod::Knapsack:
@@ -61,7 +61,7 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items,
         KnapsackSettings knapsack = settings.knapsack;
         // One node is the greedy warm start, kept as it is.
         if (method == PackingMethod::GreedyKnapsack) knapsack.nodeLimit = 1;
-        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed);
+        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed, truckFits);
         for (const KnapsackSelection& truck : lane.trucks) {
             if (!truck.chosen.empty()) result.trucks.push_back(truck.chosen);
         }
@@ -148,10 +148,12 @@ public:
         // Most urgent goods first, as items are in selection order, so spare trucks pass down.
         vector<size_t> solveOrder = routeIndices;
         stable_sort(solveOrder.begin(), solveOrder.end(), [&](size_t left, size_t right) {
-            const vector<size_t>& leftItems = classification_.routes[left].itemIndices;
+            const LaneRoute& leftRoute = classification_.routes[left];
+            const vector<size_t>& leftItems = leftRoute.itemIndices;
             const vector<size_t>& rightItems = classification_.routes[right].itemIndices;
             if (leftItems.empty() || rightItems.empty()) return !leftItems.empty() && rightItems.empty();
-            return leftItems.front() < rightItems.front();
+            return shipsBeforeOn(items_.items[leftItems.front()], items_.items[rightItems.front()], leftRoute.shipDate,
+                                 classification_.pastDueOrder);
         });
         const BindingLimit binding = bindingOf(routeIndices);
         const long long reservedTrucks = classification_.routes[routeIndices.front()].reservedTrucks;
@@ -285,15 +287,20 @@ private:
         RouteOutcome& outcome = solution.outcome;
         vector<KnapsackItem> items;
         items.reserve(route.itemIndices.size());
-        for (const size_t index : route.itemIndices) items.push_back(knapsackItemFrom(items_.items[index]));
+        for (const size_t index : route.itemIndices) {
+            items.push_back(knapsackItemFrom(items_.items[index]));
+            items.back().rankDate = rankDateOf(items.back().shipDate, route.shipDate, classification_.pastDueOrder);
+        }
         const int allowed = static_cast<int>(max(0LL, outcome.trucksAllowed));
 
+        map<vector<size_t>, bool> rowsFitByFloorTypes;
+        const TruckCheck truckFits = truckCheck(route, items, rowsFitByFloorTypes);
         optional<MethodResult> kept;
         for (size_t step = 0; step < chain.size() && !kept; ++step) {
             const double start = clock_();
             try {
                 if (settings_.beforeMethod) settings_.beforeMethod(outcome.routeIndex, chain[step]);
-                MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed);
+                MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed, truckFits);
                 const double seconds = clock_() - start;
                 // Elapsed time never picks the method: a slower machine would then plan the same
                 // input differently. An overrun keeps the result and flags the route instead.
@@ -317,6 +324,7 @@ private:
         }
 
         vector<RouteTruck> trucks = std::move(kept->trucks);
+        const vector<RouteTruck> methodTrucks = trucks;
         vector<char> placed(items.size(), 0);
         for (const RouteTruck& truck : trucks) {
             for (const size_t position : truck) placed[position] = 1;
@@ -333,6 +341,14 @@ private:
         openTrucks(route, items, trucks, placed, kept->unfittable, static_cast<size_t>(allowed));
         trucks.erase(remove_if(trucks.begin(), trucks.end(), [](const RouteTruck& truck) { return truck.empty(); }),
                      trucks.end());
+        // The packers prove their trucks on floor area and payload alone. The proof still covers
+        // the trucks while they carry every good the method loaded, on no more trucks.
+        if (outcome.proven && !keepsMethodLoad(methodTrucks, trucks, placed)) {
+            outcome.proven = false;
+            outcome.unprovenBecause = string(packingMethodName(*outcome.methodUsed))
+                                      + " proved its trucks on floor area and payload, and their rows or the "
+                                        "unit-load cap then left goods off them";
+        }
         // Rev 8 section 4: a weight-bound lane packs to payload and watches the space, so its
         // weight is left where the method put it.
         if (outcome.binding == BindingLimit::FloorArea) spreadWeight(route, items, trucks);
@@ -373,6 +389,49 @@ private:
         for (size_t position = 0; position < items.size(); ++position) {
             if (!placed[position]) solution.leftOver.push_back({route.itemIndices[position], reasonFor[position]});
         }
+    }
+
+    static bool keepsMethodLoad(const vector<RouteTruck>& methodTrucks, const vector<RouteTruck>& trucks,
+                                const vector<char>& placed) {
+        if (trucks.size() > methodTrucks.size()) return false;
+        for (const RouteTruck& truck : methodTrucks) {
+            for (const size_t position : truck) {
+                if (!placed[position]) return false;
+            }
+        }
+        return true;
+    }
+
+    // Whether one truck can carry the goods at these positions on its rows and within the unit-load
+    // cap. Rows depend only on each item's footprint and levels, so loads alike in those share one
+    // arrangement, remembered in `rowsFitByFloorTypes` by their sorted floor types.
+    TruckCheck truckCheck(const LaneRoute& route, const vector<KnapsackItem>& items,
+                          map<vector<size_t>, bool>& rowsFitByFloorTypes) const {
+        map<tuple<double, double, int>, size_t> floorTypes;
+        vector<size_t> floorTypeOf;
+        floorTypeOf.reserve(items.size());
+        for (const KnapsackItem& item : items) {
+            floorTypeOf.push_back(
+                floorTypes.try_emplace({item.longSideIn, item.shortSideIn, item.levels}, floorTypes.size()).first->second);
+        }
+        return [this, &route, &items, &rowsFitByFloorTypes, floorTypeOf = std::move(floorTypeOf),
+                key = vector<size_t>()](const vector<size_t>& chosen) mutable {
+            double unitLoads = 0.0;
+            key.clear();
+            for (const size_t position : chosen) {
+                unitLoads += items[position].unitLoads;
+                key.push_back(floorTypeOf[position]);
+            }
+            if (unitLoads > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon) return false;
+            sort(key.begin(), key.end());
+            const auto known = rowsFitByFloorTypes.find(key);
+            if (known != rowsFitByFloorTypes.end()) return known->second;
+            RouteTruck truck = chosen;
+            sort(truck.begin(), truck.end());
+            const bool fits = floorFits(arrange(route, truck));
+            rowsFitByFloorTypes.emplace(key, fits);
+            return fits;
+        };
     }
 
     // Goods left over, by the method, the floor or the unit-load cap, go most urgent first into

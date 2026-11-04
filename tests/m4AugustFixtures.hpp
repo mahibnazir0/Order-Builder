@@ -17,11 +17,11 @@
 // skips these tests rather than failing them. Built once per test binary.
 namespace m4AugustTests {
 
-// selection.maxDaysPulledForward, carryUnshippedForward, pullForwardToFill, m5Threshold and
+// selection.maxDaysPulledForward, carryUnshippedForward, pullForward, m5Threshold and
 // varietyRatio as config/orderBuilderParams.json ships them.
 inline constexpr long long kShippedMaxDaysPulledForward = 10;
 inline constexpr ob::ShipDateRules kShippedShipDateRules{true, true};
-inline const ob::LaneClassifierSettings kShippedRouting{20, 101.0};
+inline const ob::LaneClassifierSettings kShippedRouting{20, 69.0};
 
 struct AugustRunFiles {
     std::string demandPath;

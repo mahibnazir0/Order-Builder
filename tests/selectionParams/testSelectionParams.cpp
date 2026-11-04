@@ -47,8 +47,9 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.priorityZeroIsMostUrgent);
     CHECK(params.maxDaysPulledForward == 10);
     CHECK(params.shipDates.carryUnshippedForward);
-    CHECK(params.shipDates.pullForwardToFill);
-    CHECK(params.routing.varietyRatio == doctest::Approx(101.0));
+    CHECK(params.shipDates.pullForward);
+    CHECK(params.routing.pastDueOrder == PastDueOrder::AgeFirst);
+    CHECK(params.routing.varietyRatio == doctest::Approx(69.0));
     CHECK(params.selector.fillMissesPerTruck == 10);
     CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
     CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
@@ -160,7 +161,7 @@ TEST_CASE("selectionParams: a pull-forward limit that is negative, fractional or
 }
 
 TEST_CASE("selectionParams: either ship-date rule missing, or not true or false, stops the run, named") {
-    for (const string key : {"carryUnshippedForward", "pullForwardToFill"}) {
+    for (const string key : {"carryUnshippedForward", "pullForward"}) {
         CAPTURE(key);
         CHECK(rejectedNaming(edited([&](json& block) { block.erase(key); }), key));
         for (const json& bad : {json("true"), json(1), json(nullptr), json::array()}) {
@@ -170,11 +171,25 @@ TEST_CASE("selectionParams: either ship-date rule missing, or not true or false,
     }
 }
 
+TEST_CASE("selectionParams: pastDueOrder reads AgeFirst or PriorityFirst") {
+    CHECK(parseSelectionParams(edited([](json& block) { block["pastDueOrder"] = "AgeFirst"; })).routing.pastDueOrder
+          == PastDueOrder::AgeFirst);
+    CHECK(parseSelectionParams(edited([](json& block) { block["pastDueOrder"] = "PriorityFirst"; })).routing.pastDueOrder
+          == PastDueOrder::PriorityFirst);
+}
+
+TEST_CASE("selectionParams: a pastDueOrder that is not AgeFirst or PriorityFirst stops the run, named") {
+    for (const json& bad : {json("ageFirst"), json(""), json(0), json(true), json(nullptr)}) {
+        CAPTURE(bad.dump());
+        CHECK(rejectedNaming(edited([&](json& block) { block["pastDueOrder"] = bad; }), "pastDueOrder"));
+    }
+}
+
 TEST_CASE("selectionParams: each ship-date rule turns off alone") {
     const SelectionParams carryOff = parseSelectionParams(edited([](json& block) { block["carryUnshippedForward"] = false; }));
     CHECK_FALSE(carryOff.shipDates.carryUnshippedForward);
-    CHECK(carryOff.shipDates.pullForwardToFill);
-    const SelectionParams pullOff = parseSelectionParams(edited([](json& block) { block["pullForwardToFill"] = false; }));
+    CHECK(carryOff.shipDates.pullForward);
+    const SelectionParams pullOff = parseSelectionParams(edited([](json& block) { block["pullForward"] = false; }));
     CHECK(pullOff.shipDates.carryUnshippedForward);
-    CHECK_FALSE(pullOff.shipDates.pullForwardToFill);
+    CHECK_FALSE(pullOff.shipDates.pullForward);
 }

@@ -128,23 +128,38 @@ trucks and checks the result. Every setting comes from the params file's `select
 a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
 `varietyRatio` are provisional until the benchmark settles them, and
 `priorityZeroIsMostUrgent` (which end of TPRIO ships first) until the customer confirms it;
-the report prints all three under its provisional business rules. `varietyRatio` is 101, the
-split the August benchmark gives under the ship-date rules below: patternPacker and binPacker
-differ on only 7 August routes there, by 1 to 4 unit loads, and binPacker matches or beats
-patternPacker on all but 2 of them.
+the report prints all three under its provisional business rules. `varietyRatio` is 69, set
+by the August benchmark: patternPacker and binPacker differ on only 7 August routes, by at most
+2 unit loads, and any split from 14.25 to below 69.5 unit loads per product sends 2 of them to
+the method that ranked lower (101, the split before 5 Nov 2026, now sends 3). 69 is the highest
+such split, so it moves the fewest routes.
 
 **Ship dates.** A good's own ship date is its DATFR_TA, but two settings, each confirmed by the
 client, let it ship on another reserved date of its lane:
 
 - `carryUnshippedForward` (28 Oct 2026): a good its date's trucks do not take, because none is
   reserved on the lane that day or the reserved ones are full, spills over to the lane's next
-  reserved date in the window. It ranks there by ship date and then priority, as every good
-  does, so it goes ahead of that date's own goods.
-- `pullForwardToFill` (16 Oct 2026): a reserved truck with room takes goods due later, once
+  reserved date in the window. It ranks there as a past-due good, by `pastDueOrder`.
+- `pullForward` (16 Oct 2026): a reserved truck with room takes goods due later, once
   they are available, if no line of the good is due more than `maxDaysPulledForward` (10) days
   after the truck. They rank after that date's own goods, so they only fill room, and never
   decide which segregated group gets a truck. Each group's part-filled truck is topped up with
-  that group's own later goods first.
+  that group's own later goods first. The same limit holds in a stack: Milestone 2 never stacks
+  two lines due further apart, since a stack ships on its earliest line's date. Off, no line
+  ships before its own DATFR_TA anywhere: no truck is filled with later goods, and no stack
+  mixes ship dates (4 Nov 2026).
+
+**Past-due goods.** `pastDueOrder` (4 Nov 2026, provisional) decides how goods already past due
+on a truck's date - overdue before the window, or carried over - rank against that date's own:
+`AgeFirst` ships them first, oldest first, whatever their priority (the shipped setting);
+`PriorityFirst` ranks every good due by the truck's date by priority, then oldest first, so
+today's urgent goods can go ahead of older, less urgent ones. Goods pulled forward rank after
+both either way. The reservation is dealt to groups, and each truck chosen, on the same order.
+
+**Proofs.** The knapsack chooses each truck on its rows and the 64 unit-load cap as well as its
+floor area and payload, so a route it reports proven carries the best load those allow.
+patternPacker and binPacker prove their trucks on floor area and payload; when the rows or the
+cap then leave goods off them, their route is reported unproven and the run provisional (exit 8).
 
 With either on, `shipDatePlanner` plans the window one date at a time, earliest first, so a
 date gets exactly the goods its earlier dates left. Each good still ends once, on a truck or

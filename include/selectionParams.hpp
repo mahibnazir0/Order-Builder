@@ -17,7 +17,10 @@
 //                                          stack's later lines, or a good filling a reserved
 //                                          truck ahead of its date (Rev 8 section 2.10)
 //   carryUnshippedForward,                 the customer's ship-date rules, each on or off
-//   pullForwardToFill                      (shipDatePlanner)
+//   pullForward                            (shipDatePlanner). pullForward off ships no line
+//                                          before its DATFR_TA: no stack mixes ship dates
+//   pastDueOrder                           AgeFirst or PriorityFirst: how goods past due on a
+//                                          truck's date rank against its own (provisional)
 //   knapsack, patternPacker, binPacker     each method's grains and limits
 //   floor                                  rotation, orientation when fixed, patterns,
 //                                          maxPositions (null for none)
@@ -46,6 +49,10 @@ struct SelectionParams {
     bool priorityZeroIsMostUrgent = true;
     long long maxDaysPulledForward = 0;
     ShipDateRules shipDates;
+
+    // How far a line may ship ahead of its own date, in a mixed-date stack or filling a truck: the
+    // limit while pullForward is on, none at all while it is off.
+    long long daysPulledForwardAllowed() const { return shipDates.pullForward ? maxDaysPulledForward : 0; }
     ReportDetail reportDetail = ReportDetail::Standard;
     std::string sourcePath;
 };

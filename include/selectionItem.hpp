@@ -136,6 +136,26 @@ int urgencyRank(int tprio, bool priorityZeroIsMostUrgent);
 // the stacks, so no two items tie (E83, E229).
 bool shipsBefore(const SelectionItem& left, const SelectionItem& right);
 
+// How goods past due on a truck's date rank against that date's own (Tom Moore, 4 Nov 2026:
+// selection.pastDueOrder). Goods due after the truck's date, pulled forward to fill it, rank
+// after both either way, earliest due first.
+enum class PastDueOrder {
+    AgeFirst,       // the oldest ship date first, whatever its priority
+    PriorityFirst,  // the most urgent priority first, then the oldest
+};
+
+// The date a good ranks by on a truck shipping on `truckDate`: its own ship date, or, priority
+// first, the truck's date for a good due by then, so those goods rank by priority before age.
+std::string rankDateOf(const std::string& shipDate, const std::string& truckDate, PastDueOrder order);
+
+// The selection order on a truck shipping on `truckDate`: rank date, priority, ship date, then as
+// shipsBefore. Age first, it is shipsBefore.
+bool shipsBeforeOn(const SelectionItem& left, const SelectionItem& right, const std::string& truckDate,
+                   PastDueOrder order);
+
+// "AgeFirst" or "PriorityFirst", as the params file spells it.
+const char* pastDueOrderName(PastDueOrder order);
+
 // A truck someone else already loaded, as read from their solution: the client's Truck Builder
 // loads the benchmark plans beside.
 struct InputTruckLine {

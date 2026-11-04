@@ -23,9 +23,15 @@
 //      on elapsed time, so a plan replays the same on any machine; a method that
 //      overruns the budget is kept and the route flagged overBudget. A kept method
 //      that did not prove its result (a search limit hit, or a fallback that
-//      proves nothing) says why in unprovenBecause
+//      proves nothing) says why in unprovenBecause. The knapsack chooses each
+//      truck on its rows and maxUnitLoadsPerTruck as well as floor area and
+//      payload, so its proof is of the load the truck carries; the packers prove
+//      theirs on floor area and payload
 //   2. floor: floorPattern arranges every truck; one that does not fit its rows
-//      drops its least urgent goods until it does
+//      drops its least urgent goods until it does, and one over
+//      maxUnitLoadsPerTruck drops them until it is not. A proof stands only
+//      while the trucks still carry every good the method loaded, on no more
+//      trucks; otherwise the route is unproven and says why
 //   3. fill: goods left over, by the method or the floor, go most urgent first
 //      into room left in its trucks, kept only where the rows still fit
 //   4. weight: on a floor-bound lane-date, heavy goods are swapped from the

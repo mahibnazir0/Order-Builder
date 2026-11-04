@@ -53,6 +53,9 @@ void validate(const vector<KnapsackItem>& items, const KnapsackCapacity& capacit
             throw invalid_argument(name + ": " + shortNumber(item.unitLoads) + " unit loads are too many to count");
         }
         if (!isIsoDate(item.shipDate)) throw invalid_argument(name + ": ship date '" + item.shipDate + "' is not a date");
+        if (!item.rankDate.empty() && !isIsoDate(item.rankDate)) {
+            throw invalid_argument(name + ": rank date '" + item.rankDate + "' is not a date");
+        }
         if (item.priority < 0 || item.priority > kMaxPriority) {
             throw invalid_argument(name + ": priority " + to_string(item.priority) + " is outside 0.."
                                    + to_string(kMaxPriority));
@@ -87,6 +90,13 @@ void addCounted(long long& total, long long count, const string& what) {
         throw invalid_argument("Knapsack: the items' " + what + " together count past "
                                + shortNumber(static_cast<double>(kMaxGrains)) + " grains; use a coarser grain");
     }
+}
+
+const string& rankingDate(const KnapsackItem& item) { return item.rankDate.empty() ? item.shipDate : item.rankDate; }
+
+// An item's urgency class, compared ascending: most urgent first.
+tuple<const string&, int, const string&> urgencyClassOf(const KnapsackItem& item) {
+    return {rankingDate(item), item.priority, item.shipDate};
 }
 
 // Whether factor * count is over limit, without forming a product that could overflow.
@@ -145,15 +155,20 @@ KnapsackSelection assemble(const vector<KnapsackItem>& items, const KnapsackCapa
     return selection;
 }
 
-vector<char> greedyTaken(const KnapsackProblem& problem) {
+vector<char> greedyTaken(const KnapsackProblem& problem, const TruckCheck& fits) {
     vector<char> taken(problem.candidates.size(), 0);
+    vector<size_t> chosen;
     long long areaLeft = problem.areaCapacity, weightLeft = problem.weightCapacity;
     for (size_t position = 0; position < problem.candidates.size(); ++position) {
-        if (problem.areaGrains[position] <= areaLeft && problem.weightGrains[position] <= weightLeft) {
-            taken[position] = 1;
-            areaLeft -= problem.areaGrains[position];
-            weightLeft -= problem.weightGrains[position];
+        if (problem.areaGrains[position] > areaLeft || problem.weightGrains[position] > weightLeft) continue;
+        chosen.push_back(problem.candidates[position]);
+        if (fits && !fits(chosen)) {
+            chosen.pop_back();
+            continue;
         }
+        taken[position] = 1;
+        areaLeft -= problem.areaGrains[position];
+        weightLeft -= problem.weightGrains[position];
     }
     return taken;
 }
@@ -217,13 +232,12 @@ private:
 
 KnapsackItem knapsackItemFrom(const SelectionItem& item) {
     return {item.footprintLongIn * item.footprintShortIn, item.weightLb, item.heightIn,
-            item.unitLoads, item.shipDate, item.priority, item.timing == ShipTiming::Overdue,
-            item.productNumber};
+            item.unitLoads, item.shipDate, item.priority, item.productNumber, item.footprintLongIn,
+            item.footprintShortIn, static_cast<int>(item.lineIndices.size())};
 }
 
 bool moreUrgent(const KnapsackItem& left, const KnapsackItem& right) {
-    return make_tuple(!left.overdue, cref(left.shipDate), left.priority, cref(left.productNumber))
-           < make_tuple(!right.overdue, cref(right.shipDate), right.priority, cref(right.productNumber));
+    return tuple_cat(urgencyClassOf(left), tie(left.productNumber)) < tuple_cat(urgencyClassOf(right), tie(right.productNumber));
 }
 
 vector<size_t> trucksByUrgency(const vector<KnapsackItem>& items, const vector<vector<size_t>>& trucks) {
@@ -262,7 +276,7 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
                                            "Knapsack: the payload of " + shortNumber(capacity.weightLb)
                                                + " lb at a grain of " + shortNumber(settings.weightGrainLb));
 
-    vector<pair<string, int>> classKeys;
+    vector<tuple<string, int, string>> classKeys;
     for (size_t index = 0; index < items.size(); ++index) {
         const KnapsackItem& item = items[index];
         // A unit load exactly at the ceiling fits; only taller is excluded.
@@ -273,7 +287,7 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
             problem.tooLarge.push_back(index);
         } else {
             problem.candidates.push_back(index);
-            classKeys.emplace_back(item.shipDate, item.priority);
+            classKeys.emplace_back(rankingDate(item), item.priority, item.shipDate);
         }
     }
     sort(classKeys.begin(), classKeys.end());
@@ -281,7 +295,7 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
     problem.classCount = classKeys.size();
 
     auto classIndexOf = [&](size_t index) {
-        const pair<string, int> key{items[index].shipDate, items[index].priority};
+        const tuple<string, int, string> key{rankingDate(items[index]), items[index].priority, items[index].shipDate};
         return static_cast<size_t>(lower_bound(classKeys.begin(), classKeys.end(), key) - classKeys.begin());
     };
     stable_sort(problem.candidates.begin(), problem.candidates.end(),
@@ -309,19 +323,29 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
 KnapsackSelection selectGreedy(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
                                const KnapsackSettings& settings) {
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
-    return assemble(items, capacity, problem, greedyTaken(problem));
+    return assemble(items, capacity, problem, greedyTaken(problem, TruckCheck()));
 }
 
 KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                                 const KnapsackSettings& settings) {
+                                 const KnapsackSettings& settings, const TruckCheck& fits) {
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     const size_t count = problem.candidates.size();
     const SuffixBounds bounds(problem);
 
     // The greedy fill is the first leaf the include-first search reaches, so starting from it
     // keeps the same tie-break: only a strictly better selection replaces it.
-    vector<char> bestTaken = greedyTaken(problem);
+    vector<char> bestTaken = greedyTaken(problem, fits);
     KnapsackValue best = valueOf(problem, bestTaken);
+    // The input indices taken on the current branch, in the order taken: what `fits` judges.
+    vector<size_t> chosen;
+    chosen.reserve(count);
+    auto fitsWith = [&](size_t position) {
+        if (!fits) return true;
+        chosen.push_back(problem.candidates[position]);
+        const bool accepted = fits(chosen);
+        chosen.pop_back();
+        return accepted;
+    };
 
     // Iterative depth-first search, so a 10,000-item lane cannot overflow the stack.
     // decision: 0 untried, 1 included, 2 excluded.
@@ -336,15 +360,24 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
     auto take = [&](size_t position, bool include) {
         const long long sign = include ? 1 : -1;
         taken[position] = include ? 1 : 0;
+        if (include) {
+            chosen.push_back(problem.candidates[position]);
+        } else {
+            chosen.pop_back();
+        }
         current[problem.classOf[position]] += sign * problem.amount[position];
         current.back() += sign * problem.areaGrains[position];
         areaLeft -= sign * problem.areaGrains[position];
         weightLeft -= sign * problem.weightGrains[position];
     };
     auto sameItem = [&](size_t left, size_t right) {
+        const KnapsackItem& leftItem = items[problem.candidates[left]];
+        const KnapsackItem& rightItem = items[problem.candidates[right]];
         return problem.classOf[left] == problem.classOf[right] && problem.amount[left] == problem.amount[right]
                && problem.areaGrains[left] == problem.areaGrains[right]
-               && problem.weightGrains[left] == problem.weightGrains[right];
+               && problem.weightGrains[left] == problem.weightGrains[right]
+               && leftItem.longSideIn == rightItem.longSideIn && leftItem.shortSideIn == rightItem.shortSideIn
+               && leftItem.levels == rightItem.levels;
     };
     while (true) {
         if (descending) {
@@ -369,7 +402,7 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
             // tie-break and stops the search re-trying the same load in every order.
             const bool copyOfExcluded = depth > 0 && decision[depth - 1] == 2 && sameItem(depth - 1, depth);
             if (!copyOfExcluded && problem.areaGrains[depth] <= areaLeft
-                && problem.weightGrains[depth] <= weightLeft) {
+                && problem.weightGrains[depth] <= weightLeft && fitsWith(depth)) {
                 take(depth, true);
                 decision[depth] = 1;
             } else {
@@ -452,18 +485,28 @@ KnapsackSelection selectByTable(const vector<KnapsackItem>& items, const Knapsac
 }
 
 LaneSelection selectForTrucks(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                              const KnapsackSettings& settings, int trucks) {
+                              const KnapsackSettings& settings, int trucks, const TruckCheck& fits) {
     if (trucks < 0) throw invalid_argument("Knapsack: truck count " + to_string(trucks) + " is negative");
     validate(items, capacity, settings);
     LaneSelection lane;
     vector<size_t> remaining(items.size());
     iota(remaining.begin(), remaining.end(), size_t{0});
+    // Each truck is searched over what is left, so its choices are mapped back to the caller's items.
+    vector<size_t> chosenItems;
+    TruckCheck poolFits;
+    if (fits) {
+        poolFits = [&](const vector<size_t>& chosenInPool) {
+            chosenItems.clear();
+            for (const size_t index : chosenInPool) chosenItems.push_back(remaining[index]);
+            return fits(chosenItems);
+        };
+    }
     lane.trucks.reserve(static_cast<size_t>(trucks));
     for (int truck = 0; truck < trucks; ++truck) {
         vector<KnapsackItem> pool;
         pool.reserve(remaining.size());
         for (const size_t index : remaining) pool.push_back(items[index]);
-        KnapsackSelection selection = selectForTruck(pool, capacity, settings);
+        KnapsackSelection selection = selectForTruck(pool, capacity, settings, poolFits);
         for (size_t& index : selection.chosen) index = remaining[index];
         for (size_t& index : selection.leftOver) index = remaining[index];
         remaining = selection.leftOver;

@@ -8,13 +8,16 @@
 //   carryUnshippedForward (Tom Moore, 28 Oct 2026): a good its date's trucks
 //     do not take - none reserved on its lane that day, or the reserved ones
 //     full - spills over to the lane's next reserved date in the window. It
-//     ranks there as every good does, by ship date and then priority, so it
-//     goes ahead of that date's own goods.
-//   pullForwardToFill (Tom Moore, 16 Oct 2026; Rev 8 section 2.10): a reserved
+//     ranks there as a past-due good (pastDueOrder): age first, ahead of that
+//     date's own goods; priority first, among them by priority.
+//   pullForward (Tom Moore, 16 Oct 2026; Rev 8 section 2.10): a reserved
 //     truck its date's goods do not fill takes goods due later, once they are
 //     available, if no line of the good is due more than maxDaysPulledForward
 //     days after the truck. They rank after that date's own goods, so they only
-//     take room those leave.
+//     take room those leave. Off, no line ships before its own date anywhere:
+//     the pipeline also keeps every Milestone 2 stack to one ship date
+//     (SelectionParams::daysPulledForwardAllowed), so no stack pulls its later
+//     lines forward either (Tom Moore, 4 Nov 2026).
 //
 // With either rule on, the window is planned one date at a time, earliest
 // first. Each date is classified and selected (classifyLanes, selectLoads) with
@@ -52,7 +55,7 @@ struct PipelineResult;
 
 struct ShipDateRules {
     bool carryUnshippedForward = false;
-    bool pullForwardToFill = false;
+    bool pullForward = false;
 };
 
 struct ShipDatePlan {

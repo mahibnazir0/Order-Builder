@@ -6,6 +6,7 @@
 #include "tolerance.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <map>
 #include <memory>
@@ -68,11 +69,12 @@ string provisionalLineOf(Day& day, const SelectorSettings& settings) {
 
 Day knapsackDay() { return dayOf({group("2027")}, 1, repeated(40, 0, 0), {reserved("2027", 1)}); }
 
-// Three sizes of a few products: the first priced pattern is needed to prove the trucks.
+// Three sizes of a few products: the first priced pattern is needed to prove the trucks. Each is
+// the trailer's width, one to a row, so its rows hold what its floor area does.
 Day patternPackerDay() {
-    vector<SelectionItem> items(23, item(0, 0, 800.0, 0, 57.0, 35.0));
-    items.insert(items.end(), 15, item(0, 1, 800.0, 0, 67.0, 34.0));
-    items.insert(items.end(), 11, item(0, 2, 800.0, 0, 86.0, 45.0));
+    vector<SelectionItem> items(23, item(0, 0, 800.0, 0, 100.0, 20.0));
+    items.insert(items.end(), 15, item(0, 1, 800.0, 0, 100.0, 23.0));
+    items.insert(items.end(), 11, item(0, 2, 800.0, 0, 100.0, 39.0));
     return dayOf({group("2027")}, 3, items, {reserved("2027", 6)});
 }
 
@@ -499,7 +501,7 @@ TEST_CASE("selector: a reservation with nothing to load is penalty exposure; dem
     CHECK(countReason(selection, LeftOverReason::NoReservation) == 4);
 }
 
-TEST_CASE("selector: goods whose truck's rows do not fit are evicted, least urgent first") {
+TEST_CASE("selector: a one-truck route takes the most urgent goods its rows hold, the rest over the reservation") {
     // 32 unit loads of 48 x 40 fit the floor area of one truck, but only 30 stand in its rows.
     vector<SelectionItem> items;
     for (size_t index = 0; index < 32; ++index) items.push_back(item(0, index, 1000.0, index < 30 ? 0 : 11));
@@ -508,8 +510,213 @@ TEST_CASE("selector: goods whose truck's rows do not fit are evicted, least urge
     checkPlan(day, selection);
     REQUIRE(selection.trucks.size() == 1);
     CHECK(selection.trucks[0].items.size() == 30);
-    CHECK(countReason(selection, LeftOverReason::FloorEviction) == 2);
+    CHECK(countReason(selection, LeftOverReason::OverReservation) == 2);
     for (const LeftOverItem& left : selection.leftOver) CHECK(day.items.items[left.itemIndex].priority == 11);
+    CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: one truck for two groups that must not mix ships the 20 priority-0 goods, not 1 and 29 at 11") {
+    vector<SelectionItem> items{item(0, 0, 1000.0, 0)};
+    items.insert(items.end(), 29, item(0, 0, 1000.0, 11));
+    items.insert(items.end(), 20, item(1, 1, 1000.0, 0));
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 1)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].groupIndex == 1);
+    CHECK(selection.trucks[0].items.size() == 20);
+    CHECK(countReason(selection, LeftOverReason::OverReservation) == 30);
+}
+
+// One truck on 6 Aug, rows for 30: thirty overdue goods at priority 11 and thirty due that day at
+// priority 0, classified with `order`.
+Day overdueAgainstUrgentDay(PastDueOrder order) {
+    vector<SelectionItem> items(30, item(0, 0, 1000.0, 11));
+    for (SelectionItem& overdue : items) {
+        overdue.shipDate = "2026-08-05";
+        overdue.timing = ShipTiming::Overdue;
+    }
+    items.insert(items.end(), 30, item(0, 1, 1000.0, 0));
+    Day day = dayOf({group("2027")}, 2, items, {reserved("2027", 1)});
+    LaneClassifierSettings routing = kRouting;
+    routing.pastDueOrder = order;
+    day.classification = classifyLanes(day.run, day.book, day.items, routing);
+    return day;
+}
+
+// Unit loads on the plan's trucks at this priority.
+double shippedAtPriority(const Day& day, const SelectionPlan& selection, int priority) {
+    double shipped = 0.0;
+    for (const PlannedTruck& truck : selection.trucks) {
+        for (const size_t index : truck.items) {
+            if (day.items.items[index].priority == priority) shipped += day.items.items[index].unitLoads;
+        }
+    }
+    return shipped;
+}
+
+TEST_CASE("selector: age first, thirty overdue goods at priority 11 take the truck from thirty due that day at 0") {
+    const Day day = overdueAgainstUrgentDay(PastDueOrder::AgeFirst);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(shippedAtPriority(day, selection, 11) == doctest::Approx(30.0));
+    CHECK(shippedAtPriority(day, selection, 0) == doctest::Approx(0.0));
+}
+
+TEST_CASE("selector: priority first, thirty due that day at priority 0 take the truck from thirty overdue at 11") {
+    const Day day = overdueAgainstUrgentDay(PastDueOrder::PriorityFirst);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(shippedAtPriority(day, selection, 0) == doctest::Approx(30.0));
+    CHECK(shippedAtPriority(day, selection, 11) == doctest::Approx(0.0));
+    CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: priority first, goods pulled forward from a later date still only fill the room left") {
+    // Thirty due 6 Aug at priority 11 and thirty due 7 Aug at 0, all offered to the one 6 Aug truck.
+    vector<SelectionItem> items(30, item(0, 0, 1000.0, 11));
+    vector<SelectionItem> later(30, item(0, 1, 1000.0, 0));
+    for (SelectionItem& one : later) one.shipDate = "2026-08-07";
+    items.insert(items.end(), later.begin(), later.end());
+    Day day = dayOf({group("2027")}, 2, items, {reserved("2027", 1)});
+    LaneClassifierSettings routing = kRouting;
+    routing.pastDueOrder = PastDueOrder::PriorityFirst;
+    const ItemRouting offered{vector<string>(day.items.items.size(), "2026-08-06"), {}};
+    day.classification = classifyLanes(day.run, day.book, day.items, routing, offered);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(shippedAtPriority(day, selection, 11) == doctest::Approx(30.0));
+    CHECK(shippedAtPriority(day, selection, 0) == doctest::Approx(0.0));
+}
+
+// `levels` unit loads of 35 in stacked, so three stand under the 108 in ceiling.
+SelectionItem stackOf(size_t lineIndex, double longSide, double shortSide, int levels, double weightLb,
+                      const string& productNumber = "") {
+    SelectionItem built = item(0, lineIndex, weightLb, 0, longSide, shortSide);
+    built.lineIndices.assign(static_cast<size_t>(levels), lineIndex);
+    built.unitLoads = levels;
+    built.heightIn = 35.0 * levels;
+    built.cubeCubicIn = longSide * shortSide * built.heightIn;
+    built.productNumber = productNumber;
+    return built;
+}
+
+TEST_CASE("selector: twenty large and twenty small stacks on one truck: the 25 its rows hold ship, proven") {
+    // By floor area 27 of these fit; the rows hold 20 of 52 x 40 and 5 of 60 x 48, in 628 in.
+    // Choosing on floor area and trimming to the rows after loaded 24.
+    vector<SelectionItem> items(20, stackOf(0, 60.0, 48.0, 1, 900.0));
+    items.insert(items.end(), 20, stackOf(1, 52.0, 40.0, 1, 1700.0));
+    const Day day = dayOf({group("2027")}, 2, items, {reserved("2027", 1)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(25.0));
+    CHECK(selection.routes[0].methodUsed == PackingMethod::Knapsack);
+    CHECK(selection.routes[0].proven);
+    CHECK(selection.routes[0].unprovenBecause.empty());
+}
+
+TEST_CASE("selector: four long stacks on one truck: the three that ship most and fit its rows ship, proven") {
+    // All four fit the floor area; in rows, 340 + 300 + 160 + 140 in is over the 630 in trailer.
+    // Trimming the least urgent until the rows fit, then filling, ships the first and third: 3
+    // unit loads. The second, third and fourth stand in 600 in and ship 4.
+    const vector<SelectionItem> items{stackOf(0, 340.0, 60.0, 2, 1000.0, "P0"), stackOf(1, 300.0, 60.0, 2, 1000.0, "P1"),
+                                      stackOf(2, 160.0, 60.0, 1, 1000.0, "P2"), stackOf(3, 140.0, 60.0, 1, 1000.0, "P3")};
+    const Day day = dayOf({group("2027")}, 4, items, {reserved("2027", 1)});
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].items == vector<size_t>{1, 2, 3});
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(4.0));
+    CHECK(selection.trucks[0].floor.usedLengthIn == doctest::Approx(600.0));
+    CHECK(selection.routes[0].proven);
+}
+
+// Unit loads per urgency class, most urgent first, then floor area: what the selector's
+// one-truck search maximises.
+vector<double> loadValue(const vector<SelectionItem>& items, const vector<size_t>& load) {
+    vector<pair<string, int>> classes;
+    for (const SelectionItem& item : items) classes.emplace_back(item.shipDate, item.priority);
+    sort(classes.begin(), classes.end());
+    classes.erase(unique(classes.begin(), classes.end()), classes.end());
+    vector<double> value(classes.size() + 1, 0.0);
+    for (const size_t index : load) {
+        const SelectionItem& item = items[index];
+        const auto found = lower_bound(classes.begin(), classes.end(), make_pair(item.shipDate, item.priority));
+        value[static_cast<size_t>(found - classes.begin())] += item.unitLoads;
+        value.back() += item.footprintLongIn * item.footprintShortIn;
+    }
+    return value;
+}
+
+// Every load of the day's goods one truck can carry - ceiling, payload, unit-load cap and rows -
+// and the best of them.
+vector<double> bestLoadValue(const Day& day, const SelectorSettings& settings) {
+    const vector<SelectionItem>& items = day.items.items;
+    vector<double> best = loadValue(items, {});
+    for (size_t mask = 1; mask < (size_t{1} << items.size()); ++mask) {
+        vector<size_t> load;
+        vector<FloorItem> floor;
+        double weight = 0.0, unitLoads = 0.0;
+        bool tooTall = false;
+        for (size_t index = 0; index < items.size(); ++index) {
+            if (!(mask & (size_t{1} << index))) continue;
+            load.push_back(index);
+            floor.push_back(floorItemFrom(items[index]));
+            weight += items[index].weightLb;
+            unitLoads += items[index].unitLoads;
+            tooTall = tooTall || items[index].heightIn > day.run.trailer.stackHeightCeilingIn;
+        }
+        if (tooTall || weight > day.run.trailer.weightLimitLb || unitLoads > settings.maxUnitLoadsPerTruck) continue;
+        const vector<double> value = loadValue(items, load);
+        if (!(best < value)) continue;
+        const FloorLayout layout = arrangeFloor(floor, day.run.trailer, settings.floor);
+        if (layout.fitsLength && layout.unplaceableItems.empty()) best = value;
+    }
+    return best;
+}
+
+TEST_CASE("selector: a proven one-truck route carries the best load its ceiling, payload, cap and rows allow") {
+    mt19937 random(5112026);
+    const array<string, 2> dates{"2026-08-05", "2026-08-06"};  // the first overdue, so both ride 6 Aug
+    const vector<pair<double, double>> footprints{{48, 40}, {52, 40}, {60, 48}, {48, 48}, {56, 44}, {40, 33}, {120, 48}};
+    const SelectorSettings settings = selectorSettings();
+    size_t proven = 0;
+    for (int trial = 0; trial < 150; ++trial) {
+        vector<SelectionItem> items;
+        const size_t count = 6 + random() % 4;
+        for (size_t index = 0; index < count; ++index) {
+            const pair<double, double>& footprint = footprints[random() % footprints.size()];
+            SelectionItem stack = stackOf(index, footprint.first, footprint.second, 1 + static_cast<int>(random() % 3),
+                                          static_cast<double>(2000 + random() % 9000), "P" + to_string(index));
+            stack.shipDate = dates[random() % dates.size()];
+            stack.priority = static_cast<int>(random() % 2) * 11;
+            items.push_back(stack);
+        }
+        // Long stacks on a short trailer, so few fit and the rows decide.
+        Day day = dayOf({group("2027")}, count, items, {reserved("2027", 1)});
+        day.run.trailer.interiorLengthIn = 150.0;
+        const SelectionPlan selection = plan(day, settings);
+        CAPTURE(trial);
+        if (day.classification.routes[0].method != SolveMethod::Knapsack || !selection.routes[0].proven) continue;
+        ++proven;
+        vector<size_t> shipped;
+        for (const PlannedTruck& truck : selection.trucks) shipped.insert(shipped.end(), truck.items.begin(), truck.items.end());
+        sort(shipped.begin(), shipped.end());
+        CHECK(loadValue(day.items.items, shipped) == bestLoadValue(day, settings));
+    }
+    CHECK(proven > 100);
+}
+
+TEST_CASE("selector: a packer route whose trucks its rows trim is not proven, and says why") {
+    // 64 of 48 x 40 fill two trucks by floor area; their rows hold 30 each.
+    Day day = dayOf({group("2027")}, 1, repeated(64, 0, 0), {reserved("2027", 2)});
+    REQUIRE(day.classification.routes[0].method == SolveMethod::PatternPacker);
+    CHECK(provisionalLineOf(day, selectorSettings())
+          == "2027 -> 2528 TL, 2026-08-06: patternPacker proved its trucks on floor area and payload, and their rows "
+             "or the unit-load cap then left goods off them");
+    CHECK_FALSE(day.run.selectionPlan.routes[0].proven);
+    CHECK(countReason(day.run.selectionPlan, LeftOverReason::FloorEviction) == 4);
 }
 
 TEST_CASE("selector: heavySpreadAcrossTrucks - on a floor-bound lane no truck weighs out while another has room") {
@@ -671,13 +878,24 @@ TEST_CASE("selector: no truck is planned over maxUnitLoadsPerTruck, however the 
     CHECK(checkInvariants(day.run, day.book, day.items, selection, 64.0).empty());
 }
 
-TEST_CASE("selector: goods over the unit-load cap with no truck left are left over, named") {
+TEST_CASE("selector: a one-truck route stops at the unit-load cap, the rest over the reservation, proven") {
     const Day day = dayOf({group("2027")}, 1, tripleStacks(30), {reserved("2027", 1)});
     const SelectionPlan selection = plan(day);
     checkPlan(day, selection);
     REQUIRE(selection.trucks.size() == 1);
     CHECK(selection.trucks.front().unitLoads == doctest::Approx(63.0));
-    CHECK(countReason(selection, LeftOverReason::UnitLoadCap) == 9);
+    CHECK(countReason(selection, LeftOverReason::OverReservation) == 9);
+    CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: a packer route whose trucks the unit-load cap trims is not proven") {
+    // Two trucks of 30 triple stacks hold 90 unit loads each by their rows; the cap allows 64.
+    Day day = dayOf({group("2027")}, 1, tripleStacks(50), {reserved("2027", 2)});
+    REQUIRE(day.classification.routes[0].method == SolveMethod::PatternPacker);
+    CHECK(provisionalLineOf(day, selectorSettings())
+          == "2027 -> 2528 TL, 2026-08-06: patternPacker proved its trucks on floor area and payload, and their rows "
+             "or the unit-load cap then left goods off them");
+    for (const PlannedTruck& truck : day.run.selectionPlan.trucks) CHECK(truck.unitLoads <= 64.0 + kQuantityEpsilon);
 }
 
 TEST_CASE("selector: a unit-load cap that is not positive and finite is rejected") {

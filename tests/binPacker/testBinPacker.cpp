@@ -24,7 +24,7 @@ const KnapsackCapacity kTruck{63000.0, 45000.0, 108.0};
 const BinPackerSettings kSettings{1.0, 1.0, 50, 100'000, 2'000, 400, 100'000};
 
 KnapsackItem load(double area, double weight = 1000.0, double height = 60.0) {
-    return {area, weight, height, 1.0, "2026-08-06", 0, false, ""};
+    return {area, weight, height, 1.0, "2026-08-06", 0, ""};
 }
 
 // Eight trucks of one item each: a 63,000 sq in item fills a truck, a 40,000 sq in one leaves a

@@ -4,6 +4,7 @@
 #include "trailerSpec.hpp"
 
 #include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,10 @@ struct M2Params {
     FootprintRule footprintRule = FootprintRule::WrittenRule;
     // Required key, like floorDeckHeight.
     FloorRoundingPoint floorRoundingPoint = FloorRoundingPoint::Group;
+    // The most days apart two lines' DATFR_TA may lie in one stack, which ships on its earliest
+    // line's date. Set by the pipeline from M4's pull-forward rule when it selects loads, never
+    // read from the params file; empty, stacks mix any dates.
+    std::optional<long long> maxDaysBetweenShipDatesInStack;
     // Printable path of the file these params came from; empty when parsed from memory.
     std::string sourcePath;
     std::vector<std::string> defaultedKeys;

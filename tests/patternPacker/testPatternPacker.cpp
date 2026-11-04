@@ -24,7 +24,7 @@ const PatternPackerSettings kSettings{1.0, 1.0, 200, 200'000, 100'000};
 
 KnapsackItem load(double area, double weight, const string& shipDate = "2026-08-06", int priority = 0,
                   double height = 60.0) {
-    return {area, weight, height, 1.0, shipDate, priority, false, ""};
+    return {area, weight, height, 1.0, shipDate, priority, ""};
 }
 
 vector<KnapsackItem> copies(const KnapsackItem& item, size_t count) { return vector<KnapsackItem>(count, item); }

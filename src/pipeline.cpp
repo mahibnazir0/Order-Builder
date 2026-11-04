@@ -338,7 +338,7 @@ void runSelection(PipelineResult& result) {
                                                   result.selectionParams.reservations);
     result.selectionItems = buildSelectionItems(result, result.reservationBook.window,
                                                 result.selectionParams.priorityZeroIsMostUrgent,
-                                                result.selectionParams.maxDaysPulledForward);
+                                                result.selectionParams.daysPulledForwardAllowed());
     requireGrainsFitItems(result.selectionParams, result.selectionItems, result.trailer);
     ShipDatePlan planned = planShipDates(result, result.reservationBook, result.selectionItems,
                                          result.selectionParams.routing, result.selectionParams.selector,
@@ -551,7 +551,10 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         if (!inputs.palletPath.empty()) {
             result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
         }
-        if (inputs.runSelection) result.selectionParams = loadSelectionParams(inputs.paramsPath);
+        if (inputs.runSelection) {
+            result.selectionParams = loadSelectionParams(inputs.paramsPath);
+            result.params.maxDaysBetweenShipDatesInStack = result.selectionParams.daysPulledForwardAllowed();
+        }
     }
 
     // ── 2. Join demand to the product master ────────────────────────────────

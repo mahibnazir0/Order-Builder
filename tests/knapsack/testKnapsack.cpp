@@ -26,7 +26,7 @@ const long long kTableCells = 4'000'000;
 
 KnapsackItem load(double area, double weight, double unitLoads = 1.0,
                   const string& shipDate = "2026-08-06", int priority = 0, double height = 60.0) {
-    return {area, weight, height, unitLoads, shipDate, priority, false, ""};
+    return {area, weight, height, unitLoads, shipDate, priority, ""};
 }
 
 // Chosen and left over together are the input, each index exactly once.
@@ -402,24 +402,41 @@ TEST_CASE("knapsack: August knapsack lanes fill their reserved trucks within cap
     }
 }
 
-TEST_CASE("knapsack: moreUrgent orders overdue, then ship date, then priority, then product number") {
-    KnapsackItem overdue = load(1920, 1000, 1.0, "2026-08-07", 11);
-    overdue.overdue = true;
-    overdue.productNumber = "Z";
-    KnapsackItem earlier = load(1920, 1000, 1.0, "2026-08-06", 11);
-    earlier.productNumber = "Z";
-    KnapsackItem urgent = load(1920, 1000, 1.0, "2026-08-07", 0);
-    urgent.productNumber = "Z";
-    KnapsackItem lowerProduct = load(1920, 1000, 1.0, "2026-08-07", 11);
+TEST_CASE("knapsack: moreUrgent orders by rank date, then priority, then ship date, then product number") {
+    KnapsackItem earliest = load(1920, 1000, 1.0, "2026-08-05", 11);
+    earliest.productNumber = "Z";
+    KnapsackItem urgentRankedLater = load(1920, 1000, 1.0, "2026-08-04", 0);
+    urgentRankedLater.rankDate = "2026-08-06";
+    urgentRankedLater.productNumber = "Z";
+    KnapsackItem older = load(1920, 1000, 1.0, "2026-08-04", 11);
+    older.rankDate = "2026-08-06";
+    older.productNumber = "Z";
+    KnapsackItem lowerProduct = load(1920, 1000, 1.0, "2026-08-06", 11);
     lowerProduct.productNumber = "A";
-    KnapsackItem last = load(1920, 1000, 1.0, "2026-08-07", 11);
+    KnapsackItem last = load(1920, 1000, 1.0, "2026-08-06", 11);
     last.productNumber = "Z";
-    const vector<KnapsackItem> ordered{overdue, earlier, urgent, lowerProduct, last};
+    const vector<KnapsackItem> ordered{earliest, urgentRankedLater, older, lowerProduct, last};
     for (size_t index = 0; index + 1 < ordered.size(); ++index) {
         CAPTURE(index);
         CHECK(moreUrgent(ordered[index], ordered[index + 1]));
         CHECK_FALSE(moreUrgent(ordered[index + 1], ordered[index]));
     }
+}
+
+TEST_CASE("knapsack: goods sharing a rank date fill the truck by priority before age") {
+    // Room for one: an older good at priority 11 and a newer one at 0, both ranked by 6 Aug.
+    KnapsackItem older = load(40000, 1000, 1.0, "2026-08-04", 11);
+    KnapsackItem newer = load(40000, 1000, 1.0, "2026-08-06", 0);
+    CHECK(selectForTruck({older, newer}, kTruck, kFine).chosen == vector<size_t>{0});
+    older.rankDate = "2026-08-06";
+    newer.rankDate = "2026-08-06";
+    CHECK(selectForTruck({older, newer}, kTruck, kFine).chosen == vector<size_t>{1});
+}
+
+TEST_CASE("knapsack: a rank date that is not a real date is rejected") {
+    KnapsackItem bad = load(1920, 1000);
+    bad.rankDate = "2026-02-30";
+    CHECK_THROWS_AS(selectForTruck({bad}, kTruck, kFine), invalid_argument);
 }
 
 TEST_CASE("knapsack: trucksByUrgency keeps the most urgent truck first, and the fuller of two equally urgent") {
