@@ -87,19 +87,25 @@ bool isScored(const json& load) {
     return !(score->is_string() && score->get_ref<const string&>().empty());
 }
 
-void addShippedLine(AchievedRequest& achieved, const SolutionReader& reader, const json& line,
+InputTruckLine truckLine(const SolutionReader& reader, const json& line, const string& field) {
+    if (!line.is_object()) reader.fail(field, "is not an object");
+    InputTruckLine read;
+    read.idpr = reader.requiredString(line, "IDPR", field + ".IDPR");
+    read.matnr = reader.requiredString(line, "MATNR", field + ".MATNR");
+    read.unitOfMeasure = reader.requiredString(line, "MEINS", field + ".MEINS");
+    read.quantity = reader.requiredQuantity(line, "MENGE", field + ".MENGE");
+    return read;
+}
+
+void addShippedLine(AchievedRequest& achieved, const SolutionReader& reader, const InputTruckLine& line,
                     const string& shipDate, const string& field) {
-    const string& idpr = reader.requiredString(line, "IDPR", field + ".IDPR");
-    const string& matnr = reader.requiredString(line, "MATNR", field + ".MATNR");
-    const string& unitOfMeasure = reader.requiredString(line, "MEINS", field + ".MEINS");
-    const double quantity = reader.requiredQuantity(line, "MENGE", field + ".MENGE");
-    const auto inserted = achieved.shippedByIdpr.emplace(idpr, ShippedLine{matnr, unitOfMeasure, {}});
+    const auto inserted = achieved.shippedByIdpr.emplace(line.idpr, ShippedLine{line.matnr, line.unitOfMeasure, {}});
     ShippedLine& shipped = inserted.first->second;
-    if (shipped.matnr != matnr || shipped.unitOfMeasure != unitOfMeasure) {
-        reader.fail(field, "ships IDPR " + idpr + " as a different material or unit than an"
+    if (shipped.matnr != line.matnr || shipped.unitOfMeasure != line.unitOfMeasure) {
+        reader.fail(field, "ships IDPR " + line.idpr + " as a different material or unit than an"
                     " earlier load");
     }
-    shipped.quantityByShipDate[shipDate] += quantity;
+    shipped.quantityByShipDate[shipDate] += line.quantity;
 }
 
 void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& laneDayIndexByKey,
@@ -128,19 +134,30 @@ void readSolution(AchievedRequest& achieved, unordered_map<string, size_t>& lane
             if (scored && !inSet) ++achieved.scoredLoadsOutsideSet;
             if (!scored && inSet) ++achieved.unscoredLoadsInSet;
             const json& lines = reader.requiredArray(load, "LINES", loadField + ".LINES");
-            if (!inSet) continue;
-
             const string& shipDate =
                 reader.requiredDate(load, "DATFR_TA", loadField + ".DATFR_TA");
+            InputTruck& truck = achieved.trucks.emplace_back();
+            truck.id = reader.requiredString(load, "ID", loadField + ".ID");
+            truck.laneId = reader.requiredString(lane, "ID", laneField + ".ID");
+            truck.shipDate = shipDate;
+            truck.lines.reserve(lines.size());
+            for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+                truck.lines.push_back(
+                    truckLine(reader, lines[lineIndex], loadField + ".LINES[" + to_string(lineIndex) + "]"));
+            }
+            if (!inSet) continue;
+
             const auto inserted = laneDayIndexByKey.emplace(
                 laneDayKey(locationFrom, locationTo, shipCondition, shipDate),
                 achieved.laneDays.size());
             if (inserted.second) {
-                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, shipDate, 0});
+                achieved.laneDays.push_back({locationFrom, locationTo, shipCondition, shipDate, 0, {}});
             }
-            ++achieved.laneDays[inserted.first->second].loads;
-            for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
-                addShippedLine(achieved, reader, lines[lineIndex], shipDate,
+            AchievedLaneDay& laneDay = achieved.laneDays[inserted.first->second];
+            ++laneDay.loads;
+            laneDay.truckIndices.push_back(achieved.trucks.size() - 1);
+            for (size_t lineIndex = 0; lineIndex < truck.lines.size(); ++lineIndex) {
+                addShippedLine(achieved, reader, truck.lines[lineIndex], shipDate,
                                loadField + ".LINES[" + to_string(lineIndex) + "]");
             }
         }

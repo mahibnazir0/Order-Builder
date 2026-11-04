@@ -1,0 +1,69 @@
+#pragma once
+// ============================================================================
+// selectionParams.hpp - M4 module C0. Every M4 setting, read once from the
+// params file's "selection" block, checked at startup and never changed after.
+//
+// Every key is required: a missing one stops the run naming it, never a silent
+// default. A provisional figure is one the file states, so it is printed with
+// the run (selectionReporter section 2) and has one home to be corrected in.
+//
+// The block holds:
+//   defaultEquipment, knownEquipment       blank ZZNA_EQUIP_SIZE takes the default
+//   fullCubeFraction                       a truck is full at this share of its cube
+//   maxUnitLoadsPerTruck                   no truck is planned over it (I6)
+//   m5Threshold, varietyRatio              the classifier's routing
+//   priorityZeroIsMostUrgent               which end of TPRIO ships first (provisional)
+//   maxDaysPulledForward                   how far a good may be pulled forward: a mixed-date
+//                                          stack's later lines, or a good filling a reserved
+//                                          truck ahead of its date (Rev 8 section 2.10)
+//   carryUnshippedForward,                 the customer's ship-date rules, each on or off
+//   pullForward                            (shipDatePlanner). pullForward off ships no line
+//                                          before its DATFR_TA: no stack mixes ship dates
+//   pastDueOrder                           AgeFirst or PriorityFirst: how goods past due on a
+//                                          truck's date rank against its own (provisional)
+//   knapsack, patternPacker, binPacker     each method's grains and limits
+//   floor                                  rotation, orientation when fixed, patterns,
+//                                          maxPositions (null for none)
+//   secondsPerLane, threads                the selector's budget and workers
+//   fillMissesPerTruck,                    the selector's fill and weight passes' bounds
+//   weightSpreadRoundsPerTruck
+//   reportDetail                           Standard or Detailed
+// ============================================================================
+
+#include "json.hpp"
+#include "laneClassifier.hpp"
+#include "reservationBook.hpp"
+#include "selectionReporter.hpp"
+#include "selector.hpp"
+#include "shipDatePlanner.hpp"
+
+#include <string>
+#include <vector>
+
+namespace ob {
+
+struct SelectionParams {
+    ReservationBookSettings reservations;
+    LaneClassifierSettings routing;
+    SelectorSettings selector;  // its clock is left empty: the run uses the steady clock
+    bool priorityZeroIsMostUrgent = true;
+    long long maxDaysPulledForward = 0;
+    ShipDateRules shipDates;
+
+    // How far a line may ship ahead of its own date, in a mixed-date stack or filling a truck: the
+    // limit while pullForward is on, none at all while it is off.
+    long long daysPulledForwardAllowed() const { return shipDates.pullForward ? maxDaysPulledForward : 0; }
+    ReportDetail reportDetail = ReportDetail::Standard;
+    std::string sourcePath;
+};
+
+// Reads root["selection"]. Throws std::runtime_error naming the key for a missing block or
+// setting, a wrong type, or a value out of range: a grain, budget or limit that is zero,
+// negative, NaN or infinite; a full-cube share outside (0, 1]; an M5 threshold below 2; a
+// variety ratio outside (0, 1000]; fewer than 1 or more than 256 threads; a default equipment
+// that is blank or not listed; an equipment type listed twice; an unknown, repeated or empty
+// floor pattern list, or one without single rows.
+SelectionParams parseSelectionParams(const nlohmann::json& root);
+SelectionParams loadSelectionParams(const std::string& path);
+
+} // namespace ob

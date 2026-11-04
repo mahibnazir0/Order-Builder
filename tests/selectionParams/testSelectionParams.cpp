@@ -1,0 +1,195 @@
+#include "doctest.h"
+#include "paramsFields.hpp"
+#include "selectionParams.hpp"
+
+#include <functional>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using namespace std;
+using namespace ob;
+using json = nlohmann::json;
+
+namespace {
+
+const string kShippedParamsPath = "config/orderBuilderParams.json";
+
+json shippedRoot() { return readParamsFile(kShippedParamsPath); }
+
+// The shipped params with one change made to the "selection" block.
+json edited(const function<void(json&)>& change) {
+    json root = shippedRoot();
+    change(root["selection"]);
+    return root;
+}
+
+// Whether parsing throws a message that names `key`.
+bool rejectedNaming(const json& root, const string& key) {
+    try {
+        parseSelectionParams(root);
+    } catch (const runtime_error& error) {
+        return string(error.what()).find(key) != string::npos;
+    }
+    return false;
+}
+
+} // anonymous namespace
+
+TEST_CASE("selectionParams: the shipped params read in full") {
+    const SelectionParams params = loadSelectionParams(kShippedParamsPath);
+    CHECK(params.sourcePath == kShippedParamsPath);
+    CHECK(params.reservations.defaultEquipment == "53F");
+    CHECK(params.reservations.knownEquipment == vector<string>{"53F"});
+    CHECK(params.selector.floor.fullCubeFraction == doctest::Approx(0.84));
+    CHECK(params.selector.maxUnitLoadsPerTruck == doctest::Approx(64.0));
+    CHECK(params.priorityZeroIsMostUrgent);
+    CHECK(params.maxDaysPulledForward == 10);
+    CHECK(params.shipDates.carryUnshippedForward);
+    CHECK(params.shipDates.pullForward);
+    CHECK(params.routing.pastDueOrder == PastDueOrder::AgeFirst);
+    CHECK(params.routing.varietyRatio == doctest::Approx(69.0));
+    CHECK(params.selector.fillMissesPerTruck == 10);
+    CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
+    CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);
+    CHECK(params.selector.binPacker.simplexIterationLimit == 100'000);
+    CHECK(params.routing.m5Threshold == 20);
+    CHECK(params.selector.knapsack.nodeLimit == 200'000);
+    CHECK(params.selector.binPacker.maxSearchItems == 100);
+    CHECK(params.selector.floor.allowRotation);
+    CHECK(params.selector.floor.fixedOrientation == FixedOrientation::LongSideAcross);
+    CHECK_FALSE(params.selector.floor.maxPositions);
+    CHECK(params.selector.floor.allowedPatterns.size() == 6);
+    CHECK(params.selector.threads == 4);
+    CHECK(params.reportDetail == ReportDetail::Standard);
+    CHECK_FALSE(params.selector.clock);
+}
+
+TEST_CASE("selectionParams: missingSettingFailsAtStartup - no block, and every key, named") {
+    json noBlock = shippedRoot();
+    noBlock.erase("selection");
+    CHECK(rejectedNaming(noBlock, "selection"));
+    const json shipped = shippedRoot();
+    for (const auto& setting : shipped["selection"].items()) {
+        const string key = setting.key();
+        CAPTURE(key);
+        CHECK(rejectedNaming(edited([&](json& block) { block.erase(key); }), key));
+    }
+    for (const char* block : {"knapsack", "patternPacker", "binPacker", "floor"}) {
+        for (const auto& setting : shipped["selection"][block].items()) {
+            const string key = setting.key();
+            CAPTURE(key);
+            CHECK(rejectedNaming(edited([&](json& selection) { selection[block].erase(key); }), key));
+        }
+    }
+}
+
+TEST_CASE("selectionParams: everySettingRejectsZeroNegativeAndTheWrongType") {
+    const vector<pair<vector<string>, bool>> numbers{
+        {{"fullCubeFraction"}, false},          {{"maxUnitLoadsPerTruck"}, false},
+        {{"varietyRatio"}, false},              {{"secondsPerLane"}, false},
+        {{"knapsack", "weightGrainLb"}, false}, {{"knapsack", "areaGrainSqIn"}, false},
+        {{"knapsack", "nodeLimit"}, true},      {{"patternPacker", "weightGrainLb"}, false},
+        {{"patternPacker", "maxPatterns"}, true}, {{"patternPacker", "pricingNodeLimit"}, true},
+        {{"binPacker", "areaGrainSqIn"}, false}, {{"binPacker", "columnRoundsPerNode"}, true},
+        {{"binPacker", "branchNodeLimit"}, true}, {{"binPacker", "maxSearchItems"}, true},
+        {{"patternPacker", "simplexIterationLimit"}, true}, {{"binPacker", "simplexIterationLimit"}, true},
+        {{"fillMissesPerTruck"}, true},         {{"weightSpreadRoundsPerTruck"}, true},
+        {{"threads"}, true}};
+    for (const auto& number : numbers) {
+        const vector<string> path = number.first;
+        const bool isCount = number.second;
+        const string key = path.back();
+        CAPTURE(key);
+        auto set = [&](const json& value) {
+            return edited([&](json& block) { (path.size() == 1 ? block : block[path[0]])[key] = value; });
+        };
+        CHECK(rejectedNaming(set(0), key));
+        CHECK(rejectedNaming(set(-1), key));
+        CHECK(rejectedNaming(set("NaN"), key));
+        CHECK(rejectedNaming(set(nullptr), key));
+        if (isCount) CHECK(rejectedNaming(set(2.5), key));
+    }
+}
+
+TEST_CASE("selectionParams: ranges, names and lists out of bounds are rejected") {
+    CHECK(rejectedNaming(edited([](json& block) { block["fullCubeFraction"] = 1.5; }), "fullCubeFraction"));
+    CHECK(rejectedNaming(edited([](json& block) { block["m5Threshold"] = 1; }), "m5Threshold"));
+    CHECK(rejectedNaming(edited([](json& block) { block["varietyRatio"] = 5000; }), "varietyRatio"));
+    CHECK(rejectedNaming(edited([](json& block) { block["threads"] = 300; }), "threads"));
+    CHECK(rejectedNaming(edited([](json& block) { block["reportDetail"] = "Verbose"; }), "reportDetail"));
+    CHECK(rejectedNaming(edited([](json& block) { block["defaultEquipment"] = "48F"; }), "defaultEquipment"));
+    CHECK(rejectedNaming(edited([](json& block) { block["defaultEquipment"] = ""; }), "defaultEquipment"));
+    CHECK(rejectedNaming(edited([](json& block) { block["knownEquipment"] = json::array({"53F", "53F"}); }), "twice"));
+    CHECK(rejectedNaming(edited([](json& block) { block["knownEquipment"] = json::array(); }), "knownEquipment"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["fixedOrientation"] = "Sideways"; }), "fixedOrientation"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowRotation"] = "yes"; }), "allowRotation"));
+    CHECK(rejectedNaming(edited([](json& block) { block["priorityZeroIsMostUrgent"] = "yes"; }),
+                         "priorityZeroIsMostUrgent"));
+    CHECK(rejectedNaming(edited([](json& block) { block["priorityZeroIsMostUrgent"] = 0; }),
+                         "priorityZeroIsMostUrgent"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["maxPositions"] = 0; }), "maxPositions"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array({"WideWide"}); }), "Single"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array({"Single", "Single"}); }), "twice"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array({"Single", "Diagonal"}); }), "Diagonal"));
+    CHECK(rejectedNaming(edited([](json& block) { block["floor"]["allowedPatterns"] = json::array(); }), "allowedPatterns"));
+    CHECK(rejectedNaming(edited([](json& block) { block = json::array(); }), "selection"));
+}
+
+TEST_CASE("selectionParams: a cap on positions and a fixed orientation are read when given") {
+    const SelectionParams params = parseSelectionParams(edited([](json& block) {
+        block["floor"]["maxPositions"] = 30;
+        block["floor"]["allowRotation"] = false;
+        block["floor"]["fixedOrientation"] = "ShortSideAcross";
+        block["reportDetail"] = "Detailed";
+    }));
+    REQUIRE(params.selector.floor.maxPositions);
+    CHECK(*params.selector.floor.maxPositions == 30);
+    CHECK_FALSE(params.selector.floor.allowRotation);
+    CHECK(params.selector.floor.fixedOrientation == FixedOrientation::ShortSideAcross);
+    CHECK(params.reportDetail == ReportDetail::Detailed);
+}
+
+TEST_CASE("selectionParams: a pull-forward limit that is negative, fractional or not a number stops the run, named") {
+    for (const json& bad : {json(-1), json(2.5), json("10"), json(nullptr), json(numeric_limits<double>::quiet_NaN()),
+                            json(numeric_limits<double>::infinity())}) {
+        CAPTURE(bad.dump());
+        CHECK(rejectedNaming(edited([&](json& block) { block["maxDaysPulledForward"] = bad; }), "maxDaysPulledForward"));
+    }
+    CHECK(parseSelectionParams(edited([](json& block) { block["maxDaysPulledForward"] = 0; })).maxDaysPulledForward == 0);
+}
+
+TEST_CASE("selectionParams: either ship-date rule missing, or not true or false, stops the run, named") {
+    for (const string key : {"carryUnshippedForward", "pullForward"}) {
+        CAPTURE(key);
+        CHECK(rejectedNaming(edited([&](json& block) { block.erase(key); }), key));
+        for (const json& bad : {json("true"), json(1), json(nullptr), json::array()}) {
+            CAPTURE(bad.dump());
+            CHECK(rejectedNaming(edited([&](json& block) { block[key] = bad; }), key));
+        }
+    }
+}
+
+TEST_CASE("selectionParams: pastDueOrder reads AgeFirst or PriorityFirst") {
+    CHECK(parseSelectionParams(edited([](json& block) { block["pastDueOrder"] = "AgeFirst"; })).routing.pastDueOrder
+          == PastDueOrder::AgeFirst);
+    CHECK(parseSelectionParams(edited([](json& block) { block["pastDueOrder"] = "PriorityFirst"; })).routing.pastDueOrder
+          == PastDueOrder::PriorityFirst);
+}
+
+TEST_CASE("selectionParams: a pastDueOrder that is not AgeFirst or PriorityFirst stops the run, named") {
+    for (const json& bad : {json("ageFirst"), json(""), json(0), json(true), json(nullptr)}) {
+        CAPTURE(bad.dump());
+        CHECK(rejectedNaming(edited([&](json& block) { block["pastDueOrder"] = bad; }), "pastDueOrder"));
+    }
+}
+
+TEST_CASE("selectionParams: each ship-date rule turns off alone") {
+    const SelectionParams carryOff = parseSelectionParams(edited([](json& block) { block["carryUnshippedForward"] = false; }));
+    CHECK_FALSE(carryOff.shipDates.carryUnshippedForward);
+    CHECK(carryOff.shipDates.pullForward);
+    const SelectionParams pullOff = parseSelectionParams(edited([](json& block) { block["pullForward"] = false; }));
+    CHECK(pullOff.shipDates.carryUnshippedForward);
+    CHECK_FALSE(pullOff.shipDates.pullForward);
+}

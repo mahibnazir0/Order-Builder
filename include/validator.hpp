@@ -39,6 +39,12 @@ constexpr double kMaxDemandQuantity = 1'000'000.0;
 // keeps weight_lb * Cases_Unit_Load * TRANS finite.
 constexpr double kMaxCaseWeightLb = 10'000.0;
 
+// Whether a lane's LOCFRNO, LOCTONO or SHIP_COND has leading or trailing whitespace. Such a lane
+// is rejected wherever one is read, never trimmed: lanes are matched exactly, letter case
+// included, as nothing from the client says its codes ignore case or spacing.
+bool hasPaddedLaneCode(const std::string& origin, const std::string& destination,
+                       const std::string& shipCondition);
+
 struct ValidationConfig {
     // Lines resolving to more than this many pallets are flagged for review.
     // Not an error: legitimate lines in the sample reach 1,010 pallets.
@@ -118,6 +124,7 @@ struct ValidationReport {
     int unknownEquipSize        = 0; // placeholder ZZNA_EQUIP_SIZE outside allowedEquipSizes
     int invalid_do_not_mix_pair = 0; // DNM entry has a blank PLANNER_SNP or LOCFRNO
     int blankPlannerAtDoNotMixSite = 0; // demand line with a blank PLANNER_SNP at a DNM LOCFRNO
+    int paddedLaneCode = 0; // demand line or placeholder whose lane code has edge whitespace
     // Raised by Milestone 2, not by validate(): the line's own upper layers outweigh its CRI
     // limit, so it ships single-high. Zero when Milestone 2 did not run.
     int exceedsOwnCri = 0;

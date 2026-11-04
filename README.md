@@ -51,7 +51,8 @@ every module implementation.
 order_builder --product <csv> --demand <json> --placeholder <json>
               [--params <json> --demand-rule <rule>] [--pallets <csv>]
               [--layer-sizes <csv>] [--trailer <code>] [--groups N]
-              [--day <YYYY-MM-DD>] [--lanes N] [--debug] [--help]
+              [--day <YYYY-MM-DD>] [--lanes N] [--select] [--record <dir>]
+              [--debug] [--help]
 ```
 
 | Flag | Required | Meaning |
@@ -67,6 +68,8 @@ order_builder --product <csv> --demand <json> --placeholder <json>
 | `--groups N` | no | Print only the N largest groups in the Milestone 2 report; default is all |
 | `--day <date>` | no | Planning day, shown in the report header |
 | `--lanes N` | no | Print only the N largest lanes; default is all of them |
+| `--select` | no, needs `--params` | Also fill each reserved truck (M4), with the settings in the params file's `selection` block; prints the M4 report after the floors |
+| `--record <dir>` | no | Copy every input and the params file into `<dir>` with a `record.txt` manifest naming each file's role, so the run can be recreated from them |
 | `--debug` | no | Verbose logging |
 | `--help` | no | Print usage and exit |
 
@@ -104,6 +107,8 @@ Exit codes:
 | 4 | A floor left out a line shipping on its date, or a line has no real ship date (DATFR_TA) |
 | 5 | No line of a non-empty extract ships on the rule's dates |
 | 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
+| 7 | M4 ran (`--select`) and left something unhandled: its plan broke an invariant; on a route every method threw, the kept method overran `secondsPerLane`, or the LP stopped at `simplexIterationLimit`; stacks were left over as escalated to M5, unfittable, on an unsolved lane, or evicted by the floor while their route still had reserved trucks unbuilt; a stack was rejected for bad line data or a line was not fully stacked; or a placeholder row was skipped for bad data (missing lane, a lane code with leading or trailing spaces, a lane and ship date reserved on more than one row, bad date, unreadable load count, unknown equipment). Stacks after the window, unavailable in it, with no reservation or over it, and placeholders with zero loads or outside the window, are normal. The M4 report's `Result` line lists every cause |
+| 8 | M4 ran and handled everything, but its plan is provisional: on a route the kept method did not prove its result, because it stopped at a search limit (`knapsack.nodeLimit`, `binPacker.branchNodeLimit`, `columnRoundsPerNode`, `maxSearchItems`, `patternPacker.maxPatterns` or a `pricingNodeLimit`) or because a fallback was kept (greedy knapsack, first-fit decreasing, or any method after one that threw). The M4 report lists each such route by lane, group and ship date with the reason, under its `Result` line |
 
 When several apply, the lowest code wins.
 
@@ -112,6 +117,84 @@ out of stacking is logged with its MATNR and the reason. Validation *warnings* d
 affect the exit code. The current sample data has 50 warnings without `--params`
 (exit 6) and 52 with it (exit 0): Milestone 2 adds the two
 lines whose product exceeds its own CRI limit (`exceeds_own_cri`).
+
+## M4: filling the reserved trucks
+
+`--select` runs M4 after the floors. Per planning run it builds the reservation book from
+the placeholders (per lane and ship date, never summed across dates, inside the window the
+demand file's CTL table gives the plan date, which comes from the demand's REQUEST_ID), turns
+Milestone 2's stacks into items, routes every group and ship date to a method, fills the
+trucks and checks the result. Every setting comes from the params file's `selection` block;
+a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
+`varietyRatio` are provisional until the benchmark settles them, and
+`priorityZeroIsMostUrgent` (which end of TPRIO ships first) until the customer confirms it;
+the report prints all three under its provisional business rules. `varietyRatio` is 69, set
+by the August benchmark: patternPacker and binPacker differ on only 7 August routes, by at most
+2 unit loads, and any split from 14.25 to below 69.5 unit loads per product sends 2 of them to
+the method that ranked lower (101, the split before 5 Nov 2026, now sends 3). 69 is the highest
+such split, so it moves the fewest routes.
+
+**Ship dates.** A good's own ship date is its DATFR_TA, but two settings, each confirmed by the
+client, let it ship on another reserved date of its lane:
+
+- `carryUnshippedForward` (28 Oct 2026): a good its date's trucks do not take, because none is
+  reserved on the lane that day or the reserved ones are full, spills over to the lane's next
+  reserved date in the window. It ranks there as a past-due good, by `pastDueOrder`.
+- `pullForward` (16 Oct 2026): a reserved truck with room takes goods due later, once
+  they are available, if no line of the good is due more than `maxDaysPulledForward` (10) days
+  after the truck. They rank after that date's own goods, so they only fill room, and never
+  decide which segregated group gets a truck. Each group's part-filled truck is topped up with
+  that group's own later goods first. The same limit holds in a stack: Milestone 2 never stacks
+  two lines due further apart, since a stack ships on its earliest line's date. Off, no line
+  ships before its own DATFR_TA anywhere: no truck is filled with later goods, and no stack
+  mixes ship dates (4 Nov 2026).
+
+**Past-due goods.** `pastDueOrder` (4 Nov 2026, provisional) decides how goods already past due
+on a truck's date - overdue before the window, or carried over - rank against that date's own:
+`AgeFirst` ships them first, oldest first, whatever their priority (the shipped setting);
+`PriorityFirst` ranks every good due by the truck's date by priority, then oldest first, so
+today's urgent goods can go ahead of older, less urgent ones. Goods pulled forward rank after
+both either way. The reservation is dealt to groups, and each truck chosen, on the same order.
+
+**Proofs.** The knapsack chooses each truck on its rows and the 64 unit-load cap as well as its
+floor area and payload, so a route it reports proven carries the best load those allow.
+patternPacker and binPacker prove their trucks on floor area and payload; when the rows or the
+cap then leave goods off them, their route is reported unproven and the run provisional (exit 8).
+
+With either on, `shipDatePlanner` plans the window one date at a time, earliest first, so a
+date gets exactly the goods its earlier dates left. Each good still ends once, on a truck or
+left over. The report counts the goods carried over and pulled forward. With both off, every
+good ships on its own date only, as before 2 Nov 2026. The shipped config has both on.
+
+The time budget `secondsPerLane` never decides which method's plan is kept: fallback moves
+down the chain only when a method throws, so the same input plans the same on any machine.
+A method that overruns is kept and its lane flagged, which makes the run exit 7.
+`simplexIterationLimit` (patternPacker and binPacker), `fillMissesPerTruck` and
+`weightSpreadRoundsPerTruck` bound the LP and the selector's fill and weight passes.
+
+| Step | Module | What it does |
+|---|---|---|
+| 0 | `selectionParams` | Reads and checks the `selection` block once |
+| 1 | `reservationBook` | Reserved trucks per lane and ship date; every placeholder row reserved or skipped with a reason |
+| 2 | `selectionItem` | One item per stack copy, one floor position; a line's items add up to the line |
+| 3 | `floorPattern` | How a truck's items stand in rows: wide-wide, wide-narrow, narrow-narrow, three-across, pinwheel |
+| 4 | `laneClassifier` | Routes each group and ship date: knapsack, patternPacker, binPacker, M5, or no truck |
+| 5-7 | `knapsack`, `patternPacker`, `binPacker` | The methods; first-fit decreasing is warm start and fallback only |
+| 8 | `selector` | Runs the methods with fallback on failure, flags any over budget, checks every truck's rows, fills and spreads weight |
+| 9 | `selectionReporter` | The printed M4 report: inputs, parameters, fullness, unused reservations, log, trucks, goods left over, item master |
+| 10 | `benchmarkHarness` | Every method on the same routes, and the invariants recounted from the trucks |
+| 11 | `shipDatePlanner` | With the ship-date rules on, plans the window date by date: carries unshipped goods to the next reserved date and pulls later goods forward into trucks with room |
+
+Example, the 4 August plan:
+
+```bash
+./build/order_builder --product tests/importer/august/inputs/shared/Product-Data.csv --demand tests/importer/august/inputs/Aug4/Demand-Aug5-2.json --placeholder tests/importer/august/inputs/Aug4/PH-Aug4.json --params config/orderBuilderParams.json --pallets tests/importer/crossDay/20260929/Product-Data/Customer2-Pallet-Data.csv --layer-sizes tests/importer/crossDay/20261005/Product-Data/Customer2-Product-Data.csv --demand-rule calendar:2026-08-04 --day Aug4 --select
+```
+
+The M4 benchmark over every extract held runs on its own with
+`./build/ob_tests -ts=m4Benchmark --no-skip` or `ctest --test-dir build -R m4Benchmark`. In
+the full suite its tests are skipped when the extracts are absent, so a clean clone passes;
+run on its own, a missing extract fails by name.
 
 ## Test data
 
@@ -323,7 +406,10 @@ weight. `stackPositions` is still read for the Milestone 2 cube-or-weight split.
 `Layer_Width` in the master); PTL and PGM cover the larger of 48 x 40 and the layer on each
 side. Masters before 29 Sep have no layer columns: pass `--layer-sizes` with a later master to
 borrow them by ID and Pallet_ID. Without a layer size, the pallet's footprint stands in and
-the floor report counts those lines.
+the floor report counts those lines. The required `footprintRule` setting picks the PTL/PGM
+reading: `WrittenRule` (the client's rule above, shipped) or `LayerOnly` (the layer alone, as
+the master's `Effective_Layer_*` columns hold it). This is still an open question (Rev 8 Q4),
+and the M4 report lists it under its provisional rules.
 
 **Deck height.** The shipped params count the pallet deck toward unit-load height
 (`floorDeckHeight: Included`, client ruling, 12 Oct 2026), so a PTL or PGM load
