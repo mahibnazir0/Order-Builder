@@ -54,7 +54,7 @@ vector<char> unfittableFlags(const KnapsackProblem& problem, size_t count) {
 }
 
 MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                       const SelectorSettings& settings, int allowed, const TruckLimits& truck) {
+                       const SelectorSettings& settings, int allowed, const TruckLimits& knapsackLimits) {
     MethodResult result;
     switch (method) {
     case PackingMethod::Knapsack:
@@ -62,7 +62,7 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, 
         KnapsackSettings knapsack = settings.knapsack;
         // One node is the greedy warm start, kept as it is.
         if (method == PackingMethod::GreedyKnapsack) knapsack.nodeLimit = 1;
-        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed, truck);
+        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed, knapsackLimits);
         for (const KnapsackSelection& truck : lane.trucks) {
             if (!truck.chosen.empty()) result.trucks.push_back(truck.chosen);
         }
@@ -424,16 +424,16 @@ private:
         const int allowed = static_cast<int>(max(0LL, outcome.trucksAllowed));
 
         map<vector<size_t>, bool> rowsFitByFloorTypes;
-        optional<TruckLimits> truck;
+        optional<TruckLimits> knapsackLimits;
         optional<MethodResult> kept;
         for (size_t step = 0; step < chain.size() && !kept; ++step) {
             const double start = clock_();
             try {
                 if (settings_.beforeMethod) settings_.beforeMethod(outcome.routeIndex, chain[step]);
                 const bool usesRows = chain[step] == PackingMethod::Knapsack || chain[step] == PackingMethod::GreedyKnapsack;
-                if (usesRows && !truck) truck = truckLimits(route, items, rowsFitByFloorTypes);
-                MethodResult result =
-                    runMethod(chain[step], items, capacity_, settings_, allowed, usesRows ? *truck : TruckLimits());
+                if (usesRows && !knapsackLimits) knapsackLimits = truckLimits(route, items, rowsFitByFloorTypes);
+                MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed,
+                                                usesRows ? *knapsackLimits : TruckLimits());
                 const double seconds = clock_() - start;
                 // Elapsed time never picks the method: a slower machine would then plan the same
                 // input differently. An overrun keeps the result and flags the route instead.
