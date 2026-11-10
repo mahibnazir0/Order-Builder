@@ -411,39 +411,6 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         return accepted;
     };
 
-    // Iterative depth-first search, so a 10,000-item lane cannot overflow the stack. Each depth
-    // tries taking its item and leaving it out: taking first, unless the check refused the load
-    // with it, when the load without it is searched first and the one with it after, unverified.
-    vector<char> branchesTried(count, 0);  // 0, 1 or 2
-    vector<char> takeFirst(count, 0);
-    vector<char> canTake(count, 0);
-    vector<char> taken(count, 0);
-    // The depth whose item went on although the check refused the load. Below it the load is
-    // unverified, and a leaf counts only once `fits` accepts it. `count` while verified.
-    size_t unverifiedFrom = count;
-    KnapsackValue current(problem.classCount + 1, 0);
-    long long areaLeft = problem.areaCapacity, weightLeft = problem.weightCapacity;
-    vector<double> limitLeft = limits.capacity;
-    long long nodes = 0;
-    bool proven = true;
-    size_t depth = 0;
-    bool descending = true;
-    auto take = [&](size_t position, bool include) {
-        const long long sign = include ? 1 : -1;
-        taken[position] = include ? 1 : 0;
-        if (include) {
-            chosen.push_back(problem.candidates[position]);
-        } else {
-            chosen.pop_back();
-        }
-        current[problem.classOf[position]] += sign * problem.amount[position];
-        current.back() += sign * problem.areaGrains[position];
-        areaLeft -= sign * problem.areaGrains[position];
-        weightLeft -= sign * problem.weightGrains[position];
-        for (size_t limit = 0; limit < limitLeft.size(); ++limit) {
-            limitLeft[limit] -= static_cast<double>(sign) * limits.share[limit][position];
-        }
-    };
     auto sameItem = [&](size_t left, size_t right) {
         const KnapsackItem& leftItem = items[problem.candidates[left]];
         const KnapsackItem& rightItem = items[problem.candidates[right]];
@@ -459,55 +426,90 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         }
         return true;
     };
-    while (true) {
-        if (descending) {
-            if (depth == count) {
-                if (best < current && (unverifiedFrom == count || !fits || fits(chosen))) {
-                    best = current;
-                    bestTaken = taken;
+
+    // One depth-first search from the root, improving on the best so far; true when it finished
+    // within the node limit. Iterative, so a 10,000-item lane cannot overflow the stack. With
+    // takeRefused, a load the check refused is still grown, unverified, and a leaf counts only once
+    // `fits` accepts it whole, so the search is exact over every load the check accepts. Without,
+    // a refused load is never grown: the search the knapsack ran before rows were known not to be
+    // monotone, kept as a fast first pass so the exact one starts from a load no worse than it.
+    long long nodes = 0;
+    auto search = [&](bool takeRefused) {
+        vector<char> decision(count, 0);  // 0 untried, 1 taken, 2 left out
+        size_t unverifiedFrom = count;    // the depth whose item went on refused; `count` while verified
+        KnapsackValue current(problem.classCount + 1, 0);
+        long long areaLeft = problem.areaCapacity, weightLeft = problem.weightCapacity;
+        vector<double> limitLeft = limits.capacity;
+        chosen.clear();
+        auto take = [&](size_t position, bool include) {
+            const long long sign = include ? 1 : -1;
+            if (include) {
+                chosen.push_back(problem.candidates[position]);
+            } else {
+                chosen.pop_back();
+            }
+            current[problem.classOf[position]] += sign * problem.amount[position];
+            current.back() += sign * problem.areaGrains[position];
+            areaLeft -= sign * problem.areaGrains[position];
+            weightLeft -= sign * problem.weightGrains[position];
+            for (size_t limit = 0; limit < limitLeft.size(); ++limit) {
+                limitLeft[limit] -= static_cast<double>(sign) * limits.share[limit][position];
+            }
+        };
+        long long passNodes = 0;
+        size_t depth = 0;
+        bool descending = true;
+        while (true) {
+            if (descending) {
+                if (depth == count) {
+                    if (best < current && (unverifiedFrom == count || fits(chosen))) {
+                        best = current;
+                        for (size_t position = 0; position < count; ++position) bestTaken[position] = decision[position] == 1;
+                    }
+                    descending = false;
+                    continue;
                 }
-                descending = false;
+                ++nodes;
+                if (++passNodes > settings.nodeLimit) return false;
+                if (!(best < bounds.bound(current, depth, areaLeft, weightLeft, limitLeft))) {
+                    descending = false;
+                    continue;
+                }
+                // Identical items are interchangeable, so only a leading run of them is ever
+                // taken: once one is left out, the copies after it are too. This keeps the
+                // earliest-first tie-break and stops the search re-trying the same load in every order.
+                const bool copyOfExcluded = depth > 0 && decision[depth - 1] == 2 && sameItem(depth - 1, depth);
+                const bool canTake = !copyOfExcluded && problem.areaGrains[depth] <= areaLeft
+                                     && problem.weightGrains[depth] <= weightLeft
+                                     && withinLimits(limits, limitLeft, depth);
+                // An unverified load is judged only whole, at its leaf.
+                const bool accepted = canTake && (unverifiedFrom < count || fitsWith(depth));
+                if (canTake && (accepted || takeRefused)) {
+                    take(depth, true);
+                    decision[depth] = 1;
+                    if (!accepted) unverifiedFrom = depth;
+                } else {
+                    decision[depth] = 2;
+                }
+                ++depth;
                 continue;
             }
-            if (++nodes > settings.nodeLimit) {
-                proven = false;
-                break;
+            if (depth == 0) return true;
+            --depth;
+            if (decision[depth] == 1) {
+                take(depth, false);
+                if (unverifiedFrom == depth) unverifiedFrom = count;
+                decision[depth] = 2;
+                ++depth;
+                descending = true;
+            } else {
+                decision[depth] = 0;
             }
-            if (!(best < bounds.bound(current, depth, areaLeft, weightLeft, limitLeft))) {
-                descending = false;
-                continue;
-            }
-            // Identical items are interchangeable, so only a leading run of them is ever taken:
-            // once one is left out, the copies after it are too. This stops the search re-trying
-            // the same load in every order.
-            const bool copyOfExcluded = depth > 0 && !taken[depth - 1] && sameItem(depth - 1, depth);
-            canTake[depth] = !copyOfExcluded && problem.areaGrains[depth] <= areaLeft
-                             && problem.weightGrains[depth] <= weightLeft && withinLimits(limits, limitLeft, depth);
-            // An unverified load is only judged whole, at its leaf.
-            takeFirst[depth] = canTake[depth] && (unverifiedFrom < count || fitsWith(depth));
-            branchesTried[depth] = 1;
-            if (takeFirst[depth]) take(depth, true);
-            ++depth;
-            continue;
         }
-        if (depth == 0) break;
-        --depth;
-        if (taken[depth]) {
-            take(depth, false);
-            if (unverifiedFrom == depth) unverifiedFrom = count;
-        }
-        if (branchesTried[depth] == 1 && canTake[depth]) {
-            branchesTried[depth] = 2;
-            if (!takeFirst[depth]) {
-                take(depth, true);
-                if (unverifiedFrom == count) unverifiedFrom = depth;
-            }
-            ++depth;
-            descending = true;
-        } else {
-            branchesTried[depth] = 0;
-        }
-    }
+    };
+    // Without a check nothing is refused, so the first pass is already exact.
+    bool proven = search(false);
+    if (fits) proven = search(true);
 
     KnapsackSelection selection = assemble(items, capacity, problem, bestTaken);
     selection.proven = proven;

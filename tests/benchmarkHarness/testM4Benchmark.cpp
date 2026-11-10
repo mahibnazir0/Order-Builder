@@ -978,7 +978,7 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 // 2,000,000 every 4 Aug route proves. Short lane-dates dealt on trucks that fit add a route on 5 and 6 Aug.
 TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 10 Nov"
           * doctest::skip()) {
-    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {128, 137}, {143, 153}}};
+    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {128, 137}, {144, 153}}};
     for (size_t run = 0; run < provenOfRoutes.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);

@@ -23,19 +23,21 @@
 // Rows are not monotone: a load whose rows do not fit can hold a larger one
 // whose rows do (a pinwheel short of one stack, or the sorted arrangement
 // grouping neighbours differently; Tom Moore, 10 Nov 2026: 22 unit loads
-// proven where 23 fit). So the search never cuts a branch because the rows
-// refused it. It cuts only on limits that can only grow as goods are added -
-// floor, payload, and the caller's ItemLimits - and asks the rows only of a
-// load that would beat the best so far.
+// proven where 23 fit). A truck with a check is searched twice. A fast pass
+// never grows a load the rows refused, as the knapsack always did; then an
+// exact pass, starting from the fast pass's best, cuts only on limits that can
+// only grow as goods are added - floor, payload and the caller's ItemLimits -
+// and asks the rows only of a load that would beat the best so far. The truck
+// is never worse than the fast pass alone, and proven only when the exact pass
+// finishes.
 //
 // Weights and areas are counted in whole grains, each item rounded UP and the
 // capacity DOWN, so rounding can only reject a load that would physically fit,
 // never pass one that does not (E143). Both solvers work on the same grains, so
 // they can be checked against each other exactly.
 //
-// Between selections of equal value the first reached wins. The search takes
-// each item before leaving it out, except where the rows refused the load with
-// it, so callers pass items in shipsBefore order and ties go to earlier goods.
+// Between selections of equal value, the one taking the earliest items in the
+// given order wins, so callers pass items in shipsBefore order.
 // ============================================================================
 
 #include "selectionItem.hpp"
@@ -96,7 +98,7 @@ constexpr long long kMaxGrains = 1LL << 53;
 struct KnapsackSettings {
     double weightGrainLb = 0.0;  // positive, and no larger than the lightest item
     double areaGrainSqIn = 0.0;  // positive, and no larger than the smallest item
-    long long nodeLimit = 0;     // branch-and-bound nodes before it stops with the best found
+    long long nodeLimit = 0;     // branch-and-bound nodes a pass searches before it stops with the best found
 };
 
 // The shared, integer form both solvers work on. `candidates` are the input items that fit an
@@ -126,7 +128,7 @@ struct KnapsackSelection {
     double areaUsedSqIn = 0.0;
     double weightUsedLb = 0.0;
     bool everythingFit = false;  // nothing was left: a fit, not an optimisation
-    bool proven = true;          // false when the node limit stopped the search
+    bool proven = true;          // false when the node limit stopped the exact search
     // Which limit stopped the smallest item left from fitting. None when nothing that fits an
     // empty truck was left.
     BindingLimit binding = BindingLimit::None;
