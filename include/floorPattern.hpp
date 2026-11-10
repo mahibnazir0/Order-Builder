@@ -112,6 +112,14 @@ FloorLayout arrangeFloorExact(const std::vector<FloorItem>& items, const Trailer
 FloorLayout arrangeFloorSorted(const std::vector<FloorItem>& items, const TrailerSpec& trailer,
                                const FloorPatternSettings& settings);
 
+// The least trailer length each item can be charged on any floor of these items: the shallowest
+// row the allowed patterns form with it from them, shared over the row's members (for a pinwheel,
+// a bound below that). Every row arrangeFloor builds is at least its members' shares deep, so a
+// load whose shares add up past the trailer does not fit, nor does any load holding it. Infinite
+// for an item no row fits on the trailer. Throws as arrangeFloor does.
+std::vector<double> rowLengthShares(const std::vector<FloorItem>& items, const TrailerSpec& trailer,
+                                    const FloorPatternSettings& settings);
+
 // Every row the allowed patterns form from `members` (one to four indices into items), too wide
 // for the trailer or not: what arrangeFloor chooses each row from, to explain the choice. Throws
 // as arrangeFloor does, and for no members, more than four, an index out of range or one repeated.

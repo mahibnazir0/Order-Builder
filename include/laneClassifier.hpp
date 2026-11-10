@@ -16,7 +16,8 @@
 //      selector compares trucks - and, among loads equal on every class, the
 //      fullest; what is left goes to the group whose load was dealt first. One
 //      truck allocated, or demand above the allocation, is a selection problem
-//      -> knapsack
+//      -> knapsack. The loads are estimates, not rows: where one leaves a group
+//      short, the selector deals the lane-date again on trucks that fit
 //   3. variety: unit loads per distinct product above varietyRatio (few
 //      products, many units) -> patternPacker, otherwise binPacker. Measured
 //      lanes of 1-3 products fall on the first side and of 11+ on the second;
@@ -149,6 +150,10 @@ struct TruckShares {
 };
 
 TruckShares truckSharesOf(const SelectionItem& item, const TrailerSpec& trailer);
+
+// Rule 2's test: a group given one truck, or fewer than its goods need, chooses what ships, which
+// the knapsack solves.
+bool isSelectionProblem(long long trucks, long long demandTrucks);
 
 // "knapsack", "patternPacker", ... Plain ASCII.
 const char* solveMethodName(SolveMethod method);

@@ -49,7 +49,7 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.shipDates.carryUnshippedForward);
     CHECK(params.shipDates.pullForward);
     CHECK(params.routing.pastDueOrder == PastDueOrder::AgeFirst);
-    CHECK(params.routing.varietyRatio == doctest::Approx(69.0));
+    CHECK(params.routing.varietyRatio == doctest::Approx(66.0));
     CHECK(params.selector.fillMissesPerTruck == 10);
     CHECK(params.selector.weightSpreadRoundsPerTruck == 4);
     CHECK(params.selector.patternPacker.simplexIterationLimit == 100'000);

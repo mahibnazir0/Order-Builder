@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <functional>
 #include <limits>
 #include <random>
 #include <stdexcept>
@@ -445,4 +446,103 @@ TEST_CASE("knapsack: trucksByUrgency keeps the most urgent truck first, and the 
     CHECK(trucksByUrgency(items, {{0}, {2}, {1}}) == vector<size_t>{2, 1, 0});
     CHECK(trucksByUrgency(items, {{1}, {1, 2}}) == vector<size_t>{1, 0});
     CHECK(trucksByUrgency(items, {{0}, {0}}) == vector<size_t>{0, 1});
+}
+
+namespace {
+
+// Accepts a load unless it holds exactly two goods: a check that refuses {0, 1} yet accepts {0, 1, 2}.
+const TruckLimits kNotTwo{[](const vector<size_t>& chosen) { return chosen.size() != 2; }, {}};
+
+// Every subset within floor and payload that `accepts` takes, judged on the prepared grains: the
+// oracle for a search with a check of any shape.
+KnapsackValue bruteForceValue(const vector<KnapsackItem>& items, const KnapsackSettings& settings,
+                              const function<bool(const vector<size_t>&)>& accepts) {
+    const KnapsackProblem problem = prepareKnapsack(items, kTruck, settings);
+    const size_t count = problem.candidates.size();
+    KnapsackValue best(problem.classCount + 1, 0);
+    for (size_t mask = 0; mask < (size_t{1} << count); ++mask) {
+        long long area = 0, weight = 0;
+        KnapsackValue value(problem.classCount + 1, 0);
+        vector<size_t> chosen;
+        for (size_t position = 0; position < count; ++position) {
+            if (!(mask & (size_t{1} << position))) continue;
+            chosen.push_back(problem.candidates[position]);
+            area += problem.areaGrains[position];
+            weight += problem.weightGrains[position];
+            value[problem.classOf[position]] += problem.amount[position];
+            value.back() += problem.areaGrains[position];
+        }
+        if (area > problem.areaCapacity || weight > problem.weightCapacity || !(best < value)) continue;
+        if (accepts(chosen)) best = value;
+    }
+    return best;
+}
+
+} // anonymous namespace
+
+TEST_CASE("knapsack: a load the check refuses is still grown into a larger one it accepts") {
+    const vector<KnapsackItem> items(3, load(1920, 1000));
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, kNotTwo);
+    CHECK(selection.chosen == vector<size_t>{0, 1, 2});
+    CHECK(selection.proven);
+}
+
+TEST_CASE("knapsack: with a check of any shape, a proven truck is the best load the check accepts (differential)") {
+    mt19937 random(10112026);
+    const KnapsackSettings coarse{250.0, 500.0, 5'000'000};
+    for (int trial = 0; trial < 150; ++trial) {
+        const vector<KnapsackItem> items = randomItems(random, 1 + random() % 12);
+        // A fixed random verdict per set of goods, so refusing a load says nothing of those holding it.
+        const unsigned salt = static_cast<unsigned>(random());
+        auto accepts = [salt](vector<size_t> chosen) {
+            sort(chosen.begin(), chosen.end());
+            size_t mask = 0;
+            for (const size_t index : chosen) mask |= size_t{1} << index;
+            return ((mask * 2654435761u) ^ salt) % 3 != 0;
+        };
+        const KnapsackSelection selection = selectForTruck(items, kTruck, coarse, {accepts, {}});
+        CAPTURE(trial);
+        REQUIRE(selection.proven);
+        REQUIRE((selection.chosen.empty() || accepts(selection.chosen)));
+        REQUIRE(selection.value == bruteForceValue(items, coarse, accepts));
+    }
+}
+
+TEST_CASE("knapsack: no truck is chosen over an item limit") {
+    const vector<KnapsackItem> items(10, load(1920, 1000, 2.0));
+    const TruckLimits unitLoadCap{{}, {{vector<double>(10, 2.0), 7.0}}};
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, unitLoadCap);
+    CHECK(selection.chosen.size() == 3);
+    CHECK(selection.proven);
+}
+
+TEST_CASE("knapsack: an item whose share of a limit is infinite is never chosen") {
+    const vector<KnapsackItem> items(2, load(1920, 1000));
+    const double infinity = numeric_limits<double>::infinity();
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, {{}, {{{infinity, 1.0}, 630.0}}});
+    CHECK(selection.chosen == vector<size_t>{1});
+}
+
+TEST_CASE("knapsack: limits that are not one share per item, or out of range, are rejected") {
+    const vector<KnapsackItem> items(2, load(1920, 1000));
+    const double nan = numeric_limits<double>::quiet_NaN();
+    const double infinity = numeric_limits<double>::infinity();
+    CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0}, 10.0}}}), invalid_argument);
+    for (const double bad : {nan, -1.0}) {
+        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, bad}, 10.0}}}), invalid_argument);
+    }
+    for (const double bad : {nan, infinity, -1.0}) {
+        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, 1.0}, bad}}}), invalid_argument);
+        CHECK_THROWS_AS(selectForTrucks(items, kTruck, kFine, 1, {{}, {{{1.0, 1.0}, bad}}}), invalid_argument);
+    }
+}
+
+TEST_CASE("knapsack: the next truck is chosen from the goods remaining, named as the caller's items") {
+    vector<KnapsackItem> items(4, load(40000, 1000));
+    items[3].priority = 0;
+    for (size_t index = 0; index < 3; ++index) items[index].priority = 5;
+    const KnapsackSelection next = selectNextTruck(items, {1, 3}, kTruck, kFine, kNotTwo);
+    CHECK(next.chosen == vector<size_t>{3});
+    CHECK(next.leftOver == vector<size_t>{1});
+    CHECK_THROWS_AS(selectNextTruck(items, {1, 4}, kTruck, kFine), invalid_argument);
 }

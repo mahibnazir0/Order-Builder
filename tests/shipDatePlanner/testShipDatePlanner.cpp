@@ -267,3 +267,17 @@ TEST_CASE("shipDatePlanner: a negative pull-forward limit is rejected") {
     CHECK_THROWS_AS(planShipDates(day.run, day.book, day.items, kRouting, selectorSettings(), kBothRules, -1),
                     invalid_argument);
 }
+
+TEST_CASE("shipDatePlanner: sixteen stacks for one truck ship the 32 unit loads its rows hold, not 31") {
+    const ShipDatePlan result = planned(sixteenStacksWhere32Fit(), kBothRules);
+    REQUIRE(result.plan.trucks.size() == 1);
+    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(32.0));
+    CHECK(result.plan.routes[result.plan.trucks[0].routeIndex].proven);
+}
+
+TEST_CASE("shipDatePlanner: one truck for two groups that must not mix carries the eleven that fit, not ten of twelve") {
+    const ShipDatePlan result = planned(twelveLargeBesideElevenSmall(), kBothRules);
+    REQUIRE(result.plan.trucks.size() == 1);
+    CHECK(result.plan.trucks[0].groupIndex == 1);
+    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(11.0));
+}

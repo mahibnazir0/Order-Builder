@@ -190,6 +190,8 @@ TruckShares truckSharesOf(const SelectionItem& item, const TrailerSpec& trailer)
             item.weightLb / trailer.weightLimitLb};
 }
 
+bool isSelectionProblem(long long trucks, long long demandTrucks) { return trucks <= 1 || demandTrucks > trucks; }
+
 ItemRouting routeItems(const PipelineResult& run, const ReservationBook& book, const SelectionItems& items) {
     const vector<SegregatedGroup>& groups = run.segregation.groups;
     const unordered_map<string, vector<string>> reservedDates = reservedDatesByLane(book);
@@ -300,7 +302,7 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
         } else if (route.reservedTrucks == 0) {
             route.method = SolveMethod::Unrouted;
         } else {
-            route.method = route.trucksAllocated <= 1 || route.demandAboveReservation
+            route.method = isSelectionProblem(route.trucksAllocated, route.demandTrucks)
                 ? SolveMethod::Knapsack
                 : byVariety(route.unitLoads, route.distinctProducts, settings);
             if (route.reservedTrucks > settings.m5Threshold) {

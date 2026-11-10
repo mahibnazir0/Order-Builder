@@ -10,6 +10,7 @@
 #include <exception>
 #include <iterator>
 #include <map>
+#include <numeric>
 #include <stdexcept>
 #include <thread>
 #include <tuple>
@@ -53,7 +54,7 @@ vector<char> unfittableFlags(const KnapsackProblem& problem, size_t count) {
 }
 
 MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                       const SelectorSettings& settings, int allowed, const TruckCheck& truckFits) {
+                       const SelectorSettings& settings, int allowed, const TruckLimits& truck) {
     MethodResult result;
     switch (method) {
     case PackingMethod::Knapsack:
@@ -61,7 +62,7 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, 
         KnapsackSettings knapsack = settings.knapsack;
         // One node is the greedy warm start, kept as it is.
         if (method == PackingMethod::GreedyKnapsack) knapsack.nodeLimit = 1;
-        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed, truckFits);
+        const LaneSelection lane = selectForTrucks(items, capacity, knapsack, allowed, truck);
         for (const KnapsackSelection& truck : lane.trucks) {
             if (!truck.chosen.empty()) result.trucks.push_back(truck.chosen);
         }
@@ -157,14 +158,22 @@ public:
         });
         const BindingLimit binding = bindingOf(routeIndices);
         const long long reservedTrucks = classification_.routes[routeIndices.front()].reservedTrucks;
+        vector<long long> shareOf;  // parallel to solveOrder
+        shareOf.reserve(solveOrder.size());
+        for (const size_t routeIndex : solveOrder) shareOf.push_back(classification_.routes[routeIndex].trucksAllocated);
+        dealByBestTruck(solveOrder, reservedTrucks, shareOf);
         long long spare = reservedTrucks;
-        for (const size_t routeIndex : routeIndices) spare -= classification_.routes[routeIndex].trucksAllocated;
+        for (const long long share : shareOf) spare -= share;
         bool escalated = false;
         long long built = 0;
         vector<RouteSolution> solutions;  // parallel to solveOrder
         solutions.reserve(solveOrder.size());
-        for (const size_t routeIndex : solveOrder) {
+        vector<SolveMethod> methodOf;     // parallel to solveOrder: the method each group was solved by
+        methodOf.reserve(solveOrder.size());
+        for (size_t position = 0; position < solveOrder.size(); ++position) {
+            const size_t routeIndex = solveOrder[position];
             const LaneRoute& route = classification_.routes[routeIndex];
+            methodOf.push_back(route.method);
             RouteSolution solution;
             RouteOutcome& outcome = solution.outcome;
             outcome.routeIndex = routeIndex;
@@ -185,15 +194,17 @@ public:
                 spare = outcome.trucksAllowed;
                 break;
             default:
-                outcome.trucksAllowed = route.trucksAllocated + spare;
-                solveGroup(route, methodChain(route.method), solution);
+                outcome.trucksAllowed = shareOf[position] + spare;
+                // Dealt fewer trucks than the classifier estimated, a group may now have to choose.
+                if (isSelectionProblem(outcome.trucksAllowed, route.demandTrucks)) methodOf.back() = SolveMethod::Knapsack;
+                solveGroup(route, methodChain(methodOf.back()), solution);
                 spare = outcome.trucksAllowed - outcome.trucksBuilt;
                 break;
             }
             built += outcome.trucksBuilt;
             solutions.push_back(std::move(solution));
         }
-        if (!escalated) giveUnbuiltToUrgent(solveOrder, reservedTrucks - built, solutions);
+        if (!escalated) giveUnbuiltToUrgent(solveOrder, methodOf, reservedTrucks - built, solutions);
 
         BundleResult bundle;
         bundle.escalated = escalated;
@@ -265,7 +276,7 @@ private:
     // urgent group with overflow, re-solved allowed its own trucks plus those,
     // so the lane-date never builds more than it reserved. A group that cannot use them builds
     // no more with fewer, so each is tried once.
-    void giveUnbuiltToUrgent(const vector<size_t>& solveOrder, long long unbuilt,
+    void giveUnbuiltToUrgent(const vector<size_t>& solveOrder, const vector<SolveMethod>& methodOf, long long unbuilt,
                              vector<RouteSolution>& solutions) const {
         for (size_t position = 0; position < solveOrder.size() && unbuilt > 0; ++position) {
             RouteSolution& current = solutions[position];
@@ -276,31 +287,153 @@ private:
             resolved.outcome.routeIndex = solveOrder[position];
             resolved.outcome.binding = current.outcome.binding;
             resolved.outcome.trucksAllowed = current.outcome.trucksBuilt + unbuilt;
-            solveGroup(route, methodChain(route.method), resolved);
+            solveGroup(route, methodChain(methodOf[position]), resolved);
             if (resolved.outcome.trucksBuilt <= current.outcome.trucksBuilt) continue;
             unbuilt -= resolved.outcome.trucksBuilt - current.outcome.trucksBuilt;
             current = std::move(resolved);
         }
     }
 
-    void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteSolution& solution) const {
-        RouteOutcome& outcome = solution.outcome;
+    // Rule 2 dealt on trucks that fit. Where some group's goods need more trucks than the
+    // classifier's estimate gave it, that estimate decides whose goods stay behind, and floor area
+    // is not rows: twelve 60 x 60 stacks estimated as one truckload took the one truck from eleven
+    // 48 x 40, though only ten stand in its rows (Tom Moore, 10 Nov 2026). So the lane-date's
+    // trucks go one at a time to the group whose best feasible next truck - the knapsack's, on its
+    // rows and the unit-load cap - ships most of the lane-date's most urgent goods, class by class,
+    // then covers most floor; equal trucks go to the group solved first. `shareOf` is left as the
+    // classifier dealt it when no group is short, or when a truck cannot be searched.
+    void dealByBestTruck(const vector<size_t>& solveOrder, long long reservedTrucks, vector<long long>& shareOf) const {
+        vector<size_t> sharing;  // positions in solveOrder of the groups with goods to solve
+        bool someGroupShort = false;
+        for (size_t position = 0; position < solveOrder.size(); ++position) {
+            const LaneRoute& route = classification_.routes[solveOrder[position]];
+            const bool solvable = route.method == SolveMethod::Knapsack || route.method == SolveMethod::PatternPacker
+                                  || route.method == SolveMethod::BinPacker;
+            if (!solvable || route.itemIndices.empty()) continue;
+            sharing.push_back(position);
+            someGroupShort = someGroupShort || route.demandAboveReservation;
+        }
+        if (sharing.size() < 2 || !someGroupShort) return;
+
+        using UrgencyClass = tuple<string, int, string>;  // rank date, priority, ship date
+        auto classOf = [](const KnapsackItem& item) {
+            return UrgencyClass{item.rankDate.empty() ? item.shipDate : item.rankDate, item.priority, item.shipDate};
+        };
+        const size_t groups = sharing.size();
+        // Sized once and never resized: each group's check holds references into its own entries.
+        vector<vector<KnapsackItem>> itemsOf(groups);
+        vector<map<vector<size_t>, bool>> rowsFitOf(groups);
+        vector<UrgencyClass> classes;
+        for (size_t group = 0; group < groups; ++group) {
+            itemsOf[group] = knapsackItemsOf(classification_.routes[solveOrder[sharing[group]]]);
+            for (const KnapsackItem& item : itemsOf[group]) classes.push_back(classOf(item));
+        }
+        sort(classes.begin(), classes.end());
+        classes.erase(unique(classes.begin(), classes.end()), classes.end());
+        // Unit loads per class of the lane-date, most urgent first, then floor covered, in thousandths.
+        auto valueOf = [&](size_t group, const KnapsackSelection& truck) {
+            vector<long long> value(classes.size() + 1, 0);
+            for (const size_t index : truck.chosen) {
+                const KnapsackItem& item = itemsOf[group][index];
+                const auto found = lower_bound(classes.begin(), classes.end(), classOf(item));
+                value[static_cast<size_t>(found - classes.begin())] += llround(item.unitLoads * 1000.0);
+                value.back() += llround(item.areaSqIn * 1000.0);
+            }
+            return value;
+        };
+
+        vector<long long> dealt(groups, 0);
+        try {
+            vector<TruckLimits> truckOf;
+            truckOf.reserve(groups);
+            vector<vector<size_t>> remainingOf(groups);
+            vector<KnapsackSelection> nextOf(groups);
+            auto searchNext = [&](size_t group) {
+                const vector<size_t>& remaining = remainingOf[group];
+                nextOf[group] = remaining.empty() ? KnapsackSelection()
+                                                  : selectNextTruck(itemsOf[group], remaining, capacity_,
+                                                                    settings_.knapsack, truckOf[group]);
+            };
+            for (size_t group = 0; group < groups; ++group) {
+                truckOf.push_back(truckLimits(classification_.routes[solveOrder[sharing[group]]], itemsOf[group],
+                                              rowsFitOf[group]));
+                remainingOf[group].resize(itemsOf[group].size());
+                iota(remainingOf[group].begin(), remainingOf[group].end(), size_t{0});
+                searchNext(group);
+            }
+            for (long long truck = 0; truck < reservedTrucks; ++truck) {
+                optional<size_t> winner;
+                vector<long long> winnerValue;
+                for (size_t group = 0; group < groups; ++group) {
+                    if (nextOf[group].chosen.empty()) continue;
+                    vector<long long> value = valueOf(group, nextOf[group]);
+                    if (!winner || winnerValue < value) {
+                        winner = group;
+                        winnerValue = std::move(value);
+                    }
+                }
+                if (!winner) break;
+                ++dealt[*winner];
+                remainingOf[*winner] = nextOf[*winner].leftOver;
+                searchNext(*winner);
+            }
+        } catch (const exception&) {
+            // The group's methods meet the same failure and record it; the estimate stands.
+            return;
+        }
+        fill(shareOf.begin(), shareOf.end(), 0);
+        for (size_t group = 0; group < groups; ++group) shareOf[sharing[group]] = dealt[group];
+    }
+
+    vector<KnapsackItem> knapsackItemsOf(const LaneRoute& route) const {
         vector<KnapsackItem> items;
         items.reserve(route.itemIndices.size());
         for (const size_t index : route.itemIndices) {
             items.push_back(knapsackItemFrom(items_.items[index]));
             items.back().rankDate = rankDateOf(items.back().shipDate, route.shipDate, classification_.pastDueOrder);
         }
+        return items;
+    }
+
+    // One truck of the route as the knapsack judges it: rows and the unit-load cap on a whole load,
+    // and the limits it may cut on - the cap, each stack's least share of the trailer length, and
+    // the positions cap when the customer has one.
+    TruckLimits truckLimits(const LaneRoute& route, const vector<KnapsackItem>& items,
+                            map<vector<size_t>, bool>& rowsFitByFloorTypes) const {
+        TruckLimits truck;
+        truck.fits = truckCheck(route, items, rowsFitByFloorTypes);
+        ItemLimit unitLoads{{}, settings_.maxUnitLoadsPerTruck};
+        unitLoads.perItem.reserve(items.size());
+        vector<FloorItem> floorItems;
+        floorItems.reserve(items.size());
+        for (size_t position = 0; position < items.size(); ++position) {
+            unitLoads.perItem.push_back(items[position].unitLoads);
+            floorItems.push_back(floorItemFrom(items_.items[route.itemIndices[position]]));
+        }
+        truck.limits.push_back(std::move(unitLoads));
+        truck.limits.push_back({rowLengthShares(floorItems, run_.trailer, settings_.floor), run_.trailer.interiorLengthIn});
+        if (settings_.floor.maxPositions) {
+            truck.limits.push_back({vector<double>(items.size(), 1.0), static_cast<double>(*settings_.floor.maxPositions)});
+        }
+        return truck;
+    }
+
+    void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteSolution& solution) const {
+        RouteOutcome& outcome = solution.outcome;
+        const vector<KnapsackItem> items = knapsackItemsOf(route);
         const int allowed = static_cast<int>(max(0LL, outcome.trucksAllowed));
 
         map<vector<size_t>, bool> rowsFitByFloorTypes;
-        const TruckCheck truckFits = truckCheck(route, items, rowsFitByFloorTypes);
+        optional<TruckLimits> truck;
         optional<MethodResult> kept;
         for (size_t step = 0; step < chain.size() && !kept; ++step) {
             const double start = clock_();
             try {
                 if (settings_.beforeMethod) settings_.beforeMethod(outcome.routeIndex, chain[step]);
-                MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed, truckFits);
+                const bool usesRows = chain[step] == PackingMethod::Knapsack || chain[step] == PackingMethod::GreedyKnapsack;
+                if (usesRows && !truck) truck = truckLimits(route, items, rowsFitByFloorTypes);
+                MethodResult result =
+                    runMethod(chain[step], items, capacity_, settings_, allowed, usesRows ? *truck : TruckLimits());
                 const double seconds = clock_() - start;
                 // Elapsed time never picks the method: a slower machine would then plan the same
                 // input differently. An overrun keeps the result and flags the route instead.

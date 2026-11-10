@@ -589,18 +589,6 @@ TEST_CASE("selector: priority first, goods pulled forward from a later date stil
     CHECK(shippedAtPriority(day, selection, 0) == doctest::Approx(0.0));
 }
 
-// `levels` unit loads of 35 in stacked, so three stand under the 108 in ceiling.
-SelectionItem stackOf(size_t lineIndex, double longSide, double shortSide, int levels, double weightLb,
-                      const string& productNumber = "") {
-    SelectionItem built = item(0, lineIndex, weightLb, 0, longSide, shortSide);
-    built.lineIndices.assign(static_cast<size_t>(levels), lineIndex);
-    built.unitLoads = levels;
-    built.heightIn = 35.0 * levels;
-    built.cubeCubicIn = longSide * shortSide * built.heightIn;
-    built.productNumber = productNumber;
-    return built;
-}
-
 TEST_CASE("selector: twenty large and twenty small stacks on one truck: the 25 its rows hold ship, proven") {
     // By floor area 27 of these fit; the rows hold 20 of 52 x 40 and 5 of 60 x 48, in 628 in.
     // Choosing on floor area and trimming to the rows after loaded 24.
@@ -909,3 +897,44 @@ TEST_CASE("selector: a unit-load cap that is not positive and finite is rejected
 }
 
 
+
+TEST_CASE("selector: sixteen stacks on one truck: the 32 unit loads its rows hold ship, proven, not 31") {
+    const Day day = sixteenStacksWhere32Fit();
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(32.0));
+    CHECK(selection.routes[0].methodUsed == PackingMethod::Knapsack);
+    CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: one truck for two groups that must not mix carries the eleven 48 x 40 that fit, not ten 60 x 60") {
+    const Day day = twelveLargeBesideElevenSmall();
+    const size_t large = routeOfGroup(day, 0);
+    REQUIRE(day.classification.routes[large].trucksAllocated == 1);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].groupIndex == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(11.0));
+    CHECK(selection.routes[large].trucksAllowed == 0);
+    CHECK(countReason(selection, LeftOverReason::OverReservation) == 12);
+}
+
+TEST_CASE("selector: a group estimated at both trucks keeps one, by knapsack, when the other group's truck ships more") {
+    // 34 stacks of 60 x 60 are two truckloads of 17 by floor area, though ten stand in a truck's rows.
+    vector<SelectionItem> items(34, item(0, 0, 1000.0, 0, 60.0, 60.0));
+    items.insert(items.end(), 15, item(1, 1, 1000.0, 0, 48.0, 40.0));
+    const Day day = dayOf({group("2028"), group("2028", SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 2)});
+    const size_t large = routeOfGroup(day, 0), small = routeOfGroup(day, 1);
+    REQUIRE(day.classification.routes[large].trucksAllocated == 2);
+    REQUIRE(day.classification.routes[large].method == SolveMethod::PatternPacker);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    CHECK(selection.routes[small].trucksBuilt == 1);
+    CHECK(selection.routes[large].trucksBuilt == 1);
+    CHECK(selection.routes[large].methodUsed == PackingMethod::Knapsack);
+    double shipped = 0.0;
+    for (const PlannedTruck& truck : selection.trucks) shipped += truck.unitLoads;
+    CHECK(shipped == doctest::Approx(25.0));
+}

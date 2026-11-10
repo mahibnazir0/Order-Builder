@@ -15,18 +15,27 @@
 // Capacity is floor area and weight. Each item's height is checked against the
 // ceiling on its own; with every item under it, cube is bounded by floor area
 // and needs no constraint of its own. Floor area is a necessary condition, not
-// an arrangement, so the caller may pass a TruckCheck - the selector passes the
+// an arrangement, so the caller may pass TruckLimits - the selector passes the
 // truck's rows and its unit-load cap - and the search then chooses only loads
-// it accepts. A proof is then a proof of the load the truck carries, not of a
+// they accept. A proof is then a proof of the load the truck carries, not of a
 // load some later step must trim.
+//
+// Rows are not monotone: a load whose rows do not fit can hold a larger one
+// whose rows do (a pinwheel short of one stack, or the sorted arrangement
+// grouping neighbours differently; Tom Moore, 10 Nov 2026: 22 unit loads
+// proven where 23 fit). So the search never cuts a branch because the rows
+// refused it. It cuts only on limits that can only grow as goods are added -
+// floor, payload, and the caller's ItemLimits - and asks the rows only of a
+// load that would beat the best so far.
 //
 // Weights and areas are counted in whole grains, each item rounded UP and the
 // capacity DOWN, so rounding can only reject a load that would physically fit,
 // never pass one that does not (E143). Both solvers work on the same grains, so
 // they can be checked against each other exactly.
 //
-// Between selections of equal value, the one taking the earliest items in the
-// given order wins, so callers pass items in shipsBefore order.
+// Between selections of equal value the first reached wins. The search takes
+// each item before leaving it out, except where the rows refused the load with
+// it, so callers pass items in shipsBefore order and ties go to earlier goods.
 // ============================================================================
 
 #include "selectionItem.hpp"
@@ -136,15 +145,30 @@ KnapsackProblem prepareKnapsack(const std::vector<KnapsackItem>& items,
                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings);
 
 // A limit on one truck beyond floor area and weight, judged on the goods chosen for it (indices
-// into the caller's items, in no particular order). The search never adds to a load the check
-// refuses, so the check must refuse every load that holds one it refuses, as rows that do not fit
-// do not fit with more goods on the floor. Empty accepts every load.
+// into the caller's items, in no particular order). It may refuse a load and accept a larger one.
 using TruckCheck = std::function<bool(const std::vector<std::size_t>& chosen)>;
 
-// Branch and bound: the method the selector runs. Exact over the loads `fits` accepts.
+// A capacity each item takes a fixed share of, so a load over it stays over it with more goods:
+// the unit-load cap, or a lower bound on the trailer length an item's row gives it.
+struct ItemLimit {
+    std::vector<double> perItem;  // parallel to the items; not negative or NaN; infinite never fits
+    double capacity = 0.0;        // finite and not negative
+};
+
+// What one truck may carry beyond floor area and weight. Every load `fits` accepts must be within
+// every limit: the search cuts on the limits and asks `fits` of whole loads only. Empty accepts
+// every load.
+struct TruckLimits {
+    TruckCheck fits;
+    std::vector<ItemLimit> limits;
+};
+
+// Branch and bound: the method the selector runs. Exact over the loads `truck` accepts. Throws
+// std::invalid_argument, as prepareKnapsack does, and for a limit not one share per item or with
+// a share or capacity out of range.
 KnapsackSelection selectForTruck(const std::vector<KnapsackItem>& items,
                                  const KnapsackCapacity& capacity, const KnapsackSettings& settings,
-                                 const TruckCheck& fits = TruckCheck());
+                                 const TruckLimits& truck = TruckLimits());
 
 // Dynamic programming over a table of floor and weight grains. Exact, but its table grows with
 // the capacity in grains, so it is for cross-checking selectForTruck in tests; no run calls it.
@@ -163,11 +187,19 @@ struct LaneSelection {
     bool proven = true;                    // every truck's search finished
 };
 
-// Fills `trucks` trucks one after another, each exactly by selectForTruck from what the trucks
-// before it left, every one judged by `fits`. Exact per truck, not across them.
+// The best truck selectForTruck fills from the items at `remaining` (distinct indices into
+// `items`), judged by `truck`, whose checks and shares index `items`. Its chosen and left-over
+// indices are into `items`; left over holds only the remaining. Throws as selectForTruck does,
+// and for an index out of range.
+KnapsackSelection selectNextTruck(const std::vector<KnapsackItem>& items, const std::vector<std::size_t>& remaining,
+                                  const KnapsackCapacity& capacity, const KnapsackSettings& settings,
+                                  const TruckLimits& truck = TruckLimits());
+
+// Fills `trucks` trucks one after another, each by selectNextTruck from what the trucks before it
+// left, every one judged by `truck`. Exact per truck, not across them.
 LaneSelection selectForTrucks(const std::vector<KnapsackItem>& items,
                               const KnapsackCapacity& capacity, const KnapsackSettings& settings,
-                              int trucks, const TruckCheck& fits = TruckCheck());
+                              int trucks, const TruckLimits& truck = TruckLimits());
 
 const char* bindingLimitName(BindingLimit limit);
 

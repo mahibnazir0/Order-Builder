@@ -7,10 +7,14 @@
 // Work is done per lane and ship date: the groups of a lane split by
 // segregation share that date's reservation. Each is allowed the share the
 // classifier allocated it by urgency, plus what the more urgent groups solved
-// before it left unbuilt. The allocation is an estimate, so trucks the
-// lane-date still has unbuilt afterwards go to its most urgent group with goods
-// left over a full truck, re-solved. Groups never share
-// a truck, however much room is left. Lane-dates are independent, so they run
+// before it left unbuilt. The allocation is an estimate on floor area and
+// payload, so where it leaves some group's goods needing more trucks than it
+// was given, the lane-date's trucks are dealt again, one at a time, to the group
+// whose best next truck that fits its rows and the unit-load cap ships most of
+// the most urgent goods, then covers most floor; a group left fewer trucks than
+// its goods need is solved by the knapsack. Trucks the lane-date still has
+// unbuilt afterwards go to its most urgent group with goods left over a full
+// truck, re-solved. Groups never share a truck, however much room is left. Lane-dates are independent, so they run
 // on worker threads, and results are kept by position: the plan is the same at
 // any thread count.
 //

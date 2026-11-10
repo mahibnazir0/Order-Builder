@@ -23,7 +23,7 @@
     "pullForward": true,
     "pastDueOrder": "AgeFirst",
     "m5Threshold": 20,
-    "varietyRatio": 69,
+    "varietyRatio": 66,
     "knapsack": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "nodeLimit": 200000 },
     "patternPacker": { "weightGrainLb": 0.001, "areaGrainSqIn": 0.001, "maxPatterns": 200,
                        "pricingNodeLimit": 200000, "simplexIterationLimit": 100000 },

@@ -21,7 +21,7 @@ namespace m4AugustTests {
 // varietyRatio as config/orderBuilderParams.json ships them.
 inline constexpr long long kShippedMaxDaysPulledForward = 10;
 inline constexpr ob::ShipDateRules kShippedShipDateRules{true, true};
-inline const ob::LaneClassifierSettings kShippedRouting{20, 69.0};
+inline const ob::LaneClassifierSettings kShippedRouting{20, 66.0};
 
 struct AugustRunFiles {
     std::string demandPath;

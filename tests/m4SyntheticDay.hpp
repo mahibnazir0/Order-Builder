@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -82,6 +83,18 @@ inline ob::SelectionItem item(std::size_t groupIndex, std::size_t lineIndex, dou
     return built;
 }
 
+// `levels` unit loads of 35 in stacked, so three stand under the 108 in ceiling.
+inline ob::SelectionItem stackOf(std::size_t lineIndex, double longSide, double shortSide, int levels, double weightLb,
+                                 const std::string& productNumber = "") {
+    ob::SelectionItem built = item(0, lineIndex, weightLb, 0, longSide, shortSide);
+    built.lineIndices.assign(static_cast<std::size_t>(levels), lineIndex);
+    built.unitLoads = levels;
+    built.heightIn = 35.0 * levels;
+    built.cubeCubicIn = longSide * shortSide * built.heightIn;
+    built.productNumber = productNumber;
+    return built;
+}
+
 inline ob::PlaceholderRecord reserved(const std::string& origin, int trucks, const std::string& shipDate = "2026-08-06") {
     ob::PlaceholderRecord record;
     record.locfrno = origin;
@@ -130,6 +143,32 @@ inline Day dayOf(std::vector<ob::SegregatedGroup> groups, std::size_t products, 
 
 inline ob::SelectionPlan plan(const Day& day, const ob::SelectorSettings& settings = selectorSettings()) {
     return ob::selectLoads(day.run, day.book, day.items, day.classification, settings);
+}
+
+// Sixteen stacks for one truck, all due the same day at the same priority: 34 unit loads, of which 32
+// stand in its rows, in 626 in. A search that dropped a stack whenever the rows refused the load with
+// it proved 31: the rows refuse loads that a larger one holding them fits.
+inline Day sixteenStacksWhere32Fit() {
+    const std::vector<std::tuple<double, double, int>> stacks{
+        {56, 52, 1}, {96, 40, 3}, {58, 54, 3}, {60, 52, 3}, {80, 40, 2}, {80, 40, 1}, {120, 48, 2}, {120, 48, 2},
+        {60, 52, 3}, {80, 40, 1}, {56, 52, 2}, {72, 48, 2}, {58, 54, 2}, {60, 60, 3}, {56, 52, 3}, {48, 40, 1}};
+    std::vector<ob::SelectionItem> items;
+    for (std::size_t index = 0; index < stacks.size(); ++index) {
+        const auto& [longSide, shortSide, levels] = stacks[index];
+        // Zero-padded, so the products sort in the order listed.
+        const std::string product = (index < 10 ? "P0" : "P") + std::to_string(index);
+        items.push_back(stackOf(index, longSide, shortSide, levels, 1000.0 * levels, product));
+    }
+    return dayOf({group("2027")}, stacks.size(), items, {reserved("2027", 1)});
+}
+
+// One truck for two groups that must not mix, every good due the same day at priority 0: twelve
+// 60 x 60 stacks, of which ten stand in its rows, and eleven 48 x 40, which all do (Tom Moore,
+// 10 Nov 2026). By floor area the twelve are the larger truckload.
+inline Day twelveLargeBesideElevenSmall() {
+    std::vector<ob::SelectionItem> items(12, item(0, 0, 1000.0, 0, 60.0, 60.0));
+    items.insert(items.end(), 11, item(1, 1, 1000.0, 0, 48.0, 40.0));
+    return dayOf({group("2028"), group("2028", ob::SplitReason::DoNotMix, "S01")}, 2, items, {reserved("2028", 1)});
 }
 
 inline std::vector<ob::SelectionItem> repeated(std::size_t count, std::size_t groupIndex, std::size_t lineIndex, double weightLb = 1000.0) {

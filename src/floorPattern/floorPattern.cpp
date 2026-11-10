@@ -6,9 +6,11 @@
 #include <bitset>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 
 using namespace std;
 
@@ -88,6 +90,10 @@ public:
         vector<FloorRow> rows;
         forEachCandidate(members, [&](const RowShape& shape) { rows.push_back(rowOf(shape)); });
         return rows;
+    }
+
+    bool allowsPinwheel() const {
+        return allows(FloorPatternKind::Pinwheel, true) && allows(FloorPatternKind::Pinwheel, false);
     }
 
 private:
@@ -467,6 +473,90 @@ FloorLayout arrangeFloor(const vector<FloorItem>& items, const TrailerSpec& trai
     }
     return placeableCount <= kExactFloorItems ? arrangeFloorExact(items, trailer, settings)
                                               : arrangeFloorSorted(items, trailer, settings);
+}
+
+vector<double> rowLengthShares(const vector<FloorItem>& items, const TrailerSpec& trailer,
+                               const FloorPatternSettings& settings) {
+    validate(items, trailer, settings);
+    // Depth depends on footprint alone, so each footprint is tried once, with as many copies of it
+    // as the items hold, up to three, to stand beside itself in a row.
+    vector<pair<double, double>> footprints;
+    footprints.reserve(items.size());
+    for (const FloorItem& item : items) footprints.emplace_back(item.longSideIn, item.shortSideIn);
+    sort(footprints.begin(), footprints.end());
+    constexpr size_t kMostCopies = 3;
+    vector<size_t> copiesOf;
+    vector<FloorItem> copies;
+    for (size_t start = 0; start < footprints.size();) {
+        size_t end = start;
+        while (end < footprints.size() && footprints[end] == footprints[start]) ++end;
+        copiesOf.push_back(min(end - start, kMostCopies));
+        copies.insert(copies.end(), kMostCopies, FloorItem{footprints[start].first, footprints[start].second, 0.0, 1, 0.0});
+        start = end;
+    }
+    footprints.erase(unique(footprints.begin(), footprints.end()), footprints.end());
+    const RowBuilder rows(copies, trailer.interiorWidthIn, settings);
+    auto copyOf = [&](size_t footprint, size_t copy) { return footprint * kMostCopies + copy; };
+    // The shallowest row of these footprints, or infinite when the items hold too few of one, or
+    // no allowed pattern holds them.
+    vector<size_t> members;
+    members.reserve(kMostCopies);
+    auto depthOf = [&](initializer_list<size_t> footprintsInRow) {
+        members.clear();
+        for (auto footprint = footprintsInRow.begin(); footprint != footprintsInRow.end(); ++footprint) {
+            const size_t copy = static_cast<size_t>(count(footprintsInRow.begin(), footprint, *footprint));
+            if (copy >= copiesOf[*footprint]) return numeric_limits<double>::infinity();
+            members.push_back(copyOf(*footprint, copy));
+        }
+        const optional<FloorRow> row = rows.best(members);
+        return row ? row->depthIn : numeric_limits<double>::infinity();
+    };
+
+    const size_t footprintCount = footprints.size();
+    vector<char> placeableFootprint(footprintCount, 0);
+    double smallestLongSide = numeric_limits<double>::infinity();
+    double smallestShortSide = numeric_limits<double>::infinity();
+    for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+        placeableFootprint[footprint] = placeable(copyOf(footprint, 0), rows, trailer) ? 1 : 0;
+        if (!placeableFootprint[footprint]) continue;
+        smallestLongSide = min(smallestLongSide, footprints[footprint].first);
+        smallestShortSide = min(smallestShortSide, footprints[footprint].second);
+    }
+
+    vector<double> shareOf(footprintCount, numeric_limits<double>::infinity());
+    for (size_t first = 0; first < footprintCount; ++first) {
+        if (!placeableFootprint[first]) continue;
+        double share = depthOf({first});
+        for (size_t second = 0; second < footprintCount; ++second) {
+            if (!placeableFootprint[second]) continue;
+            share = min(share, depthOf({first, second}) / 2.0);
+            for (size_t third = second; third < footprintCount; ++third) {
+                if (!placeableFootprint[third]) continue;
+                share = min(share, depthOf({first, second, third}) / 3.0);
+            }
+        }
+        // A pinwheel's depth is at least the column the item stands in: long side across, its
+        // short side behind or in front of a turned item's long side; turned, its long side and an
+        // unturned item's short side. The other three are bounded by the smallest sides placed.
+        if (rows.allowsPinwheel() && items.size() >= 4) {
+            const double longSide = footprints[first].first, shortSide = footprints[first].second;
+            if (fitsWithin(longSide + smallestShortSide, trailer.interiorWidthIn)) {
+                share = min(share, (shortSide + smallestLongSide) / 4.0);
+            }
+            if (fitsWithin(shortSide + smallestLongSide, trailer.interiorWidthIn)) {
+                share = min(share, (longSide + smallestShortSide) / 4.0);
+            }
+        }
+        shareOf[first] = share;
+    }
+
+    vector<double> shares;
+    shares.reserve(items.size());
+    for (const FloorItem& item : items) {
+        const auto found = lower_bound(footprints.begin(), footprints.end(), make_pair(item.longSideIn, item.shortSideIn));
+        shares.push_back(shareOf[static_cast<size_t>(found - footprints.begin())]);
+    }
+    return shares;
 }
 
 vector<FloorRow> candidateRows(const vector<FloorItem>& items, const vector<size_t>& members,

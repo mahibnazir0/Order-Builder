@@ -972,10 +972,13 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 // group's part-filled truck was topped up with its own later goods first.
 // M4 is judged on every one-truck lane solved exactly. Since 5 Nov 2026 the knapsack proves a truck on
 // its rows and the unit-load cap, not floor area alone; the rest stop at the node limit and are
-// listed as provisional. Pinned as measured, so a change that proves fewer fails by name.
-TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 5 Nov"
+// listed as provisional. Pinned as measured, so a change that proves fewer fails by name. Re-pinned
+// on 10 Nov 2026 (80/81, 130/136, 145/152 before): the search no longer skips the loads holding one
+// the rows refused, and on a few more routes covering them takes more than 200,000 nodes; at
+// 2,000,000 every 4 Aug route proves. Short lane-dates dealt on trucks that fit add a route on 5 and 6 Aug.
+TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 10 Nov"
           * doctest::skip()) {
-    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{80, 81}, {130, 136}, {145, 152}}};
+    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {128, 137}, {143, 153}}};
     for (size_t run = 0; run < provenOfRoutes.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -1109,7 +1112,9 @@ TEST_CASE("m4Benchmark: on the August routes the methods are ranked and the rout
     // under the ship-date rules, the packers differ on 7 August routes and a split at 101 unit
     // loads per product misroutes 2 of them: the shipped varietyRatio was that split. On 5 Nov 2026,
     // with each lane-date's trucks dealt on whole-load urgency, 101 misrouted 3 and any split from
-    // 14.25 to below 69.5 misroutes 2: the shipped 69 is the highest, moving the fewest routes.
+    // 14.25 to below 69.5 misrouted 2: the shipped 69 was the highest, moving the fewest routes. On
+    // 10 Nov 2026, with short lane-dates dealt on trucks that fit, a 6 Aug route at 67 joined the 7
+    // and 69 misrouted 3; any split from 14.25 to below 67 misroutes 2, and the shipped 66 is the highest.
     const LaneClassifierSettings shipped = loadSelectionParams(crossDayTests::kStrictParamsPath).routing;
     const optional<VarietyCrossover> crossover = varietyCrossover(benchmarks);
     REQUIRE(crossover);

@@ -128,11 +128,13 @@ trucks and checks the result. Every setting comes from the params file's `select
 a missing or out-of-range one stops the run naming it (exit 2). `m5Threshold` and
 `varietyRatio` are provisional until the benchmark settles them, and
 `priorityZeroIsMostUrgent` (which end of TPRIO ships first) until the customer confirms it;
-the report prints all three under its provisional business rules. `varietyRatio` is 69, set
+the report prints all three under its provisional business rules. `varietyRatio` is 66, set
 by the August benchmark: patternPacker and binPacker differ on only 7 August routes, by at most
-2 unit loads, and any split from 14.25 to below 69.5 unit loads per product sends 2 of them to
-the method that ranked lower (101, the split before 5 Nov 2026, now sends 3). 69 is the highest
-such split, so it moves the fewest routes.
+2 unit loads, and any split from 14.25 to below 67 unit loads per product sends 2 of them to
+the method that ranked lower. 66 is the highest such split, so it moves the fewest routes. It
+was 69 from 5 Nov 2026 until shared reservations were dealt on trucks that fit (10 Nov), which
+changed the goods on one 6 Aug route: at 67 unit loads per product patternPacker leaves 1 in less
+at its trucks' rears, and 69 sent it to binPacker.
 
 **Ship dates.** A good's own ship date is its DATFR_TA, but two settings, each confirmed by the
 client, let it ship on another reserved date of its lane:
@@ -157,9 +159,22 @@ today's urgent goods can go ahead of older, less urgent ones. Goods pulled forwa
 both either way. The reservation is dealt to groups, and each truck chosen, on the same order.
 
 **Proofs.** The knapsack chooses each truck on its rows and the 64 unit-load cap as well as its
-floor area and payload, so a route it reports proven carries the best load those allow.
-patternPacker and binPacker prove their trucks on floor area and payload; when the rows or the
-cap then leave goods off them, their route is reported unproven and the run provisional (exit 8).
+floor area and payload, so a route it reports proven carries the best load those allow. Rows
+are not monotone - a load whose rows do not fit can sit inside a larger one whose rows do - so
+the search never drops a branch because the rows refused it. It cuts only on floor area, payload,
+the cap and a lower bound on each stack's share of the trailer length, none of which can shrink as
+goods are added, and asks the rows only about a load that would beat the best found (10 Nov 2026).
+The rows themselves are floorPattern's: an exact search up to 10 stacks, the sorted arrangement
+above that. patternPacker and binPacker prove their trucks on floor area and payload; when the rows
+or the cap then leave goods off them, their route is reported unproven and the run provisional
+(exit 8).
+
+**Shared reservations.** Groups of one lane that must not mix share its reservation. The
+classifier deals it out on estimated truckloads (floor area and payload). Where that leaves a
+group's goods needing more trucks than it was given, the selector deals the lane-date's trucks
+again, one at a time, to the group whose best truck that actually fits its rows and the cap ships
+most of the most urgent goods, then covers most floor (10 Nov 2026). A group that ends with fewer
+trucks than its goods need is solved by the knapsack.
 
 With either on, `shipDatePlanner` plans the window one date at a time, earliest first, so a
 date gets exactly the goods its earlier dates left. Each good still ends once, on a truck or

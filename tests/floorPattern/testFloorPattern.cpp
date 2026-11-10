@@ -429,3 +429,66 @@ TEST_CASE("floorPattern: real August loads keep every invariant"
         checkLayoutInvariants(layout, truck.size());
     }
 }
+
+TEST_CASE("floorPattern: two 48 x 40 stand wide-wide in 40 in, so each is charged 20 in") {
+    const vector<double> shares = rowLengthShares(copies(footprint(48.0, 40.0), 5), kTrailer, defaultSettings());
+    for (const double share : shares) CHECK(share == doctest::Approx(20.0));
+}
+
+TEST_CASE("floorPattern: a 60 x 60 shares no row, so it is charged its own 60 in") {
+    const vector<double> shares = rowLengthShares(copies(footprint(60.0, 60.0), 3), kTrailer, defaultSettings());
+    for (const double share : shares) CHECK(share == doctest::Approx(60.0));
+}
+
+TEST_CASE("floorPattern: four 52 x 44 interlock in a 96 in pinwheel, so each is charged 24 in") {
+    const vector<double> shares = rowLengthShares(copies(footprint(52.0, 44.0), 4), kTrailer, defaultSettings());
+    for (const double share : shares) CHECK(share == doctest::Approx(24.0));
+}
+
+TEST_CASE("floorPattern: an item no row fits on the trailer is charged an infinite length") {
+    const vector<double> shares =
+        rowLengthShares({footprint(700.0, 90.0), footprint(48.0, 40.0)}, kTrailer, defaultSettings());
+    CHECK(isinf(shares[0]));
+    CHECK(shares[1] == doctest::Approx(40.0));
+}
+
+TEST_CASE("floorPattern: without turning, a stack is charged only what its fixed rows give it") {
+    FloorPatternSettings fixed = defaultSettings();
+    fixed.allowRotation = false;
+    // Long side across, two 52 x 44 are 104 in wide, so each stands alone, 44 in deep.
+    const vector<double> shares = rowLengthShares(copies(footprint(52.0, 44.0), 4), kTrailer, fixed);
+    for (const double share : shares) CHECK(share == doctest::Approx(44.0));
+}
+
+TEST_CASE("floorPattern: whatever subset is arranged, its rows are at least its shares long (property)") {
+    mt19937 random(10112026);
+    for (int trial = 0; trial < 300; ++trial) {
+        vector<FloorItem> pool;
+        const size_t count = 2 + random() % 24;
+        for (size_t index = 0; index < count; ++index) {
+            double longSide = 30 + random() % 70, shortSide = 25 + random() % 50;
+            if (shortSide > longSide) swap(shortSide, longSide);
+            pool.push_back(footprint(longSide, shortSide, 1 + static_cast<int>(random() % 3)));
+        }
+        const vector<double> shares = rowLengthShares(pool, kTrailer, defaultSettings());
+        vector<FloorItem> subset;
+        double charged = 0.0;
+        for (size_t index = 0; index < count; ++index) {
+            if (random() % 3 == 0) continue;
+            subset.push_back(pool[index]);
+            charged += shares[index];
+        }
+        const FloorLayout layout = arranged(subset);
+        CAPTURE(trial);
+        if (layout.unplaceableItems.empty()) REQUIRE(charged <= layout.usedLengthIn + 1e-6);
+    }
+}
+
+TEST_CASE("floorPattern: shares of bad items or a bad trailer are rejected, as an arrangement is") {
+    CHECK_THROWS_AS(rowLengthShares({footprint(40.0, 48.0)}, kTrailer, defaultSettings()), invalid_argument);
+    CHECK_THROWS_AS(rowLengthShares({footprint(numeric_limits<double>::quiet_NaN(), 40.0)}, kTrailer, defaultSettings()),
+                    invalid_argument);
+    TrailerSpec noWidth = kTrailer;
+    noWidth.interiorWidthIn = 0.0;
+    CHECK_THROWS_AS(rowLengthShares({footprint(48.0, 40.0)}, noWidth, defaultSettings()), invalid_argument);
+}
