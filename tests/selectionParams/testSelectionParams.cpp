@@ -60,6 +60,8 @@ TEST_CASE("selectionParams: the shipped params read in full") {
     CHECK(params.selector.floor.allowRotation);
     CHECK(params.selector.floor.fixedOrientation == FixedOrientation::LongSideAcross);
     CHECK_FALSE(params.selector.floor.maxPositions);
+    CHECK(params.selector.floor.searchStateLimit == 200'000);
+    CHECK(params.selector.floor.routeSearchStateLimit == 1'000'000);
     CHECK(params.selector.floor.allowedPatterns.size() == 6);
     CHECK(params.selector.threads == 4);
     CHECK(params.reportDetail == ReportDetail::Standard);
@@ -96,6 +98,7 @@ TEST_CASE("selectionParams: everySettingRejectsZeroNegativeAndTheWrongType") {
         {{"binPacker", "branchNodeLimit"}, true}, {{"binPacker", "maxSearchItems"}, true},
         {{"patternPacker", "simplexIterationLimit"}, true}, {{"binPacker", "simplexIterationLimit"}, true},
         {{"fillMissesPerTruck"}, true},         {{"weightSpreadRoundsPerTruck"}, true},
+        {{"floor", "searchStateLimit"}, true},  {{"floor", "routeSearchStateLimit"}, true},
         {{"threads"}, true}};
     for (const auto& number : numbers) {
         const vector<string> path = number.first;

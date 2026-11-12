@@ -162,10 +162,15 @@ both either way. The reservation is dealt to groups, and each truck chosen, on t
 floor area and payload, so a route it reports proven carries the best load those allow. Rows
 are not monotone - a load whose rows do not fit can sit inside a larger one whose rows do - so
 the search never drops a branch because the rows refused it. It cuts only on floor area, payload,
-the cap and a lower bound on each stack's share of the trailer length, none of which can shrink as
-goods are added, and asks the rows only about a load that would beat the best found (10 Nov 2026).
-The rows themselves are floorPattern's: an exact search up to 10 stacks, the sorted arrangement
-above that. patternPacker and binPacker prove their trucks on floor area and payload; when the rows
+the cap, a lower bound on each stack's share of the trailer length, and the rows relaxed so that a
+row short of members keeps its depth (a pinwheel short of a stack still takes the pinwheel's
+length) - none of which can shrink as goods are added - and asks the rows only about a whole load
+that would beat the best found (10 Nov 2026). The rows themselves are floorPattern's: an exact
+search over every grouping up to 10 stacks; above that, the sorted arrangement when it fits, and
+otherwise a search over every grouping of the allowed rows, so a load fits exactly when some
+grouping of them fits it (12 Nov 2026). One search holds at most `floor.searchStateLimit`
+groupings, and all of a route's searches `floor.routeSearchStateLimit` between them; a route
+where they stopped on a load better than the one chosen is reported unproven, naming the limits. patternPacker and binPacker prove their trucks on floor area and payload; when the rows
 or the cap then leave goods off them, their route is reported unproven and the run provisional
 (exit 8).
 

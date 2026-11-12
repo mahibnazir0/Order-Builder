@@ -268,10 +268,25 @@ TEST_CASE("shipDatePlanner: a negative pull-forward limit is rejected") {
                     invalid_argument);
 }
 
-TEST_CASE("shipDatePlanner: sixteen stacks for one truck ship the 32 unit loads its rows hold, not 31") {
-    const ShipDatePlan result = planned(sixteenStacksWhere32Fit(), kBothRules);
+TEST_CASE("shipDatePlanner: sixteen stacks for one truck ship all 34 unit loads, not 32 or 31") {
+    const ShipDatePlan result = planned(sixteenStacksWhereAll34Fit(), kBothRules);
     REQUIRE(result.plan.trucks.size() == 1);
-    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(32.0));
+    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(34.0));
+    CHECK(result.plan.routes[result.plan.trucks[0].routeIndex].proven);
+}
+
+TEST_CASE("shipDatePlanner: eleven stacks the sorted rows refuse all ship on one truck, proven") {
+    const ShipDatePlan result = planned(elevenStacksTheSortedRowsRefuse(), kBothRules);
+    REQUIRE(result.plan.trucks.size() == 1);
+    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(11.0));
+    CHECK(result.plan.trucks[0].floor.usedLengthIn == doctest::Approx(586.0));
+    CHECK(result.plan.routes[result.plan.trucks[0].routeIndex].proven);
+}
+
+TEST_CASE("shipDatePlanner: fourteen stacks for one truck ship the 23 unit loads that fit, not 22") {
+    const ShipDatePlan result = planned(fourteenStacksWhere23Fit(), kBothRules);
+    REQUIRE(result.plan.trucks.size() == 1);
+    CHECK(result.plan.trucks[0].unitLoads == doctest::Approx(23.0));
     CHECK(result.plan.routes[result.plan.trucks[0].routeIndex].proven);
 }
 

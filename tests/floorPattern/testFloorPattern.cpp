@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../floorRowOracle.hpp"
 #include "../m4AugustFixtures.hpp"
 #include "floorPattern.hpp"
 #include "tolerance.hpp"
@@ -21,6 +22,8 @@ const TrailerSpec kTrailer{"53FT_NA", 630.0, 100.0, 108.0, 45000.0, 32, nullopt}
 FloorPatternSettings defaultSettings() {
     FloorPatternSettings settings;
     settings.fullCubeFraction = 0.84;
+    settings.searchStateLimit = 200'000;
+    settings.routeSearchStateLimit = 1'000'000;
     return settings;
 }
 
@@ -335,6 +338,14 @@ TEST_CASE("floorPattern: bad trailer, settings or items are rejected") {
     FloorPatternSettings capped = defaultSettings();
     capped.maxPositions = 0;
     CHECK_THROWS_AS(arranged(good, capped), invalid_argument);
+    for (const long long states : {0LL, -1LL}) {
+        FloorPatternSettings searchCapped = defaultSettings();
+        searchCapped.searchStateLimit = states;
+        CHECK_THROWS_AS(arranged(good, searchCapped), invalid_argument);
+        FloorPatternSettings routeCapped = defaultSettings();
+        routeCapped.routeSearchStateLimit = states;
+        CHECK_THROWS_AS(arranged(good, routeCapped), invalid_argument);
+    }
     FloorPatternSettings noSingles = defaultSettings();
     noSingles.allowedPatterns = {FloorPatternKind::WideWide};
     CHECK_THROWS_AS(arranged(good, noSingles), invalid_argument);
@@ -363,6 +374,126 @@ TEST_CASE("floorPattern: sorted never beats exact on small inputs (differential)
         checkLayoutInvariants(exact, items.size());
         REQUIRE(exact.usedLengthIn <= sorted.usedLengthIn + kQuantityEpsilon);
     }
+}
+
+namespace {
+
+// Tom Moore's eleven stacks (12 Nov 2026): grouped in sorted order they need 640 in, grouped
+// otherwise 586 in.
+vector<FloorItem> elevenStacksTheSortedRowsRefuse() {
+    return {footprint(100, 50), footprint(100, 60), footprint(60, 60),  footprint(96, 40),
+            footprint(100, 50), footprint(120, 48), footprint(80, 48),  footprint(120, 48),
+            footprint(120, 48), footprint(100, 60), footprint(80, 48)};
+}
+
+} // anonymous namespace
+
+TEST_CASE("floorPattern: eleven stacks the sorted rows need 640 in for stand in 586 in, the shortest grouping") {
+    const vector<FloorItem> items = elevenStacksTheSortedRowsRefuse();
+    REQUIRE(arrangeFloorSorted(items, kTrailer, defaultSettings()).usedLengthIn == doctest::Approx(640.0));
+    const FloorLayout layout = arranged(items);
+    checkLayoutInvariants(layout, items.size());
+    CHECK(layout.fitsLength);
+    CHECK(layout.usedLengthIn == doctest::Approx(586.0));
+    CHECK(layout.usedLengthIn == doctest::Approx(shortestGroupingOfEverySubset(items, kTrailer, defaultSettings()).back()));
+    CHECK_FALSE(layout.fitUnproven);
+}
+
+TEST_CASE("floorPattern: a grouping search that runs out of states leaves the refusal unproven") {
+    FloorPatternSettings settings = defaultSettings();
+    settings.searchStateLimit = 1;
+    const FloorLayout layout = arranged(elevenStacksTheSortedRowsRefuse(), settings);
+    CHECK_FALSE(layout.fitsLength);
+    CHECK(layout.fitUnproven);
+}
+
+TEST_CASE("floorPattern: eleven stacks no grouping fits are refused, proven") {
+    // A 100 x 60 stands only alone, 60 in deep: eleven need 660 in.
+    const FloorLayout layout = arranged(copies(footprint(100, 60), 11));
+    CHECK_FALSE(layout.fitsLength);
+    CHECK_FALSE(layout.fitUnproven);
+}
+
+TEST_CASE("floorPattern: above ten stacks, a load fits exactly when some grouping into rows fits it (differential)") {
+    mt19937 random(12112026);
+    const vector<pair<double, double>> footprints{{72, 60}, {80, 48}, {120, 48}, {48, 48},  {96, 40}, {60, 60},
+                                                  {40, 33}, {100, 50}, {110, 40}, {90, 55}, {80, 60}, {100, 60}};
+    size_t refusedBySorted = 0, fitByGrouping = 0;
+    for (int trial = 0; trial < 400; ++trial) {
+        vector<FloorItem> items;
+        const size_t count = 11 + random() % 2;
+        for (size_t index = 0; index < count; ++index) {
+            const pair<double, double>& sides = footprints[random() % footprints.size()];
+            items.push_back(footprint(sides.first, sides.second, 1 + static_cast<int>(random() % 2)));
+        }
+        const double shortest = shortestGroupingOfEverySubset(items, kTrailer, defaultSettings()).back();
+        const FloorLayout layout = arranged(items);
+        CAPTURE(trial);
+        checkLayoutInvariants(layout, items.size());
+        REQUIRE_FALSE(layout.fitUnproven);
+        REQUIRE(layout.fitsLength == (shortest <= kTrailer.interiorLengthIn + kQuantityEpsilon));
+        if (arrangeFloorSorted(items, kTrailer, defaultSettings()).fitsLength) continue;
+        ++refusedBySorted;
+        if (!layout.fitsLength) continue;
+        ++fitByGrouping;
+        REQUIRE(layout.usedLengthIn == doctest::Approx(shortest));
+    }
+    MESSAGE("refused by sorted ", refusedBySorted, ", fit by grouping ", fitByGrouping);
+    CHECK(refusedBySorted > 0);
+    CHECK(fitByGrouping > 0);
+}
+
+TEST_CASE("floorPattern: the growth check cuts a load only when no load of the goods holding it fits (differential)") {
+    mt19937 random(13112026);
+    const vector<pair<double, double>> footprints{{72, 60}, {80, 48}, {52, 40}, {48, 48}, {96, 40}, {60, 60},
+                                                  {40, 33}, {100, 50}, {58, 54}, {90, 55}, {52, 44}, {100, 60}};
+    size_t cut = 0, kept = 0;
+    for (int trial = 0; trial < 60; ++trial) {
+        vector<FloorItem> goods;
+        for (size_t index = 0; index < 12; ++index) {
+            const pair<double, double>& sides = footprints[random() % footprints.size()];
+            goods.push_back(footprint(sides.first, sides.second, 1 + static_cast<int>(random() % 2)));
+        }
+        TrailerSpec trailer = kTrailer;
+        trailer.interiorLengthIn = 150.0 + static_cast<double>(random() % 400);
+        const vector<double> shortest = shortestGroupingOfEverySubset(goods, trailer, defaultSettings());
+        // Whether some load holding each one fits: every superset, by summing over supersets.
+        const size_t subsets = shortest.size();
+        vector<char> someHoldingFits(subsets, 0);
+        for (size_t load = 0; load < subsets; ++load) {
+            someHoldingFits[load] = shortest[load] <= trailer.interiorLengthIn + kQuantityEpsilon;
+        }
+        for (size_t bit = 0; bit < goods.size(); ++bit) {
+            for (size_t load = 0; load < subsets; ++load) {
+                if (!(load & (size_t{1} << bit))) someHoldingFits[load] |= someHoldingFits[load | (size_t{1} << bit)];
+            }
+        }
+        const LoadGrowthCheck mayFit = loadGrowthCheck(goods, trailer, defaultSettings());
+        CAPTURE(trial);
+        for (int sample = 0; sample < 200; ++sample) {
+            const size_t mask = random() % subsets;
+            vector<size_t> load;
+            for (size_t index = 0; index < goods.size(); ++index) {
+                if (mask & (size_t{1} << index)) load.push_back(index);
+            }
+            const bool verdict = mayFit(load);
+            CAPTURE(mask);
+            REQUIRE((verdict || !someHoldingFits[mask]));
+            ++(verdict ? kept : cut);
+        }
+    }
+    CHECK(cut > 1000);
+    CHECK(kept > 1000);
+}
+
+TEST_CASE("floorPattern: the growth check keeps a load the trailer holds and cuts eleven 100 x 60") {
+    const LoadGrowthCheck mayFit = loadGrowthCheck(elevenStacksTheSortedRowsRefuse(), kTrailer, defaultSettings());
+    vector<size_t> all(11);
+    for (size_t index = 0; index < all.size(); ++index) all[index] = index;
+    CHECK(mayFit(all));
+    const LoadGrowthCheck tooMany = loadGrowthCheck(copies(footprint(100, 60), 12), kTrailer, defaultSettings());
+    CHECK(tooMany({0, 1, 2, 3, 4, 5, 6, 7, 8, 9}));
+    CHECK_FALSE(tooMany({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}));
 }
 
 TEST_CASE("floorPattern: pairingBeatsSequential on mixed footprints") {

@@ -70,6 +70,8 @@ FloorPatternSettings readFloor(const json& block, double fullCubeFraction) {
     }
     const json& maxPositions = requiredField(block, "maxPositions", name);
     if (!maxPositions.is_null()) floor.maxPositions = readInteger(maxPositions, name + ".maxPositions", 1);
+    floor.searchStateLimit = readLimit(block, "searchStateLimit", name);
+    floor.routeSearchStateLimit = readLimit(block, "routeSearchStateLimit", name);
     floor.fullCubeFraction = fullCubeFraction;
     return floor;
 }

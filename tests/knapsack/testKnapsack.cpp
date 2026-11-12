@@ -450,8 +450,12 @@ TEST_CASE("knapsack: trucksByUrgency keeps the most urgent truck first, and the 
 
 namespace {
 
+TruckCheck checkOf(const function<bool(const vector<size_t>&)>& accepts) {
+    return [accepts](const vector<size_t>& chosen) { return accepts(chosen) ? TruckFit::Fits : TruckFit::DoesNotFit; };
+}
+
 // Accepts a load unless it holds exactly two goods: a check that refuses {0, 1} yet accepts {0, 1, 2}.
-const TruckLimits kNotTwo{[](const vector<size_t>& chosen) { return chosen.size() != 2; }, {}};
+const TruckLimits kNotTwo{checkOf([](const vector<size_t>& chosen) { return chosen.size() != 2; }), {}, {}, {}};
 
 // Every subset within floor and payload that `accepts` takes, judged on the prepared grains: the
 // oracle for a search with a check of any shape.
@@ -487,6 +491,49 @@ TEST_CASE("knapsack: a load the check refuses is still grown into a larger one i
     CHECK(selection.proven);
 }
 
+TEST_CASE("knapsack: a truck is unproven when a load better than the one chosen comes back undecided") {
+    const vector<KnapsackItem> items(3, load(1920, 1000));
+    const TruckLimits undecidedAtThree{[](const vector<size_t>& chosen) {
+        return chosen.size() == 3 ? TruckFit::Undecided : TruckFit::Fits;
+    }, {}, {}, {}};
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, undecidedAtThree);
+    CHECK(selection.chosen == vector<size_t>{0, 1});
+    CHECK(selection.betterLoadUndecided);
+    CHECK_FALSE(selection.stoppedAtNodeLimit);
+    CHECK_FALSE(selection.proven);
+}
+
+TEST_CASE("knapsack: a load the check could not decide is still grown into a larger one it accepts, proven") {
+    const vector<KnapsackItem> items(3, load(1920, 1000));
+    const TruckLimits undecidedAtTwo{[](const vector<size_t>& chosen) {
+        return chosen.size() == 2 ? TruckFit::Undecided : TruckFit::Fits;
+    }, {}, {}, {}};
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, undecidedAtTwo);
+    CHECK(selection.chosen == vector<size_t>{0, 1, 2});
+    CHECK_FALSE(selection.betterLoadUndecided);
+    CHECK(selection.proven);
+}
+
+TEST_CASE("knapsack: a load the quick check refuses but `fits` accepts is still found, proven, truck by truck") {
+    const vector<KnapsackItem> items(6, load(1920, 1000));
+    TruckLimits atMostOneQuickly;
+    atMostOneQuickly.fits = [](const vector<size_t>& chosen) { return chosen.size() <= 3 ? TruckFit::Fits : TruckFit::DoesNotFit; };
+    atMostOneQuickly.quickFits = [](const vector<size_t>& chosen) { return chosen.size() <= 1; };
+    const LaneSelection lane = selectForTrucks(items, kTruck, kFine, 2, atMostOneQuickly);
+    REQUIRE(lane.trucks.size() == 2);
+    CHECK(lane.trucks[0].chosen == vector<size_t>{0, 1, 2});
+    CHECK(lane.trucks[1].chosen == vector<size_t>{3, 4, 5});
+    CHECK(lane.proven);
+}
+
+TEST_CASE("knapsack: a truck stopped at its node limit says so apart from an undecided load") {
+    const vector<KnapsackItem> items(3, load(1920, 1000));
+    const KnapsackSelection selection = selectForTruck(items, kTruck, {1.0, 1.0, 1}, kNotTwo);
+    CHECK(selection.stoppedAtNodeLimit);
+    CHECK_FALSE(selection.betterLoadUndecided);
+    CHECK_FALSE(selection.proven);
+}
+
 TEST_CASE("knapsack: with a check of any shape, a proven truck is the best load the check accepts (differential)") {
     mt19937 random(10112026);
     const KnapsackSettings coarse{250.0, 500.0, 5'000'000};
@@ -500,7 +547,7 @@ TEST_CASE("knapsack: with a check of any shape, a proven truck is the best load 
             for (const size_t index : chosen) mask |= size_t{1} << index;
             return ((mask * 2654435761u) ^ salt) % 3 != 0;
         };
-        const KnapsackSelection selection = selectForTruck(items, kTruck, coarse, {accepts, {}});
+        const KnapsackSelection selection = selectForTruck(items, kTruck, coarse, {checkOf(accepts), {}, {}, {}});
         CAPTURE(trial);
         REQUIRE(selection.proven);
         REQUIRE((selection.chosen.empty() || accepts(selection.chosen)));
@@ -510,7 +557,7 @@ TEST_CASE("knapsack: with a check of any shape, a proven truck is the best load 
 
 TEST_CASE("knapsack: no truck is chosen over an item limit") {
     const vector<KnapsackItem> items(10, load(1920, 1000, 2.0));
-    const TruckLimits unitLoadCap{{}, {{vector<double>(10, 2.0), 7.0}}};
+    const TruckLimits unitLoadCap{{}, {{vector<double>(10, 2.0), 7.0}}, {}, {}};
     const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, unitLoadCap);
     CHECK(selection.chosen.size() == 3);
     CHECK(selection.proven);
@@ -519,7 +566,7 @@ TEST_CASE("knapsack: no truck is chosen over an item limit") {
 TEST_CASE("knapsack: an item whose share of a limit is infinite is never chosen") {
     const vector<KnapsackItem> items(2, load(1920, 1000));
     const double infinity = numeric_limits<double>::infinity();
-    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, {{}, {{{infinity, 1.0}, 630.0}}});
+    const KnapsackSelection selection = selectForTruck(items, kTruck, kFine, {{}, {{{infinity, 1.0}, 630.0}}, {}, {}});
     CHECK(selection.chosen == vector<size_t>{1});
 }
 
@@ -527,13 +574,13 @@ TEST_CASE("knapsack: limits that are not one share per item, or out of range, ar
     const vector<KnapsackItem> items(2, load(1920, 1000));
     const double nan = numeric_limits<double>::quiet_NaN();
     const double infinity = numeric_limits<double>::infinity();
-    CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0}, 10.0}}}), invalid_argument);
+    CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0}, 10.0}}, {}, {}}), invalid_argument);
     for (const double bad : {nan, -1.0}) {
-        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, bad}, 10.0}}}), invalid_argument);
+        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, bad}, 10.0}}, {}, {}}), invalid_argument);
     }
     for (const double bad : {nan, infinity, -1.0}) {
-        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, 1.0}, bad}}}), invalid_argument);
-        CHECK_THROWS_AS(selectForTrucks(items, kTruck, kFine, 1, {{}, {{{1.0, 1.0}, bad}}}), invalid_argument);
+        CHECK_THROWS_AS(selectForTruck(items, kTruck, kFine, {{}, {{{1.0, 1.0}, bad}}, {}, {}}), invalid_argument);
+        CHECK_THROWS_AS(selectForTrucks(items, kTruck, kFine, 1, {{}, {{{1.0, 1.0}, bad}}, {}, {}}), invalid_argument);
     }
 }
 

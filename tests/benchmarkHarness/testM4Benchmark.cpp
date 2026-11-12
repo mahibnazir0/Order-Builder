@@ -976,9 +976,13 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 // on 10 Nov 2026 (80/81, 130/136, 145/152 before): the search no longer skips the loads holding one
 // the rows refused, and on a few more routes covering them takes more than 200,000 nodes; at
 // 2,000,000 every 4 Aug route proves. Short lane-dates dealt on trucks that fit add a route on 5 and 6 Aug.
-TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 10 Nov"
+// Re-pinned on 12 Nov 2026 (128/137 and 144/153 before): a load is proven not to fit only when no
+// grouping of its rows fits, where above 10 stacks it was the sorted rows' word. On routes of many
+// footprints, 34 to 204 stacks of 9 to 53 sizes, that takes more than routeSearchStateLimit's
+// 1,000,000 states, so they are listed as provisional; at 10,000,000, 80, 129 and 140 prove.
+TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 12 Nov"
           * doctest::skip()) {
-    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {128, 137}, {144, 153}}};
+    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {125, 137}, {136, 153}}};
     for (size_t run = 0; run < provenOfRoutes.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -1034,10 +1038,12 @@ TEST_CASE("m4Benchmark: the August routes per method, with split lanes shared by
     using Counts = map<SolveMethod, size_t>;
     // Pulled-forward goods take most reserved lane-dates past their reservation, so most go to
     // knapsack. Re-pinned on 5 Nov 2026 for the variety ratio of 69, which sends one route a day
-    // from binPacker to patternPacker, and for trucks dealt on whole-load urgency.
+    // from binPacker to patternPacker, and for trucks dealt on whole-load urgency. Re-pinned on
+    // 12 Nov 2026 (382 unrouted on 4 Aug before): with rows judged on every grouping, the first window
+    // date ships different goods, and one lane-date fewer is left with goods but no truck reserved.
     const array<Counts, 3> expected{
         Counts{{SolveMethod::Knapsack, 158}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 7},
-               {SolveMethod::Unrouted, 382}, {SolveMethod::NoDemand, 5}},
+               {SolveMethod::Unrouted, 381}, {SolveMethod::NoDemand, 5}},
         Counts{{SolveMethod::Knapsack, 265}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 6},
                {SolveMethod::M5, 3}, {SolveMethod::Unrouted, 194}, {SolveMethod::NoDemand, 16}},
         Counts{{SolveMethod::Knapsack, 293}, {SolveMethod::PatternPacker, 1}, {SolveMethod::BinPacker, 8},

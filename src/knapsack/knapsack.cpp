@@ -199,7 +199,13 @@ bool withinLimits(const CandidateLimits& limits, const vector<double>& left, siz
     return true;
 }
 
-vector<char> greedyTaken(const KnapsackProblem& problem, const CandidateLimits& limits, const TruckCheck& fits) {
+// Whether the truck takes the load by its cheaper check, or by `fits` when it has none.
+bool quicklyFits(const TruckLimits& truck, const vector<size_t>& chosen) {
+    if (truck.quickFits) return truck.quickFits(chosen);
+    return !truck.fits || truck.fits(chosen) == TruckFit::Fits;
+}
+
+vector<char> greedyTaken(const KnapsackProblem& problem, const CandidateLimits& limits, const TruckLimits& truck) {
     vector<char> taken(problem.candidates.size(), 0);
     vector<size_t> chosen;
     long long areaLeft = problem.areaCapacity, weightLeft = problem.weightCapacity;
@@ -210,7 +216,7 @@ vector<char> greedyTaken(const KnapsackProblem& problem, const CandidateLimits& 
             continue;
         }
         chosen.push_back(problem.candidates[position]);
-        if (fits && !fits(chosen)) {
+        if (!quicklyFits(truck, chosen)) {
             chosen.pop_back();
             continue;
         }
@@ -384,7 +390,7 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
 KnapsackSelection selectGreedy(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
                                const KnapsackSettings& settings) {
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
-    return assemble(items, capacity, problem, greedyTaken(problem, CandidateLimits(), TruckCheck()));
+    return assemble(items, capacity, problem, greedyTaken(problem, CandidateLimits(), TruckLimits()));
 }
 
 KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
@@ -398,18 +404,27 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
 
     // The greedy fill is the first leaf the search reaches, so starting from it keeps the same
     // tie-break: only a strictly better selection replaces it.
-    vector<char> bestTaken = greedyTaken(problem, limits, fits);
+    vector<char> bestTaken = greedyTaken(problem, limits, truck);
     KnapsackValue best = valueOf(problem, bestTaken);
     // The input indices taken on the current branch, in the order taken: what `fits` judges.
     vector<size_t> chosen;
     chosen.reserve(count);
-    auto fitsWith = [&](size_t position) {
-        if (!fits) return true;
+    auto quicklyFitsWith = [&](size_t position) {
         chosen.push_back(problem.candidates[position]);
-        const bool accepted = fits(chosen);
+        const bool accepted = quicklyFits(truck, chosen);
         chosen.pop_back();
         return accepted;
     };
+    auto mayStillFitWith = [&](size_t position) {
+        if (!truck.mayStillFit) return true;
+        chosen.push_back(problem.candidates[position]);
+        const bool mayFit = truck.mayStillFit(chosen);
+        chosen.pop_back();
+        return mayFit;
+    };
+    // The best load the check could not decide. The proof stands only while the best decided
+    // load is at least as good.
+    KnapsackValue bestUndecided;
 
     auto sameItem = [&](size_t left, size_t right) {
         const KnapsackItem& leftItem = items[problem.candidates[left]];
@@ -428,15 +443,15 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
     };
 
     // One depth-first search from the root, improving on the best so far; true when it finished
-    // within the node limit. Iterative, so a 10,000-item lane cannot overflow the stack. With
-    // takeRefused, a load the check refused is still grown, unverified, and a leaf counts only once
-    // `fits` accepts it whole, so the search is exact over every load the check accepts. Without,
-    // a refused load is never grown: the search the knapsack ran before rows were known not to be
-    // monotone, kept as a fast first pass so the exact one starts from a load no worse than it.
+    // within the node limit. Iterative, so a 10,000-item lane cannot overflow the stack. The exact
+    // pass cuts only on limits that hold for every load holding the one cut - floor, payload, the
+    // ItemLimits and mayStillFit - and asks `fits` of a load only whole, at a leaf that would beat
+    // the best, so it is exact over every load the check accepts. The fast pass never grows a load
+    // quickFits refused: the search the knapsack ran before rows were known not to be monotone,
+    // kept so the exact pass starts from a load no worse than it.
     long long nodes = 0;
-    auto search = [&](bool takeRefused) {
+    auto search = [&](bool exact) {
         vector<char> decision(count, 0);  // 0 untried, 1 taken, 2 left out
-        size_t unverifiedFrom = count;    // the depth whose item went on refused; `count` while verified
         KnapsackValue current(problem.classCount + 1, 0);
         long long areaLeft = problem.areaCapacity, weightLeft = problem.weightCapacity;
         vector<double> limitLeft = limits.capacity;
@@ -462,9 +477,14 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         while (true) {
             if (descending) {
                 if (depth == count) {
-                    if (best < current && (unverifiedFrom == count || fits(chosen))) {
-                        best = current;
-                        for (size_t position = 0; position < count; ++position) bestTaken[position] = decision[position] == 1;
+                    if (best < current) {
+                        const TruckFit verdict = exact && fits ? fits(chosen) : TruckFit::Fits;
+                        if (verdict == TruckFit::Fits) {
+                            best = current;
+                            for (size_t position = 0; position < count; ++position) bestTaken[position] = decision[position] == 1;
+                        } else if (verdict == TruckFit::Undecided && bestUndecided < current) {
+                            bestUndecided = current;
+                        }
                     }
                     descending = false;
                     continue;
@@ -482,12 +502,9 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
                 const bool canTake = !copyOfExcluded && problem.areaGrains[depth] <= areaLeft
                                      && problem.weightGrains[depth] <= weightLeft
                                      && withinLimits(limits, limitLeft, depth);
-                // An unverified load is judged only whole, at its leaf.
-                const bool accepted = canTake && (unverifiedFrom < count || fitsWith(depth));
-                if (canTake && (accepted || takeRefused)) {
+                if (canTake && (exact ? mayStillFitWith(depth) : quicklyFitsWith(depth))) {
                     take(depth, true);
                     decision[depth] = 1;
-                    if (!accepted) unverifiedFrom = depth;
                 } else {
                     decision[depth] = 2;
                 }
@@ -498,7 +515,6 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
             --depth;
             if (decision[depth] == 1) {
                 take(depth, false);
-                if (unverifiedFrom == depth) unverifiedFrom = count;
                 decision[depth] = 2;
                 ++depth;
                 descending = true;
@@ -507,12 +523,15 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
             }
         }
     };
-    // Without a check nothing is refused, so the first pass is already exact.
-    bool proven = search(false);
-    if (fits) proven = search(true);
+    // With nothing to refuse a load, the fast pass is already exact. Only the exact pass asks of a
+    // load that would beat the best, so only it can leave one undecided.
+    bool finished = search(false);
+    if (fits || truck.quickFits) finished = search(true);
 
     KnapsackSelection selection = assemble(items, capacity, problem, bestTaken);
-    selection.proven = proven;
+    selection.stoppedAtNodeLimit = !finished;
+    selection.betterLoadUndecided = best < bestUndecided;
+    selection.proven = finished && !selection.betterLoadUndecided;
     selection.nodes = nodes;
     return selection;
 }
@@ -588,12 +607,19 @@ KnapsackSelection selectNextTruck(const vector<KnapsackItem>& items, const vecto
     }
     TruckLimits pooled;
     vector<size_t> chosenItems;
+    auto inItems = [&](const vector<size_t>& chosenInPool) -> const vector<size_t>& {
+        chosenItems.clear();
+        for (const size_t index : chosenInPool) chosenItems.push_back(remaining[index]);
+        return chosenItems;
+    };
     if (truck.fits) {
-        pooled.fits = [&](const vector<size_t>& chosenInPool) {
-            chosenItems.clear();
-            for (const size_t index : chosenInPool) chosenItems.push_back(remaining[index]);
-            return truck.fits(chosenItems);
-        };
+        pooled.fits = [&](const vector<size_t>& chosenInPool) { return truck.fits(inItems(chosenInPool)); };
+    }
+    if (truck.mayStillFit) {
+        pooled.mayStillFit = [&](const vector<size_t>& chosenInPool) { return truck.mayStillFit(inItems(chosenInPool)); };
+    }
+    if (truck.quickFits) {
+        pooled.quickFits = [&](const vector<size_t>& chosenInPool) { return truck.quickFits(inItems(chosenInPool)); };
     }
     pooled.limits.reserve(truck.limits.size());
     for (const ItemLimit& limit : truck.limits) {

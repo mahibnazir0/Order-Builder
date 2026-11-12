@@ -294,7 +294,9 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
     printLine(out, "floor", string(settings.floor.allowRotation ? "pallets may be turned" : "pallets never turned")
                                 + (settings.floor.maxPositions
                                        ? ", at most " + to_string(*settings.floor.maxPositions) + " positions"
-                                       : ""));
+                                       : "")
+                                + "; rows searched to " + grouped(settings.floor.searchStateLimit) + " groupings, "
+                                + grouped(settings.floor.routeSearchStateLimit) + " a route");
     printLine(out, "budget", setting(settings.secondsPerLane) + " s a lane (overrun flags the lane, never changes the plan), "
                                  + to_string(settings.threads) + " threads");
     printLine(out, "fill and spread", to_string(settings.fillMissesPerTruck) + " misses a truck, "

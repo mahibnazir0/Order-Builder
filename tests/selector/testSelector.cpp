@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../floorRowOracle.hpp"
 #include "../m4AugustFixtures.hpp"
 #include "../m4SyntheticDay.hpp"
 #include "benchmarkHarness.hpp"
@@ -589,16 +590,18 @@ TEST_CASE("selector: priority first, goods pulled forward from a later date stil
     CHECK(shippedAtPriority(day, selection, 0) == doctest::Approx(0.0));
 }
 
-TEST_CASE("selector: twenty large and twenty small stacks on one truck: the 25 its rows hold ship, proven") {
-    // By floor area 27 of these fit; the rows hold 20 of 52 x 40 and 5 of 60 x 48, in 628 in.
-    // Choosing on floor area and trimming to the rows after loaded 24.
+TEST_CASE("selector: twenty large and twenty small stacks on one truck: the 26 its rows hold ship, proven") {
+    // By floor area 27 of these fit. The rows hold 26 in 628 in: four pinwheels of 52 x 40, two
+    // pinwheels of two of each, and two 60 x 48 side by side. Sorted order never mixes the two and
+    // held 25; choosing on floor area and trimming to the rows after loaded 24.
     vector<SelectionItem> items(20, stackOf(0, 60.0, 48.0, 1, 900.0));
     items.insert(items.end(), 20, stackOf(1, 52.0, 40.0, 1, 1700.0));
     const Day day = dayOf({group("2027")}, 2, items, {reserved("2027", 1)});
     const SelectionPlan selection = plan(day);
     checkPlan(day, selection);
     REQUIRE(selection.trucks.size() == 1);
-    CHECK(selection.trucks[0].unitLoads == doctest::Approx(25.0));
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(26.0));
+    CHECK(selection.trucks[0].floor.usedLengthIn == doctest::Approx(628.0));
     CHECK(selection.routes[0].methodUsed == PackingMethod::Knapsack);
     CHECK(selection.routes[0].proven);
     CHECK(selection.routes[0].unprovenBecause.empty());
@@ -637,31 +640,37 @@ vector<double> loadValue(const vector<SelectionItem>& items, const vector<size_t
     return value;
 }
 
-// Every load of the day's goods one truck can carry - ceiling, payload, unit-load cap and rows -
-// and the best of them.
+// Every load of the day's goods one truck can carry - ceiling, payload, unit-load cap and some
+// grouping of its rows (shortestGroupingOfEverySubset, not arrangeFloor) - and the best of them.
 vector<double> bestLoadValue(const Day& day, const SelectorSettings& settings) {
     const vector<SelectionItem>& items = day.items.items;
+    vector<FloorItem> floor;
+    for (const SelectionItem& item : items) floor.push_back(floorItemFrom(item));
+    const vector<double> shortest = shortestGroupingOfEverySubset(floor, day.run.trailer, settings.floor);
     vector<double> best = loadValue(items, {});
     for (size_t mask = 1; mask < (size_t{1} << items.size()); ++mask) {
         vector<size_t> load;
-        vector<FloorItem> floor;
         double weight = 0.0, unitLoads = 0.0;
         bool tooTall = false;
         for (size_t index = 0; index < items.size(); ++index) {
             if (!(mask & (size_t{1} << index))) continue;
             load.push_back(index);
-            floor.push_back(floorItemFrom(items[index]));
             weight += items[index].weightLb;
             unitLoads += items[index].unitLoads;
             tooTall = tooTall || items[index].heightIn > day.run.trailer.stackHeightCeilingIn;
         }
         if (tooTall || weight > day.run.trailer.weightLimitLb || unitLoads > settings.maxUnitLoadsPerTruck) continue;
         const vector<double> value = loadValue(items, load);
-        if (!(best < value)) continue;
-        const FloorLayout layout = arrangeFloor(floor, day.run.trailer, settings.floor);
-        if (layout.fitsLength && layout.unplaceableItems.empty()) best = value;
+        if (best < value && shortest[mask] <= day.run.trailer.interiorLengthIn + kQuantityEpsilon) best = value;
     }
     return best;
+}
+
+vector<size_t> shippedItems(const SelectionPlan& selection) {
+    vector<size_t> shipped;
+    for (const PlannedTruck& truck : selection.trucks) shipped.insert(shipped.end(), truck.items.begin(), truck.items.end());
+    sort(shipped.begin(), shipped.end());
+    return shipped;
 }
 
 TEST_CASE("selector: a proven one-truck route carries the best load its ceiling, payload, cap and rows allow") {
@@ -688,10 +697,37 @@ TEST_CASE("selector: a proven one-truck route carries the best load its ceiling,
         CAPTURE(trial);
         if (day.classification.routes[0].method != SolveMethod::Knapsack || !selection.routes[0].proven) continue;
         ++proven;
-        vector<size_t> shipped;
-        for (const PlannedTruck& truck : selection.trucks) shipped.insert(shipped.end(), truck.items.begin(), truck.items.end());
-        sort(shipped.begin(), shipped.end());
-        CHECK(loadValue(day.items.items, shipped) == bestLoadValue(day, settings));
+        CHECK(loadValue(day.items.items, shippedItems(selection)) == bestLoadValue(day, settings));
+    }
+    CHECK(proven > 100);
+}
+
+TEST_CASE("selector: a proven one-truck route of eleven to thirteen stacks carries the best load any grouping of its rows allows") {
+    // Above ten stacks the sorted rows decide first; Tom Moore's eleven (12 Nov 2026) showed a load
+    // they refuse that another grouping fits.
+    mt19937 random(12112026);
+    const array<string, 2> dates{"2026-08-05", "2026-08-06"};
+    const vector<pair<double, double>> footprints{{72, 60}, {80, 48}, {120, 48}, {48, 48},  {96, 40}, {60, 60},
+                                                  {40, 33}, {100, 50}, {110, 40}, {90, 55}, {80, 60}, {100, 60}};
+    const SelectorSettings settings = selectorSettings();
+    size_t proven = 0;
+    for (int trial = 0; trial < 120; ++trial) {
+        vector<SelectionItem> items;
+        const size_t count = 11 + random() % 3;
+        for (size_t index = 0; index < count; ++index) {
+            const pair<double, double>& sides = footprints[random() % footprints.size()];
+            SelectionItem stack = stackOf(index, sides.first, sides.second, 1 + static_cast<int>(random() % 2),
+                                          static_cast<double>(1000 + random() % 3000), "P" + to_string(100 + index));
+            stack.shipDate = dates[random() % dates.size()];
+            stack.priority = static_cast<int>(random() % 2) * 11;
+            items.push_back(stack);
+        }
+        const Day day = dayOf({group("2027")}, count, items, {reserved("2027", 1)});
+        const SelectionPlan selection = plan(day, settings);
+        CAPTURE(trial);
+        if (day.classification.routes[0].method != SolveMethod::Knapsack || !selection.routes[0].proven) continue;
+        ++proven;
+        CHECK(loadValue(day.items.items, shippedItems(selection)) == bestLoadValue(day, settings));
     }
     CHECK(proven > 100);
 }
@@ -898,14 +934,48 @@ TEST_CASE("selector: a unit-load cap that is not positive and finite is rejected
 
 
 
-TEST_CASE("selector: sixteen stacks on one truck: the 32 unit loads its rows hold ship, proven, not 31") {
-    const Day day = sixteenStacksWhere32Fit();
+TEST_CASE("selector: sixteen stacks on one truck: all 34 unit loads ship in 630 in, proven, not 32 or 31") {
+    const Day day = sixteenStacksWhereAll34Fit();
     const SelectionPlan selection = plan(day);
     checkPlan(day, selection);
     REQUIRE(selection.trucks.size() == 1);
-    CHECK(selection.trucks[0].unitLoads == doctest::Approx(32.0));
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(34.0));
+    CHECK(selection.trucks[0].floor.usedLengthIn == doctest::Approx(630.0));
     CHECK(selection.routes[0].methodUsed == PackingMethod::Knapsack);
     CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: eleven stacks the sorted rows refuse all ship on one truck, proven (Tom Moore, 12 Nov 2026)") {
+    const Day day = elevenStacksTheSortedRowsRefuse();
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(11.0));
+    CHECK(selection.trucks[0].floor.usedLengthIn == doctest::Approx(586.0));
+    CHECK(selection.routes[0].methodUsed == PackingMethod::Knapsack);
+    CHECK(selection.routes[0].proven);
+}
+
+TEST_CASE("selector: a route whose floor search runs out of states on a better load is provisional, and says why") {
+    const Day day = elevenStacksTheSortedRowsRefuse();
+    SelectorSettings settings = selectorSettings();
+    settings.floor.searchStateLimit = 1;
+    const SelectionPlan selection = plan(day, settings);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(10.0));
+    CHECK_FALSE(selection.routes[0].proven);
+    CHECK(selection.routes[0].unprovenBecause.find("floor search ran out of states (1 a search") != string::npos);
+}
+
+TEST_CASE("selector: fourteen stacks for one truck: the 23 unit loads that fit ship, proven, the most any grouping allows") {
+    const Day day = fourteenStacksWhere23Fit();
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.trucks.size() == 1);
+    CHECK(selection.trucks[0].unitLoads == doctest::Approx(23.0));
+    CHECK(selection.routes[0].proven);
+    CHECK(loadValue(day.items.items, shippedItems(selection)) == bestLoadValue(day, selectorSettings()));
 }
 
 TEST_CASE("selector: one truck for two groups that must not mix carries the eleven 48 x 40 that fit, not ten 60 x 60") {

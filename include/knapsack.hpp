@@ -21,15 +21,17 @@
 // load some later step must trim.
 //
 // Rows are not monotone: a load whose rows do not fit can hold a larger one
-// whose rows do (a pinwheel short of one stack, or the sorted arrangement
-// grouping neighbours differently; Tom Moore, 10 Nov 2026: 22 unit loads
-// proven where 23 fit). A truck with a check is searched twice. A fast pass
-// never grows a load the rows refused, as the knapsack always did; then an
-// exact pass, starting from the fast pass's best, cuts only on limits that can
-// only grow as goods are added - floor, payload and the caller's ItemLimits -
-// and asks the rows only of a load that would beat the best so far. The truck
-// is never worse than the fast pass alone, and proven only when the exact pass
-// finishes.
+// whose rows do (a pinwheel short of one stack; Tom Moore, 10 Nov 2026: 22
+// unit loads proven where 23 fit). A truck with a check is searched twice. A
+// fast pass never grows a load the caller's quickFits refused, as the knapsack
+// always did; then an exact pass, starting from its best, cuts only on limits
+// that can only grow as goods are added - floor, payload, the caller's
+// ItemLimits and its mayStillFit (the selector's: rows relaxed so a row short
+// of members keeps its depth) - and asks the rows only of a whole load that
+// would beat the best so far. The truck is never worse than the fast pass
+// alone, and proven only when the exact pass finishes and the check decided
+// every load better than the one chosen: a refusal the check could not prove
+// (TruckFit::Undecided) supports no proof.
 //
 // Weights and areas are counted in whole grains, each item rounded UP and the
 // capacity DOWN, so rounding can only reject a load that would physically fit,
@@ -128,7 +130,11 @@ struct KnapsackSelection {
     double areaUsedSqIn = 0.0;
     double weightUsedLb = 0.0;
     bool everythingFit = false;  // nothing was left: a fit, not an optimisation
-    bool proven = true;          // false when the node limit stopped the exact search
+    // False when the node limit stopped the exact search, or the truck's check could not decide
+    // a load better than the one chosen.
+    bool proven = true;
+    bool stoppedAtNodeLimit = false;
+    bool betterLoadUndecided = false;  // a load better than the one chosen came back TruckFit::Undecided
     // Which limit stopped the smallest item left from fitting. None when nothing that fits an
     // empty truck was left.
     BindingLimit binding = BindingLimit::None;
@@ -146,9 +152,14 @@ struct KnapsackSelection {
 KnapsackProblem prepareKnapsack(const std::vector<KnapsackItem>& items,
                                 const KnapsackCapacity& capacity, const KnapsackSettings& settings);
 
+// What a truck's check makes of a load. Undecided refuses it without proof that it does not fit
+// (the floor search ran out of states), so it never stands behind a proof: a truck is unproven
+// when a load better than the one chosen came back Undecided.
+enum class TruckFit { Fits, DoesNotFit, Undecided };
+
 // A limit on one truck beyond floor area and weight, judged on the goods chosen for it (indices
 // into the caller's items, in no particular order). It may refuse a load and accept a larger one.
-using TruckCheck = std::function<bool(const std::vector<std::size_t>& chosen)>;
+using TruckCheck = std::function<TruckFit(const std::vector<std::size_t>& chosen)>;
 
 // A capacity each item takes a fixed share of, so a load over it stays over it with more goods:
 // the unit-load cap, or a lower bound on the trailer length an item's row gives it.
@@ -157,12 +168,20 @@ struct ItemLimit {
     double capacity = 0.0;        // finite and not negative
 };
 
+// A yes-or-no judgement of a load, for the checks around `fits`.
+using LoadCheck = std::function<bool(const std::vector<std::size_t>& chosen)>;
+
 // What one truck may carry beyond floor area and weight. Every load `fits` accepts must be within
-// every limit: the search cuts on the limits and asks `fits` of whole loads only. Empty accepts
-// every load.
+// every limit and pass mayStillFit; every load quickFits accepts, `fits` must accept too. Empty
+// accepts every load.
 struct TruckLimits {
     TruckCheck fits;
     std::vector<ItemLimit> limits;
+    // False only when no load holding the one given can be accepted: the exact pass cuts on it.
+    LoadCheck mayStillFit;
+    // A cheaper `fits` that may refuse what `fits` accepts: the warm start and fast pass grow only
+    // loads it accepts. Empty: they ask `fits`.
+    LoadCheck quickFits;
 };
 
 // Branch and bound: the method the selector runs. Exact over the loads `truck` accepts. Throws

@@ -5,11 +5,16 @@
 #include <array>
 #include <bitset>
 #include <cmath>
+#include <cstdint>
 #include <initializer_list>
+#include <deque>
+#include <map>
+#include <memory>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 
 using namespace std;
@@ -274,6 +279,9 @@ void validate(const vector<FloorItem>& items, const TrailerSpec& trailer,
     if (!(settings.fullCubeFraction > 0.0 && settings.fullCubeFraction <= 1.0)) {
         throw invalid_argument("Floor pattern settings: full-cube share must be in (0, 1]");
     }
+    if (settings.searchStateLimit < 1 || settings.routeSearchStateLimit < 1) {
+        throw invalid_argument("Floor pattern settings: search state limits must be at least 1");
+    }
     for (size_t index = 0; index < items.size(); ++index) {
         const FloorItem& item = items[index];
         if (!isPositiveFinite(item.longSideIn) || !isPositiveFinite(item.shortSideIn)
@@ -364,20 +372,8 @@ vector<FloorRow> groupNeighbours(const vector<size_t>& order, const RowBuilder& 
     return result;
 }
 
-} // anonymous namespace
-
-FloorItem floorItemFrom(const SelectionItem& item) {
-    return {item.footprintLongIn, item.footprintShortIn, item.heightIn,
-            static_cast<int>(item.lineIndices.size()), item.cubeCubicIn};
-}
-
-FloorLayout arrangeFloorSorted(const vector<FloorItem>& items, const TrailerSpec& trailer,
-                               const FloorPatternSettings& settings) {
-    validate(items, trailer, settings);
-    FloorLayout layout;
-    const RowBuilder rows(items, trailer.interiorWidthIn, settings);
-    const vector<size_t> placeableIndices = placeableItems(items, rows, trailer, layout);
-
+vector<FloorRow> sortedRows(const vector<FloorItem>& items, const vector<size_t>& placeableIndices,
+                            const RowBuilder& rows) {
     // By levels first, so stacks of matching height stand together; by footprint first, so
     // similar footprints share rows. Index last, so the order never depends on input order
     // among items that differ.
@@ -401,24 +397,13 @@ FloorLayout arrangeFloorSorted(const vector<FloorItem>& items, const TrailerSpec
     LayoutScore levelScore, footprintScore;
     vector<FloorRow> levelRows = groupNeighbours(levelOrder, rows, levelScore);
     vector<FloorRow> footprintRows = groupNeighbours(footprintOrder, rows, footprintScore);
-    const bool footprintWins = betterThan(footprintScore, levelScore);
-    finishLayout(layout, footprintWins ? std::move(footprintRows) : std::move(levelRows), items,
-                 trailer, settings);
-    return layout;
+    if (betterThan(footprintScore, levelScore)) return footprintRows;
+    return levelRows;
 }
 
-FloorLayout arrangeFloorExact(const vector<FloorItem>& items, const TrailerSpec& trailer,
-                              const FloorPatternSettings& settings) {
-    validate(items, trailer, settings);
-    FloorLayout layout;
-    const RowBuilder rows(items, trailer.interiorWidthIn, settings);
-    const vector<size_t> placeableIndices = placeableItems(items, rows, trailer, layout);
+// At most kExactFloorItems placeable items.
+vector<FloorRow> exactRows(const vector<size_t>& placeableIndices, const RowBuilder& rows) {
     const size_t count = placeableIndices.size();
-    if (count > kExactFloorItems) {
-        throw invalid_argument("Exact floor search takes at most " + to_string(kExactFloorItems)
-                               + " items, given " + to_string(count));
-    }
-
     // Every set of placed items, built up by adding one row that holds the lowest unplaced
     // item, so each grouping into rows is reached exactly once.
     const size_t full = (size_t{1} << count) - 1;
@@ -459,20 +444,635 @@ FloorLayout arrangeFloorExact(const vector<FloorItem>& items, const TrailerSpec&
         }
         reverse(result.begin(), result.end());
     }
-    finishLayout(layout, std::move(result), items, trailer, settings);
+    return result;
+}
+
+enum class GroupingSearchEnd { Fits, NoneFits, OutOfStates };
+
+// Items by footprint. A row's depth depends on its members' footprints alone, so a search over
+// groupings counts each footprint's copies: loads that differ only in which copy stands where are
+// one state.
+struct FootprintGroups {
+    vector<vector<size_t>> membersOf;  // item indices of each footprint, most levels first
+    vector<size_t> footprintOfItem;    // parallel to the items; meaningful for those grouped
+};
+
+FootprintGroups footprintGroupsOf(const vector<FloorItem>& items, const vector<size_t>& indices) {
+    auto footprintOf = [&](size_t index) { return make_pair(-items[index].longSideIn, -items[index].shortSideIn); };
+    // By levels within a footprint, so copies that stand alike are placed together.
+    vector<size_t> order = indices;
+    sort(order.begin(), order.end(), [&](size_t left, size_t right) {
+        return make_tuple(footprintOf(left), -items[left].levels, left)
+               < make_tuple(footprintOf(right), -items[right].levels, right);
+    });
+    FootprintGroups groups;
+    groups.footprintOfItem.assign(items.size(), 0);
+    for (const size_t index : order) {
+        if (groups.membersOf.empty() || footprintOf(groups.membersOf.back().front()) != footprintOf(index)) {
+            groups.membersOf.emplace_back();
+        }
+        groups.membersOf.back().push_back(index);
+        groups.footprintOfItem[index] = groups.membersOf.size() - 1;
+    }
+    return groups;
+}
+
+// The states a grouping search reached, by index in the order reached, each with how many of each
+// footprint it has placed, the length of its rows and the row that reached it.
+struct GroupingStates {
+    GroupingSearchEnd end = GroupingSearchEnd::NoneFits;
+    size_t footprintCount = 0;
+    vector<uint64_t> numberOf;     // the state as one mixed-radix number
+    vector<uint32_t> placedOf;     // footprintCount counts a state
+    vector<double> lengthOf;
+    vector<size_t> previousOf;     // the state the row was added to; the first state is its own
+    vector<uint64_t> rowKeyOf;     // names the row that reached it
+    size_t everyItemPlaced = 0;    // its index, when reached
+
+    size_t size() const { return numberOf.size(); }
+};
+
+// State numbers to their index in GroupingStates, by open addressing: the search's hottest step.
+class StateIndex {
+public:
+    static constexpr size_t kAbsent = numeric_limits<size_t>::max();
+
+    StateIndex() : slots_(1024, kEmpty), indexOf_(1024, 0) {}
+
+    size_t find(uint64_t number) const {
+        for (size_t slot = slotOf(number);; slot = (slot + 1) & (slots_.size() - 1)) {
+            if (slots_[slot] == kEmpty) return kAbsent;
+            if (slots_[slot] == number) return indexOf_[slot];
+        }
+    }
+
+    // Records `number` at `index`; it must not be held already.
+    void add(uint64_t number, size_t index) {
+        if (2 * (held_ + 1) > slots_.size()) grow();
+        size_t slot = slotOf(number);
+        while (slots_[slot] != kEmpty) slot = (slot + 1) & (slots_.size() - 1);
+        slots_[slot] = number;
+        indexOf_[slot] = index;
+        ++held_;
+    }
+
+private:
+    // No state number reaches it: numbers stay below the product of every footprint's count plus one.
+    static constexpr uint64_t kEmpty = numeric_limits<uint64_t>::max();
+
+    size_t slotOf(uint64_t number) const {
+        return static_cast<size_t>((number * 0x9E3779B97F4A7C15ULL) >> 32) & (slots_.size() - 1);
+    }
+
+    void grow() {
+        vector<uint64_t> slots(slots_.size() * 2, kEmpty);
+        vector<size_t> indexOf(slots.size(), 0);
+        slots.swap(slots_);
+        indexOf.swap(indexOf_);
+        held_ = 0;
+        for (size_t slot = 0; slot < slots.size(); ++slot) {
+            if (slots[slot] != kEmpty) add(slots[slot], indexOf[slot]);
+        }
+    }
+
+    vector<uint64_t> slots_;
+    vector<size_t> indexOf_;
+    size_t held_ = 0;
+};
+
+// A row the grouping search may add, listed in preorder: each row is followed by the rows that
+// add footprints to it, so a row that cannot be formed is skipped with all of them.
+struct CandidateRow {
+    size_t footprint = 0;   // the last footprint the row adds
+    size_t copiesOfIt = 0;  // copies of that footprint the row holds
+    size_t size = 0;
+    size_t extensionsEnd = 0;  // the entry after every row extending this one
+    uint64_t stateStep = 0;    // added to a state's number
+    double shareSum = 0.0;
+    array<size_t, 4> footprints{};
+    double depthIn = numeric_limits<double>::quiet_NaN();  // asked of rowDepth when first offered
+    uint64_t rowKey = 0;
+};
+
+// The shortest grouping into rows, within lengthLimitIn, of countOf[f] items of each footprint f,
+// by dynamic programming over how many of each are placed. Each state is reached by adding one row
+// that holds an item of its first footprint not yet placed, so every grouping is reached: thirty
+// stacks of three footprints have at most 11^3 states where the stacks have 2^30 subsets. A state
+// is passed over once its rows and its unplaced items' shares (each footprint's least share of a
+// row's depth) pass the limit. rowDepth(footprints, size, rowKey) gives the depth of a row of
+// those footprints, infinite for none, and a key naming it; it is asked at most once for each row.
+template <typename RowDepth>
+GroupingStates searchGroupingStates(const vector<size_t>& countOf, const vector<double>& shareOf, double lengthLimitIn,
+                                    long long stateLimit, bool fourMemberRows, RowDepth&& rowDepth) {
+    GroupingStates search;
+    const size_t footprintCount = countOf.size();
+    // A state is how many of each footprint are placed, as one mixed-radix number. A load of more
+    // than 63 footprints cannot be numbered, and is left unsearched.
+    vector<uint64_t> stride(footprintCount);
+    uint64_t stateSpace = 1;
+    size_t itemCount = 0;
+    double totalShare = 0.0;
+    for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+        const uint64_t radix = countOf[footprint] + 1;
+        if (stateSpace > numeric_limits<uint64_t>::max() / radix) {
+            search.end = GroupingSearchEnd::OutOfStates;
+            return search;
+        }
+        stride[footprint] = stateSpace;
+        stateSpace *= radix;
+        itemCount += countOf[footprint];
+        totalShare += shareOf[footprint] * static_cast<double>(countOf[footprint]);
+    }
+    if (totalShare > lengthLimitIn) return search;
+
+    // Every row the load's items can form, by first footprint, in the order offered.
+    vector<CandidateRow> candidates;
+    vector<size_t> candidatesFrom(footprintCount + 1, 0);
+    vector<size_t> left = countOf;
+    auto addCandidate = [&](const CandidateRow* shorter, size_t footprint) {
+        CandidateRow row;
+        if (shorter) row = *shorter;
+        row.footprint = footprint;
+        row.copiesOfIt = shorter && shorter->footprint == footprint ? shorter->copiesOfIt + 1 : 1;
+        row.footprints[row.size++] = footprint;
+        row.stateStep += stride[footprint];
+        row.shareSum += shareOf[footprint];
+        candidates.push_back(row);
+        return candidates.size() - 1;
+    };
+    for (size_t first = 0; first < footprintCount; ++first) {
+        candidatesFrom[first] = candidates.size();
+        --left[first];
+        const size_t oneMember = addCandidate(nullptr, first);
+        for (size_t second = first; second < footprintCount; ++second) {
+            if (left[second] == 0) continue;
+            --left[second];
+            const size_t twoMembers = addCandidate(&candidates[oneMember], second);
+            for (size_t third = second; third < footprintCount; ++third) {
+                if (left[third] == 0) continue;
+                --left[third];
+                const size_t threeMembers = addCandidate(&candidates[twoMembers], third);
+                for (size_t fourth = third; fourMemberRows && fourth < footprintCount; ++fourth) {
+                    if (left[fourth] == 0) continue;
+                    const size_t fourMembers = addCandidate(&candidates[threeMembers], fourth);
+                    candidates[fourMembers].extensionsEnd = fourMembers + 1;
+                }
+                candidates[threeMembers].extensionsEnd = candidates.size();
+                ++left[third];
+            }
+            candidates[twoMembers].extensionsEnd = candidates.size();
+            ++left[second];
+        }
+        candidates[oneMember].extensionsEnd = candidates.size();
+        ++left[first];
+    }
+    candidatesFrom[footprintCount] = candidates.size();
+
+    search.footprintCount = footprintCount;
+    StateIndex indexOfNumber;
+    auto addState = [&](uint64_t number, const uint32_t* placed, double lengthIn, size_t previous, uint64_t rowKey) {
+        const size_t index = search.size();
+        search.numberOf.push_back(number);
+        search.placedOf.insert(search.placedOf.end(), placed, placed + footprintCount);
+        search.lengthOf.push_back(lengthIn);
+        search.previousOf.push_back(previous);
+        search.rowKeyOf.push_back(rowKey);
+        indexOfNumber.add(number, index);
+        return index;
+    };
+    vector<uint32_t> placed(footprintCount, 0);
+    addState(0, placed.data(), 0.0, 0, 0);
+    // States by items placed: every row adds at least one, so a state is final before it is expanded.
+    vector<vector<size_t>> statesByPlaced(itemCount + 1);
+    statesByPlaced[0].push_back(0);
+    vector<size_t> available(footprintCount);
+    vector<uint32_t> nextPlaced(footprintCount);
+    for (size_t placedCount = 0; placedCount < itemCount; ++placedCount) {
+        for (const size_t from : statesByPlaced[placedCount]) {
+            const uint64_t number = search.numberOf[from];
+            const double fromLength = search.lengthOf[from];
+            copy_n(search.placedOf.begin() + static_cast<ptrdiff_t>(from * footprintCount), footprintCount, placed.begin());
+            double unplacedShare = totalShare;
+            size_t firstFootprint = footprintCount;
+            for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+                available[footprint] = countOf[footprint] - placed[footprint];
+                unplacedShare -= shareOf[footprint] * static_cast<double>(placed[footprint]);
+                if (available[footprint] > 0 && firstFootprint == footprintCount) firstFootprint = footprint;
+            }
+            for (size_t next = candidatesFrom[firstFootprint]; next < candidatesFrom[firstFootprint + 1];) {
+                CandidateRow& row = candidates[next];
+                if (available[row.footprint] < row.copiesOfIt) {
+                    next = row.extensionsEnd;
+                    continue;
+                }
+                ++next;
+                if (isnan(row.depthIn)) row.depthIn = rowDepth(row.footprints, row.size, row.rowKey);
+                if (!isfinite(row.depthIn)) continue;
+                const double lengthIn = fromLength + row.depthIn;
+                if (lengthIn + unplacedShare - row.shareSum > lengthLimitIn) continue;
+                const uint64_t nextNumber = number + row.stateStep;
+                const size_t known = indexOfNumber.find(nextNumber);
+                if (known != StateIndex::kAbsent) {
+                    if (lengthIn < search.lengthOf[known] - kQuantityEpsilon) {
+                        search.lengthOf[known] = lengthIn;
+                        search.previousOf[known] = from;
+                        search.rowKeyOf[known] = row.rowKey;
+                    }
+                    continue;
+                }
+                if (static_cast<long long>(search.size()) >= stateLimit) {
+                    search.end = GroupingSearchEnd::OutOfStates;
+                    return search;
+                }
+                nextPlaced = placed;
+                for (size_t position = 0; position < row.size; ++position) ++nextPlaced[row.footprints[position]];
+                statesByPlaced[placedCount + row.size].push_back(
+                    addState(nextNumber, nextPlaced.data(), lengthIn, from, row.rowKey));
+            }
+        }
+    }
+    const size_t full = indexOfNumber.find(stateSpace - 1);
+    if (full != StateIndex::kAbsent) {
+        search.end = GroupingSearchEnd::Fits;
+        search.everyItemPlaced = full;
+    }
+    return search;
+}
+
+// A multiset of up to four footprints (indices below footprintCount, ascending) as one number.
+uint64_t rowKeyOf(const array<size_t, 4>& footprints, size_t size, size_t footprintCount) {
+    uint64_t key = 0;
+    for (size_t position = 0; position < size; ++position) key = key * (footprintCount + 1) + footprints[position] + 1;
+    return key;
+}
+
+// The states one search may hold: the setting's, and no more than the budget has left.
+long long stateLimitOf(const FloorPatternSettings& settings, const FloorSearchBudget* budget) {
+    return budget ? min(settings.searchStateLimit, budget->statesLeft) : settings.searchStateLimit;
+}
+
+void drawStates(FloorSearchBudget* budget, size_t states) {
+    if (budget) budget->statesLeft -= static_cast<long long>(states);
+}
+
+struct GroupingSearch {
+    GroupingSearchEnd end = GroupingSearchEnd::NoneFits;
+    vector<FloorRow> rows;  // front to back, when a grouping fits
+};
+
+// The shortest grouping of the placeable items into rows that fits the trailer.
+GroupingSearch searchGroupings(const vector<FloorItem>& items, const vector<size_t>& placeableIndices,
+                               const RowBuilder& rows, const TrailerSpec& trailer,
+                               const FloorPatternSettings& settings, FloorSearchBudget* budget) {
+    const FootprintGroups groups = footprintGroupsOf(items, placeableIndices);
+    const size_t footprintCount = groups.membersOf.size();
+    const vector<double> shares = rowLengthShares(items, trailer, settings);
+    vector<size_t> countOf(footprintCount);
+    vector<double> shareOf(footprintCount);
+    for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+        countOf[footprint] = groups.membersOf[footprint].size();
+        shareOf[footprint] = shares[groups.membersOf[footprint].front()];
+    }
+
+    // Each row is weighed once, on the first copies of its footprints.
+    unordered_map<uint64_t, optional<FloorRow>> rowOf;
+    vector<size_t> members;
+    members.reserve(4);
+    auto rowDepth = [&](const array<size_t, 4>& footprints, size_t size, uint64_t& rowKey) {
+        rowKey = rowKeyOf(footprints, size, footprintCount);
+        const auto [found, inserted] = rowOf.try_emplace(rowKey);
+        if (inserted) {
+            members.clear();
+            for (size_t position = 0; position < size; ++position) {
+                const auto first = footprints.begin();
+                const size_t copy = static_cast<size_t>(count(first, first + static_cast<ptrdiff_t>(position), footprints[position]));
+                members.push_back(groups.membersOf[footprints[position]][copy]);
+            }
+            found->second = rows.best(members);
+        }
+        return found->second ? found->second->depthIn : numeric_limits<double>::infinity();
+    };
+    const GroupingStates states = searchGroupingStates(countOf, shareOf, trailer.interiorLengthIn + kQuantityEpsilon,
+                                                       stateLimitOf(settings, budget), rows.allowsPinwheel(), rowDepth);
+    drawStates(budget, states.size());
+    if (states.end != GroupingSearchEnd::Fits) return {states.end, {}};
+
+    vector<uint64_t> rowKeys;
+    for (size_t state = states.everyItemPlaced; state != 0; state = states.previousOf[state]) {
+        rowKeys.push_back(states.rowKeyOf[state]);
+    }
+    vector<vector<size_t>> footprintsOfRow;  // front to back
+    for (auto rowKey = rowKeys.rbegin(); rowKey != rowKeys.rend(); ++rowKey) {
+        vector<size_t>& footprints = footprintsOfRow.emplace_back();
+        for (const FloorPlacement& placement : rowOf.at(*rowKey)->placements) {
+            footprints.push_back(groups.footprintOfItem[placement.itemIndex]);
+        }
+    }
+    // Which copy of a footprint stands where changes no row's depth, only whether a row's members
+    // stand at the same levels. So each row, fullest first, takes copies of one number of levels
+    // its footprints all still have, a single row one level where it can; the rest take what is
+    // left. Each row is then rebuilt on its copies, with their own lone-top flag.
+    vector<map<int, vector<size_t>>> copiesLeft(footprintCount);  // by footprint, then levels
+    for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+        for (const size_t index : groups.membersOf[footprint]) copiesLeft[footprint][items[index].levels].push_back(index);
+    }
+    auto take = [&](size_t footprint, int levels) {
+        vector<size_t>& copies = copiesLeft[footprint][levels];
+        const size_t index = copies.back();
+        copies.pop_back();
+        if (copies.empty()) copiesLeft[footprint].erase(levels);
+        return index;
+    };
+    vector<size_t> rowOrder(footprintsOfRow.size());
+    for (size_t row = 0; row < rowOrder.size(); ++row) rowOrder[row] = row;
+    stable_sort(rowOrder.begin(), rowOrder.end(),
+                [&](size_t left, size_t right) { return footprintsOfRow[left].size() > footprintsOfRow[right].size(); });
+    vector<vector<size_t>> membersOfRow(footprintsOfRow.size());
+    for (const size_t row : rowOrder) {
+        map<size_t, size_t> needOf;  // copies of each footprint
+        for (const size_t footprint : footprintsOfRow[row]) ++needOf[footprint];
+        auto spareAt = [&](int levels) {
+            size_t spare = numeric_limits<size_t>::max();
+            for (const auto& [footprint, need] : needOf) {
+                const auto copies = copiesLeft[footprint].find(levels);
+                const size_t held = copies == copiesLeft[footprint].end() ? 0 : copies->second.size();
+                if (held < need) return optional<size_t>();
+                spare = min(spare, held - need);
+            }
+            return optional<size_t>(spare);
+        };
+        optional<int> chosenLevels;
+        if (footprintsOfRow[row].size() == 1 && spareAt(1)) {
+            chosenLevels = 1;
+        } else {
+            optional<size_t> mostSpare;
+            for (const auto& [levels, copies] : copiesLeft[footprintsOfRow[row].front()]) {
+                const optional<size_t> spare = spareAt(levels);
+                if (spare && (!mostSpare || *spare > *mostSpare)) {
+                    mostSpare = spare;
+                    chosenLevels = levels;
+                }
+            }
+        }
+        if (!chosenLevels) continue;
+        for (const size_t footprint : footprintsOfRow[row]) membersOfRow[row].push_back(take(footprint, *chosenLevels));
+    }
+    for (size_t row = 0; row < footprintsOfRow.size(); ++row) {
+        if (!membersOfRow[row].empty()) continue;
+        for (const size_t footprint : footprintsOfRow[row]) {
+            membersOfRow[row].push_back(take(footprint, copiesLeft[footprint].begin()->first));
+        }
+    }
+    GroupingSearch search{GroupingSearchEnd::Fits, {}};
+    for (const vector<size_t>& rowMembers : membersOfRow) search.rows.push_back(rows.best(rowMembers).value());
+    return search;
+}
+
+// What loadGrowthCheck's check keeps for one set of goods. Its RowBuilder refers to its own copies
+// and settings, so it is never copied: the check holds it by pointer.
+class LoadGrowth {
+public:
+    LoadGrowth(vector<FloorItem> items, const TrailerSpec& trailer, const FloorPatternSettings& settings,
+               shared_ptr<FloorSearchBudget> budget)
+        : items_(std::move(items)), trailer_(trailer), settings_(settings), budget_(std::move(budget)),
+          groups_(footprintGroupsOf(items_, allIndices(items_.size()))),
+          copies_(copiesOf(items_, groups_)), rows_(copies_, trailer.interiorWidthIn, settings_) {
+        const vector<double> shares = rowLengthShares(items_, trailer_, settings_);
+        for (const vector<size_t>& members : groups_.membersOf) shareOf_.push_back(shares[members.front()]);
+        countOf_.assign(groups_.membersOf.size(), 0u);
+    }
+    LoadGrowth(const LoadGrowth&) = delete;
+    LoadGrowth& operator=(const LoadGrowth&) = delete;
+
+    bool mayFit(const vector<size_t>& load) {
+        fill(countOf_.begin(), countOf_.end(), 0u);
+        double totalShare = 0.0;
+        for (const size_t index : load) {
+            ++countOf_[groups_.footprintOfItem[index]];
+            totalShare += shareOf_[groups_.footprintOfItem[index]];
+        }
+        if (totalShare > trailer_.interiorLengthIn + kQuantityEpsilon) return false;
+        const auto known = verdictOf_.find(countOf_);
+        if (known != verdictOf_.end()) return known->second;
+        const optional<bool> verdict = verdictByDominance();
+        const bool couldFit = verdict ? *verdict : search(load);
+        if (verdictOf_.size() == kVerdictsKept) verdictOf_.clear();
+        verdictOf_.emplace(countOf_, couldFit);
+        return couldFit;
+    }
+
+private:
+    using Counts = vector<uint32_t>;  // copies of each footprint in a load
+
+    struct CountsHash {
+        size_t operator()(const Counts& counts) const {
+            size_t hash = counts.size();
+            for (const uint32_t copies : counts) hash = hash * 1000003u ^ copies;
+            return hash;
+        }
+    };
+
+    // Relaxed rows only grow with goods: a load inside one that may fit may fit, and a load holding
+    // one that cannot fit cannot.
+    optional<bool> verdictByDominance() const {
+        auto within = [](const Counts& inner, const Counts& outer) {
+            for (size_t footprint = 0; footprint < inner.size(); ++footprint) {
+                if (inner[footprint] > outer[footprint]) return false;
+            }
+            return true;
+        };
+        for (const Counts& fitting : mayFitLoads_) {
+            if (within(countOf_, fitting)) return true;
+        }
+        for (const Counts& cut : cutLoads_) {
+            if (within(cut, countOf_)) return false;
+        }
+        return nullopt;
+    }
+
+    // A grouping that fits the load is a grouping of its relaxed rows that fits, so the sorted rows
+    // fitting settle it; otherwise the relaxed rows are searched.
+    bool search(const vector<size_t>& load) {
+        vector<FloorItem> loadItems;
+        loadItems.reserve(load.size());
+        for (const size_t index : load) loadItems.push_back(items_[index]);
+        bool couldFit = arrangeFloorSorted(loadItems, trailer_, settings_).fitsLength;
+        // With no states left to search, the load cannot be cut, nor does it show that any other may fit.
+        if (!couldFit && budget_ && budget_->statesLeft <= 0) return true;
+        if (!couldFit) {
+            const size_t footprintCount = groups_.membersOf.size();
+            vector<size_t> present;  // the load's footprints, ascending
+            vector<size_t> presentCount;
+            vector<double> presentShare;
+            for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+                if (countOf_[footprint] == 0) continue;
+                present.push_back(footprint);
+                presentCount.push_back(countOf_[footprint]);
+                presentShare.push_back(shareOf_[footprint]);
+            }
+            auto rowDepth = [&](const array<size_t, 4>& positions, size_t size, uint64_t& rowKey) {
+                array<size_t, 4> footprints{};
+                for (size_t position = 0; position < size; ++position) footprints[position] = present[positions[position]];
+                rowKey = rowKeyOf(footprints, size, footprintCount);
+                return relaxedDepth(footprints, size);
+            };
+            const GroupingStates states = searchGroupingStates(presentCount, presentShare,
+                                                               trailer_.interiorLengthIn + kQuantityEpsilon,
+                                                               stateLimitOf(settings_, budget_.get()),
+                                                               rows_.allowsPinwheel(), rowDepth);
+            drawStates(budget_.get(), states.size());
+            const GroupingSearchEnd end = states.end;
+            // Out of states, the load cannot be cut, nor does it show that any other may fit.
+            if (end == GroupingSearchEnd::OutOfStates) return true;
+            couldFit = end == GroupingSearchEnd::Fits;
+        }
+        deque<Counts>& loads = couldFit ? mayFitLoads_ : cutLoads_;
+        if (loads.size() == kLoadsRemembered) loads.pop_back();
+        loads.push_front(countOf_);
+        return couldFit;
+    }
+
+    static constexpr size_t kMostCopies = 4;
+    // Loads searched, remembered each way to answer the loads within or holding them, newest first.
+    // Every answer is sound, so the oldest are dropped only to bound the scan.
+    static constexpr size_t kLoadsRemembered = 32;
+    // Verdicts kept by load; forgotten together when this many are held, which bounds the memory.
+    static constexpr size_t kVerdictsKept = size_t{1} << 16;
+
+    static vector<size_t> allIndices(size_t count) {
+        vector<size_t> indices(count);
+        for (size_t index = 0; index < count; ++index) indices[index] = index;
+        return indices;
+    }
+
+    // Four copies of each footprint, one level each: what its rows are built from.
+    static vector<FloorItem> copiesOf(const vector<FloorItem>& items, const FootprintGroups& groups) {
+        vector<FloorItem> copies;
+        copies.reserve(groups.membersOf.size() * kMostCopies);
+        for (const vector<size_t>& members : groups.membersOf) {
+            const FloorItem& item = items[members.front()];
+            copies.insert(copies.end(), kMostCopies, FloorItem{item.longSideIn, item.shortSideIn, 0.0, 1, 0.0});
+        }
+        return copies;
+    }
+
+    // The shallowest row over the goods holding these footprints (ascending), itself or with more
+    // members: a row short of members keeps its depth. Rows only of goods there are.
+    double relaxedDepth(const array<size_t, 4>& footprints, size_t size) {
+        const size_t footprintCount = groups_.membersOf.size();
+        const uint64_t key = rowKeyOf(footprints, size, footprintCount);
+        const auto known = relaxedDepthOf_.find(key);
+        if (known != relaxedDepthOf_.end()) return known->second;
+        vector<size_t> members;
+        for (size_t position = 0; position < size; ++position) {
+            const auto first = footprints.begin();
+            members.push_back(footprints[position] * kMostCopies
+                              + static_cast<size_t>(count(first, first + static_cast<ptrdiff_t>(position), footprints[position])));
+        }
+        const optional<FloorRow> own = rows_.best(members);
+        double depth = own ? own->depthIn : numeric_limits<double>::infinity();
+        // Every row holding an item is at least as deep as the item stands in it, so a row no
+        // deeper than its deepest member can stand is never beaten by one holding more.
+        double deepestMember = 0.0;
+        for (size_t position = 0; position < size; ++position) {
+            deepestMember = max(deepestMember, leastDepthOf(footprints[position]));
+        }
+        if (size < 4 && depth > deepestMember + kQuantityEpsilon) {
+            for (size_t added = 0; added < footprintCount; ++added) {
+                const auto first = footprints.begin();
+                const size_t held = static_cast<size_t>(count(first, first + static_cast<ptrdiff_t>(size), added));
+                if (held >= min(groups_.membersOf[added].size(), kMostCopies)) continue;
+                array<size_t, 4> wider = footprints;
+                wider[size] = added;
+                sort(wider.begin(), wider.begin() + static_cast<ptrdiff_t>(size + 1));
+                depth = min(depth, relaxedDepth(wider, size + 1));
+            }
+        }
+        relaxedDepthOf_.emplace(key, depth);
+        return depth;
+    }
+
+    // The least trailer length the footprint can take in any row: its short side, unless it must be
+    // turned to stand at all or the site never turns it long side across.
+    double leastDepthOf(size_t footprint) const {
+        const FloorItem& item = items_[groups_.membersOf[footprint].front()];
+        const bool longSideAcross = item.longSideIn <= trailer_.interiorWidthIn + kQuantityEpsilon
+                                    && (settings_.allowRotation || settings_.fixedOrientation == FixedOrientation::LongSideAcross);
+        return longSideAcross ? item.shortSideIn : item.longSideIn;
+    }
+
+    vector<FloorItem> items_;
+    TrailerSpec trailer_;
+    FloorPatternSettings settings_;
+    shared_ptr<FloorSearchBudget> budget_;  // none: each search holds up to searchStateLimit
+    FootprintGroups groups_;
+    vector<FloorItem> copies_;
+    RowBuilder rows_;
+    vector<double> shareOf_;
+    unordered_map<uint64_t, double> relaxedDepthOf_;
+    Counts countOf_;  // the load being judged
+    unordered_map<Counts, bool, CountsHash> verdictOf_;
+    deque<Counts> mayFitLoads_;
+    deque<Counts> cutLoads_;
+};
+
+} // anonymous namespace
+
+FloorItem floorItemFrom(const SelectionItem& item) {
+    return {item.footprintLongIn, item.footprintShortIn, item.heightIn,
+            static_cast<int>(item.lineIndices.size()), item.cubeCubicIn};
+}
+
+FloorLayout arrangeFloorSorted(const vector<FloorItem>& items, const TrailerSpec& trailer,
+                               const FloorPatternSettings& settings) {
+    validate(items, trailer, settings);
+    FloorLayout layout;
+    const RowBuilder rows(items, trailer.interiorWidthIn, settings);
+    const vector<size_t> placeableIndices = placeableItems(items, rows, trailer, layout);
+    finishLayout(layout, sortedRows(items, placeableIndices, rows), items, trailer, settings);
+    return layout;
+}
+
+FloorLayout arrangeFloorExact(const vector<FloorItem>& items, const TrailerSpec& trailer,
+                              const FloorPatternSettings& settings) {
+    validate(items, trailer, settings);
+    FloorLayout layout;
+    const RowBuilder rows(items, trailer.interiorWidthIn, settings);
+    const vector<size_t> placeableIndices = placeableItems(items, rows, trailer, layout);
+    if (placeableIndices.size() > kExactFloorItems) {
+        throw invalid_argument("Exact floor search takes at most " + to_string(kExactFloorItems)
+                               + " items, given " + to_string(placeableIndices.size()));
+    }
+    finishLayout(layout, exactRows(placeableIndices, rows), items, trailer, settings);
     return layout;
 }
 
 FloorLayout arrangeFloor(const vector<FloorItem>& items, const TrailerSpec& trailer,
-                         const FloorPatternSettings& settings) {
+                         const FloorPatternSettings& settings, FloorSearchBudget* budget) {
     validate(items, trailer, settings);
+    FloorLayout layout;
     const RowBuilder rows(items, trailer.interiorWidthIn, settings);
-    size_t placeableCount = 0;
-    for (size_t index = 0; index < items.size(); ++index) {
-        if (placeable(index, rows, trailer)) ++placeableCount;
+    const vector<size_t> placeableIndices = placeableItems(items, rows, trailer, layout);
+    if (placeableIndices.size() <= kExactFloorItems) {
+        finishLayout(layout, exactRows(placeableIndices, rows), items, trailer, settings);
+        return layout;
     }
-    return placeableCount <= kExactFloorItems ? arrangeFloorExact(items, trailer, settings)
-                                              : arrangeFloorSorted(items, trailer, settings);
+    FloorLayout sorted = layout;
+    finishLayout(sorted, sortedRows(items, placeableIndices, rows), items, trailer, settings);
+    if (sorted.fitsLength) return sorted;
+    // The sorted order is one grouping of many: eleven stacks it needs 640 in for stand in 586 in
+    // grouped otherwise (Tom Moore, 12 Nov 2026), and a load it refuses must not be refused unseen.
+    if (budget && budget->statesLeft <= 0) {
+        sorted.fitUnproven = true;
+        return sorted;
+    }
+    GroupingSearch search = searchGroupings(items, placeableIndices, rows, trailer, settings, budget);
+    if (search.end == GroupingSearchEnd::Fits) {
+        finishLayout(layout, std::move(search.rows), items, trailer, settings);
+        return layout;
+    }
+    sorted.fitUnproven = search.end == GroupingSearchEnd::OutOfStates;
+    return sorted;
 }
 
 vector<double> rowLengthShares(const vector<FloorItem>& items, const TrailerSpec& trailer,
@@ -576,6 +1176,13 @@ vector<FloorRow> candidateRows(const vector<FloorItem>& items, const vector<size
         }
     }
     return RowBuilder(items, trailer.interiorWidthIn, settings).candidates(members);
+}
+
+LoadGrowthCheck loadGrowthCheck(vector<FloorItem> items, const TrailerSpec& trailer,
+                                const FloorPatternSettings& settings, shared_ptr<FloorSearchBudget> budget) {
+    validate(items, trailer, settings);
+    auto check = make_shared<LoadGrowth>(std::move(items), trailer, settings, std::move(budget));
+    return [check](const vector<size_t>& load) { return check->mayFit(load); };
 }
 
 bool twoAcrossFits(double longSideIn, double shortSideIn, double trailerWidthIn) {
