@@ -50,3 +50,12 @@ TEST_CASE("isoDate: addDays crosses month, year and leap-day boundaries") {
     CHECK(addDays("2026-02-28", 1) == "2026-03-01");
     CHECK(addDays("2026-03-01", -1) == "2026-02-28");
 }
+
+TEST_CASE("isoDate: daysBetween counts calendar days across month, year and leap-day boundaries") {
+    CHECK(daysBetween("2026-08-06", "2026-08-06") == 0);
+    CHECK(daysBetween("2026-08-06", "2026-08-16") == 10);
+    CHECK(daysBetween("2026-08-16", "2026-08-06") == -10);
+    CHECK(daysBetween("2026-12-31", "2027-01-01") == 1);
+    CHECK(daysBetween("2028-02-28", "2028-03-01") == 2);
+    CHECK(daysBetween("2027-02-28", "2027-03-01") == 1);
+}

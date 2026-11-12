@@ -79,6 +79,38 @@ struct Scenario {
     }
 };
 
+// A scenario whose lines carry ship dates, one per line.
+struct DatedScenario : Scenario {
+    vector<STRRecord> demand;
+
+    DatedScenario(vector<ProductRecord> productList, vector<double> quantities, const vector<string>& shipDates)
+        : Scenario(std::move(productList), std::move(quantities)), demand(shipDates.size()) {
+        for (size_t i = 0; i < demand.size(); ++i) {
+            demand[i].datfr_ta = shipDates[i];
+            lines[i].str = &demand[i];
+        }
+    }
+    // Its lines point into its own demand.
+    DatedScenario(const DatedScenario&) = delete;
+    DatedScenario& operator=(const DatedScenario&) = delete;
+
+    // Whether any stack holds two lines whose ship dates differ.
+    bool anyStackMixesShipDates(const StackingResult& result) const {
+        for (const BuiltStack& stack : result.groups[0].best.stacks) {
+            for (const size_t line : stack.lineIndices) {
+                if (demand[line].datfr_ta != demand[stack.lineIndices.front()].datfr_ta) return true;
+            }
+        }
+        return false;
+    }
+};
+
+M2Params withShipDateLimit(long long days) {
+    M2Params params = testParams();
+    params.maxDaysBetweenShipDatesInStack = days;
+    return params;
+}
+
 double outcomeFor(const GroupStacking& group, StackMethod method) {
     for (const auto& outcome : group.outcomes) {
         if (outcome.method == method) return outcome.floorPositions;
@@ -465,4 +497,35 @@ TEST_CASE("stackBuilder: a product over its own CRI limit is warned about and st
 TEST_CASE("stackBuilder: a product within its own CRI limit raises no warning") {
     Scenario scenario({product("A", 30, 10, 9)}, {2});
     CHECK(scenario.build().ownCriExceededLines.empty());
+}
+
+TEST_CASE("stackBuilder: without a ship-date limit lines due on different days share a stack") {
+    const DatedScenario scenario({product("A", 30, 100, 9), product("B", 30, 100, 9)}, {2, 1},
+                                 {"2026-08-06", "2026-08-08"});
+    const StackingResult result = scenario.build();
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(1.0));
+    CHECK(scenario.anyStackMixesShipDates(result));
+}
+
+TEST_CASE("stackBuilder: a ship-date limit of 0 keeps every stack to one ship date") {
+    const DatedScenario scenario({product("A", 30, 100, 9), product("B", 30, 100, 9)}, {2, 1},
+                                 {"2026-08-06", "2026-08-08"});
+    const StackingResult result = scenario.build(withShipDateLimit(0));
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
+    CHECK_FALSE(scenario.anyStackMixesShipDates(result));
+}
+
+TEST_CASE("stackBuilder: lines due within the ship-date limit still share a stack, and further apart do not") {
+    const DatedScenario scenario({product("A", 30, 100, 9), product("B", 30, 100, 9)}, {2, 1},
+                                 {"2026-08-06", "2026-08-08"});
+    CHECK(scenario.build(withShipDateLimit(2)).groups[0].best.floorPositions == doctest::Approx(1.0));
+    CHECK(scenario.build(withShipDateLimit(1)).groups[0].best.floorPositions == doctest::Approx(2.0));
+}
+
+TEST_CASE("stackBuilder: under a ship-date limit a line whose date is not a real one stacks only with its own date") {
+    const DatedScenario scenario({product("A", 30, 100, 9), product("B", 30, 100, 9), product("C", 30, 100, 9)},
+                                 {1, 1, 1}, {"2026-02-30", "2026-08-06", "2026-02-30"});
+    const StackingResult result = scenario.build(withShipDateLimit(10));
+    CHECK_FALSE(scenario.anyStackMixesShipDates(result));
+    CHECK(result.groups[0].best.floorPositions == doctest::Approx(2.0));
 }

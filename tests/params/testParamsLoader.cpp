@@ -68,7 +68,7 @@ json completeParams() {
         "trailers": [{"trailerCode":"53FT_NA","interiorLengthIn":630,"interiorWidthIn":100,
                       "stackHeightCeilingIn":108,"weightLimitLb":45000,"stackPositions":32,"maxStackDepth":null}],
         "doNotMixReading":"Strict","pass2AttemptCap":4,"blankCriIsStackable":false,
-        "stackWholePallets":true,"floorDeckHeight":"Excluded","floorRoundingPoint":"Group"
+        "stackWholePallets":true,"floorDeckHeight":"Excluded","footprintRule":"WrittenRule","floorRoundingPoint":"Group"
     })");
 }
 
@@ -633,6 +633,26 @@ TEST_CASE("params floorDeckHeight of the wrong value or type is rejected") {
         auto root = completeParams();
         root["floorDeckHeight"] = badRule;
         CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("floorDeckHeight"), runtime_error);
+    }
+}
+
+TEST_CASE("params footprintRule reads WrittenRule and LayerOnly") {
+    auto root = completeParams();
+    CHECK(parseParams(root).footprintRule == FootprintRule::WrittenRule);
+    root["footprintRule"] = "LayerOnly";
+    CHECK(parseParams(root).footprintRule == FootprintRule::LayerOnly);
+}
+
+TEST_CASE("params footprintRule missing, of the wrong value or type is rejected, named") {
+    auto missing = completeParams();
+    missing.erase("footprintRule");
+    CHECK_THROWS_WITH_AS(parseParams(missing), doctest::Contains("footprintRule"), runtime_error);
+    for (const json& badRule : {json("layerOnly"), json("Column"), json(""), json(true), json(0),
+                                json::object(), json::array(), json(nullptr)}) {
+        CAPTURE(badRule.dump());
+        auto root = completeParams();
+        root["footprintRule"] = badRule;
+        CHECK_THROWS_WITH_AS(parseParams(root), doctest::Contains("footprintRule"), runtime_error);
     }
 }
 
