@@ -63,6 +63,21 @@ add_library(ob_core STATIC
   src/selectionReporter/selectionReporter.cpp
   src/benchmarkHarness/benchmarkHarness.cpp
   src/selectionParams/selectionParams.cpp
+  src/truckCheck/truckCheck.cpp
+  src/m5Types/m5Types.cpp
+  src/m5Policy/m5Policy.cpp
+  src/m5Budget/m5Budget.cpp
+  src/m5Ledger/m5Ledger.cpp
+  src/m5Physical/m5Physical.cpp
+  src/m5Allocation/m5Allocation.cpp
+  src/m5Validation/m5Validation.cpp
+  src/m5Repair/m5Repair.cpp
+  src/m5Methods/m5Methods.cpp
+  src/m5Commit/m5Commit.cpp
+  src/m5Solver/m5Solver.cpp
+  src/m5Orchestrator/m5Orchestrator.cpp
+  src/m5Report/m5Report.cpp
+  src/m5Integration/m5Integration.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -134,6 +149,12 @@ add_executable(ob_tests
   tests/benchmarkHarness/testM4Benchmark.cpp
   tests/selectionParams/testSelectionParams.cpp
   tests/testPipelineMilestone4.cpp
+  tests/m5/testM5Policy.cpp
+  tests/m5/testM5Solver.cpp
+  tests/m5/testM5Planning.cpp
+  tests/m5/testM5Orchestrator.cpp
+  tests/m5/testM5Integration.cpp
+  tests/m5/testM5RealData.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.
@@ -165,4 +186,13 @@ add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
 # The M4 benchmark over every extract held. Its presence check is skipped in the full run, so a
 # clean clone passes; here --no-skip runs it, so a missing extract fails by name.
 add_test(NAME m4Benchmark COMMAND ob_tests -ts=m4Benchmark --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# M5's synthetic suite on its own (the m5 test suite inside ob_tests).
+add_test(NAME m5Core COMMAND ob_tests -ts=m5
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# M5 on the real 4-6 August extracts; fails, naming each file, when the data is absent.
+add_test(NAME m5RealData COMMAND ob_tests -ts=m5RealData --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# PUB-01..03 (ACC-1) on OR-Library's binpack1.txt, which must be added under tests/m5/data/orlib/.
+add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

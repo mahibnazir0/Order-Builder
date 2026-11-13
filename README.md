@@ -107,8 +107,8 @@ Exit codes:
 | 4 | A floor left out a line shipping on its date, or a line has no real ship date (DATFR_TA) |
 | 5 | No line of a non-empty extract ships on the rule's dates |
 | 6 | No floor was computed because `--params` was not given (the Milestone 1 report is still printed) |
-| 7 | M4 ran (`--select`) and left something unhandled: its plan broke an invariant; on a route every method threw, the kept method overran `secondsPerLane`, or the LP stopped at `simplexIterationLimit`; stacks were left over as escalated to M5, unfittable, on an unsolved lane, or evicted by the floor while their route still had reserved trucks unbuilt; a stack was rejected for bad line data or a line was not fully stacked; or a placeholder row was skipped for bad data (missing lane, a lane code with leading or trailing spaces, a lane and ship date reserved on more than one row, bad date, unreadable load count, unknown equipment). Stacks after the window, unavailable in it, with no reservation or over it, and placeholders with zero loads or outside the window, are normal. The M4 report's `Result` line lists every cause |
-| 8 | M4 ran and handled everything, but its plan is provisional: on a route the kept method did not prove its result, because it stopped at a search limit (`knapsack.nodeLimit`, `binPacker.branchNodeLimit`, `columnRoundsPerNode`, `maxSearchItems`, `patternPacker.maxPatterns` or a `pricingNodeLimit`) or because a fallback was kept (greedy knapsack, first-fit decreasing, or any method after one that threw). The M4 report lists each such route by lane, group and ship date with the reason, under its `Result` line |
+| 7 | M4 ran (`--select`) and left something unhandled: its plan broke an invariant; on a route every method threw, the kept method overran `secondsPerLane`, or the LP stopped at `simplexIterationLimit`; stacks were left over as escalated to M5 (no M5 planner registered), unfittable, on an unsolved lane, or on an M5 lane-date M5 could not plan (its settings malformed, its input invalid, or its allowance spent before any checked plan), or evicted by the floor while their route still had reserved trucks unbuilt; a stack was rejected for bad line data or a line was not fully stacked; or a placeholder row was skipped for bad data (missing lane, a lane code with leading or trailing spaces, a lane and ship date reserved on more than one row, bad date, unreadable load count, unknown equipment). Stacks after the window, unavailable in it, with no reservation or over it, and placeholders with zero loads or outside the window, are normal. The M4 report's `Result` line lists every cause |
+| 8 | M4 ran and handled everything, but its plan is provisional: on a route the kept method did not prove its result, because it stopped at a search limit (`knapsack.nodeLimit`, `binPacker.branchNodeLimit`, `columnRoundsPerNode`, `maxSearchItems`, `patternPacker.maxPatterns` or a `pricingNodeLimit`) or because a fallback was kept (greedy knapsack, first-fit decreasing, or any method after one that threw); or an M5 lane-date's checked plan is not proven best for its service objective. The M4 report lists each such route by lane, group and ship date with the reason, under its `Result` line |
 
 When several apply, the lowest code wins.
 
@@ -215,6 +215,30 @@ The M4 benchmark over every extract held runs on its own with
 `./build/ob_tests -ts=m4Benchmark --no-skip` or `ctest --test-dir build -R m4Benchmark`. In
 the full suite its tests are skipped when the extracts are absent, so a clean clone passes;
 run on its own, a missing extract fails by name.
+
+## M5: large lanes
+
+A lane-date whose reservation is above `selection.m5Threshold` goes to M5 when the params
+file's `m5` block has `"enabled": true` (the shipped file does). Without the block, or with it
+disabled, such a lane-date is left over as escalated to M5, exactly as before M5. M5 plans every
+group of the lane-date against its one shared pool: method A repeats the best single-product
+truck and packs the remainder; method B packs rolling blocks of `blockSize` trucks; an
+allocation across groups chooses which trucks dispatch, most urgent goods first (rank date,
+priority, ship date, by the lane's `pastDueOrder`). Goods due after the date and available by
+it (pull-forward) fill only room the goods due by it leave. Every truck is checked on its final
+contents and labelled FULL by 98% of payload, by rear inches (`fullness.rearInchLimit`, default
+14) or floor-limited on evidence; labels never hold a truck back. The minimum-load check runs at
+export, after M5, so M5 withholds nothing for it.
+
+The `m5` block: `profileId`, `profileRevision`, `routing` (only `reservedTrucks` per
+`perLaneShipDate`), `secondsPerLoad` (the lane-date's allowance is this times its reserved
+trucks), `fullness`, `methodPolicy` (`SequentialAThenB`, `PatternOnly`, `BlocksOnly`),
+`methodAShare`, `blockSize`, `scarcityWindow`, `gapTrucks`, `canGoFill`, `repair` and
+`penaltyPerUnusedTruck` (null when unknown). A malformed setting plans nothing: each M5
+lane-date is reported configuration incomplete and the run exits 7. `selection.pastDueOrderByLane`
+(optional) sets AgeFirst or PriorityFirst for single lanes. The selection report ends with M5's
+own sections (3A-3E) for each lane-date it planned. Design, decisions and test status:
+[docs/m5/m5ImplementationStatus.md](docs/m5/m5ImplementationStatus.md).
 
 ## Test data
 

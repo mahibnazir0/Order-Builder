@@ -2,6 +2,7 @@
 #include "paramsFields.hpp"
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 
 using namespace std;
@@ -76,6 +77,40 @@ FloorPatternSettings readFloor(const json& block, double fullCubeFraction) {
     return floor;
 }
 
+PastDueOrder readPastDueOrder(const json& value, const string& key) {
+    const string order = readString(value, key);
+    if (order == "AgeFirst") return PastDueOrder::AgeFirst;
+    if (order == "PriorityFirst") return PastDueOrder::PriorityFirst;
+    throw runtime_error("params: " + key + " must be AgeFirst or PriorityFirst");
+}
+
+// Optional: absent means no lane is set apart. Present, it must be an array of lanes, each named
+// once, so a malformed block stops the run instead of reading as "no overrides".
+map<LaneCodes, PastDueOrder> readPastDueOrderByLane(const json& block, const string& blockName) {
+    map<LaneCodes, PastDueOrder> byLane;
+    const auto found = block.find("pastDueOrderByLane");
+    if (found == block.end()) return byLane;
+    const string name = blockName + ".pastDueOrderByLane";
+    if (!found->is_array()) throw runtime_error("params: " + name + " must be an array of lanes");
+    for (size_t index = 0; index < found->size(); ++index) {
+        const json& entry = (*found)[index];
+        const string entryName = name + "[" + to_string(index) + "]";
+        if (!entry.is_object()) throw runtime_error("params: " + entryName + " must be an object");
+        LaneCodes lane{readString(requiredField(entry, "origin", entryName), entryName + ".origin"),
+                       readString(requiredField(entry, "destination", entryName), entryName + ".destination"),
+                       readString(requiredField(entry, "shipCondition", entryName), entryName + ".shipCondition")};
+        if (lane.origin.empty() || lane.destination.empty() || lane.shipCondition.empty()) {
+            throw runtime_error("params: " + entryName + " names a lane with a blank code");
+        }
+        const PastDueOrder order =
+            readPastDueOrder(requiredField(entry, "pastDueOrder", entryName), entryName + ".pastDueOrder");
+        if (!byLane.emplace(std::move(lane), order).second) {
+            throw runtime_error("params: " + entryName + " names a lane already listed");
+        }
+    }
+    return byLane;
+}
+
 } // anonymous namespace
 
 SelectionParams parseSelectionParams(const json& root) {
@@ -129,6 +164,7 @@ SelectionParams parseSelectionParams(const json& root) {
     } else {
         throw runtime_error("params: " + name + ".pastDueOrder must be AgeFirst or PriorityFirst");
     }
+    params.routing.pastDueOrderByLane = readPastDueOrderByLane(block, name);
     params.routing.m5Threshold = readInteger(requiredField(block, "m5Threshold", name), name + ".m5Threshold", 2);
     params.routing.varietyRatio = readQuantity(requiredField(block, "varietyRatio", name), name + ".varietyRatio");
     if (params.routing.varietyRatio > kMaxVarietyRatio) {

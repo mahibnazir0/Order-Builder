@@ -222,10 +222,14 @@ TEST_CASE("pipelineM4: a clean run exits 0 and reports no shortfall") {
     CHECK(runOutcome(result) == RunOutcome::Complete);
 }
 
-TEST_CASE("pipelineM4: a lane above m5Threshold is escalated and fails the run with exit 7") {
+TEST_CASE("pipelineM4: with no M5 planner, a lane above m5Threshold is escalated and fails the run with exit 7") {
     nlohmann::json laneThree = SmallDay::lineJson("GOOD", 16, "TL");
     laneThree["LOCFRNO"] = "3";
-    const SmallDay day("escalated", "," + laneThree.dump(), "," + SmallDay::placeholderJson("3", 30).dump());
+    SmallDay day("escalated", "," + laneThree.dump(), "," + SmallDay::placeholderJson("3", 30).dump());
+    nlohmann::json root = readParamsFile(kShippedParamsPath);
+    root.erase("m5");
+    day.inputs.paramsPath = (day.directory / "paramsWithoutM5.json").string();
+    ofstream(day.inputs.paramsPath) << root.dump(2);
     const PipelineResult result = Pipeline::run(day.inputs);
     CHECK(runOutcome(result) == RunOutcome::SelectionIncomplete);
     CHECK(shortfallNaming(result, "escalated to M5"));
@@ -235,6 +239,24 @@ TEST_CASE("pipelineM4: a lane above m5Threshold is escalated and fails the run w
         CHECK(use.unused() == 30);
     }
     CHECK(reportOf(result).find("unfilled, escalated to M5") != string::npos);
+}
+
+TEST_CASE("pipelineM5: with the shipped params, M5 plans a lane above m5Threshold instead of escalating it") {
+    nlohmann::json laneThree = SmallDay::lineJson("GOOD", 16, "TL");
+    laneThree["LOCFRNO"] = "3";
+    const SmallDay day("plannedByM5", "," + laneThree.dump(), "," + SmallDay::placeholderJson("3", 30).dump());
+    const PipelineResult result = Pipeline::run(day.inputs);
+    CHECK_FALSE(shortfallNaming(result, "escalated to M5"));
+    CHECK(result.selectionViolations.empty());
+    REQUIRE(result.selectionPlan.largeLanes.size() == 1);
+    CHECK(result.selectionPlan.largeLanes[0].planned);
+    for (const ReservationUse& use : result.selectionPlan.reservations) {
+        if (result.reservationBook.reservations[use.reservationIndex].origin != "3") continue;
+        CHECK_FALSE(use.escalated);
+        CHECK(use.built == 1);
+    }
+    for (const LeftOverItem& left : result.selectionPlan.leftOver) CHECK(left.reason != LeftOverReason::EscalatedToM5);
+    CHECK(reportOf(result).find("M5 large lane 3 -> 2 TL, 2026-08-06") != string::npos);
 }
 
 TEST_CASE("pipelineM4: a stack left over as unfittable, unsolved or escalated fails the run with exit 7") {

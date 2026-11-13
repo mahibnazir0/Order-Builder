@@ -1,0 +1,238 @@
+#include "m5Physical.hpp"
+#include "truckCheck.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+
+using namespace std;
+
+namespace ob {
+namespace m5 {
+
+namespace {
+
+struct LoadTotals {
+    double weightLb = 0.0;
+    double unitLoads = 0.0;
+    double areaSqIn = 0.0;
+};
+
+LoadTotals totalsOf(const M5LaneDateInput& input, const vector<size_t>& atoms) {
+    LoadTotals totals;
+    for (const size_t index : atoms) {
+        const Atom& atom = input.atoms[index];
+        totals.weightLb += atom.weightLb;
+        totals.unitLoads += atom.unitLoads;
+        totals.areaSqIn += atom.floor.longSideIn * atom.floor.shortSideIn;
+    }
+    return totals;
+}
+
+// Necessary conditions only, so a refusal here is one checkTruck would make too.
+bool mayFit(const Atom& atom, const LoadTotals& totals, const TrailerCapability& capability,
+            const PhysicalSettings& settings) {
+    if (atom.floor.heightIn > capability.heightIn) return false;
+    if (totals.weightLb + atom.weightLb > capability.maxWeightLb) return false;
+    if (settings.maxUnitLoadsPerTruck && totals.unitLoads + atom.unitLoads > *settings.maxUnitLoadsPerTruck) return false;
+    return totals.areaSqIn + atom.floor.longSideIn * atom.floor.shortSideIn <= capability.lengthIn * capability.widthIn;
+}
+
+vector<size_t> withAtom(const vector<size_t>& truck, size_t atom) {
+    vector<size_t> grown = truck;
+    grown.insert(upper_bound(grown.begin(), grown.end(), atom), atom);
+    return grown;
+}
+
+string classSignature(const Atom& atom) {
+    ostringstream out;
+    out << hexfloat << atom.floor.longSideIn << ',' << atom.floor.shortSideIn << ',' << atom.floor.heightIn << ','
+        << atom.floor.levels << ',' << atom.weightLb << ',' << atom.unitLoads;
+    return out.str();
+}
+
+}  // namespace
+
+TrailerSpec trailerOf(const TrailerCapability& capability) {
+    TrailerSpec trailer;
+    trailer.trailerCode = "M5 slot " + capability.signature();
+    trailer.interiorLengthIn = capability.lengthIn;
+    trailer.interiorWidthIn = capability.widthIn;
+    trailer.stackHeightCeilingIn = capability.heightIn;
+    trailer.weightLimitLb = capability.maxWeightLb;
+    return trailer;
+}
+
+PhysicalCheck checkTruck(const M5LaneDateInput& input, const vector<size_t>& atoms, const TrailerCapability& capability,
+                         const PhysicalSettings& settings, FloorSearchBudget* budget) {
+    vector<FloorItem> floorItems;
+    floorItems.reserve(atoms.size());
+    for (const size_t index : atoms) floorItems.push_back(input.atoms[index].floor);
+    const LoadTotals totals = totalsOf(input, atoms);
+    TruckLoadCheck load = checkTruckLoad(floorItems, totals.weightLb, totals.unitLoads, trailerOf(capability),
+                                         settings.floor, settings.maxUnitLoadsPerTruck, budget);
+    PhysicalCheck check;
+    check.fits = load.verdict == TruckFit::Fits;
+    check.undecided = load.verdict == TruckFit::Undecided;
+    check.findings = std::move(load.findings);
+    check.layout = std::move(load.layout);
+    return check;
+}
+
+double rearInchesOf(const FloorLayout& layout, const TrailerCapability& capability) {
+    double extent = 0.0;
+    for (const FloorRow& row : layout.rows) extent += row.depthIn;
+    return capability.lengthIn - extent;
+}
+
+vector<size_t> physicalClassOf(const M5LaneDateInput& input) {
+    map<string, size_t> classes;
+    vector<size_t> classOf;
+    classOf.reserve(input.atoms.size());
+    for (const Atom& atom : input.atoms) {
+        classOf.push_back(classes.try_emplace(classSignature(atom), classes.size()).first->second);
+    }
+    return classOf;
+}
+
+int bestSingleClassLoad(const M5LaneDateInput& input, size_t prototype, const TrailerCapability& capability,
+                        const PhysicalSettings& settings, int available) {
+    const Atom& atom = input.atoms[prototype];
+    if (available <= 0 || atom.floor.heightIn > capability.heightIn) return 0;
+    // Bounds no load can pass, so the search below starts at the most that could fit.
+    double most = available;
+    if (atom.weightLb > 0.0) most = min(most, floor(capability.maxWeightLb / atom.weightLb));
+    if (settings.maxUnitLoadsPerTruck) most = min(most, floor(*settings.maxUnitLoadsPerTruck / atom.unitLoads));
+    most = min(most, floor(capability.lengthIn * capability.widthIn / (atom.floor.longSideIn * atom.floor.shortSideIn)));
+    if (settings.floor.maxPositions) most = min(most, static_cast<double>(*settings.floor.maxPositions));
+    const TrailerSpec trailer = trailerOf(capability);
+    for (int copies = static_cast<int>(most); copies > 0; --copies) {
+        const vector<FloorItem> items(static_cast<size_t>(copies), atom.floor);
+        if (floorFits(arrangeFloor(items, trailer, settings.floor))) return copies;
+    }
+    return 0;
+}
+
+optional<int> GeometryCache::find(const string& key) const {
+    lock_guard<mutex> lock(mutex_);
+    const auto found = copiesByKey_.find(key);
+    if (found == copiesByKey_.end()) return nullopt;
+    return found->second;
+}
+
+void GeometryCache::put(const string& key, int copies) {
+    lock_guard<mutex> lock(mutex_);
+    copiesByKey_[key] = copies;
+}
+
+void fillTruck(const M5LaneDateInput& input, const vector<size_t>& classOf, vector<size_t>& truck, const vector<size_t>& ranked,
+               vector<char>& placed, const TrailerCapability& capability, const PhysicalSettings& settings, const StopCheck& stop) {
+    LoadTotals totals = totalsOf(input, truck);
+    set<size_t> refusedClasses;
+    for (const size_t candidate : ranked) {
+        if (stop && stop()) return;
+        if (placed[candidate] || refusedClasses.count(classOf[candidate])) continue;
+        const Atom& atom = input.atoms[candidate];
+        if (!mayFit(atom, totals, capability, settings)) {
+            refusedClasses.insert(classOf[candidate]);
+            continue;
+        }
+        vector<size_t> grown = withAtom(truck, candidate);
+        FloorSearchBudget budget{settings.searchStatesPerPackingCheck};
+        if (!checkTruck(input, grown, capability, settings, &budget).fits) {
+            refusedClasses.insert(classOf[candidate]);
+            continue;
+        }
+        truck = std::move(grown);
+        placed[candidate] = 1;
+        totals.weightLb += atom.weightLb;
+        totals.unitLoads += atom.unitLoads;
+        totals.areaSqIn += atom.floor.longSideIn * atom.floor.shortSideIn;
+    }
+}
+
+vector<vector<size_t>> packByUrgency(const M5LaneDateInput& input, const vector<size_t>& ranked,
+                                     const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks,
+                                     const StopCheck& stop) {
+    const vector<size_t> classOf = physicalClassOf(input);
+    vector<char> placed(input.atoms.size(), 0);
+    vector<vector<size_t>> trucks;
+    while (trucks.size() < maxTrucks && !(stop && stop())) {
+        vector<size_t> truck;
+        fillTruck(input, classOf, truck, ranked, placed, capability, settings, stop);
+        if (truck.empty()) break;
+        trucks.push_back(std::move(truck));
+    }
+    return trucks;
+}
+
+vector<vector<size_t>> packCarefully(const M5LaneDateInput& input, const vector<size_t>& ranked,
+                                     const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks,
+                                     const StopCheck& stop) {
+    if (ranked.empty() || maxTrucks == 0) return {};
+    vector<KnapsackItem> items;
+    items.reserve(ranked.size());
+    for (const size_t index : ranked) {
+        const Atom& atom = input.atoms[index];
+        KnapsackItem item;
+        item.areaSqIn = atom.floor.longSideIn * atom.floor.shortSideIn;
+        item.weightLb = atom.weightLb;
+        item.heightIn = atom.floor.heightIn;
+        item.unitLoads = atom.unitLoads;
+        item.longSideIn = atom.floor.longSideIn;
+        item.shortSideIn = atom.floor.shortSideIn;
+        item.levels = atom.floor.levels;
+        const auto urgent = min_element(atom.components.begin(), atom.components.end(), [](const Component& a, const Component& b) {
+            return tie(a.dueDate, a.priority) < tie(b.dueDate, b.priority);
+        });
+        item.shipDate = urgent->dueDate;
+        item.priority = urgent->priority;
+        item.productNumber = urgent->product;
+        items.push_back(std::move(item));
+    }
+    BinPacking packing;
+    try {
+        const KnapsackCapacity capacity{capability.lengthIn * capability.widthIn, capability.maxWeightLb, capability.heightIn};
+        packing = packBins(items, capacity, settings.binPacker, static_cast<int>(maxTrucks));
+    } catch (const invalid_argument&) {
+        // Goods M4's packer cannot count on its grains (a weightless stack, say) are packed in
+        // order instead; the trucks are checked the same way.
+        return packByUrgency(input, ranked, capability, settings, maxTrucks, stop);
+    }
+
+    // Positions in `ranked` order the trucks' atoms most urgent first, so a trim drops the least.
+    vector<size_t> rankOf(input.atoms.size(), 0);
+    for (size_t position = 0; position < ranked.size(); ++position) rankOf[ranked[position]] = position;
+    vector<char> placed(input.atoms.size(), 1);
+    for (const size_t index : ranked) placed[index] = 0;
+    vector<vector<size_t>> trucks;
+    for (const BinTruck& bin : packing.trucks) {
+        vector<size_t> truck;
+        for (const size_t position : bin.items) truck.push_back(ranked[position]);
+        sort(truck.begin(), truck.end(), [&](size_t left, size_t right) { return rankOf[left] < rankOf[right]; });
+        while (!truck.empty()) {
+            vector<size_t> sorted = truck;
+            sort(sorted.begin(), sorted.end());
+            FloorSearchBudget budget{settings.searchStatesPerPackingCheck};
+            if (checkTruck(input, sorted, capability, settings, &budget).fits) break;
+            truck.pop_back();
+        }
+        sort(truck.begin(), truck.end());
+        for (const size_t index : truck) placed[index] = 1;
+        if (!truck.empty()) trucks.push_back(std::move(truck));
+    }
+    const vector<size_t> classOf = physicalClassOf(input);
+    for (vector<size_t>& truck : trucks) fillTruck(input, classOf, truck, ranked, placed, capability, settings, stop);
+    while (trucks.size() < maxTrucks && !(stop && stop())) {
+        vector<size_t> truck;
+        fillTruck(input, classOf, truck, ranked, placed, capability, settings, stop);
+        if (truck.empty()) break;
+        trucks.push_back(std::move(truck));
+    }
+    return trucks;
+}
+
+} // namespace m5
+} // namespace ob

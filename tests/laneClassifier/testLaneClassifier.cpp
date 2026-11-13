@@ -470,7 +470,7 @@ TEST_CASE("laneClassifier: settings out of range are rejected") {
     const PipelineResult run = runWith({group("2027")}, 1);
     const double nan = numeric_limits<double>::quiet_NaN();
     const double infinity = numeric_limits<double>::infinity();
-    for (const LaneClassifierSettings bad : {LaneClassifierSettings{1, 5.0}, LaneClassifierSettings{-3, 5.0},
+    for (const LaneClassifierSettings& bad : {LaneClassifierSettings{1, 5.0}, LaneClassifierSettings{-3, 5.0},
                                              LaneClassifierSettings{20, 0.0}, LaneClassifierSettings{20, -5.0},
                                              LaneClassifierSettings{20, nan}, LaneClassifierSettings{20, infinity}}) {
         CHECK_THROWS_AS(classify(run, {}, {}, bad), invalid_argument);

@@ -690,10 +690,14 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         case LeftOverReason::NoReservation:
         case LeftOverReason::OverReservation:
         case LeftOverReason::FloorEviction:
-        case LeftOverReason::UnitLoadCap: heldBack += unitLoadsLeft; break;
+        case LeftOverReason::UnitLoadCap:
+        case LeftOverReason::AcceptanceWithheld: heldBack += unitLoadsLeft; break;
         case LeftOverReason::EscalatedToM5:
         case LeftOverReason::Unfittable:
-        case LeftOverReason::LaneUnsolved: notLoadable += unitLoadsLeft; break;
+        case LeftOverReason::LaneUnsolved:
+        case LeftOverReason::M5NoResult:
+        case LeftOverReason::M5ConfigurationIncomplete:
+        case LeftOverReason::M5InvalidInput: notLoadable += unitLoadsLeft; break;
         }
     }
     for (const RejectedItem& rejected : items.rejected) notLoadable += rejected.item.unitLoads;
@@ -738,6 +742,12 @@ void printSelectionReport(ostream& out, const PipelineResult& run, const Reserva
         }
         printColumns(out, {"product", "pallet", "cases a unit load", "case lb", "case in"}, productRows,
                    {false, false, true, true, false});
+    }
+
+    // M5's own sections (3A-3E) for each lane-date it planned, as its report renders them.
+    if (!plan.largeLanes.empty()) {
+        out << "\n" << kRule << "M5 large lanes\n" << kRule;
+        for (const LargeLaneReport& lane : plan.largeLanes) out << "\n" << lane.text;
     }
 }
 

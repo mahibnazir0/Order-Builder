@@ -39,5 +39,21 @@
     "fillMissesPerTruck": 10,
     "weightSpreadRoundsPerTruck": 4,
     "reportDetail": "Standard"
+  },
+  "m5": {
+    "enabled": true,
+    "profileId": "customer2-production",
+    "profileRevision": 1,
+    "routing": { "countMode": "reservedTrucks", "scope": "perLaneShipDate" },
+    "secondsPerLoad": 1,
+    "fullness": { "weightFullPercent": 98, "rearInchLimit": 14 },
+    "methodPolicy": "SequentialAThenB",
+    "methodAShare": 0.6,
+    "blockSize": 19,
+    "scarcityWindow": 2,
+    "gapTrucks": 1,
+    "canGoFill": true,
+    "repair": { "maxRounds": 8, "maxMovesPerTruck": 64 },
+    "penaltyPerUnusedTruck": null
   }
 }

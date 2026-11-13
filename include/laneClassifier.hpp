@@ -38,6 +38,7 @@
 #include "trailerSpec.hpp"
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -62,12 +63,26 @@ enum class ConflictReason {
     SegregationSplit,  // another group of this lane is; trucks never mix the two
 };
 
+// A lane by its codes, as the reservation book keys it.
+struct LaneCodes {
+    std::string origin;
+    std::string destination;
+    std::string shipCondition;
+    bool operator<(const LaneCodes& other) const;
+};
+
 // No defaults: every figure comes from the run's settings (benchmarked, per the spec).
 struct LaneClassifierSettings {
     int m5Threshold = 0;        // at least 2
     double varietyRatio = 0.0;  // unit loads per product; positive and finite
-    PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
+    PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;  // the run's, for every lane not listed below
+    // Lanes the user set apart (Tom Moore: "user selectable by lane"). Empty in most runs.
+    std::map<LaneCodes, PastDueOrder> pastDueOrderByLane{};
 };
+
+// The lane's own past-due order, or the run's when the lane has none.
+PastDueOrder pastDueOrderFor(const LaneClassifierSettings& settings, const std::string& origin,
+                             const std::string& destination, const std::string& shipCondition);
 
 struct LaneRoute {
     std::size_t groupIndex = 0;     // into PipelineResult::segregation.groups
@@ -90,6 +105,8 @@ struct LaneRoute {
     SolveMethod method = SolveMethod::Unrouted;
     // For a route escalated to M5, the method it would otherwise have used.
     std::optional<SolveMethod> methodBeforeEscalation;
+    // How its truck ranks goods past due against its date's own: its lane's setting.
+    PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
 };
 
 enum class UnroutedItemReason {
@@ -106,7 +123,7 @@ struct LaneClassification {
     // Sorted by group, then ship date.
     std::vector<LaneRoute> routes;
     std::vector<UnroutedItem> itemsLeftOut;
-    // How the routes' goods were ranked, and how the selector ranks them on their trucks.
+    // The run's past-due order; each route carries its own lane's, which the selector ranks by.
     PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
 };
 

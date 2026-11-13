@@ -1,4 +1,6 @@
 #include "pipeline.hpp"
+#include "m5Integration.hpp"
+#include "paramsFields.hpp"
 #include "converter.hpp"
 #include "floorPlanner.hpp"
 #include "importer.hpp"
@@ -478,7 +480,11 @@ vector<string> selectionShortfalls(const PipelineResult& result) {
             break;
         case LeftOverReason::EscalatedToM5:
         case LeftOverReason::Unfittable:
-        case LeftOverReason::LaneUnsolved: ++droppedByReason[left.reason]; break;
+        case LeftOverReason::LaneUnsolved:
+        case LeftOverReason::M5NoResult:
+        case LeftOverReason::M5ConfigurationIncomplete:
+        case LeftOverReason::M5InvalidInput: ++droppedByReason[left.reason]; break;
+        case LeftOverReason::AcceptanceWithheld:
         case LeftOverReason::AfterWindow:
         case LeftOverReason::UnavailableInWindow:
         case LeftOverReason::NoReservation: break;
@@ -553,6 +559,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         }
         if (inputs.runSelection) {
             result.selectionParams = loadSelectionParams(inputs.paramsPath);
+            // M5 plans the lane-dates routed to it only when the params file enables it.
+            result.selectionParams.selector.largeLanePlanner =
+                m5::makeLargeLanePlanner(readParamsFile(inputs.paramsPath), result.selectionParams);
             result.params.maxDaysBetweenShipDatesInStack = result.selectionParams.daysPulledForwardAllowed();
         }
     }

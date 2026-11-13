@@ -101,7 +101,7 @@ void appendEstimatedLoads(size_t routeIndex, const LaneRoute& route, const Selec
 // load dealt first, or to the first route when none has demand, so the shares always add up to
 // the reservation.
 void allocateReservations(vector<LaneRoute>& routes, const vector<SegregatedGroup>& groups,
-                          const SelectionItems& items, const TrailerSpec& trailer, PastDueOrder order) {
+                          const SelectionItems& items, const TrailerSpec& trailer) {
     map<pair<string, string>, vector<size_t>> routesByLaneDate;
     for (size_t routeIndex = 0; routeIndex < routes.size(); ++routeIndex) {
         const LaneRoute& route = routes[routeIndex];
@@ -113,6 +113,8 @@ void allocateReservations(vector<LaneRoute>& routes, const vector<SegregatedGrou
     using UrgencyClass = tuple<string, int, string>;  // rank date, priority, ship date
     for (const auto& [laneDate, routeIndices] : routesByLaneDate) {
         const string& truckDate = laneDate.second;
+        // The routes of a lane-date share its lane, so they share its order.
+        const PastDueOrder order = routes[routeIndices.front()].pastDueOrder;
         auto classKeyOf = [&](size_t index) {
             const SelectionItem& item = items.items[index];
             return UrgencyClass{rankDateOf(item.shipDate, truckDate, order), item.priority, item.shipDate};
@@ -282,17 +284,19 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
         }
         route.distinctProducts = products.size();
         route.demandTrucks = demandTrucks(itemIndices, items, run.trailer);
+        route.pastDueOrder = pastDueOrderFor(settings, group.key.locationFrom, group.key.locationTo,
+                                             group.key.shipCondition);
         // Age first this is the order the items are already in.
-        if (settings.pastDueOrder == PastDueOrder::PriorityFirst) {
+        if (route.pastDueOrder == PastDueOrder::PriorityFirst) {
             stable_sort(itemIndices.begin(), itemIndices.end(), [&](size_t left, size_t right) {
-                return shipsBeforeOn(items.items[left], items.items[right], route.shipDate, settings.pastDueOrder);
+                return shipsBeforeOn(items.items[left], items.items[right], route.shipDate, route.pastDueOrder);
             });
         }
         route.itemIndices = std::move(itemIndices);
         classification.routes.push_back(std::move(route));
     }
 
-    allocateReservations(classification.routes, groups, items, run.trailer, settings.pastDueOrder);
+    allocateReservations(classification.routes, groups, items, run.trailer);
     classification.pastDueOrder = settings.pastDueOrder;
     for (LaneRoute& route : classification.routes) {
         route.demandAboveReservation = route.demandTrucks > route.trucksAllocated;
@@ -312,6 +316,16 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
         }
     }
     return classification;
+}
+
+bool LaneCodes::operator<(const LaneCodes& other) const {
+    return tie(origin, destination, shipCondition) < tie(other.origin, other.destination, other.shipCondition);
+}
+
+PastDueOrder pastDueOrderFor(const LaneClassifierSettings& settings, const string& origin, const string& destination,
+                             const string& shipCondition) {
+    const auto found = settings.pastDueOrderByLane.find({origin, destination, shipCondition});
+    return found == settings.pastDueOrderByLane.end() ? settings.pastDueOrder : found->second;
 }
 
 const char* solveMethodName(SolveMethod method) {

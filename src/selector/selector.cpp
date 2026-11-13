@@ -1,7 +1,9 @@
 #include "selector.hpp"
+#include "largeLanePlanner.hpp"
 #include "pipeline.hpp"
 #include "reportFormat.hpp"
 #include "tolerance.hpp"
+#include "truckCheck.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -144,6 +146,10 @@ MethodResult runMethod(PackingMethod method, const vector<KnapsackItem>& items, 
         }
         break;
     }
+    case PackingMethod::M5PatternRepeat:
+    case PackingMethod::M5RollingBlocks:
+        throw logic_error(string("the selector does not run M5's ") + packingMethodName(method)
+                          + ": a registered large-lane planner does");
     }
     return result;
 }
@@ -154,6 +160,7 @@ struct BundleResult {
     vector<LeftOverItem> leftOver;
     long long built = 0;
     bool escalated = false;
+    optional<LargeLaneReport> largeLane;  // set when M5 planned the bundle
 };
 
 class BundleSolver {
@@ -165,6 +172,10 @@ public:
           capacity_(capacityOf(run.trailer)) {}
 
     BundleResult solve(const vector<size_t>& routeIndices) const {
+        // The classifier routes every group of a lane-date to M5 together: they share its pool.
+        if (settings_.largeLanePlanner && classification_.routes[routeIndices.front()].method == SolveMethod::M5) {
+            return solveLargeLane(routeIndices);
+        }
         // Each group may build its allocation plus what the groups solved before it left unbuilt.
         // Most urgent goods first, as items are in selection order, so spare trucks pass down.
         vector<size_t> solveOrder = routeIndices;
@@ -174,7 +185,7 @@ public:
             const vector<size_t>& rightItems = classification_.routes[right].itemIndices;
             if (leftItems.empty() || rightItems.empty()) return !leftItems.empty() && rightItems.empty();
             return shipsBeforeOn(items_.items[leftItems.front()], items_.items[rightItems.front()], leftRoute.shipDate,
-                                 classification_.pastDueOrder);
+                                 leftRoute.pastDueOrder);
         });
         const BindingLimit binding = bindingOf(routeIndices);
         const long long reservedTrucks = classification_.routes[routeIndices.front()].reservedTrucks;
@@ -264,6 +275,66 @@ public:
     }
 
 private:
+    // The lane-date through the registered M5 planner. Its result is checked here, so a planner
+    // that loses an item, loads one twice or builds over the reservation fails the bundle instead
+    // of passing a broken plan on.
+    BundleResult solveLargeLane(const vector<size_t>& routeIndices) const {
+        const LaneRoute& first = classification_.routes[routeIndices.front()];
+        const GroupKey& lane = run_.segregation.groups[first.groupIndex].key;
+        LargeLaneRequest request;
+        request.origin = lane.locationFrom;
+        request.destination = lane.locationTo;
+        request.shipCondition = lane.shipCondition;
+        request.shipDate = first.shipDate;
+        request.reservedTrucks = first.reservedTrucks;
+        request.pastDueOrder = first.pastDueOrder;
+        for (const size_t routeIndex : routeIndices) {
+            const LaneRoute& route = classification_.routes[routeIndex];
+            request.routeIndices.push_back(routeIndex);
+            request.groupIndices.push_back(route.groupIndex);
+            request.itemIndicesByRoute.push_back(route.itemIndices);
+            request.methodBeforeEscalation.push_back(route.methodBeforeEscalation);
+        }
+        LargeLaneResult planned = settings_.largeLanePlanner->plan(request, run_, items_, settings_);
+
+        map<size_t, int> seen;
+        for (const vector<size_t>& itemIndices : request.itemIndicesByRoute) {
+            for (const size_t index : itemIndices) seen[index] = 0;
+        }
+        auto account = [&](size_t index) {
+            const auto found = seen.find(index);
+            if (found == seen.end()) {
+                throw logic_error("M5 returned item " + to_string(index) + ", which its lane-date was not offered");
+            }
+            if (++found->second > 1) throw logic_error("M5 returned item " + to_string(index) + " twice");
+        };
+        for (const PlannedTruck& truck : planned.trucks) {
+            for (const size_t index : truck.items) account(index);
+        }
+        for (const LeftOverItem& left : planned.leftOver) account(left.itemIndex);
+        for (const auto& [index, count] : seen) {
+            if (count == 0) throw logic_error("M5 lost item " + to_string(index) + ": on no truck and not left over");
+        }
+        if (static_cast<long long>(planned.trucks.size()) > request.reservedTrucks) {
+            throw logic_error("M5 built " + to_string(planned.trucks.size()) + " trucks against "
+                              + to_string(request.reservedTrucks) + " reserved");
+        }
+        if (planned.routes.size() != routeIndices.size()) {
+            throw logic_error("M5 returned " + to_string(planned.routes.size()) + " route outcomes for "
+                              + to_string(routeIndices.size()) + " routes");
+        }
+
+        BundleResult bundle;
+        bundle.built = static_cast<long long>(planned.trucks.size());
+        // A lane-date M5 could not plan stays escalated: its trucks were reserved and none left.
+        bundle.escalated = !planned.report.planned;
+        bundle.trucks = std::move(planned.trucks);
+        bundle.outcomes = std::move(planned.routes);
+        bundle.leftOver = std::move(planned.leftOver);
+        bundle.largeLane = std::move(planned.report);
+        return bundle;
+    }
+
     BindingLimit bindingOf(const vector<size_t>& routeIndices) const {
         double areaSqIn = 0.0, weightLb = 0.0;
         for (const size_t routeIndex : routeIndices) {
@@ -410,7 +481,7 @@ private:
         items.reserve(route.itemIndices.size());
         for (const size_t index : route.itemIndices) {
             items.push_back(knapsackItemFrom(items_.items[index]));
-            items.back().rankDate = rankDateOf(items.back().shipDate, route.shipDate, classification_.pastDueOrder);
+            items.back().rankDate = rankDateOf(items.back().shipDate, route.shipDate, route.pastDueOrder);
         }
         return items;
     }
@@ -613,13 +684,6 @@ private:
         };
     }
 
-    // Undecided when only the rows refused the load and their search ran out of states first.
-    static TruckFit floorVerdict(const FloorLayout& layout) {
-        if (floorFits(layout)) return TruckFit::Fits;
-        const bool onlyRowsUnproven = layout.fitUnproven && layout.withinMaxPositions && layout.unplaceableItems.empty();
-        return onlyRowsUnproven ? TruckFit::Undecided : TruckFit::DoesNotFit;
-    }
-
     // Goods left over, by the method, the floor or the unit-load cap, go most urgent first into
     // the truck while it has room on its floor, payload, rows and unit-load cap. The methods judge
     // the floor by area, which rows waste some of, so this takes back what the floor check had to
@@ -689,10 +753,6 @@ private:
         floorItems.reserve(truck.size());
         for (const size_t position : truck) floorItems.push_back(floorItemFrom(items_.items[route.itemIndices[position]]));
         return arrangeFloor(floorItems, run_.trailer, settings_.floor, budget);
-    }
-
-    static bool floorFits(const FloorLayout& layout) {
-        return layout.fitsLength && layout.withinMaxPositions && layout.unplaceableItems.empty();
     }
 
     // Drops goods until the truck's rows fit: an item that fits no orientation first, then the
@@ -902,6 +962,7 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
         for (PlannedTruck& truck : result.trucks) plan.trucks.push_back(std::move(truck));
         plan.leftOver.insert(plan.leftOver.end(), result.leftOver.begin(), result.leftOver.end());
         builtByLaneDate[bundles[bundle].first] = {result.built, result.escalated};
+        if (result.largeLane) plan.largeLanes.push_back(std::move(*result.largeLane));
     }
     stable_sort(plan.trucks.begin(), plan.trucks.end(),
                 [](const PlannedTruck& left, const PlannedTruck& right) { return left.routeIndex < right.routeIndex; });
@@ -940,6 +1001,8 @@ const char* packingMethodName(PackingMethod method) {
     case PackingMethod::PatternPacker: return "patternPacker";
     case PackingMethod::BinPacker: return "binPacker";
     case PackingMethod::FirstFitDecreasing: return "firstFitDecreasing";
+    case PackingMethod::M5PatternRepeat: return "M5 repeated patterns (method A)";
+    case PackingMethod::M5RollingBlocks: return "M5 rolling blocks (method B)";
     }
     return "unknown";
 }
@@ -955,6 +1018,10 @@ const char* leftOverReasonName(LeftOverReason reason) {
     case LeftOverReason::FloorEviction: return "floor eviction";
     case LeftOverReason::UnitLoadCap: return "unit-load cap";
     case LeftOverReason::LaneUnsolved: return "lane unsolved";
+    case LeftOverReason::AcceptanceWithheld: return "withheld by minimum-load policy";
+    case LeftOverReason::M5NoResult: return "M5 found no checked plan";
+    case LeftOverReason::M5ConfigurationIncomplete: return "M5 configuration incomplete";
+    case LeftOverReason::M5InvalidInput: return "M5 input invalid";
     }
     return "unknown";
 }
