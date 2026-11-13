@@ -112,6 +112,7 @@ inline ob::m5::PhysicalSettings physicalSettings() {
     settings.floor.searchStateLimit = 200'000;
     settings.floor.routeSearchStateLimit = 1'000'000;
     settings.binPacker = {1.0, 1.0, 50, 100'000, 2'000, 100, 100'000};
+    settings.knapsack = {0.001, 0.001, 200'000};
     return settings;
 }
 
@@ -127,7 +128,7 @@ private:
 // A run with a fake clock that never moves on its own, so a completed run is never a timeout.
 inline ob::m5::M5LaneOutcome plan(const ob::m5::M5LaneDateInput& input, const ob::m5::M5PolicyProfile& profile) {
     FakeClock clock;
-    const ob::m5::M5RunServices services{clock, std::nullopt, std::nullopt, {}, {}};
+    const ob::m5::M5RunServices services(clock);
     return ob::m5::planLaneDate(input, profile, physicalSettings(), services);
 }
 

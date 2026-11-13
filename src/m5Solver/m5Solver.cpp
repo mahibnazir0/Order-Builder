@@ -243,6 +243,12 @@ GroupSolve solveGroup(const ScalarModel& model, const GroupItems& group, const S
         solve.restrictedInteger = restrictedIntegerOptimum(columns, demand, limits.restrictedIntegerNodeLimit);
     }
     solve.columns = columns.size();
+    // A stopped solve keeps its checked first-fit result: no further search may run after the stop.
+    if (stop && stop()) {
+        solve.termination = Termination::Budget;
+        solve.proven = static_cast<long long>(solve.bins.size()) == solve.bound;
+        return solve;
+    }
 
     // Residual rounding: whole copies of each LP column, then the LP again on what is left, while
     // each round fixes at least one bin and so strictly shrinks the residual.

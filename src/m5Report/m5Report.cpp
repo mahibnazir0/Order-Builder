@@ -125,6 +125,9 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
     }
     data.loadedTrucks = data.trucks.size();
     data.unusedReservations = outcome.reservedTrucks - static_cast<long long>(data.loadedTrucks);
+    if (profile && profile->penaltyPerUnusedTruck) {
+        data.penaltyAmount = static_cast<double>(data.unusedReservations) * *profile->penaltyPerUnusedTruck;
+    }
     data.methods = outcome.methods;
     data.escalation = outcome.escalation;
     data.proof = proofStatusName(outcome.proof);
@@ -140,6 +143,12 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
     data.openItems = {"OPEN-COMP: equal-service fill and truck-count tie operator not frozen; ties broken by canonical membership",
                       "C9: per-truck trailer figures absent from the reservation feed; every slot uses the run's trailer"};
     return data;
+}
+
+optional<string> unusedComparisonMismatch(long long reserved, long long built, long long statedUnused) {
+    if (reserved - built == statedUnused) return nullopt;
+    return to_string(reserved) + " reserved - " + to_string(built) + " built = " + to_string(reserved - built) + ", not "
+           + to_string(statedUnused) + ": the figures are not on one basis";
 }
 
 string renderAscii(const M5ReportData& data) {
@@ -167,7 +176,8 @@ string renderAscii(const M5ReportData& data) {
     line("groups sharing the reservation", groups.empty() ? "-" : groups);
     line("reserved", to_string(data.reservedTrucks));
     line("trucks loaded", to_string(data.loadedTrucks));
-    line("unused reservations", to_string(data.unusedReservations) + ", penalty " + data.penalty);
+    line("unused reservations", to_string(data.unusedReservations) + ", penalty " + data.penalty
+                                    + (data.penaltyAmount ? " = " + fixed(*data.penaltyAmount, 2) : string()));
     vector<vector<string>> rows;
     for (const TruckRow& truck : data.trucks) {
         rows.push_back({to_string(truck.truck), printable(truck.group), to_string(truck.stacks), fixed(truck.unitLoads, 2),

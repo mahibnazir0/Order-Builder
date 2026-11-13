@@ -70,6 +70,7 @@ struct M5ReportData {
     std::map<std::string, double> unitLoadsLeftByCause;
     long long unusedReservations = 0;
     std::string penalty;
+    std::optional<double> penaltyAmount;  // unused x rate; empty while the rate is unknown (CL-06)
     std::vector<MethodRecord> methods;
     EscalationRecord escalation;
     std::string proof;
@@ -102,6 +103,10 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
 std::map<std::string, BucketAverage> rearInchesByBucket(const std::vector<FullnessLabel>& labels);
 
 std::string renderAscii(const M5ReportData& data);
+
+// X-E2E-08: a comparison of unused reservations holds only when unused = reserved - built on one
+// basis. Empty when it holds; otherwise names the figure it should be.
+std::optional<std::string> unusedComparisonMismatch(long long reserved, long long built, long long statedUnused);
 
 } // namespace m5
 } // namespace ob

@@ -126,7 +126,7 @@ TEST_CASE("U-RT-04 U-RT-05 routing other than reserved trucks per lane-date is r
     requireRejected(block, "per-lane scope");
 }
 
-TEST_CASE("U-RB-03 X-ROUTE-06 block size and gap must be whole counts of at least 1" * doctest::test_suite("m5")) {
+TEST_CASE("U-RB-03 X-ROUTE-06 U-FF-04 block size and gap must be whole counts of at least 1" * doctest::test_suite("m5")) {
     for (const json& bad : {json(0), json(-19), json(1.5), json("19")}) {
         json block = productionBlock();
         block["blockSize"] = bad;

@@ -19,13 +19,16 @@
 
 #include "json.hpp"
 #include "largeLanePlanner.hpp"
+#include "m5Budget.hpp"
 #include "m5Commit.hpp"
+#include "m5Orchestrator.hpp"
 #include "m5Policy.hpp"
 #include "m5Physical.hpp"
 
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ob {
 
@@ -37,6 +40,23 @@ M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineRe
                                const DateRules& dates, const std::optional<double>& penaltyPerUnusedTruck);
 
 PhysicalSettings physicalSettingsOf(const SelectorSettings& settings);
+
+// A lane-date gathered as the selector would gather it, whatever its routing: the benchmark's
+// forced route (v7 0.4). It never changes a reservation. Empty when the lane has no route that day.
+std::optional<LargeLaneRequest> forcedRequest(const PipelineResult& run, const LaneClassification& classification,
+                                              const LaneKey& lane, const std::string& shipDate);
+
+// The labelled linked-date benchmark (ACC-2b, RD-06): each date planned by M5 in date order with
+// its own pool, goods it leaves over the reservation carried to the next date, goods it ships
+// removed from later dates. Benchmark only: it commits nothing and its rows never enter
+// production totals (X-REPORT-02).
+struct LinkedDateBenchmark {
+    std::vector<M5LaneDateInput> inputs;   // as each date was planned, after carry
+    std::vector<M5LaneOutcome> outcomes;   // parallel
+    std::string text;                      // plain ASCII, labelled BENCHMARK
+};
+LinkedDateBenchmark benchmarkLinkedDates(std::vector<M5LaneDateInput> datesInOrder, const M5PolicyProfile& profile,
+                                         const PhysicalSettings& physical, const Clock& clock);
 
 class M5LargeLanePlanner final : public LargeLanePlanner {
 public:

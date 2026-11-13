@@ -26,6 +26,7 @@
 #include "m5Policy.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,8 @@ struct MethodContext {
     const std::vector<char>& unfittable;  // parallel to the atoms: fits no slot on its own
     std::size_t maxTrucks = 0;            // the pool's size
     StopCheck stop;
+    // Test seam: called after each of method B's blocks with the trucks built so far.
+    std::function<void(std::size_t)> afterBlock;
 
     MethodContext(const MethodContext&) = delete;
     MethodContext& operator=(const MethodContext&) = delete;
@@ -81,11 +84,18 @@ long long trucksAtLeast(const M5LaneDateInput& input, const std::vector<std::siz
 // (X-PAT-01, X-PAT-03); counts past 2^62 are refused rather than wrapped (X-PAT-04).
 long long patternCopies(long long stock, long long patternSize, long long slots);
 
-// A group's supply from its method's full plan and an alternative: for each k, the better under the
-// comparator of the full plan's best k trucks and the alternative's first k, rebalanced and
-// withheld under the optional acceptance policy when it is on.
-GroupSupply supplyFromPlans(const MethodContext& context, const GroupId& group, const GroupTrucks& full,
-                            const GroupTrucks& alternative);
+// A pattern of several products: copies limited by each product's stock over its count in the
+// pattern, and by slots (X-PAT-02). `stock` and `perCopy` are parallel; a product the pattern does
+// not use (perCopy 0) limits nothing; an empty pattern gives zero.
+long long mixedPatternCopies(const std::vector<long long>& stock, const std::vector<long long>& perCopy, long long slots);
+
+// A group's supply from candidate plans, each in the order its trucks are best taken: for each k,
+// the best under the comparator of every candidate's first k trucks, rebalanced and withheld under
+// the optional acceptance policy when it is on.
+GroupSupply supplyFromPlans(const MethodContext& context, const GroupId& group, const std::vector<GroupTrucks>& candidates);
+
+// Pools of at most this many slots also get M4's exact truck-by-truck knapsack plan (ED-12).
+constexpr std::size_t kExactSlots = 4;
 
 } // namespace m5
 } // namespace ob

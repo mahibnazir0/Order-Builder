@@ -6,6 +6,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 
 using namespace std;
 
@@ -85,6 +86,32 @@ double rearInchesOf(const FloorLayout& layout, const TrailerCapability& capabili
     double extent = 0.0;
     for (const FloorRow& row : layout.rows) extent += row.depthIn;
     return capability.lengthIn - extent;
+}
+
+WitnessMeasure measureSuppliedWitness(const vector<PlacedRectangle>& placed, const TrailerCapability& capability) {
+    WitnessMeasure measure;
+    for (size_t index = 0; index < placed.size(); ++index) {
+        const PlacedRectangle& box = placed[index];
+        const string name = "rectangle " + to_string(index);
+        if (!isfinite(box.xIn) || !isfinite(box.yIn) || !isfinite(box.lengthIn) || !isfinite(box.widthIn) || box.lengthIn <= 0.0
+            || box.widthIn <= 0.0) {
+            measure.findings.push_back(name + " has a coordinate or size that is not finite and positive");
+            continue;
+        }
+        if (box.xIn < 0.0 || box.yIn < 0.0 || box.xIn + box.lengthIn > capability.lengthIn || box.yIn + box.widthIn > capability.widthIn) {
+            measure.findings.push_back(name + " lies outside the trailer floor");
+        }
+        for (size_t other = 0; other < index; ++other) {
+            const PlacedRectangle& next = placed[other];
+            const bool apart = box.xIn + box.lengthIn <= next.xIn || next.xIn + next.lengthIn <= box.xIn
+                               || box.yIn + box.widthIn <= next.yIn || next.yIn + next.widthIn <= box.yIn;
+            if (!apart) measure.findings.push_back(name + " overlaps rectangle " + to_string(other));
+        }
+        measure.occupiedExtentIn = max(measure.occupiedExtentIn, box.xIn + box.lengthIn);
+    }
+    measure.valid = measure.findings.empty();
+    measure.rearInches = capability.lengthIn - measure.occupiedExtentIn;
+    return measure;
 }
 
 vector<size_t> physicalClassOf(const M5LaneDateInput& input) {
@@ -168,30 +195,75 @@ vector<vector<size_t>> packByUrgency(const M5LaneDateInput& input, const vector<
     return trucks;
 }
 
+KnapsackItem knapsackItemOf(const M5LaneDateInput& input, size_t index) {
+    const Atom& atom = input.atoms[index];
+    KnapsackItem item;
+    item.areaSqIn = atom.floor.longSideIn * atom.floor.shortSideIn;
+    item.weightLb = atom.weightLb;
+    item.heightIn = atom.floor.heightIn;
+    item.unitLoads = atom.unitLoads;
+    item.longSideIn = atom.floor.longSideIn;
+    item.shortSideIn = atom.floor.shortSideIn;
+    item.levels = atom.floor.levels;
+    auto rankOf = [&](const Component& component) {
+        return make_tuple(rankDateOf(component.dueDate, input.departure, input.pastDueOrder), component.priority, component.dueDate);
+    };
+    const auto urgent = min_element(atom.components.begin(), atom.components.end(),
+                                    [&](const Component& a, const Component& b) { return rankOf(a) < rankOf(b); });
+    item.shipDate = urgent->dueDate;
+    item.rankDate = rankDateOf(urgent->dueDate, input.departure, input.pastDueOrder);
+    item.priority = urgent->priority;
+    item.productNumber = urgent->product;
+    return item;
+}
+
+vector<vector<size_t>> packByKnapsack(const M5LaneDateInput& input, const vector<size_t>& ranked,
+                                      const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks) {
+    if (ranked.empty() || maxTrucks == 0) return {};
+    vector<KnapsackItem> items;
+    items.reserve(ranked.size());
+    for (const size_t index : ranked) items.push_back(knapsackItemOf(input, index));
+    auto atomsOf = [&](const vector<size_t>& chosen) {
+        vector<size_t> atoms;
+        atoms.reserve(chosen.size());
+        for (const size_t position : chosen) atoms.push_back(ranked[position]);
+        sort(atoms.begin(), atoms.end());
+        return atoms;
+    };
+    TruckLimits limits;
+    limits.fits = [&](const vector<size_t>& chosen) {
+        const PhysicalCheck check = checkTruck(input, atomsOf(chosen), capability, settings);
+        return check.fits ? TruckFit::Fits : check.undecided ? TruckFit::Undecided : TruckFit::DoesNotFit;
+    };
+    if (settings.maxUnitLoadsPerTruck) {
+        ItemLimit unitLoads{{}, *settings.maxUnitLoadsPerTruck};
+        for (const KnapsackItem& item : items) unitLoads.perItem.push_back(item.unitLoads);
+        limits.limits.push_back(std::move(unitLoads));
+    }
+    vector<vector<size_t>> trucks;
+    try {
+        const KnapsackCapacity capacity{capability.lengthIn * capability.widthIn, capability.maxWeightLb, capability.heightIn};
+        vector<size_t> remaining(items.size());
+        for (size_t position = 0; position < remaining.size(); ++position) remaining[position] = position;
+        while (trucks.size() < maxTrucks && !remaining.empty()) {
+            const KnapsackSelection truck = selectNextTruck(items, remaining, capacity, settings.knapsack, limits);
+            if (truck.chosen.empty()) break;
+            trucks.push_back(atomsOf(truck.chosen));
+            remaining = truck.leftOver;
+        }
+    } catch (const invalid_argument&) {
+        return {};
+    }
+    return trucks;
+}
+
 vector<vector<size_t>> packCarefully(const M5LaneDateInput& input, const vector<size_t>& ranked,
                                      const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks,
                                      const StopCheck& stop) {
     if (ranked.empty() || maxTrucks == 0) return {};
     vector<KnapsackItem> items;
     items.reserve(ranked.size());
-    for (const size_t index : ranked) {
-        const Atom& atom = input.atoms[index];
-        KnapsackItem item;
-        item.areaSqIn = atom.floor.longSideIn * atom.floor.shortSideIn;
-        item.weightLb = atom.weightLb;
-        item.heightIn = atom.floor.heightIn;
-        item.unitLoads = atom.unitLoads;
-        item.longSideIn = atom.floor.longSideIn;
-        item.shortSideIn = atom.floor.shortSideIn;
-        item.levels = atom.floor.levels;
-        const auto urgent = min_element(atom.components.begin(), atom.components.end(), [](const Component& a, const Component& b) {
-            return tie(a.dueDate, a.priority) < tie(b.dueDate, b.priority);
-        });
-        item.shipDate = urgent->dueDate;
-        item.priority = urgent->priority;
-        item.productNumber = urgent->product;
-        items.push_back(std::move(item));
-    }
+    for (const size_t index : ranked) items.push_back(knapsackItemOf(input, index));
     BinPacking packing;
     try {
         const KnapsackCapacity capacity{capability.lengthIn * capability.widthIn, capability.maxWeightLb, capability.heightIn};

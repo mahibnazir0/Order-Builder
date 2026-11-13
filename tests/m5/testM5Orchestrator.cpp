@@ -1,6 +1,7 @@
 #include "doctest.h"
 #include "m5Report.hpp"
 #include "support/m5Fixtures.hpp"
+#include "support/m5StubMethods.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -16,37 +17,12 @@ size_t countCause(const M5LaneOutcome& outcome, LeftOverCause cause) {
                                         [&](const LeftOver& left) { return left.cause == cause; }));
 }
 
-// A method that offers each group a fixed plan of consecutive atoms, so A and B can be compared
-// on controlled results (X-RUN-13).
-class FixedMethod final : public MethodPlanner {
-public:
-    FixedMethod(MethodId id, size_t trucks, size_t perTruck) : id_(id), trucks_(trucks), perTruck_(perTruck) {}
-    MethodId id() const override { return id_; }
-    GroupSupply supplyForGroup(const MethodContext& context, const GroupId& group) const override {
-        GroupTrucks plan;
-        for (size_t truck = 0; truck < trucks_; ++truck) {
-            Truck atoms;
-            for (size_t unit = 0; unit < perTruck_; ++unit) atoms.push_back(truck * perTruck_ + unit);
-            plan.push_back(atoms);
-        }
-        GroupSupply supply;
-        supply.group = group;
-        supply.plans.push_back({});
-        for (size_t trucks = 1; trucks <= min(plan.size(), context.maxTrucks); ++trucks) {
-            supply.plans.emplace_back(plan.begin(), plan.begin() + static_cast<ptrdiff_t>(trucks));
-        }
-        return supply;
-    }
-
-private:
-    MethodId id_;
-    size_t trucks_;
-    size_t perTruck_;
-};
-
 M5LaneOutcome planWith(const M5LaneDateInput& input, const M5PolicyProfile& profile, FakeClock& clock, optional<double> allowance,
                        vector<shared_ptr<const MethodPlanner>> methods, function<void(MethodId)> beforeMethod) {
-    const M5RunServices services{clock, allowance, nullopt, std::move(methods), std::move(beforeMethod)};
+    M5RunServices services(clock);
+    services.allowanceSeconds = allowance;
+    services.methods = std::move(methods);
+    services.beforeMethod = std::move(beforeMethod);
     return planLaneDate(input, profile, physicalSettings(), services);
 }
 
@@ -114,8 +90,8 @@ TEST_CASE("X-RUN-13 the budget is frozen and only the chosen result counts" * do
     M5PolicyProfile profile = syntheticProfile();
     profile.comparator = ComparatorKind::FxPriority;
     FakeClock clock;
-    vector<shared_ptr<const MethodPlanner>> methods{make_shared<FixedMethod>(MethodId::PatternRepeat, 3, 20),
-                                                    make_shared<FixedMethod>(MethodId::RollingBlocks, 2, 30)};
+    vector<shared_ptr<const MethodPlanner>> methods{make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, 3, 20),
+                                                    make_shared<m5Stubs::FixedMethod>(MethodId::RollingBlocks, 2, 30)};
     const M5LaneOutcome outcome = planWith(input, profile, clock, 20.0, methods, [&](MethodId method) {
         clock.advance(method == MethodId::PatternRepeat ? 8.0 : 7.0);
     });

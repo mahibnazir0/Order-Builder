@@ -142,7 +142,7 @@ TEST_CASE("R-2 one reserved truck: group B's 20 P0 beat A's 1 P0 + 29 P11" * doc
     }
 }
 
-TEST_CASE("R-4a R-4b R-4c overdue P11 against current P0, by past-due order" * doctest::test_suite("m5")) {
+TEST_CASE("R-4a R-4b R-4c U-RS-06 U-RS-07 X-DATE-08 overdue P11 against current P0, by past-due order" * doctest::test_suite("m5")) {
     const vector<Atom> atoms = concat(fx30Units("old-", 30, "A", 11, kDayBefore, kDayBefore), fx30Units("now-", 30, "A", 0));
     M5LaneDateInput input = laneWith(atoms, 1);
     auto shippedPrefix = [&](const M5LaneOutcome& outcome) {

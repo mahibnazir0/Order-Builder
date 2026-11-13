@@ -19,6 +19,8 @@ namespace m5 {
 
 namespace {
 
+const vector<string> kShipConditionsInScope{"TL", "TF"};
+
 string groupLabel(const PipelineResult& run, size_t groupIndex) {
     const GroupKey& key = run.segregation.groups[groupIndex].key;
     return "group " + to_string(groupIndex) + (key.isSegregated ? " (" + key.segregant + ")" : "");
@@ -170,7 +172,76 @@ PhysicalSettings physicalSettingsOf(const SelectorSettings& settings) {
     if (settings.maxUnitLoadsPerTruck > 0.0) physical.maxUnitLoadsPerTruck = settings.maxUnitLoadsPerTruck;
     physical.searchStatesPerPackingCheck = min(physical.searchStatesPerPackingCheck, settings.floor.searchStateLimit);
     physical.binPacker = settings.binPacker;
+    physical.knapsack = settings.knapsack;
     return physical;
+}
+
+optional<LargeLaneRequest> forcedRequest(const PipelineResult& run, const LaneClassification& classification,
+                                         const LaneKey& lane, const string& shipDate) {
+    LargeLaneRequest request;
+    request.origin = lane.origin;
+    request.destination = lane.destination;
+    request.shipCondition = lane.shipCondition;
+    request.shipDate = shipDate;
+    for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
+        const LaneRoute& route = classification.routes[routeIndex];
+        const GroupKey& key = run.segregation.groups[route.groupIndex].key;
+        if (route.shipDate != shipDate || key.locationFrom != lane.origin || key.locationTo != lane.destination
+            || key.shipCondition != lane.shipCondition) {
+            continue;
+        }
+        request.reservedTrucks = route.reservedTrucks;
+        request.pastDueOrder = route.pastDueOrder;
+        request.routeIndices.push_back(routeIndex);
+        request.groupIndices.push_back(route.groupIndex);
+        request.itemIndicesByRoute.push_back(route.itemIndices);
+        request.methodBeforeEscalation.push_back(route.methodBeforeEscalation ? route.methodBeforeEscalation
+                                                                                : optional<SolveMethod>(route.method));
+    }
+    if (request.routeIndices.empty()) return nullopt;
+    return request;
+}
+
+LinkedDateBenchmark benchmarkLinkedDates(vector<M5LaneDateInput> datesInOrder, const M5PolicyProfile& profile,
+                                         const PhysicalSettings& physical, const Clock& clock) {
+    LinkedDateBenchmark benchmark;
+    set<string> shippedIds;
+    vector<Atom> carried;
+    for (M5LaneDateInput& input : datesInOrder) {
+        // Goods shipped on an earlier date leave; goods it carried arrive, unless already offered here.
+        input.atoms.erase(remove_if(input.atoms.begin(), input.atoms.end(),
+                                    [&](const Atom& atom) { return shippedIds.count(atom.id) > 0; }),
+                          input.atoms.end());
+        set<string> present;
+        for (const Atom& atom : input.atoms) present.insert(atom.id);
+        for (Atom& atom : carried) {
+            if (present.count(atom.id)) continue;
+            for (Component& component : atom.components) {
+                component.offerKind = component.dueDate > input.departure ? OfferKind::CanGo : OfferKind::Required;
+            }
+            input.atoms.push_back(std::move(atom));
+        }
+        carried.clear();
+        const M5RunServices services(clock);
+        M5LaneOutcome outcome = planLaneDate(input, profile, physical, services);
+        if (outcome.selected) {
+            for (const TruckPlan& truck : outcome.selected->trucks) {
+                for (const size_t atom : truck.atoms) shippedIds.insert(input.atoms[atom].id);
+            }
+        }
+        for (const LeftOver& left : outcome.leftOver) {
+            if (left.cause == LeftOverCause::OverReservation || left.cause == LeftOverCause::AcceptanceWithheld) {
+                carried.push_back(input.atoms[left.atom]);
+            }
+        }
+        M5ReportContext context;
+        context.scope = "BENCHMARK (labelled, not production; nothing committed)";
+        context.runIdentity = "linked-date benchmark";
+        benchmark.text += renderAscii(buildReportData(outcome, input, &profile, context));
+        benchmark.inputs.push_back(std::move(input));
+        benchmark.outcomes.push_back(std::move(outcome));
+    }
+    return benchmark;
 }
 
 M5LargeLanePlanner::M5LargeLanePlanner(optional<M5PolicyProfile> profile, string configurationError, DateRules dates,
@@ -181,12 +252,19 @@ M5LargeLanePlanner::M5LargeLanePlanner(optional<M5PolicyProfile> profile, string
 LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
                                          const SelectorSettings& settings) const {
     LargeLaneReport report = reportShell(request);
+    // Raw material, WIP and parked lane types are outside M5 (v7 Section 8): never planned.
+    if (find(kShipConditionsInScope.begin(), kShipConditionsInScope.end(), request.shipCondition) == kShipConditionsInScope.end()) {
+        report.outcome = "out of scope: ship condition " + printable(request.shipCondition) + " is not TL or TF";
+        report.text = "M5 large lane " + printable(request.origin) + " -> " + printable(request.destination) + " "
+                      + printable(request.shipCondition) + ", " + request.shipDate + "\n  not planned: " + report.outcome + "\n";
+        return unplanned(request, LeftOverReason::M5InvalidInput, std::move(report));
+    }
     try {
         const M5LaneDateInput input =
             gatherLaneDate(request, run, items, dates_, profile_ ? profile_->penaltyPerUnusedTruck : nullopt);
         const PhysicalSettings physical = physicalSettingsOf(settings);
         const FunctionClock clock(settings.clock);
-        const M5RunServices services{clock, nullopt, nullopt, {}, {}};
+        const M5RunServices services(clock);
         M5LaneOutcome outcome = profile_ ? planLaneDate(input, *profile_, physical, services)
                                          : configurationIncomplete(input, configurationError_);
 

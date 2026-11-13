@@ -96,7 +96,12 @@ struct M5RunServices {
     std::optional<long long> workAllowance;       // deterministic stop
     std::vector<std::shared_ptr<const MethodPlanner>> methods;  // empty: the profile's method policy
     std::function<void(MethodId)> beforeMethod;
+    std::function<void(std::size_t)> afterBlock;  // test seam, see MethodContext
+    // FX-COMMIT test seam only: a run the allowance stopped returns no plan at all instead of its
+    // best checked one. Production keeps the checked plan (ED-10).
+    bool wholeLaneRollback = false;
 
+    explicit M5RunServices(const Clock& runClock) : clock(runClock) {}
     M5RunServices(const M5RunServices&) = delete;
     M5RunServices& operator=(const M5RunServices&) = delete;
 };

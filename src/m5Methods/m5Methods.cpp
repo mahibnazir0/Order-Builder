@@ -5,6 +5,7 @@
 #include <cmath>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 
 using namespace std;
@@ -94,24 +95,68 @@ long long patternCopies(long long stock, long long patternSize, long long slots)
     return min(stock / patternSize, slots);
 }
 
-GroupSupply supplyFromPlans(const MethodContext& context, const GroupId& group, const GroupTrucks& full,
-                            const GroupTrucks& alternative) {
+long long mixedPatternCopies(const vector<long long>& stock, const vector<long long>& perCopy, long long slots) {
+    if (stock.size() != perCopy.size()) throw invalid_argument("pattern copies: one stock per pattern entry");
+    optional<long long> copies;
+    for (size_t product = 0; product < stock.size(); ++product) {
+        if (perCopy[product] == 0) continue;
+        const long long limit = patternCopies(stock[product], perCopy[product], slots);
+        copies = copies ? min(*copies, limit) : limit;
+    }
+    return copies.value_or(0);
+}
+
+// With the optional acceptance policy on: pack by urgency, drop what the policy withholds and pack
+// again without it, so an accepted alternative is offered when the most urgent goods cannot pass
+// (X-REB-07). Each round drops at least one good, so it ends.
+GroupTrucks acceptedByUrgency(const MethodContext& context, const GroupId& group, size_t trucks) {
+    vector<size_t> pool = rankedCandidates(context, group);
+    GroupTrucks plan;
+    while (!pool.empty() && !(context.stop && context.stop())) {
+        plan = packByUrgency(context.snapshot.input, pool, capabilityOf(context), context.physical, trucks, context.stop);
+        const vector<size_t> withheld =
+            rebalanceForAcceptance(plan, context.snapshot, context.profile, context.physical, capabilityOf(context), context.stop);
+        if (withheld.empty()) break;
+        pool.erase(remove_if(pool.begin(), pool.end(),
+                             [&](size_t atom) { return binary_search(withheld.begin(), withheld.end(), atom); }),
+                   pool.end());
+    }
+    return plan;
+}
+
+GroupSupply supplyFromPlans(const MethodContext& context, const GroupId& group, const vector<GroupTrucks>& candidates) {
     GroupSupply supply;
     supply.group = group;
     supply.plans.push_back({});
-    const GroupTrucks fullBestFirst = bestFirst(context, full);
-    const size_t most = min(context.maxTrucks, max(full.size(), alternative.size()));
+    size_t longest = 0;
+    for (const GroupTrucks& candidate : candidates) longest = max(longest, candidate.size());
+    const size_t most = min(context.maxTrucks, longest);
     for (size_t trucks = 1; trucks <= most; ++trucks) {
-        GroupTrucks fromFull = firstTrucks(fullBestFirst, trucks);
-        GroupTrucks fromAlternative = firstTrucks(alternative, trucks);
-        rebalanceForAcceptance(fromFull, context.snapshot, context.profile, context.physical, capabilityOf(context), context.stop);
-        rebalanceForAcceptance(fromAlternative, context.snapshot, context.profile, context.physical, capabilityOf(context),
-                               context.stop);
-        const bool alternativeBetter = context.comparator.better(keyOf(context.snapshot, context.domain, fromAlternative),
-                                                                 keyOf(context.snapshot, context.domain, fromFull));
-        supply.plans.push_back(alternativeBetter ? std::move(fromAlternative) : std::move(fromFull));
+        optional<GroupTrucks> best;
+        AllocationKey bestKey;
+        for (const GroupTrucks& candidate : candidates) {
+            GroupTrucks plan = firstTrucks(candidate, trucks);
+            rebalanceForAcceptance(plan, context.snapshot, context.profile, context.physical, capabilityOf(context), context.stop);
+            AllocationKey key = keyOf(context.snapshot, context.domain, plan);
+            if (!best || context.comparator.better(key, bestKey)) {
+                best = std::move(plan);
+                bestKey = std::move(key);
+            }
+        }
+        if (context.profile.acceptance) {
+            GroupTrucks accepted = acceptedByUrgency(context, group, trucks);
+            AllocationKey key = keyOf(context.snapshot, context.domain, accepted);
+            if (context.comparator.better(key, bestKey)) best = std::move(accepted);
+        }
+        supply.plans.push_back(std::move(*best));
     }
     return supply;
+}
+
+// The exact truck-by-truck plan when the pool is small enough for it, else nothing.
+GroupTrucks exactSmallPool(const MethodContext& context, const vector<size_t>& ranked) {
+    if (context.maxTrucks > kExactSlots || (context.stop && context.stop())) return {};
+    return packByKnapsack(context.snapshot.input, ranked, capabilityOf(context), context.physical, context.maxTrucks);
 }
 
 GroupSupply PatternPlanner::supplyForGroup(const MethodContext& context, const GroupId& group) const {
@@ -165,7 +210,7 @@ GroupSupply PatternPlanner::supplyForGroup(const MethodContext& context, const G
         full.push_back(std::move(truck));
     }
     const GroupTrucks byUrgency = packByUrgency(input, ranked, capability, context.physical, context.maxTrucks, context.stop);
-    return supplyFromPlans(context, group, full, byUrgency);
+    return supplyFromPlans(context, group, {bestFirst(context, full), byUrgency, exactSmallPool(context, ranked)});
 }
 
 GroupSupply BlockPlanner::supplyForGroup(const MethodContext& context, const GroupId& group) const {
@@ -199,9 +244,10 @@ GroupSupply BlockPlanner::supplyForGroup(const MethodContext& context, const Gro
         const size_t before = queue.size();
         queue.erase(remove_if(queue.begin(), queue.end(), [&](size_t index) { return shipped[index] != 0; }), queue.end());
         trucks.insert(trucks.end(), block.begin(), block.end());
+        if (context.afterBlock) context.afterBlock(trucks.size());
         if (queue.size() == before) break;
     }
-    return supplyFromPlans(context, group, trucks, trucks);
+    return supplyFromPlans(context, group, {trucks, bestFirst(context, trucks), exactSmallPool(context, rankedCandidates(context, group))});
 }
 
 } // namespace m5

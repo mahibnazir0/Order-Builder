@@ -80,7 +80,7 @@ TEST_CASE("U-RT-02 without a planner the lane-date is escalated, as before M5" *
     CHECK(selection.reservations[0].escalated);
 }
 
-TEST_CASE("X-ROUTE-02 two groups share one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
+TEST_CASE("X-ROUTE-02 U-SP-02 two groups share one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(21, 2000, 2);
     SelectorSettings settings = selectorSettings();
     settings.largeLanePlanner = plannerOf();

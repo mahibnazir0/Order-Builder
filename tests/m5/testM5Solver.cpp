@@ -54,7 +54,7 @@ TEST_CASE("X-CG-04 the mixed pattern (1,1) is found: one bin for 6 and 4" * doct
     CHECK(result.packing->bins.size() == 1);
 }
 
-TEST_CASE("X-CG-05 pricing at duals 3/5 and 11/20 returns (1,1) at 23/20" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-05 U-CG-08 pricing, on M4's shared PatternPricer, at duals 3/5 and 11/20 returns (1,1) at 23/20" * doctest::test_suite("m5")) {
     const PricedPattern priced = pricePattern({6, 4}, 10, {0.6, 0.55}, {1, 1}, 1000);
     CHECK(priced.exact);
     CHECK(priced.counts == vector<int>{1, 1});
@@ -164,7 +164,7 @@ TEST_CASE("X-REB-04 no scalar truck passes the policy: zero dispatched, all good
     CHECK(result.partialCube == 0.0);
 }
 
-TEST_CASE("U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with allowance left" * doctest::test_suite("m5")) {
+TEST_CASE("ACC-3 U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with allowance left" * doctest::test_suite("m5")) {
     CHECK(shouldEscalate(11, 10, 1, true));
     CHECK(shouldEscalate(12, 10, 1, true));
     CHECK_FALSE(shouldEscalate(12, 10, 1, false));
@@ -227,7 +227,7 @@ TEST_CASE("X-META-08 a do-not-mix rule never lowers the exact best" * doctest::t
 // PUB-01..03 need OR-Library's binpack1.txt in tests/m5/data/orlib/. It is skipped in the full run so a
 // clone without it still passes; the m5Published ctest entry runs it with --no-skip, where a missing
 // file fails by name. Neither a skip nor a missing file is a pass.
-TEST_CASE("PUB-01 PUB-02 PUB-03 Falkenauer u120_00..02 reach their proven optima" * doctest::test_suite("m5Published")
+TEST_CASE("ACC-1 U-CG-02 PUB-01 PUB-02 PUB-03 Falkenauer u120_00..02 reach their proven optima" * doctest::test_suite("m5Published")
           * doctest::skip()) {
     const string path = "tests/m5/data/orlib/binpack1.txt";
     ifstream file(path);

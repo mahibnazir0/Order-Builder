@@ -228,7 +228,8 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
         budget.startPhase(method.id() == MethodId::PatternRepeat ? "methodA" : method.id() == MethodId::RollingBlocks ? "methodB" : "method");
         const double started = services.clock.nowSeconds();
         const StopCheck stop = [&budget, sliceEnd] { return budget.pastSlice(sliceEnd); };
-        const MethodContext context{snapshot, domain, profile, physical, *comparator, cache, unfittable, slotCount, stop};
+        const MethodContext context{snapshot, domain, profile, physical, *comparator, cache, unfittable, slotCount, stop,
+                                    services.afterBlock};
         vector<GroupSupply> supplies;
         for (const GroupId& group : snapshot.groups) supplies.push_back(method.supplyForGroup(context, group));
         const AllocationResult allocation = allocate(snapshot, domain, supplies, slotCount, *comparator);
@@ -305,6 +306,10 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
             }
         }
         outcome.methods.push_back(std::move(record));
+    }
+    if (services.wholeLaneRollback && stoppedByBudget && incumbent) {
+        incumbent.reset();
+        outcome.findings.push_back("whole-lane rollback: the allowance stopped the run, so no plan is kept");
     }
     for (MethodRecord& record : outcome.methods) record.selected = incumbent && record.ran && record.method == incumbent->method;
 

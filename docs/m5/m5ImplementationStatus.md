@@ -66,35 +66,49 @@ those params. It is now two cases: escalation without a planner, and the same la
 7 Aug, 2028 -> 2574 TL (Aug5 extract): 21 reserved, three groups.
 
 - The required hand-over is 747 stacks and 763 unit loads, which reproduces RD-02.
-- M5 dispatches 21 trucks carrying 697 unit loads, 42 of them can-go.
-- Method A was selected over B.
-- The M5 work took 0.05 s.
+- M5 dispatches 21 trucks carrying 697 unit loads, 42 of them can-go. Method A was selected.
+- On the hand-over alone, A and B each ship 665 unit loads (U-PF-02); M4 escalates the lane.
+- The labelled both-dates benchmark (7 and 8 Aug, 21 + 20 reserved) uses 41 trucks. The client's
+  historical 38 is a comparison, not a target. Nothing from the benchmark is committed.
+- Aug6, 2028 -> 2190, both dates joined: 23 trucks, against the historical 23 (RD-07).
+- Reservations reconcile on all three runs: 324 = 296 + 28, 532 = 510 + 22 and 584 = 557 + 27
+  (reserved = built + unused, RD-11).
 
 Lanes M5 does not touch plan identically with and without M5 (RD-09 / INV-16). Aug4 and Aug6
 have no lane-date above 20.
 
 ## Tests
 
-- `ctest -R m5Core` (`ob_tests -ts=m5`): 96 synthetic cases.
-- `ctest -R m5RealData`: 6 cases on the August extracts.
-- `ctest -R m5Published`: PUB-01..03.
+| ctest entry | What it runs | Result on this branch (clang, macOS) |
+|---|---|---|
+| `ob_tests` | Everything not skipped | 1,359 of 1,359 pass |
+| `m5Core` | `ob_tests -ts=m5`, synthetic | 193 cases pass |
+| `m5RealData` | The August extracts | 15 cases pass |
+| `m5Published` | PUB-01..03 on OR-Library `binpack1.txt` | 48 / 49 / 46 bins, checked independently |
+| `m4Benchmark`, `m4BenchmarkThreadsSuccess` | The M4 benchmark, and its thread test under `--success` (U-PF-04) | 18 cases pass (906 s); thread test passes (795 s) |
 
-Together they cover 119 of the 291 v7 IDs, including:
+`binpack1.txt` was downloaded from OR-Library on 13 Nov 2026 and is committed under
+`tests/m5/data/orlib/` with its SHA-256 (`891fe4b3...b172`) in `README.txt` there.
 
-- all X-META-01 multisets (1,716) checked against an independent brute force;
-- X-CG-18, with LP 2.7 converged, restricted integer 4, incumbent 3 and bound 3;
-- X-CG-19, X-REB-09, R-2, R-4, R-6, X-RUN-05, X-E2E-07, U-FL-01/02/04/08/09, U-CF-01..05/08,
-  X-RUN-02/04/11/12/13 and X-STATE-10.
+**Coverage gate (X-RUN-09).** `tests/m5/data/m5TestIds.txt` lists the 291 v7 IDs. The gate test
+fails if any ID has no `TEST_CASE` naming it and no line in `m5CoverageExceptions.txt` with a
+reason. It also fails on a duplicate ID or test name, or a stale or reasonless exception. A
+BLOCKED ID is never counted as a pass. Today:
 
-### Blocked or not yet covered
+- 287 IDs are covered by M5 tests.
+- U-PF-04 is covered by the `m4BenchmarkThreadsSuccess` ctest entry.
+- R-1a, R-1b and R-5a are BLOCKED.
 
-- **PUB-01..03 (ACC-1)** need OR-Library's `binpack1.txt` committed under
-  `tests/m5/data/orlib/`, with its SHA-256 recorded. `m5Published` fails by name until then.
-- **R-1a, R-1b, R-5a** wait for Tom's exact inputs.
-- **U-DA-05 and the X-RES-12 input variant** are blocked by the C9 capability gap.
-- **ACC-2's both-dates benchmark, U-PF-02 and the 3D threshold rows** are not built. The
-  production run never commits benchmark rows.
-- **The manifest/evidence gate (X-RUN-09) and per-variant evidence records** are not built.
-- **The remaining named IDs** have no test yet. These include most of X-DATA, the X-DATE
-  carry/pull integration cases, X-BLK-01/04..08, X-RES-02..05/07..12, the X-REPORT checks
-  on real data, and U-PF-03/07 thread checks.
+Independent oracles do not reuse the code under test: brute-force bin packing, partition
+enumeration, subset enumeration over M4's floor for R-5b, an invariant recount, and per-source
+conservation.
+
+### Still open
+
+- **R-1a, R-1b, R-5a:** BLOCKED on Tom's exact inputs. The M5 path runs an exact knapsack for
+  pools of up to 4 slots (ED-12), and R-5b (seeded single trucks against brute force) passes, so
+  these need only the data.
+- **C9:** reservations carry no per-truck trailer, so a pool of different trailers is refused
+  (X-RES-12 / X-E2E-06). The adapter seam itself is tested (U-DA-05).
+- **OPEN-COMP:** the tie operator for equal service needs your sign-off.
+- **Builds:** MSVC x64 `/W4 /WX`, GCC, and the ThreadSanitizer run have not been run on this branch.

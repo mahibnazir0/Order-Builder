@@ -1,0 +1,6 @@
+# Required v7 test IDs not covered by a TEST_CASE under tests/m5, one per line: ID|status|reason.
+# BLOCKED: a named prerequisite is missing; the ID is not a pass. EXTERNAL: covered by the ctest entry named.
+R-1a|BLOCKED|Tom's exact R-1 inputs (20 large and 20 small stacks) are not in the repository
+R-1b|BLOCKED|Tom's exact four-item R-1 case is not in the repository
+R-5a|BLOCKED|Tom's exact 14-stack inputs from the 3da08ab review are not in the repository
+U-PF-04|EXTERNAL|ctest m4BenchmarkThreadsSuccess runs the M4 thread test under --success

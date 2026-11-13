@@ -155,6 +155,10 @@ add_executable(ob_tests
   tests/m5/testM5Orchestrator.cpp
   tests/m5/testM5Integration.cpp
   tests/m5/testM5RealData.cpp
+  tests/m5/testM5Physical.cpp
+  tests/m5/testM5Scenarios.cpp
+  tests/m5/testM5Routing.cpp
+  tests/m5/testM5Coverage.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.
@@ -193,6 +197,10 @@ add_test(NAME m5Core COMMAND ob_tests -ts=m5
 # M5 on the real 4-6 August extracts; fails, naming each file, when the data is absent.
 add_test(NAME m5RealData COMMAND ob_tests -ts=m5RealData --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-# PUB-01..03 (ACC-1) on OR-Library's binpack1.txt, which must be added under tests/m5/data/orlib/.
+# U-PF-04: the M4 thread test runs clean under --success.
+add_test(NAME m4BenchmarkThreadsSuccess
+         COMMAND ob_tests "-tc=m4Benchmark: every held extract plans the same at one thread*" --no-skip --success
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# PUB-01..03 (ACC-1) on OR-Library's binpack1.txt (tests/m5/data/orlib/, SHA-256 in README.txt there).
 add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
