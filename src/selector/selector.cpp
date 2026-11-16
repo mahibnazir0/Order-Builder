@@ -491,10 +491,6 @@ private:
     // positions cap when the customer has one, and the rows relaxed so they only grow with goods.
     TruckLimits truckLimits(const LaneRoute& route, const vector<KnapsackItem>& items, RowVerdicts& verdicts) const {
         TruckLimits truck;
-        // The route's floor searches share one budget, so its knapsack's floor work is bounded
-        // however many loads it judges.
-        auto floorBudget = make_shared<FloorSearchBudget>(FloorSearchBudget{settings_.floor.routeSearchStateLimit});
-        setRowChecks(route, items, verdicts, floorBudget, truck);
         ItemLimit unitLoads{{}, settings_.maxUnitLoadsPerTruck};
         unitLoads.perItem.reserve(items.size());
         vector<FloorItem> floorItems;
@@ -505,7 +501,13 @@ private:
         }
         truck.limits.push_back(std::move(unitLoads));
         truck.limits.push_back({rowLengthShares(floorItems, run_.trailer, settings_.floor), run_.trailer.interiorLengthIn});
-        truck.mayStillFit = loadGrowthCheck(std::move(floorItems), run_.trailer, settings_.floor, std::move(floorBudget));
+        // The route's floor searches are bounded however many loads its knapsack judges: the
+        // relaxed rows and the rows themselves each by a budget of their own, so the cuts the
+        // search makes on the way never use up the states a proof's last refusal needs.
+        truck.mayStillFit = loadGrowthCheck(std::move(floorItems), run_.trailer, settings_.floor,
+                                            make_shared<FloorSearchBudget>(FloorSearchBudget{settings_.floor.routeSearchStateLimit}));
+        setRowChecks(route, items, verdicts, make_shared<FloorSearchBudget>(FloorSearchBudget{settings_.floor.routeSearchStateLimit}),
+                     truck.mayStillFit, truck);
         if (settings_.floor.maxPositions) {
             truck.limits.push_back({vector<double>(items.size(), 1.0), static_cast<double>(*settings_.floor.maxPositions)});
         }
@@ -630,12 +632,13 @@ private:
     }
 
     // The knapsack's row checks of one route's truck loads, both refusing a load over the unit-load
-    // cap. `fits` judges every grouping of the rows, drawing on `budget`; quickFits judges the rows
-    // without searching groupings - exact up to kExactFloorItems stacks, in sorted order above - so
-    // it accepts only what `fits` accepts. Rows depend only on each item's footprint and levels, so
-    // loads alike in those share a verdict, remembered by their sorted floor types.
+    // cap or one mayStillFit cuts, which no grouping of its rows fits. `fits` judges every grouping
+    // of the rows, drawing on `budget`; quickFits judges the rows without searching groupings -
+    // exact up to kExactFloorItems stacks, in sorted order above - so it accepts only what `fits`
+    // accepts. Rows depend only on each item's footprint and levels, so loads alike in those share
+    // a verdict, remembered by their sorted floor types.
     void setRowChecks(const LaneRoute& route, const vector<KnapsackItem>& items, RowVerdicts& verdicts,
-                      shared_ptr<FloorSearchBudget> budget, TruckLimits& truck) const {
+                      shared_ptr<FloorSearchBudget> budget, const LoadCheck& mayStillFit, TruckLimits& truck) const {
         map<tuple<double, double, int>, size_t> floorTypes;
         vector<size_t> floorTypeOf;
         floorTypeOf.reserve(items.size());
@@ -659,9 +662,9 @@ private:
             sort(sorted.begin(), sorted.end());
             return sorted;
         };
-        truck.fits = [this, &route, &verdicts, routeBudget = std::move(budget), keyOf, sortedTruck,
+        truck.fits = [this, &route, &verdicts, routeBudget = std::move(budget), keyOf, sortedTruck, mayStillFit,
                       key = vector<size_t>()](const vector<size_t>& chosen) mutable {
-            if (!keyOf(chosen, key)) return TruckFit::DoesNotFit;
+            if (!keyOf(chosen, key) || !mayStillFit(chosen)) return TruckFit::DoesNotFit;
             const auto known = verdicts.byGroupings.find(key);
             if (known != verdicts.byGroupings.end()) return known->second;
             const auto quick = verdicts.bySortedRows.find(key);
@@ -671,9 +674,9 @@ private:
             verdicts.byGroupings.emplace(key, verdict);
             return verdict;
         };
-        truck.quickFits = [this, &route, &verdicts, keyOf, sortedTruck,
+        truck.quickFits = [this, &route, &verdicts, keyOf, sortedTruck, mayStillFit,
                            key = vector<size_t>()](const vector<size_t>& chosen) mutable {
-            if (!keyOf(chosen, key)) return false;
+            if (!keyOf(chosen, key) || !mayStillFit(chosen)) return false;
             const auto known = verdicts.bySortedRows.find(key);
             if (known != verdicts.bySortedRows.end()) return known->second;
             // An empty budget arranges the rows without searching groupings.

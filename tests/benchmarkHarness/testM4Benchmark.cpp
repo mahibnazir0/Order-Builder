@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -971,30 +972,68 @@ TEST_CASE("m4Benchmark: on 4 August the one truck of 2027 -> 2031 TF goes to the
 // ship-date rules went in (2,887 / 2,774 / 2,724 cu ft before), and again the same day when each
 // group's part-filled truck was topped up with its own later goods first.
 // M4 is judged on every one-truck lane solved exactly. Since 5 Nov 2026 the knapsack proves a truck on
-// its rows and the unit-load cap, not floor area alone; the rest stop at the node limit and are
-// listed as provisional. Pinned as measured, so a change that proves fewer fails by name. Re-pinned
-// on 10 Nov 2026 (80/81, 130/136, 145/152 before): the search no longer skips the loads holding one
-// the rows refused, and on a few more routes covering them takes more than 200,000 nodes; at
-// 2,000,000 every 4 Aug route proves. Short lane-dates dealt on trucks that fit add a route on 5 and 6 Aug.
-// Re-pinned on 12 Nov 2026 (128/137 and 144/153 before): a load is proven not to fit only when no
-// grouping of its rows fits, where above 10 stacks it was the sorted rows' word. On routes of many
-// footprints, 34 to 204 stacks of 9 to 53 sizes, that takes more than routeSearchStateLimit's
-// 1,000,000 states, so they are listed as provisional; at 10,000,000, 80, 129 and 140 prove.
-TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 12 Nov"
+// its rows and the unit-load cap, not floor area alone; the rest stop at a limit and are listed as
+// provisional. Pinned as measured, so a change that proves fewer fails by name. Tom Moore's
+// engineer counts the routes on a lane-date that reserved one truck (16 Nov 2026: 67/69, 107/117,
+// 125/141 at d028f24), a part of those allocated one. Re-pinned on 17 Nov 2026 (79/81, 125/137,
+// 136/153 allocated before): the route's row checks and relaxed-row cuts no longer share one
+// budget of floor states, which the cuts had spent before the last refusal of a proof; pallets
+// whose rows pair past the trailer are refused without a search; goods alike but for weight are
+// searched as one run, lightest first. The routes still listed stop at the knapsack's node limit,
+// or have near-square pallets, whose pinwheels interlock shallower than they pair, so the pairing
+// is no bound for them. The file lists each beside the client's own loads on its lane-date.
+TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their rows and cap, as measured on 17 Nov"
           * doctest::skip()) {
-    const array<pair<size_t, size_t>, 3> provenOfRoutes{{{79, 81}, {125, 137}, {136, 153}}};
-    for (size_t run = 0; run < provenOfRoutes.size(); ++run) {
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
+    struct Proven {
+        pair<size_t, size_t> ofAllocatedOne;
+        pair<size_t, size_t> ofReservedOne;
+    };
+    const array<Proven, 3> measured{Proven{{79, 81}, {67, 69}}, Proven{{135, 137}, {115, 117}},
+                                    Proven{{144, 153}, {133, 141}}};
+    string text = "M4 proof coverage: the knapsack routes allocated one truck, and those on a lane-date that\n"
+                  "reserved one, with each of the latter left unproven beside the client's loads that lane-date.\n"
+                  "Cube is the average share of a truck's interior its cargo fills.\n";
+    for (size_t run = 0; run < measured.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
-        size_t routes = 0, proven = 0;
+        map<tuple<string, string, string, string>, LaneDayComparison> clientByLaneDate;
+        for (const LaneDayComparison& laneDay : compareWithClient(*day.run, day.book, day.plan, clientDay(run).laneDays).laneDays) {
+            clientByLaneDate.emplace(make_tuple(laneDay.origin, laneDay.destination, laneDay.shipCondition, laneDay.shipDate), laneDay);
+        }
+        Proven counted{{0, 0}, {0, 0}};
+        string unproven;
         for (size_t route = 0; route < day.classification.routes.size(); ++route) {
             const LaneRoute& lane = day.classification.routes[route];
             if (lane.method != SolveMethod::Knapsack || lane.trucksAllocated != 1) continue;
-            ++routes;
-            if (day.plan.routes[route].proven) ++proven;
+            const RouteOutcome& outcome = day.plan.routes[route];
+            ++counted.ofAllocatedOne.second;
+            if (outcome.proven) ++counted.ofAllocatedOne.first;
+            if (lane.reservedTrucks != 1) continue;
+            ++counted.ofReservedOne.second;
+            if (outcome.proven) {
+                ++counted.ofReservedOne.first;
+                continue;
+            }
+            const GroupKey& key = day.run->segregation.groups[lane.groupIndex].key;
+            const auto found = clientByLaneDate.find(make_tuple(key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate));
+            const LaneDayComparison laneDay = found == clientByLaneDate.end() ? LaneDayComparison() : found->second;
+            ostringstream line;
+            line << "  " << key.locationFrom << " -> " << key.locationTo << " " << key.shipCondition << " " << lane.shipDate
+                 << ", " << lane.itemIndices.size() << " stacks: ours " << laneDay.ourTrucks << " truck(s) at "
+                 << fixed << setprecision(0) << 100.0 * laneDay.ourCube << "% cube, the client's " << laneDay.clientLoads
+                 << " load(s) at " << 100.0 * laneDay.clientCube << "%; " << outcome.unprovenBecause << "\n";
+            unproven += line.str();
         }
-        CHECK(make_pair(proven, routes) == provenOfRoutes[run]);
+        CHECK(counted.ofAllocatedOne == measured[run].ofAllocatedOne);
+        CHECK(counted.ofReservedOne == measured[run].ofReservedOne);
+        text += "\n" + day.label + ": proven " + to_string(counted.ofAllocatedOne.first) + " of "
+                + to_string(counted.ofAllocatedOne.second) + " allocated one truck, " + to_string(counted.ofReservedOne.first)
+                + " of " + to_string(counted.ofReservedOne.second) + " on a lane-date reserving one; unproven:\n"
+                + (unproven.empty() ? "  none\n" : unproven);
     }
+    ofstream(OB_M4_PROOF_COVERAGE) << text;
+    MESSAGE("proof coverage written to " << OB_M4_PROOF_COVERAGE);
 }
 
 TEST_CASE("m4Benchmark: August fill is no worse than measured on 2 Nov" * doctest::skip()) {
@@ -1608,3 +1647,4 @@ TEST_CASE("m4Benchmark: the fill diagnosis is written" * doctest::skip()) {
 }
 
 } // TEST_SUITE
+

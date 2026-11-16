@@ -22,24 +22,31 @@
 //
 // Rows are not monotone: a load whose rows do not fit can hold a larger one
 // whose rows do (a pinwheel short of one stack; Tom Moore, 10 Nov 2026: 22
-// unit loads proven where 23 fit). A truck with a check is searched twice. A
-// fast pass never grows a load the caller's quickFits refused, as the knapsack
-// always did; then an exact pass, starting from its best, cuts only on limits
-// that can only grow as goods are added - floor, payload, the caller's
-// ItemLimits and its mayStillFit (the selector's: rows relaxed so a row short
-// of members keeps its depth) - and asks the rows only of a whole load that
-// would beat the best so far. The truck is never worse than the fast pass
-// alone, and proven only when the exact pass finishes and the check decided
-// every load better than the one chosen: a refusal the check could not prove
-// (TruckFit::Undecided) supports no proof.
+// unit loads proven where 23 fit). A truck with a check is searched by an
+// exact pass, from the greedy fill, that cuts only on limits that can only
+// grow as goods are added - floor, payload, the caller's ItemLimits and its
+// mayStillFit (the selector's: rows relaxed so a row short of members keeps
+// its depth) - and asks the rows only of a whole load that would beat the best
+// so far. Where it stops at its node limit, a fast pass that never grows a load
+// the caller's quickFits refused, as the knapsack always did, goes on from its
+// best; a finished exact pass has judged every load the fast pass could grow.
+// The truck is never worse than the fast pass alone, and proven only when the
+// exact pass finishes and the check decided every load better than the one
+// chosen: a refusal the check could not prove (TruckFit::Undecided) supports
+// no proof.
 //
 // Weights and areas are counted in whole grains, each item rounded UP and the
 // capacity DOWN, so rounding can only reject a load that would physically fit,
 // never pass one that does not (E143). Both solvers work on the same grains, so
 // they can be checked against each other exactly.
 //
-// Between selections of equal value, the one taking the earliest items in the
-// given order wins, so callers pass items in shipsBefore order.
+// Goods alike in all but weight - urgency class, unit loads, footprint and
+// levels - are interchangeable to the search but for weight, so it takes the
+// lightest of them first: a load holding a heavier one in place of a lighter is
+// never better, and the search passes over the rest of them at once once one is
+// left out. Between selections of equal value, the one taking the earliest
+// items in the given order wins, among goods alike the lightest, so callers
+// pass items in shipsBefore order.
 // ============================================================================
 
 #include "selectionItem.hpp"
@@ -100,11 +107,13 @@ constexpr long long kMaxGrains = 1LL << 53;
 struct KnapsackSettings {
     double weightGrainLb = 0.0;  // positive, and no larger than the lightest item
     double areaGrainSqIn = 0.0;  // positive, and no larger than the smallest item
-    long long nodeLimit = 0;     // branch-and-bound nodes a pass searches before it stops with the best found
+    long long nodeLimit = 0;     // branch-and-bound nodes a pass searches before it stops with the best found,
+                                 // each good it decides or passes over one
 };
 
 // The shared, integer form both solvers work on. `candidates` are the input items that fit an
-// empty truck on their own, in solve order: class, then input order.
+// empty truck on their own, in solve order: class, then goods alike but for weight together, in
+// the input order of their first, lightest first.
 struct KnapsackProblem {
     std::vector<std::size_t> candidates;
     std::vector<std::size_t> classOf;        // parallel to candidates; 0 is most urgent
@@ -172,8 +181,9 @@ struct ItemLimit {
 using LoadCheck = std::function<bool(const std::vector<std::size_t>& chosen)>;
 
 // What one truck may carry beyond floor area and weight. Every load `fits` accepts must be within
-// every limit and pass mayStillFit; every load quickFits accepts, `fits` must accept too. Empty
-// accepts every load.
+// every limit and pass mayStillFit; every load quickFits accepts, `fits` must accept too. Each
+// check must judge goods alike in urgency class, unit loads, footprint and levels alike, whatever
+// they weigh, since the search swaps one for another. Empty accepts every load.
 struct TruckLimits {
     TruckCheck fits;
     std::vector<ItemLimit> limits;

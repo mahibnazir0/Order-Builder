@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <optional>
 #include <sstream>
@@ -365,8 +366,25 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
         const tuple<string, int, string> key{rankingDate(items[index]), items[index].priority, items[index].shipDate};
         return static_cast<size_t>(lower_bound(classKeys.begin(), classKeys.end(), key) - classKeys.begin());
     };
-    stable_sort(problem.candidates.begin(), problem.candidates.end(),
-                [&](size_t left, size_t right) { return classIndexOf(left) < classIndexOf(right); });
+    // Within a class, goods alike in all but weight - unit loads, footprint and levels, so in every
+    // value, limit and row - stand together, lightest first: a load holding a heavier one in place
+    // of a lighter is never better, so the search takes only a leading run of them. Kinds keep the
+    // order of their first good, so weight reorders only goods of one kind.
+    using Kind = tuple<size_t, long long, double, double, int>;
+    auto kindOf = [&](size_t index) {
+        const KnapsackItem& item = items[index];
+        return Kind{classIndexOf(index), llround(item.unitLoads * 1000.0), item.longSideIn, item.shortSideIn, item.levels};
+    };
+    map<Kind, size_t> rankOfKind;
+    vector<pair<size_t, size_t>> rankOf(items.size());  // (class, kind's rank), by input index
+    for (const size_t index : problem.candidates) {
+        const Kind kind = kindOf(index);
+        rankOf[index] = {get<0>(kind), rankOfKind.try_emplace(kind, rankOfKind.size()).first->second};
+    }
+    stable_sort(problem.candidates.begin(), problem.candidates.end(), [&](size_t left, size_t right) {
+        if (rankOf[left] != rankOf[right]) return rankOf[left] < rankOf[right];
+        return grainsUp(items[left].weightLb, settings.weightGrainLb) < grainsUp(items[right].weightLb, settings.weightGrainLb);
+    });
 
     const size_t count = problem.candidates.size();
     problem.classOf.reserve(count);
@@ -431,7 +449,7 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         const KnapsackItem& rightItem = items[problem.candidates[right]];
         if (problem.classOf[left] != problem.classOf[right] || problem.amount[left] != problem.amount[right]
             || problem.areaGrains[left] != problem.areaGrains[right]
-            || problem.weightGrains[left] != problem.weightGrains[right]
+            || problem.weightGrains[left] > problem.weightGrains[right]
             || leftItem.longSideIn != rightItem.longSideIn || leftItem.shortSideIn != rightItem.shortSideIn
             || leftItem.levels != rightItem.levels) {
             return false;
@@ -441,6 +459,11 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         }
         return true;
     };
+    // Where the run of goods alike at each position ends.
+    vector<size_t> runEnd(count + 1, count);
+    for (size_t position = count; position-- > 0;) {
+        runEnd[position] = position + 1 < count && sameItem(position, position + 1) ? runEnd[position + 1] : position + 1;
+    }
 
     // One depth-first search from the root, improving on the best so far; true when it finished
     // within the node limit. Iterative, so a 10,000-item lane cannot overflow the stack. The exact
@@ -489,17 +512,26 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
                     descending = false;
                     continue;
                 }
+                // Goods alike but for weight stand lightest first, so only a leading run of them is
+                // ever taken: once one is left out, the ones after it are too, in one step. A load
+                // with a later one in its place weighs no less and is worth the same, so none
+                // better is missed, and the search never re-tries one load in every order.
+                if (depth > 0 && decision[depth - 1] == 2 && sameItem(depth - 1, depth)) {
+                    fill(decision.begin() + static_cast<ptrdiff_t>(depth), decision.begin() + static_cast<ptrdiff_t>(runEnd[depth]), char{2});
+                    const long long skipped = static_cast<long long>(runEnd[depth] - depth);
+                    nodes += skipped;
+                    passNodes += skipped;
+                    if (passNodes > settings.nodeLimit) return false;
+                    depth = runEnd[depth];
+                    continue;
+                }
                 ++nodes;
                 if (++passNodes > settings.nodeLimit) return false;
                 if (!(best < bounds.bound(current, depth, areaLeft, weightLeft, limitLeft))) {
                     descending = false;
                     continue;
                 }
-                // Identical items are interchangeable, so only a leading run of them is ever
-                // taken: once one is left out, the copies after it are too. This keeps the
-                // earliest-first tie-break and stops the search re-trying the same load in every order.
-                const bool copyOfExcluded = depth > 0 && decision[depth - 1] == 2 && sameItem(depth - 1, depth);
-                const bool canTake = !copyOfExcluded && problem.areaGrains[depth] <= areaLeft
+                const bool canTake = problem.areaGrains[depth] <= areaLeft
                                      && problem.weightGrains[depth] <= weightLeft
                                      && withinLimits(limits, limitLeft, depth);
                 if (canTake && (exact ? mayStillFitWith(depth) : quicklyFitsWith(depth))) {
@@ -525,8 +557,15 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
     };
     // With nothing to refuse a load, the fast pass is already exact. Only the exact pass asks of a
     // load that would beat the best, so only it can leave one undecided.
-    bool finished = search(false);
-    if (fits || truck.quickFits) finished = search(true);
+    bool finished = false;
+    if (fits || truck.quickFits) {
+        finished = search(true);
+        // A finished exact pass has judged every load the fast pass could grow, so only one that
+        // stopped at its node limit can still be bettered by it.
+        if (!finished) search(false);
+    } else {
+        finished = search(false);
+    }
 
     KnapsackSelection selection = assemble(items, capacity, problem, bestTaken);
     selection.stoppedAtNodeLimit = !finished;
