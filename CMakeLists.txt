@@ -153,7 +153,8 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 # The M4 benchmark suite writes its report for the client here, beside the build, and beside it
 # the diagnosis of what limits each truck's fill.
 target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt"
-                                            OB_M4_FILL_DIAGNOSIS="${CMAKE_BINARY_DIR}/m4FillDiagnosis.txt")
+                                            OB_M4_FILL_DIAGNOSIS="${CMAKE_BINARY_DIR}/m4FillDiagnosis.txt"
+                                            OB_M4_PROOF_COVERAGE="${CMAKE_BINARY_DIR}/m4ProofCoverage.txt")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.

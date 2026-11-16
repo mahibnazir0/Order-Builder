@@ -59,9 +59,10 @@ struct FloorPatternSettings {
     // default: it must come from the run's settings.
     double fullCubeFraction = 0.0;
     // Row groupings one search over every grouping may hold before it stops, leaving the load
-    // refused unproven (FloorLayout::fitUnproven), and the groupings all the floor searches for one
-    // route's knapsack may hold between them (FloorSearchBudget). No defaults: they must come from
-    // the run's settings.
+    // refused unproven (FloorLayout::fitUnproven), and the groupings the floor searches for one
+    // route's knapsack may hold between them (FloorSearchBudget): its row checks this many, and its
+    // relaxed-row cuts as many again, so the cuts never spend the states a proof's last refusal
+    // needs. No defaults: they must come from the run's settings.
     long long searchStateLimit = 0;
     long long routeSearchStateLimit = 0;
 };
@@ -132,7 +133,11 @@ constexpr std::size_t kExactFloorItems = 10;
 // copies that stand alike share a row; when none fits, the sorted arrangement, which does not fit
 // either; when the search passes searchStateLimit states, or what `budget` has left, first, the
 // sorted arrangement flagged fitUnproven. An empty budget arranges without the search: exact up to
-// kExactFloorItems items, in sorted order above.
+// kExactFloorItems items, in sorted order above. The search passes over a grouping once its rows
+// and the rest's least length pass the trailer: the rest's shares, or, where no row stands three
+// across and no pinwheel of the items interlocks shallower than its members paired off, their
+// least depths paired off deepest first, each pair charged its deeper - so pallets of many near
+// sizes, which the shares say fit, are refused, proven, when their pairs do not.
 FloorLayout arrangeFloor(const std::vector<FloorItem>& items, const TrailerSpec& trailer,
                          const FloorPatternSettings& settings, FloorSearchBudget* budget = nullptr);
 
@@ -163,8 +168,9 @@ std::vector<FloorRow> candidateRows(const std::vector<FloorItem>& items, const s
 // pinwheel or three across short of a stack can need more length than the full row - so it judges
 // a relaxation that is: a row may hold any of the members of a row of these goods, at that row's
 // depth, and adding goods never shortens such rows. A load whose relaxed rows pass the trailer can
-// be cut with every load holding it. A search out of searchStateLimit states, or of what `budget`
-// has left, cuts nothing. Throws as arrangeFloor does.
+// be cut with every load holding it. The pairing arrangeFloor bounds a search with cuts too, where
+// it holds for all the goods. A search out of searchStateLimit states, or of what `budget` has
+// left, cuts nothing. Throws as arrangeFloor does.
 using LoadGrowthCheck = std::function<bool(const std::vector<std::size_t>& load)>;
 LoadGrowthCheck loadGrowthCheck(std::vector<FloorItem> items, const TrailerSpec& trailer,
                                 const FloorPatternSettings& settings,

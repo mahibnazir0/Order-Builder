@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -81,14 +82,20 @@ public:
 
     // The best row these members can form, or nullopt when no allowed pattern holds them.
     optional<FloorRow> best(const vector<size_t>& members) const {
+        const optional<RowShape> shape = bestShape(members);
+        if (!shape) return nullopt;
+        return rowOf(*shape);
+    }
+
+    // As best, before the row is built: what the arrangements weigh, without allocating.
+    optional<RowShape> bestShape(const vector<size_t>& members) const {
         if (members.size() == 4) return bestPinwheel(members);
         optional<RowShape> chosen;
         forEachCandidate(members, [&](const RowShape& shape) {
             if (!fitsWithin(shape.widthIn, widthIn_)) return;
             if (!chosen || betterRow(shape, *chosen)) chosen = shape;
         });
-        if (!chosen) return nullopt;
-        return rowOf(*chosen);
+        return chosen;
     }
 
     vector<FloorRow> candidates(const vector<size_t>& members) const {
@@ -209,7 +216,7 @@ private:
     // Every pinwheel of the same four items is the same pattern with the same lone-top flag, so
     // best()'s comparison comes down to depth: the shallowest order that fits, the first of equal
     // depth. An order no shallower than the one kept is passed over before its overlaps are tested.
-    optional<FloorRow> bestPinwheel(const vector<size_t>& members) const {
+    optional<RowShape> bestPinwheel(const vector<size_t>& members) const {
         if (!allows(FloorPatternKind::Pinwheel, true) || !allows(FloorPatternKind::Pinwheel, false)) return nullopt;
         array<size_t, 4> order{members[0], members[1], members[2], members[3]};
         sort(order.begin(), order.end());
@@ -219,9 +226,8 @@ private:
             const optional<RowShape> shape = pinwheel(order);
             if (shape && fitsWithin(shape->widthIn, widthIn_)) chosen = shape;
         } while (next_permutation(order.begin(), order.end()));
-        if (!chosen) return nullopt;
-        chosen->loneTopPallet = hasLoneTop(*chosen);
-        return rowOf(*chosen);
+        if (chosen) chosen->loneTopPallet = hasLoneTop(*chosen);
+        return chosen;
     }
 
     // Four items round a centre: front-left and back-right long side across, front-right and
@@ -295,7 +301,7 @@ void validate(const vector<FloorItem>& items, const TrailerSpec& trailer,
 
 // An item fits the trailer when it can stand in a row of its own in some allowed orientation.
 bool placeable(size_t index, const RowBuilder& rows, const TrailerSpec& trailer) {
-    const optional<FloorRow> alone = rows.best({index});
+    const optional<RowShape> alone = rows.bestShape({index});
     return alone && fitsWithin(alone->depthIn, trailer.interiorLengthIn);
 }
 
@@ -339,7 +345,7 @@ struct SearchState {
     bool reached = false;
     LayoutScore score;
     size_t previous = 0;
-    FloorRow row;
+    RowShape row;
 };
 
 // Rows of up to four neighbours in `order`, by dynamic programming over its prefixes.
@@ -355,17 +361,17 @@ vector<FloorRow> groupNeighbours(const vector<size_t>& order, const RowBuilder& 
             if (!from.reached) continue;
             members.assign(order.begin() + static_cast<ptrdiff_t>(end - size),
                            order.begin() + static_cast<ptrdiff_t>(end));
-            optional<FloorRow> row = rows.best(members);
+            const optional<RowShape> row = rows.bestShape(members);
             if (!row) continue;
             const LayoutScore candidate = from.score.plus(*row);
             if (!states[end].reached || betterThan(candidate, states[end].score)) {
-                states[end] = {true, candidate, end - size, std::move(*row)};
+                states[end] = {true, candidate, end - size, *row};
             }
         }
     }
     vector<FloorRow> result;
     for (size_t end = order.size(); end > 0; end = states[end].previous) {
-        result.push_back(states[end].row);
+        result.push_back(rowOf(states[end].row));
     }
     reverse(result.begin(), result.end());
     score = states[order.size()].score;
@@ -425,11 +431,11 @@ vector<FloorRow> exactRows(const vector<size_t>& placeableIndices, const RowBuil
                 for (size_t bit = 0; bit < count; ++bit) {
                     if (rowMask & (size_t{1} << bit)) members.push_back(placeableIndices[bit]);
                 }
-                if (optional<FloorRow> row = rows.best(members)) {
+                if (const optional<RowShape> row = rows.bestShape(members)) {
                     const LayoutScore candidate = states[placed].score.plus(*row);
                     SearchState& next = states[placed | rowMask];
                     if (!next.reached || betterThan(candidate, next.score)) {
-                        next = {true, candidate, placed, std::move(*row)};
+                        next = {true, candidate, placed, *row};
                     }
                 }
             }
@@ -440,7 +446,7 @@ vector<FloorRow> exactRows(const vector<size_t>& placeableIndices, const RowBuil
     vector<FloorRow> result;
     if (count > 0) {
         for (size_t placed = full; placed != 0; placed = states[placed].previous) {
-            result.push_back(states[placed].row);
+            result.push_back(rowOf(states[placed].row));
         }
         reverse(result.begin(), result.end());
     }
@@ -554,6 +560,140 @@ struct CandidateRow {
     uint64_t rowKey = 0;
 };
 
+// The least trailer length an item can take in any row: its short side, unless it must be turned
+// to stand at all or the site never turns it long side across.
+double leastDepthOf(const FloorItem& item, const TrailerSpec& trailer, const FloorPatternSettings& settings) {
+    const bool longSideAcross = item.longSideIn <= trailer.interiorWidthIn + kQuantityEpsilon
+                                && (settings.allowRotation || settings.fixedOrientation == FixedOrientation::LongSideAcross);
+    return longSideAcross ? item.shortSideIn : item.longSideIn;
+}
+
+// A lower bound on the rows any grouping of some goods takes: their least depths, deepest first,
+// paired off, each pair charged its deeper. Every row is at least as deep as its deepest member,
+// so where every row holds at most two side by side it is at least as deep as its members paired
+// off, and the goods' rows together at least as deep as the pairing of all of them. That bounds
+// the cost of pairing unlike footprints, which the shares spread evenly and never see: thirty
+// pallets of twenty near-48 x 40 sizes share 610 in, but pair to more than 630.
+//
+// It holds only where no row stands three across, and every pinwheel the goods form is at least
+// as deep as its four members paired off - near-square pallets interlock shallower than that - so
+// pairingBoundHolds checks both before it is used.
+class PairingBound {
+public:
+    explicit PairingBound(const vector<double>& leastDepthOf) : leastDepthOf_(leastDepthOf), deepestFirst_(leastDepthOf.size()) {
+        iota(deepestFirst_.begin(), deepestFirst_.end(), size_t{0});
+        stable_sort(deepestFirst_.begin(), deepestFirst_.end(),
+                    [&](size_t left, size_t right) { return leastDepthOf_[left] > leastDepthOf_[right]; });
+    }
+
+    // Of countOf[f] goods of each footprint f, less one of each footprint `taken` lists.
+    template <typename Counts>
+    double of(const Counts& countOf, const size_t* taken = nullptr, size_t takenCount = 0) const {
+        double length = 0.0;
+        size_t placed = 0;
+        for (const size_t footprint : deepestFirst_) {
+            size_t copies = countOf[footprint];
+            for (size_t position = 0; position < takenCount; ++position) {
+                if (taken[position] == footprint) --copies;
+            }
+            // The goods at even places from the deepest each head a pair.
+            length += leastDepthOf_[footprint] * static_cast<double>((placed + copies + 1) / 2 - (placed + 1) / 2);
+            placed += copies;
+        }
+        return length;
+    }
+
+private:
+    vector<double> leastDepthOf_;
+    vector<size_t> deepestFirst_;
+};
+
+// Whether PairingBound holds for goods of these footprints, copiesOf[f] of each: no three stand
+// across the trailer, and no pinwheel of them is shallower than its members paired off.
+// memberOf(f, copy) names the copy among the items `rows` builds from.
+template <typename MemberOf>
+bool pairingBoundHolds(const vector<FloorItem>& footprintItems, const vector<double>& leastDepthOf,
+                       const vector<size_t>& copiesOf, const RowBuilder& rows, const TrailerSpec& trailer,
+                       const FloorPatternSettings& settings, MemberOf&& memberOf) {
+    const size_t footprintCount = footprintItems.size();
+    const auto& allowed = settings.allowedPatterns;
+    const bool threeAcrossAllowed = find(allowed.begin(), allowed.end(), FloorPatternKind::ThreeAcross) != allowed.end()
+                                    && (settings.allowRotation || settings.fixedOrientation == FixedOrientation::ShortSideAcross);
+    if (threeAcrossAllowed) {
+        vector<double> narrowest;
+        for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
+            narrowest.insert(narrowest.end(), min<size_t>(copiesOf[footprint], 3), footprintItems[footprint].shortSideIn);
+        }
+        sort(narrowest.begin(), narrowest.end());
+        if (narrowest.size() >= 3 && fitsWithin(narrowest[0] + narrowest[1] + narrowest[2], trailer.interiorWidthIn)) return false;
+    }
+    if (!rows.allowsPinwheel()) return true;
+
+    // A pinwheel is at least as deep as one of its columns: an unturned member's short side and a
+    // turned one's long side. So with m its deepest-standing member, it is at least
+    // min(m's short side + the least long side, m's long side + the least short side) deep, and is
+    // shallower than its members paired off - m's least depth and the third deepest's - only when
+    // that third is deeper than the difference. Only those quads are tried.
+    double leastLongSide = numeric_limits<double>::infinity(), leastShortSide = numeric_limits<double>::infinity();
+    for (const FloorItem& item : footprintItems) {
+        leastLongSide = min(leastLongSide, item.longSideIn);
+        leastShortSide = min(leastShortSide, item.shortSideIn);
+    }
+    vector<size_t> deepestFirst(footprintCount);
+    iota(deepestFirst.begin(), deepestFirst.end(), size_t{0});
+    stable_sort(deepestFirst.begin(), deepestFirst.end(), [&](size_t left, size_t right) { return leastDepthOf[left] > leastDepthOf[right]; });
+
+    array<size_t, 4> quad{};
+    vector<size_t> members(4);
+    auto pinwheelHolds = [&]() {
+        array<double, 4> depths{};
+        for (size_t position = 0; position < 4; ++position) depths[position] = leastDepthOf[quad[position]];
+        sort(depths.begin(), depths.end(), greater<double>());
+        const double paired = depths[0] + depths[2];
+        // pinwheelDepth's figure in every order, overlaps aside, is no deeper than any pinwheel.
+        array<size_t, 4> order = quad;
+        sort(order.begin(), order.end());
+        bool shallowerPossible = false;
+        do {
+            const FloorItem& frontLeft = footprintItems[order[0]];
+            const FloorItem& frontRight = footprintItems[order[1]];
+            const FloorItem& backLeft = footprintItems[order[2]];
+            const FloorItem& backRight = footprintItems[order[3]];
+            const double depth = max(frontLeft.shortSideIn + backLeft.longSideIn, frontRight.longSideIn + backRight.shortSideIn);
+            shallowerPossible = depth < paired - kQuantityEpsilon;
+        } while (!shallowerPossible && next_permutation(order.begin(), order.end()));
+        if (!shallowerPossible) return true;
+        for (size_t position = 0; position < 4; ++position) {
+            const size_t copy = static_cast<size_t>(count(quad.begin(), quad.begin() + static_cast<ptrdiff_t>(position), quad[position]));
+            members[position] = memberOf(quad[position], copy);
+        }
+        const optional<RowShape> pinwheel = rows.bestShape(members);
+        return !pinwheel || pinwheel->depthIn >= paired - kQuantityEpsilon;
+    };
+    auto enoughCopies = [&]() {
+        for (size_t position = 0; position < 4; ++position) {
+            if (static_cast<size_t>(count(quad.begin(), quad.end(), quad[position])) > copiesOf[quad[position]]) return false;
+        }
+        return true;
+    };
+    for (size_t first = 0; first < footprintCount; ++first) {
+        const FloorItem& deepest = footprintItems[deepestFirst[first]];
+        const double thirdMustExceed = min(deepest.shortSideIn + leastLongSide, deepest.longSideIn + leastShortSide)
+                                       - leastDepthOf[deepestFirst[first]];
+        size_t deepEnough = first;
+        while (deepEnough < footprintCount && leastDepthOf[deepestFirst[deepEnough]] > thirdMustExceed - kQuantityEpsilon) ++deepEnough;
+        for (size_t second = first; second < deepEnough; ++second) {
+            for (size_t third = second; third < deepEnough; ++third) {
+                for (size_t fourth = third; fourth < footprintCount; ++fourth) {
+                    quad = {deepestFirst[first], deepestFirst[second], deepestFirst[third], deepestFirst[fourth]};
+                    if (enoughCopies() && !pinwheelHolds()) return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 // The shortest grouping into rows, within lengthLimitIn, of countOf[f] items of each footprint f,
 // by dynamic programming over how many of each are placed. Each state is reached by adding one row
 // that holds an item of its first footprint not yet placed, so every grouping is reached: thirty
@@ -563,7 +703,8 @@ struct CandidateRow {
 // those footprints, infinite for none, and a key naming it; it is asked at most once for each row.
 template <typename RowDepth>
 GroupingStates searchGroupingStates(const vector<size_t>& countOf, const vector<double>& shareOf, double lengthLimitIn,
-                                    long long stateLimit, bool fourMemberRows, RowDepth&& rowDepth) {
+                                    long long stateLimit, bool fourMemberRows, const PairingBound* pairing,
+                                    RowDepth&& rowDepth) {
     GroupingStates search;
     const size_t footprintCount = countOf.size();
     // A state is how many of each footprint are placed, as one mixed-radix number. A load of more
@@ -583,7 +724,7 @@ GroupingStates searchGroupingStates(const vector<size_t>& countOf, const vector<
         itemCount += countOf[footprint];
         totalShare += shareOf[footprint] * static_cast<double>(countOf[footprint]);
     }
-    if (totalShare > lengthLimitIn) return search;
+    if (totalShare > lengthLimitIn || (pairing && pairing->of(countOf) > lengthLimitIn)) return search;
 
     // Every row the load's items can form, by first footprint, in the order offered.
     vector<CandidateRow> candidates;
@@ -670,6 +811,7 @@ GroupingStates searchGroupingStates(const vector<size_t>& countOf, const vector<
                 if (!isfinite(row.depthIn)) continue;
                 const double lengthIn = fromLength + row.depthIn;
                 if (lengthIn + unplacedShare - row.shareSum > lengthLimitIn) continue;
+                if (pairing && lengthIn + pairing->of(available, row.footprints.data(), row.size) > lengthLimitIn) continue;
                 const uint64_t nextNumber = number + row.stateStep;
                 const size_t known = indexOfNumber.find(nextNumber);
                 if (known != StateIndex::kAbsent) {
@@ -729,10 +871,19 @@ GroupingSearch searchGroupings(const vector<FloorItem>& items, const vector<size
     const vector<double> shares = rowLengthShares(items, trailer, settings);
     vector<size_t> countOf(footprintCount);
     vector<double> shareOf(footprintCount);
+    vector<FloorItem> footprintItems;
+    vector<double> leastDepths;
+    footprintItems.reserve(footprintCount);
+    leastDepths.reserve(footprintCount);
     for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
         countOf[footprint] = groups.membersOf[footprint].size();
         shareOf[footprint] = shares[groups.membersOf[footprint].front()];
+        footprintItems.push_back(items[groups.membersOf[footprint].front()]);
+        leastDepths.push_back(leastDepthOf(footprintItems.back(), trailer, settings));
     }
+    const PairingBound pairing(leastDepths);
+    const bool pairingHolds = pairingBoundHolds(footprintItems, leastDepths, countOf, rows, trailer, settings,
+                                                [&](size_t footprint, size_t copy) { return groups.membersOf[footprint][copy]; });
 
     // Each row is weighed once, on the first copies of its footprints.
     unordered_map<uint64_t, optional<FloorRow>> rowOf;
@@ -753,7 +904,8 @@ GroupingSearch searchGroupings(const vector<FloorItem>& items, const vector<size
         return found->second ? found->second->depthIn : numeric_limits<double>::infinity();
     };
     const GroupingStates states = searchGroupingStates(countOf, shareOf, trailer.interiorLengthIn + kQuantityEpsilon,
-                                                       stateLimitOf(settings, budget), rows.allowsPinwheel(), rowDepth);
+                                                       stateLimitOf(settings, budget), rows.allowsPinwheel(),
+                                                       pairingHolds ? &pairing : nullptr, rowDepth);
     drawStates(budget, states.size());
     if (states.end != GroupingSearchEnd::Fits) return {states.end, {}};
 
@@ -838,8 +990,21 @@ public:
           groups_(footprintGroupsOf(items_, allIndices(items_.size()))),
           copies_(copiesOf(items_, groups_)), rows_(copies_, trailer.interiorWidthIn, settings_) {
         const vector<double> shares = rowLengthShares(items_, trailer_, settings_);
-        for (const vector<size_t>& members : groups_.membersOf) shareOf_.push_back(shares[members.front()]);
+        vector<FloorItem> footprintItems;
+        vector<size_t> copiesOfFootprint;
+        for (const vector<size_t>& members : groups_.membersOf) {
+            shareOf_.push_back(shares[members.front()]);
+            footprintItems.push_back(items_[members.front()]);
+            leastDepthOf_.push_back(leastDepthOf(footprintItems.back(), trailer_, settings_));
+            copiesOfFootprint.push_back(min(members.size(), kMostCopies));
+        }
         countOf_.assign(groups_.membersOf.size(), 0u);
+        // Relaxed rows are rows of the route's goods, so the bound holds for every load of them
+        // when it holds for the route.
+        if (pairingBoundHolds(footprintItems, leastDepthOf_, copiesOfFootprint, rows_, trailer_, settings_,
+                              [](size_t footprint, size_t copy) { return footprint * kMostCopies + copy; })) {
+            pairing_.emplace(leastDepthOf_);
+        }
     }
     LoadGrowth(const LoadGrowth&) = delete;
     LoadGrowth& operator=(const LoadGrowth&) = delete;
@@ -852,6 +1017,7 @@ public:
             totalShare += shareOf_[groups_.footprintOfItem[index]];
         }
         if (totalShare > trailer_.interiorLengthIn + kQuantityEpsilon) return false;
+        if (pairing_ && pairing_->of(countOf_) > trailer_.interiorLengthIn + kQuantityEpsilon) return false;
         const auto known = verdictOf_.find(countOf_);
         if (known != verdictOf_.end()) return known->second;
         const optional<bool> verdict = verdictByDominance();
@@ -904,12 +1070,15 @@ private:
             vector<size_t> present;  // the load's footprints, ascending
             vector<size_t> presentCount;
             vector<double> presentShare;
+            vector<double> presentDepth;
             for (size_t footprint = 0; footprint < footprintCount; ++footprint) {
                 if (countOf_[footprint] == 0) continue;
                 present.push_back(footprint);
                 presentCount.push_back(countOf_[footprint]);
                 presentShare.push_back(shareOf_[footprint]);
+                presentDepth.push_back(leastDepthOf_[footprint]);
             }
+            const optional<PairingBound> presentPairing = pairing_ ? optional<PairingBound>(in_place, presentDepth) : nullopt;
             auto rowDepth = [&](const array<size_t, 4>& positions, size_t size, uint64_t& rowKey) {
                 array<size_t, 4> footprints{};
                 for (size_t position = 0; position < size; ++position) footprints[position] = present[positions[position]];
@@ -919,7 +1088,8 @@ private:
             const GroupingStates states = searchGroupingStates(presentCount, presentShare,
                                                                trailer_.interiorLengthIn + kQuantityEpsilon,
                                                                stateLimitOf(settings_, budget_.get()),
-                                                               rows_.allowsPinwheel(), rowDepth);
+                                                               rows_.allowsPinwheel(),
+                                                               presentPairing ? &*presentPairing : nullptr, rowDepth);
             drawStates(budget_.get(), states.size());
             const GroupingSearchEnd end = states.end;
             // Out of states, the load cannot be cut, nor does it show that any other may fit.
@@ -969,13 +1139,13 @@ private:
             members.push_back(footprints[position] * kMostCopies
                               + static_cast<size_t>(count(first, first + static_cast<ptrdiff_t>(position), footprints[position])));
         }
-        const optional<FloorRow> own = rows_.best(members);
+        const optional<RowShape> own = rows_.bestShape(members);
         double depth = own ? own->depthIn : numeric_limits<double>::infinity();
         // Every row holding an item is at least as deep as the item stands in it, so a row no
         // deeper than its deepest member can stand is never beaten by one holding more.
         double deepestMember = 0.0;
         for (size_t position = 0; position < size; ++position) {
-            deepestMember = max(deepestMember, leastDepthOf(footprints[position]));
+            deepestMember = max(deepestMember, leastDepthOf_[footprints[position]]);
         }
         if (size < 4 && depth > deepestMember + kQuantityEpsilon) {
             for (size_t added = 0; added < footprintCount; ++added) {
@@ -992,15 +1162,6 @@ private:
         return depth;
     }
 
-    // The least trailer length the footprint can take in any row: its short side, unless it must be
-    // turned to stand at all or the site never turns it long side across.
-    double leastDepthOf(size_t footprint) const {
-        const FloorItem& item = items_[groups_.membersOf[footprint].front()];
-        const bool longSideAcross = item.longSideIn <= trailer_.interiorWidthIn + kQuantityEpsilon
-                                    && (settings_.allowRotation || settings_.fixedOrientation == FixedOrientation::LongSideAcross);
-        return longSideAcross ? item.shortSideIn : item.longSideIn;
-    }
-
     vector<FloorItem> items_;
     TrailerSpec trailer_;
     FloorPatternSettings settings_;
@@ -1009,6 +1170,8 @@ private:
     vector<FloorItem> copies_;
     RowBuilder rows_;
     vector<double> shareOf_;
+    vector<double> leastDepthOf_;          // by footprint
+    optional<PairingBound> pairing_;       // when it holds for the route's goods
     unordered_map<uint64_t, double> relaxedDepthOf_;
     Counts countOf_;  // the load being judged
     unordered_map<Counts, bool, CountsHash> verdictOf_;
@@ -1108,7 +1271,7 @@ vector<double> rowLengthShares(const vector<FloorItem>& items, const TrailerSpec
             if (copy >= copiesOf[*footprint]) return numeric_limits<double>::infinity();
             members.push_back(copyOf(*footprint, copy));
         }
-        const optional<FloorRow> row = rows.best(members);
+        const optional<RowShape> row = rows.bestShape(members);
         return row ? row->depthIn : numeric_limits<double>::infinity();
     };
 

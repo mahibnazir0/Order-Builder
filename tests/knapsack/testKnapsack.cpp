@@ -459,9 +459,9 @@ const TruckLimits kNotTwo{checkOf([](const vector<size_t>& chosen) { return chos
 
 // Every subset within floor and payload that `accepts` takes, judged on the prepared grains: the
 // oracle for a search with a check of any shape.
-KnapsackValue bruteForceValue(const vector<KnapsackItem>& items, const KnapsackSettings& settings,
-                              const function<bool(const vector<size_t>&)>& accepts) {
-    const KnapsackProblem problem = prepareKnapsack(items, kTruck, settings);
+KnapsackValue bruteForceValue(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                              const KnapsackSettings& settings, const function<bool(const vector<size_t>&)>& accepts) {
+    const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     const size_t count = problem.candidates.size();
     KnapsackValue best(problem.classCount + 1, 0);
     for (size_t mask = 0; mask < (size_t{1} << count); ++mask) {
@@ -551,7 +551,57 @@ TEST_CASE("knapsack: with a check of any shape, a proven truck is the best load 
         CAPTURE(trial);
         REQUIRE(selection.proven);
         REQUIRE((selection.chosen.empty() || accepts(selection.chosen)));
-        REQUIRE(selection.value == bruteForceValue(items, coarse, accepts));
+        REQUIRE(selection.value == bruteForceValue(items, kTruck, coarse, accepts));
+    }
+}
+
+namespace {
+
+// A stack the rows see: its footprint and levels, at the floor area they give it.
+KnapsackItem stackItem(double longSide, double shortSide, double weight, double unitLoads = 1.0,
+                   const string& shipDate = "2026-08-06") {
+    KnapsackItem item = load(longSide * shortSide, weight, unitLoads, shipDate);
+    item.longSideIn = longSide;
+    item.shortSideIn = shortSide;
+    item.levels = static_cast<int>(unitLoads);
+    return item;
+}
+
+} // anonymous namespace
+
+TEST_CASE("knapsack: of goods alike but for weight, a truck carries the lightest") {
+    const vector<KnapsackItem> items{stackItem(48, 40, 9000), stackItem(48, 40, 1000), stackItem(48, 40, 5000), stackItem(48, 40, 3000)};
+    const KnapsackSelection selection = selectForTruck(items, {63000.0, 10000.0, 108.0}, kFine);
+    CHECK(selection.chosen == vector<size_t>{1, 2, 3});
+    CHECK(selection.proven);
+}
+
+TEST_CASE("knapsack: with many goods alike but for weight, a proven truck is the best load its rows accept (differential)") {
+    mt19937 random(16112026);
+    const array<pair<double, double>, 3> footprints{{{48, 40}, {48, 36}, {60, 48}}};
+    const array<string, 2> dates{"2026-08-05", "2026-08-06"};
+    const KnapsackSettings coarse{50.0, 50.0, 5'000'000};
+    for (int trial = 0; trial < 150; ++trial) {
+        vector<KnapsackItem> items;
+        const size_t count = 4 + random() % 13;
+        for (size_t index = 0; index < count; ++index) {
+            const pair<double, double>& sides = footprints[random() % footprints.size()];
+            items.push_back(stackItem(sides.first, sides.second, static_cast<double>(500 + random() % 9500),
+                                  static_cast<double>(1 + random() % 2), dates[random() % dates.size()]));
+        }
+        // Rows that hold no more than five of the widest footprint: a check judging goods by what
+        // the rows see of them, as the selector's does.
+        auto accepts = [&items](const vector<size_t>& chosen) {
+            return count_if(chosen.begin(), chosen.end(), [&](size_t index) { return items[index].longSideIn == 60.0; }) <= 5;
+        };
+        const KnapsackCapacity capacity{20000.0, 20000.0 + static_cast<double>(random() % 20000), 108.0};
+        const KnapsackSelection selection = selectForTruck(items, capacity, coarse, {checkOf(accepts), {}, {}, {}});
+        CAPTURE(trial);
+        REQUIRE(selection.proven);
+        checkEveryItemOnce(selection, items.size());
+        checkWithinCapacity(items, selection, capacity);
+        REQUIRE(accepts(selection.chosen));
+        REQUIRE(selection.value == bruteForceValue(items, capacity, coarse, accepts));
     }
 }
 

@@ -24,8 +24,9 @@
 //   knapsack, patternPacker, binPacker     each method's grains and limits
 //   floor                                  rotation, orientation when fixed, patterns,
 //                                          maxPositions (null for none), and the row
-//                                          groupings one search, and one route's knapsack,
-//                                          may hold before a refusal is unproven
+//                                          groupings one search, and one route's knapsack's
+//                                          row checks and its relaxed-row cuts each, may hold
+//                                          before a refusal is unproven
 //   secondsPerLane, threads                the selector's budget and workers
 //   fillMissesPerTruck,                    the selector's fill and weight passes' bounds
 //   weightSpreadRoundsPerTruck

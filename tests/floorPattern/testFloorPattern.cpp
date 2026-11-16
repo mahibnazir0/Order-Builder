@@ -443,10 +443,14 @@ TEST_CASE("floorPattern: above ten stacks, a load fits exactly when some groupin
     CHECK(fitByGrouping > 0);
 }
 
-TEST_CASE("floorPattern: the growth check cuts a load only when no load of the goods holding it fits (differential)") {
-    mt19937 random(13112026);
-    const vector<pair<double, double>> footprints{{72, 60}, {80, 48}, {52, 40}, {48, 48}, {96, 40}, {60, 60},
-                                                  {40, 33}, {100, 50}, {58, 54}, {90, 55}, {52, 44}, {100, 60}};
+namespace {
+
+// Random goods from `footprints` on trailers shortestIn to shortestIn + spreadIn long: the growth
+// check cuts a load only when no load of the goods holding it fits, against every grouping of every
+// subset.
+void checkGrowthCutsOnlyWhatNoLoadFits(const vector<pair<double, double>>& footprints, unsigned seed,
+                                       unsigned shortestIn, unsigned spreadIn) {
+    mt19937 random(seed);
     size_t cut = 0, kept = 0;
     for (int trial = 0; trial < 60; ++trial) {
         vector<FloorItem> goods;
@@ -455,7 +459,7 @@ TEST_CASE("floorPattern: the growth check cuts a load only when no load of the g
             goods.push_back(footprint(sides.first, sides.second, 1 + static_cast<int>(random() % 2)));
         }
         TrailerSpec trailer = kTrailer;
-        trailer.interiorLengthIn = 150.0 + static_cast<double>(random() % 400);
+        trailer.interiorLengthIn = static_cast<double>(shortestIn + random() % spreadIn);
         const vector<double> shortest = shortestGroupingOfEverySubset(goods, trailer, defaultSettings());
         // Whether some load holding each one fits: every superset, by summing over supersets.
         const size_t subsets = shortest.size();
@@ -484,6 +488,103 @@ TEST_CASE("floorPattern: the growth check cuts a load only when no load of the g
     }
     CHECK(cut > 1000);
     CHECK(kept > 1000);
+}
+
+namespace {
+
+// Eleven 48 in pallets, 36 to 46 in deep, one of each: their shares add up to 226 in, but paired
+// off, deepest with next deepest, their rows take 46 + 44 + 42 + 40 + 38 + 36 = 246 in.
+vector<FloorItem> elevenPalletsPairedTo246() {
+    vector<FloorItem> items;
+    for (int depth = 36; depth <= 46; ++depth) items.push_back(footprint(48, depth));
+    return items;
+}
+
+// Random loads near the trailer's length from one family of footprints, judged against every
+// grouping: fits exactly when the oracle says so, and never unproven at the shipped limits.
+void checkFitAgainstEveryGrouping(const vector<pair<double, double>>& footprints, unsigned seed, int trials) {
+    mt19937 random(seed);
+    size_t fits = 0, refused = 0;
+    for (int trial = 0; trial < trials; ++trial) {
+        vector<FloorItem> items;
+        const size_t count = 11 + random() % 4;
+        for (size_t index = 0; index < count; ++index) {
+            const pair<double, double>& sides = footprints[random() % footprints.size()];
+            items.push_back(footprint(sides.first, sides.second, 1 + static_cast<int>(random() % 2)));
+        }
+        const double shortest = shortestGroupingOfEverySubset(items, kTrailer, defaultSettings()).back();
+        // The trailer cut to within a few inches of the shortest grouping, either side, where a
+        // bound that is too strong would refuse a load that fits.
+        TrailerSpec trailer = kTrailer;
+        trailer.interiorLengthIn = shortest + static_cast<double>(static_cast<int>(random() % 9) - 4);
+        const FloorLayout layout = arrangeFloor(items, trailer, defaultSettings());
+        CAPTURE(trial);
+        CAPTURE(shortest);
+        REQUIRE_FALSE(layout.fitUnproven);
+        REQUIRE(layout.fitsLength == (shortest <= trailer.interiorLengthIn + kQuantityEpsilon));
+        ++(layout.fitsLength ? fits : refused);
+    }
+    CHECK(fits > 0);
+    CHECK(refused > 0);
+}
+
+} // anonymous namespace
+
+TEST_CASE("floorPattern: pallets that pair past the trailer are refused, proven, without searching their groupings") {
+    const vector<FloorItem> items = elevenPalletsPairedTo246();
+    REQUIRE(shortestGroupingOfEverySubset(items, kTrailer, defaultSettings()).back() == doctest::Approx(246.0));
+    TrailerSpec trailer = kTrailer;
+    trailer.interiorLengthIn = 240.0;
+    FloorPatternSettings settings = defaultSettings();
+    settings.searchStateLimit = 1;
+    const FloorLayout layout = arrangeFloor(items, trailer, settings);
+    CHECK_FALSE(layout.fitsLength);
+    CHECK_FALSE(layout.fitUnproven);
+}
+
+TEST_CASE("floorPattern: pallets that pair within the trailer still fit, at the shortest grouping") {
+    TrailerSpec trailer = kTrailer;
+    trailer.interiorLengthIn = 246.0;
+    const FloorLayout layout = arrangeFloor(elevenPalletsPairedTo246(), trailer, defaultSettings());
+    CHECK(layout.fitsLength);
+    CHECK(layout.usedLengthIn == doctest::Approx(246.0));
+}
+
+TEST_CASE("floorPattern: near 48 x 40 pallets of many sizes fit exactly when some grouping fits them (differential)") {
+    checkFitAgainstEveryGrouping({{48, 40}, {48.75, 42}, {47.25, 41.625}, {46, 37}, {45.567, 36.419}, {48, 36},
+                                  {44.813, 37}, {49.37, 38.858}, {45.938, 39.375}, {44.02, 39.136}},
+                                 16112026, 150);
+}
+
+TEST_CASE("floorPattern: near-square pallets, which interlock shallower than they pair, fit exactly when some grouping does (differential)") {
+    checkFitAgainstEveryGrouping({{42, 42}, {42.1, 42}, {41, 40.5}, {44.451, 41.014}, {45.188, 43.875},
+                                  {37.625, 37.625}, {40, 39}, {43.875, 41.25}},
+                                 17112026, 150);
+}
+
+TEST_CASE("floorPattern: pallets narrow enough to stand three across fit exactly when some grouping does (differential)") {
+    checkFitAgainstEveryGrouping({{40, 33}, {38, 30}, {48, 32}, {48, 40}, {45, 36}, {47.438, 33}},
+                                 18112026, 150);
+}
+
+} // anonymous namespace
+
+TEST_CASE("floorPattern: the growth check cuts a load only when no load of the goods holding it fits (differential)") {
+    checkGrowthCutsOnlyWhatNoLoadFits({{72, 60}, {80, 48}, {52, 40}, {48, 48}, {96, 40}, {60, 60},
+                                       {40, 33}, {100, 50}, {58, 54}, {90, 55}, {52, 44}, {100, 60}},
+                                      13112026, 150, 400);
+}
+
+TEST_CASE("floorPattern: the growth check cuts only what no load holding it fits, for near 48 x 40 pallets of many sizes (differential)") {
+    checkGrowthCutsOnlyWhatNoLoadFits({{48, 40}, {48.75, 42}, {46, 37}, {49.37, 38.858}, {44.02, 39.136},
+                                       {47.25, 41.625}, {45.567, 36.419}, {48, 36}, {44.813, 37}},
+                                      19112026, 120, 120);
+}
+
+TEST_CASE("floorPattern: the growth check cuts only what no load holding it fits, for near-square pallets (differential)") {
+    checkGrowthCutsOnlyWhatNoLoadFits({{42, 42}, {42.1, 42}, {45.188, 43.875}, {37.625, 37.625}, {44.451, 41.014},
+                                       {40, 39}, {43.875, 41.25}, {48, 40}},
+                                      20112026, 120, 120);
 }
 
 TEST_CASE("floorPattern: the growth check keeps a load the trailer holds and cuts eleven 100 x 60") {
