@@ -93,7 +93,7 @@ M4-only commits merged into `feature/m5`: `2c59941`. With M5 off, every later PR
 | P4 | DONE (95fe5f2): the params tests write into a unique per-run temp folder. |
 | P5-P7 | DONE (REPORTED at 7cef94e; unchanged). |
 | P8 | The "backwards asserts" do not exist at this head or in history; the threshold check is `CHECK(shipped.m5Threshold < *overBudget)` in `testM4Benchmark.cpp`; U-RT-08 is `testM5RealData.cpp`. |
-| P9 | IMPLEMENTED on feature/m5 (`selection.pastDueOrderByLane`, off by default); awaiting Tom's confirmation (D1, architecture Section 22); R-7 m4Path/m5Path selected. |
+| P9 | IMPLEMENTED on feature/m5 (`selection.pastDueOrderByLane`, off by default); awaiting Tom's confirmation (D1, architecture Section 22.1); R-7 m4Path/m5Path selected. |
 | P10 | DONE: `shipDatePlanner.cpp:174`. |
 
 ## 5. Names in the design documents that differ in the code

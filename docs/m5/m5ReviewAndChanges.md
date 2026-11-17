@@ -1,7 +1,7 @@
 ## Revision 9.2 (17 November 2026): repository decisions and evidence gate
 
 - The M5 base is the existing `feature/m5` code; WP1-WP10 are closed to tests v12 one pull request at a time.
-  Decisions D1-D7 recorded in architecture Section 22; handover and traceability (Section 11.2) updated.
+  Decisions D1-D7 recorded in architecture Section 22 (22.1 since PR-10c); handover and traceability (Section 11.2) updated.
 - D1: R-7 m4Path/m5Path selected (conditional, NOT_RUN). Variant statuses 552 NOT_RUN, 5 BLOCKED. No test ID or
   variant was added, removed or renumbered.
 - D3: v12 Section 43 appended (supported input step 0.01 in / 0.01 lb, plus the D1, D4 and D5 notes); no earlier
@@ -10,25 +10,34 @@
 - PR-6 (17 Nov 2026): Section 43 gains the X-PAT-19 note (M4's three-across rule as implemented: the
   three short sides sum to the trailer width, no separate 33.3-in test; decided by Mahib, not confirmed by
   Tom). Requirement SHA-256 is now `4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d`.
-- PR-7 (17 Nov 2026): ED-19 implemented (architecture Section 22, "ED-19 as implemented"): one floor-search
+- PR-7 (17 Nov 2026): ED-19 implemented (architecture Section 22.4, "ED-19 as implemented"): one floor-search
   state ledger per lane-date run shared by every M5 floor check, typed stops, decided-only caching, pure
   supplied-witness validation. Spec unchanged; X-PAT-18 and U-PF-09 testFile now tests/m5/testM5FloorSearch.cpp.
-- PR-8 (17 Nov 2026): ED-21 implemented (architecture Section 22, "ED-21 as implemented"): lane-and-date
+- PR-8 (17 Nov 2026): ED-21 implemented (architecture Section 22.5, "ED-21 as implemented"): lane-and-date
   rotated group order, then canonical records (source-line ID, then atom ID in place of the slot ID, which is
   assigned after allocation). Spec unchanged; X-RES-13 and X-META-06 testFile now tests/m5/testM5TieRule.cpp.
 - PR-9 (17 Nov 2026): recorded pricing tolerance and pricing seam (X-CG-22); bounded repair loop runRepair
-  (X-REB-10, R-1c/invalidDonorRestore); architecture Section 22 "Solver and repair as implemented". Spec
+  (X-REB-10, R-1c/invalidDonorRestore); architecture Section 22.6 "Solver and repair as implemented". Spec
   unchanged; X-CG-22 testFile tests/m5/testM5Solver.cpp, X-REB-10 tests/m5/testM5RepairLoop.cpp.
 - PR-10a (17 Nov 2026): CL-01 and CL-03 validation domains (decision 4) recorded in Section 43 and the
   architecture; U-AC-04/zeroAndRange and U-FL-03/zeroAndMaximumRange moved from BLOCKED to selected,
   NOT_RUN. Requirement SHA-256 is now `2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53`. Integration and configuration variants added for
   R-7, U-RS-01, U-RS-09, U-RB-01, U-PF-07, X-DATE-07, X-STATE-02, X-STATE-04 and X-STATE-10.
   validateSuppliedWitness now applies the no-turning setting (allowRotation false): a footprint must go in
-  with fixedOrientation's side across (open item from PR-7).
+  with fixedOrientation's side across (open item from PR-7; not fixed in PR-8). Architecture Section 22.7.
 - PR-10b (17 Nov 2026): optional trailer-type catalogue `m5.trailerTypes` (U-DA-07), equipment per reserved
   truck in the M4 hand-over, slot identity checks (U-DA-05/mixedRunRejected, X-ROUTE-05, X-DATA-13). Spec
-  unchanged; architecture Section 22 "Trailer types and the typed hand-over"; U-DA-07 testFile now
+  unchanged; architecture Section 22.8 "Trailer types and the typed hand-over"; U-DA-07 testFile now
   tests/m5/testM5Routing.cpp. Shipped params have no catalogue, so M4 and the August results are unchanged.
+- PR-10c (17 Nov 2026), documents only: architecture Section 22 split into numbered subsections 22.1-22.9 so
+  each PR's note has its own number; references in this log, the handover, the inventory and the manifest's
+  `selectionDecisionRef` updated (the spec's "Architecture ED-ARITH and Section 22" still points to the right
+  section and is left unchanged, so the requirement SHA-256 stays
+  `2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53`). New Section 22.9: decision 1 keeps the
+  row-position IDs for ED-21; same file gives the same result; reordered demand rows do not, because M4 stacking
+  depends on file order (measured figures there); the IDPR + BNFPO experiment and why it was not adopted.
+  Record correction: neither PR-7 follow-up was done in PR-8 or PR-9; the no-turning witness fix is PR-10a
+  (4bfcae0) and the stored-rows witness is not done yet.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

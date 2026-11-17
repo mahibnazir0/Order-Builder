@@ -612,7 +612,7 @@ The complete 162-case disposition table is in `m5Phase1V11Reconciliation.md`; it
 - Base: the existing `feature/m5` code (Revision 4, tests v7) is kept; WP1-WP10 are carried out as gap closure
   to tests v12, one pull request at a time (architecture Section 22). M4 commit `2c59941` is merged; the WP0
   baseline and inventory are in `m5RepoInventory.md`.
-- Decisions D1-D7 are in architecture Section 22. D1 selects R-7 m4Path/m5Path (552 NOT_RUN, 5 BLOCKED).
+- Decisions D1-D7 are in architecture Section 22.1. D1 selects R-7 m4Path/m5Path (552 NOT_RUN, 5 BLOCKED).
   D3 fixes the supported input step at 0.01 in / 0.01 lb (v12 Section 43).
 - Test layout (D4): tests stay flat in `tests/m5/`; the manifest's `testFile` is authoritative. The "Files:"
   lines of the work packages above name the planned layout and are superseded for test paths. A test case

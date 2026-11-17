@@ -1130,7 +1130,7 @@
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
           "selectedForCurrentMilestone": true,
           "selectionReason": "Decision D1 (17 Nov 2026): the per-lane past-due setting is implemented on the M5 branch (selection.pastDueOrderByLane, off by default) and awaits Tom's confirmation; the integration variants are selected for the current milestone.",
-          "selectionDecisionRef": "D1, architecture Section 22; v12 Section 43",
+          "selectionDecisionRef": "D1, architecture Section 22.1; v12 Section 43",
           "activationCondition": "Selected 17 Nov 2026 by decision D1.",
           "dependencies": [
             "IMPLEMENTED:selection.pastDueOrderByLane on the M5 branch, off by default; awaiting Tom's confirmation"
@@ -1147,7 +1147,7 @@
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
           "selectedForCurrentMilestone": true,
           "selectionReason": "Decision D1 (17 Nov 2026): the per-lane past-due setting is implemented on the M5 branch (selection.pastDueOrderByLane, off by default) and awaits Tom's confirmation; the integration variants are selected for the current milestone.",
-          "selectionDecisionRef": "D1, architecture Section 22; v12 Section 43",
+          "selectionDecisionRef": "D1, architecture Section 22.1; v12 Section 43",
           "activationCondition": "Selected 17 Nov 2026 by decision D1.",
           "dependencies": [
             "IMPLEMENTED:selection.pastDueOrderByLane on the M5 branch, off by default; awaiting Tom's confirmation"
@@ -3178,7 +3178,7 @@
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
           "selectedForCurrentMilestone": true,
           "selectionReason": "Decision 4 (17 Nov 2026): the engineering validation domain is recorded (set by Mahib, not confirmed by Tom); the variant is selected for the current milestone.",
-          "selectionDecisionRef": "decision 4, architecture Section 22; v12 Section 43",
+          "selectionDecisionRef": "decision 4, architecture Section 22.7; v12 Section 43",
           "activationCondition": "Selected 17 Nov 2026 by decision 4."
         },
         {
@@ -6176,7 +6176,7 @@
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
           "selectedForCurrentMilestone": true,
           "selectionReason": "Decision 4 (17 Nov 2026): the engineering validation domain is recorded (set by Mahib, not confirmed by Tom); the variant is selected for the current milestone.",
-          "selectionDecisionRef": "decision 4, architecture Section 22; v12 Section 43",
+          "selectionDecisionRef": "decision 4, architecture Section 22.7; v12 Section 43",
           "activationCondition": "Selected 17 Nov 2026 by decision 4."
         }
       ],
