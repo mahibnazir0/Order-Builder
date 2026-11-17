@@ -216,9 +216,11 @@ GroupSupply PatternPlanner::supplyForGroup(const MethodContext& context, const G
             if (const optional<int> known = context.cache.find(key)) {
                 copiesPerTruck = *known;
             } else {
-                // Sized on the trailer alone, never on this group's stock.
-                copiesPerTruck = bestSingleClassLoad(input, goods.front(), capability, context.physical, kMostCopiesPerTruck);
-                context.cache.put(key, copiesPerTruck);
+                // Sized on the trailer alone, never on this group's stock. A size that some Undecided
+                // refusal held down is used here but never remembered (ED-19).
+                bool decided = true;
+                copiesPerTruck = bestSingleClassLoad(input, goods.front(), capability, context.physical, kMostCopiesPerTruck, &decided);
+                if (decided) context.cache.put(key, copiesPerTruck);
             }
             // Only whole trucks of the class form a pattern; the rest is remainder (U-PB-02, U-PB-03).
             const size_t left = goods.size() - used;

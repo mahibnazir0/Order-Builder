@@ -10,6 +10,9 @@
 - PR-6 (17 Nov 2026): Section 43 gains the X-PAT-19 note (M4's three-across rule as implemented: the
   three short sides sum to the trailer width, no separate 33.3-in test; decided by Mahib, not confirmed by
   Tom). Requirement SHA-256 is now `4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d`.
+- PR-7 (17 Nov 2026): ED-19 implemented (architecture Section 22, "ED-19 as implemented"): one floor-search
+  state ledger per lane-date run shared by every M5 floor check, typed stops, decided-only caching, pure
+  supplied-witness validation. Spec unchanged; X-PAT-18 and U-PF-09 testFile now tests/m5/testM5FloorSearch.cpp.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

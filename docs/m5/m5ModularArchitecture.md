@@ -1935,3 +1935,24 @@ The FULL label's rear inches are not yet converted (U-FL tests, later PR). X-PAT
 three-across rule (three short sides sum to the width; v12 Section 43). Tests: `tests/m5/testM5Physical.cpp`
 (X-PAT-13 twoAcross100 and microLengthBoundary, X-PAT-19, U-PB-04 rotationOnly, U-PB-08
 payloadExactAndEpsilon and simultaneousBinding).
+
+ED-19 as implemented (PR-7): `m5FloorSearch` holds the typed search: `FloorVerdict` Fits/DoesNotFit/
+Undecided, `SearchStop` callLimit/routeLimit/wallDeadline, and `RouteSearchBudget`, one thread-safe state
+ledger per route context with a per-call cap; a permit is admitted only while states are left, so it never
+underflows. The route context is one `planLaneDate` run (scope "lane-date <lane> @ <date> (<source>)", a fresh
+identity each run): per call `floor.searchStateLimit`, per route `floor.routeSearchStateLimit` from params,
+and the lane-date allowance as wall deadline. The ledger rides in `PhysicalSettings::routeBudget`, so every
+copy of the settings (methods A and B, blocks, the knapsack's checks, repair, fullness probes, the
+fits-alone check) draws on it through `checkTruckInRoute`; `withRouteBudget` never replaces one already
+installed. Packing checks still ask for at most `searchStatesPerPackingCheck` (20,000) a check, inside
+the per-call cap. Unused states are given back. `bestSingleClassLoad` reports whether every larger count
+was refused with proof, and method A caches the pattern size only then: an Undecided refusal is never
+cached. `runBoundedSearch` is the state-by-state adapter the U-PF-09 fixtures drive with an instrumented
+backend; `FloorVerdictCache` keeps decided verdicts only. `validateSuppliedWitness` is the pure witness
+check (each atom once in its own footprint, on the floor, no overlap, claimed extent equal to the measured
+one, ceiling, payload and cap in hundredths); it never searches. `claimMaximumService` states what a stop
+may claim. Each lane-date's report (3C, "floor search states") gives the states charged and the stops.
+Not yet: final validation and the assembled trucks' layouts re-run M4's arrangement with floor's own
+per-search limit outside the route ledger instead of validating the stored rows as a witness. On the
+August data the one M5 lane-date (7 Aug 2028 -> 2574 TL) charges 0 states. Tests:
+`tests/m5/testM5FloorSearch.cpp` (U-PF-09 x5, X-PAT-18 x5) and R-8/m5Path (states charged on the route).

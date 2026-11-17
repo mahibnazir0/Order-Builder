@@ -81,7 +81,11 @@ vector<size_t> rebalanceForAcceptance(GroupTrucks& trucks, const DemandSnapshot&
                         if (donorAfter.empty() || !accepted(snapshot, donorAfter, rule)) continue;
                         Truck recipientAfter = work[recipient];
                         recipientAfter.insert(upper_bound(recipientAfter.begin(), recipientAfter.end(), *atom), *atom);
-                        if (!checkTruck(snapshot.input, recipientAfter, slots.at(recipient), physical).fits) continue;
+                        if (!checkTruckInRoute(snapshot.input, recipientAfter, slots.at(recipient), physical,
+                                               physical.floor.searchStateLimit)
+                                 .fits) {
+                            continue;
+                        }
                         work[donor] = std::move(donorAfter);
                         work[recipient] = std::move(recipientAfter);
                         moved = true;

@@ -133,6 +133,7 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
     data.proof = proofStatusName(outcome.proof);
     data.proofScope = outcome.proofScope;
     data.comparator = outcome.comparator;
+    data.floorSearch = outcome.floorSearch;
     data.outcome = outcomeKindName(outcome.kind);
     data.stop = stopReasonName(outcome.stop);
     data.elapsedSeconds = outcome.timing.elapsedSeconds;
@@ -204,6 +205,11 @@ string renderAscii(const M5ReportData& data) {
     line("count evidence", data.countEvidence.empty() ? "N/A" : data.countEvidence);
     line("service proof", data.proof + (data.proofScope.empty() ? "" : " - " + data.proofScope));
     line("comparator", data.comparator);
+    const FloorSearchRecord& search = data.floorSearch;
+    line("floor search states", to_string(search.statesCharged) + " of the route's " + to_string(search.routeStates) + " (at most "
+                                    + to_string(search.perCallStates) + " a search); Undecided stops: call limit "
+                                    + to_string(search.callLimitStops) + ", route limit " + to_string(search.routeLimitStops)
+                                    + ", wall deadline " + to_string(search.wallDeadlineStops));
 
     out << "3D Threshold benchmark\n";
     line("rows", "none in a production run: benchmark runs are labelled and kept apart");

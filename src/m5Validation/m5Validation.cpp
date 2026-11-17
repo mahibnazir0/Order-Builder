@@ -186,7 +186,7 @@ vector<FullnessLabel> evaluateFullness(const CandidatePlan& plan, const DemandSn
                 }
                 vector<size_t> grown = planned.atoms;
                 grown.insert(upper_bound(grown.begin(), grown.end(), atom), atom);
-                const PhysicalCheck probe = checkTruck(snapshot.input, grown, capability, physical);
+                const PhysicalCheck probe = checkTruckInRoute(snapshot.input, grown, capability, physical, physical.floor.searchStateLimit);
                 if (probe.fits) {
                     label.fitStatus = RemainingFitStatus::Fits;
                     break;

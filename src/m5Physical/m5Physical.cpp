@@ -97,6 +97,49 @@ vector<size_t> withAtom(const vector<size_t>& truck, size_t atom) {
     return grown;
 }
 
+// One floor search's states, drawn from the route budget when the settings carry one: never more than it
+// has left or its per-call cap, none past the wall deadline. What the search leaves is given back.
+class RoutePermit {
+public:
+    RoutePermit(const PhysicalSettings& settings, long long callStates) : route_(settings.routeBudget.get()) {
+        if (!route_) {
+            wanted_ = granted_ = callStates;
+        } else {
+            wanted_ = min(callStates, route_->perCallStates());
+            pastDeadline_ = route_->pastWallDeadline();
+            granted_ = pastDeadline_ ? 0 : route_->admit(wanted_);
+        }
+        states_.statesLeft = granted_;
+    }
+    RoutePermit(const RoutePermit&) = delete;
+    RoutePermit& operator=(const RoutePermit&) = delete;
+
+    FloorSearchBudget* states() { return &states_; }
+
+    // Settles the permit once the search is over; returns the states it spent.
+    long long settle(bool undecided, SearchStop& stop) {
+        const long long spent = clamp(granted_ - states_.statesLeft, 0LL, granted_);
+        stop = SearchStop::None;
+        if (!route_) {
+            if (undecided) stop = SearchStop::CallLimit;
+            return spent;
+        }
+        route_->giveBack(granted_ - spent);
+        if (undecided) {
+            stop = pastDeadline_ ? SearchStop::WallDeadline : granted_ < wanted_ ? SearchStop::RouteLimit : SearchStop::CallLimit;
+            route_->recordStop(stop);
+        }
+        return spent;
+    }
+
+private:
+    RouteSearchBudget* route_ = nullptr;
+    long long wanted_ = 0;
+    long long granted_ = 0;
+    bool pastDeadline_ = false;
+    FloorSearchBudget states_;
+};
+
 }  // namespace
 
 string classSignatureOf(const Atom& atom) {
@@ -178,6 +221,23 @@ PhysicalCheck checkTruck(const M5LaneDateInput& input, const vector<size_t>& ato
     return check;
 }
 
+PhysicalCheck checkTruckInRoute(const M5LaneDateInput& input, const vector<size_t>& atoms, const TrailerCapability& capability,
+                                const PhysicalSettings& settings, long long callStates) {
+    RoutePermit permit(settings, callStates);
+    PhysicalCheck check = checkTruck(input, atoms, capability, settings, permit.states());
+    check.statesCharged = permit.settle(check.undecided, check.stop);
+    return check;
+}
+
+PhysicalSettings withRouteBudget(const PhysicalSettings& settings, const string& scope, function<bool()> wallStop) {
+    PhysicalSettings routed = settings;
+    if (!routed.routeBudget) {
+        routed.routeBudget = make_shared<RouteSearchBudget>(scope, settings.floor.searchStateLimit, settings.floor.routeSearchStateLimit,
+                                                            std::move(wallStop));
+    }
+    return routed;
+}
+
 double rearInchesOf(const FloorLayout& layout, const TrailerCapability& capability) {
     double extent = 0.0;
     for (const FloorRow& row : layout.rows) extent += row.depthIn;
@@ -210,6 +270,51 @@ WitnessMeasure measureSuppliedWitness(const vector<PlacedRectangle>& placed, con
     return measure;
 }
 
+WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const vector<size_t>& atoms, const LayoutWitness& witness,
+                                       const TrailerCapability& capability) {
+    vector<PlacedRectangle> placed;
+    placed.reserve(witness.placements.size());
+    for (const WitnessPlacement& placement : witness.placements) {
+        placed.push_back({placement.xIn, placement.yIn, placement.lengthIn, placement.widthIn});
+    }
+    WitnessMeasure measure = measureSuppliedWitness(placed, capability);
+    const set<size_t> expected(atoms.begin(), atoms.end());
+    set<size_t> seen;
+    auto sameHundredths = [](double left, double right) {
+        const optional<int64_t> leftHundredths = hundredthsRoundedUp(left), rightHundredths = hundredthsRoundedUp(right);
+        return leftHundredths && rightHundredths && *leftHundredths == *rightHundredths;
+    };
+    for (const WitnessPlacement& placement : witness.placements) {
+        if (!expected.count(placement.atom)) {
+            measure.findings.push_back("the witness places atom " + to_string(placement.atom) + ", which is not in the load");
+            continue;
+        }
+        const Atom& atom = input.atoms[placement.atom];
+        if (!seen.insert(placement.atom).second) measure.findings.push_back("the witness places atom " + atom.id + " twice");
+        const bool lengthwise = sameHundredths(placement.lengthIn, atom.floor.longSideIn) && sameHundredths(placement.widthIn, atom.floor.shortSideIn);
+        const bool crosswise = sameHundredths(placement.lengthIn, atom.floor.shortSideIn) && sameHundredths(placement.widthIn, atom.floor.longSideIn);
+        if (!lengthwise && !crosswise) measure.findings.push_back("atom " + atom.id + " is placed with a footprint it does not have");
+    }
+    for (const size_t atom : expected) {
+        if (!seen.count(atom)) measure.findings.push_back("the witness leaves atom " + input.atoms[atom].id + " off the floor");
+    }
+    const optional<int64_t> claimed = hundredthsRoundedUp(witness.claimedExtentIn);
+    const optional<int64_t> measured = hundredthsRoundedUp(measure.occupiedExtentIn);
+    if (!claimed || !measured || *claimed != *measured) {
+        measure.findings.push_back("the claimed extent does not equal the measured extent of the rectangles in whole hundredths of an inch");
+    }
+    // Height, payload and cap are judged as checkTruck judges them, on the atoms' own figures.
+    FloorLayout extentOnly;
+    vector<string> limits = exactLimitFindings(input, atoms, extentOnly, capability);
+    measure.findings.insert(measure.findings.end(), limits.begin(), limits.end());
+    const optional<int64_t> unitLoads = unitLoadHundredthsOfAtoms(input, atoms);
+    if (!unitLoads || capability.maxUnitLoads < 1 || *unitLoads > capInHundredths(capability.maxUnitLoads)) {
+        measure.findings.push_back("the load's unit loads are over the slot's cap or not countable in whole hundredths");
+    }
+    measure.valid = measure.findings.empty();
+    return measure;
+}
+
 vector<size_t> physicalClassOf(const M5LaneDateInput& input) {
     map<string, size_t> classes;
     vector<size_t> classOf;
@@ -221,7 +326,8 @@ vector<size_t> physicalClassOf(const M5LaneDateInput& input) {
 }
 
 int bestSingleClassLoad(const M5LaneDateInput& input, size_t prototype, const TrailerCapability& capability,
-                        const PhysicalSettings& settings, int available) {
+                        const PhysicalSettings& settings, int available, bool* decided) {
+    if (decided) *decided = true;
     const Atom& atom = input.atoms[prototype];
     if (available <= 0 || atom.floor.heightIn > capability.heightIn) return 0;
     // Bounds no load can pass, so the search below starts at the most that could fit.
@@ -235,7 +341,12 @@ int bestSingleClassLoad(const M5LaneDateInput& input, size_t prototype, const Tr
     const TrailerSpec trailer = trailerOf(capability);
     for (int copies = static_cast<int>(most); copies > 0; --copies) {
         const vector<FloorItem> items(static_cast<size_t>(copies), atom.floor);
-        if (floorFits(arrangeFloor(items, trailer, settings.floor))) return copies;
+        RoutePermit permit(settings, settings.floor.searchStateLimit);
+        const TruckFit verdict = floorVerdict(arrangeFloor(items, trailer, settings.floor, permit.states()));
+        SearchStop stop = SearchStop::None;
+        permit.settle(verdict == TruckFit::Undecided, stop);
+        if (verdict == TruckFit::Fits) return copies;
+        if (verdict == TruckFit::Undecided && decided) *decided = false;
     }
     return 0;
 }
@@ -265,8 +376,7 @@ void fillTruck(const M5LaneDateInput& input, const vector<size_t>& classOf, vect
             continue;
         }
         vector<size_t> grown = withAtom(truck, candidate);
-        FloorSearchBudget budget{settings.searchStatesPerPackingCheck};
-        if (!checkTruck(input, grown, capability, settings, &budget).fits) {
+        if (!checkTruckInRoute(input, grown, capability, settings, settings.searchStatesPerPackingCheck).fits) {
             refusedClasses.insert(classOf[candidate]);
             continue;
         }
@@ -331,7 +441,7 @@ vector<vector<size_t>> packByKnapsack(const M5LaneDateInput& input, const vector
     auto limitsOf = [&](const TrailerCapability& capability) {
         TruckLimits limits;
         limits.fits = [&, capability](const vector<size_t>& chosen) {
-            const PhysicalCheck check = checkTruck(input, atomsOf(chosen), capability, settings);
+            const PhysicalCheck check = checkTruckInRoute(input, atomsOf(chosen), capability, settings, settings.floor.searchStateLimit);
             return check.fits ? TruckFit::Fits : check.undecided ? TruckFit::Undecided : TruckFit::DoesNotFit;
         };
         ItemLimit unitLoads{{}, static_cast<double>(capability.maxUnitLoads)};
@@ -390,8 +500,7 @@ vector<vector<size_t>> packCarefully(const M5LaneDateInput& input, const vector<
         while (!truck.empty()) {
             vector<size_t> sorted = truck;
             sort(sorted.begin(), sorted.end());
-            FloorSearchBudget budget{settings.searchStatesPerPackingCheck};
-            if (checkTruck(input, sorted, capability, settings, &budget).fits) break;
+            if (checkTruckInRoute(input, sorted, capability, settings, settings.searchStatesPerPackingCheck).fits) break;
             truck.pop_back();
         }
         sort(truck.begin(), truck.end());

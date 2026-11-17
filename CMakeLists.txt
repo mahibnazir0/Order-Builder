@@ -67,6 +67,7 @@ add_library(ob_core STATIC
   src/truckCheck/truckCheck.cpp
   src/m5Types/m5Types.cpp
   src/m5UnitLoads/m5UnitLoads.cpp
+  src/m5FloorSearch/m5FloorSearch.cpp
   src/m5Policy/m5Policy.cpp
   src/m5Budget/m5Budget.cpp
   src/m5Ledger/m5Ledger.cpp
@@ -165,6 +166,7 @@ add_executable(ob_tests
   tests/m5/testM5Checkers.cpp
   tests/m5/testM5TomRegressions.cpp
   tests/m5/testM5UnitLoadCap.cpp
+  tests/m5/testM5FloorSearch.cpp
   tests/m5/m5EvidenceListener.cpp
 )
 

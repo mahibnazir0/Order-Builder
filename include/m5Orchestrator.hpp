@@ -86,6 +86,7 @@ struct M5LaneOutcome {
     std::string comparator;
     EscalationRecord escalation;
     std::vector<LeftOver> leftOver;         // every atom not on a selected truck, with its cause
+    FloorSearchRecord floorSearch;          // the route context's floor-search states and stops (ED-19)
 };
 
 // What a run supplies beyond the profile. Tests inject a clock, a fixed allowance (FX-CLOCK),
@@ -106,6 +107,10 @@ struct M5RunServices {
     M5RunServices& operator=(const M5RunServices&) = delete;
 };
 
+// One lane-date is one route context for floor searches (ED-19): unless `physical` already carries a
+// route budget, the run owns one with floor's per-search and route limits and the lane-date's wall
+// deadline, and every method, block, repair and probe draws on it. Final validation re-checks committed
+// trucks outside it.
 M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& profile, const PhysicalSettings& physical,
                            const M5RunServices& services);
 

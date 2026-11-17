@@ -77,6 +77,7 @@ struct M5ReportData {
     std::string proofScope;
     std::string countEvidence;
     std::string comparator;
+    FloorSearchRecord floorSearch;
     std::string outcome;
     std::string stop;
     double elapsedSeconds = 0.0;

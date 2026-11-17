@@ -696,6 +696,13 @@ TEST_CASE("R-8/m5Path: Tom's eleven items all ship through the M5 direct seam" *
     CHECK(run.verdict.shippedProducts == productsOf(scenario));
     CHECK(run.verdict.weightLb == 11000.0);
     CHECK(run.outcome.leftOver.empty());
+    // The sorted rows refuse these eleven, so the grouping search runs, and draws on the lane-date's one
+    // route budget (ED-19): charged, within it, and never stopped on this load.
+    const ob::m5::FloorSearchRecord& search = run.outcome.floorSearch;
+    CHECK(search.statesCharged > 0);
+    CHECK(search.statesCharged <= search.routeStates);
+    CHECK(search.routeStates == 1'000'000);
+    CHECK(search.callLimitStops + search.routeLimitStops + search.wallDeadlineStops == 0);
     m5Evidence::note("expected", {{"unitLoads", 11}, {"suppliedLayoutLengthIn", 586}});
     m5Evidence::note("actual", verdictJson(run.verdict));
     m5Evidence::note("oracle", oracleJson(oracle));

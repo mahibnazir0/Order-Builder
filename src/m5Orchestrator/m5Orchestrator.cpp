@@ -146,8 +146,13 @@ M5LaneOutcome configurationIncomplete(const M5LaneDateInput& input, const string
                        StopReason::ConfigurationIncomplete, {error});
 }
 
-M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& profile, const PhysicalSettings& physical,
+M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& profile, const PhysicalSettings& settingsIn,
                            const M5RunServices& services) {
+    if (!settingsIn.routeBudget && (settingsIn.floor.searchStateLimit < 1 || settingsIn.floor.routeSearchStateLimit < 1)) {
+        return configurationIncomplete(input, "floor-search state limits must be at least 1 (searchStateLimit "
+                                                  + to_string(settingsIn.floor.searchStateLimit) + ", routeSearchStateLimit "
+                                                  + to_string(settingsIn.floor.routeSearchStateLimit) + ")");
+    }
     for (size_t slot = 0; slot < input.pool.slots.size(); ++slot) {
         if (input.pool.slots[slot].maxUnitLoads < 1) {
             return configurationIncomplete(input, "reserved slot " + to_string(slot)
@@ -179,6 +184,8 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     declaration.workAllowance = services.workAllowance;
     declaration.contract = services.allowanceSeconds ? "FX-CLOCK fixed allowance" : "secondsPerLoad x reserved trucks (CL-05)";
     Budget budget(declaration, services.clock);
+    const PhysicalSettings physical = withRouteBudget(settingsIn, "lane-date " + input.lane.text() + " @ " + input.departure + " (" + input.sourceVersion + ")",
+                                                      [&budget] { return budget.exhausted(); });
 
     M5LaneOutcome outcome;
     outcome.reservedTrucks = static_cast<long long>(slotCount);
@@ -193,7 +200,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
         if (!snapshot.eligibility[atom].eligible) continue;
         // Fits a slot alone: the roomiest, since slots differ only in cap.
-        if (slotCount > 0 && !checkTruck(input, {atom}, input.pool.slots[bestSlot], physical).fits) {
+        if (slotCount > 0 && !checkTruckInRoute(input, {atom}, input.pool.slots[bestSlot], physical, physical.floor.searchStateLimit).fits) {
             unfittable[atom] = 1;
             continue;
         }
@@ -380,6 +387,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     }
     budget.finish();
     outcome.timing = budget.ledger();
+    outcome.floorSearch = floorSearchRecordOf(*physical.routeBudget);
     outcome.stop = stoppedByBudget || outcome.timing.exhausted ? StopReason::BudgetExhausted : StopReason::Completed;
     if (outcome.selected) {
         if (outcome.stop == StopReason::BudgetExhausted) {
