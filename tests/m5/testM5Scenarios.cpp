@@ -9,6 +9,7 @@
 #include "m5Report.hpp"
 #include "m5Solver.hpp"
 #include "m5Validation.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5Oracles.hpp"
 #include "support/m5StubMethods.hpp"
@@ -98,6 +99,23 @@ TEST_CASE("U-RB-01 X-BLK-01 blocks of 19, the last never padded" * doctest::test
         INFO(entry.first << " trucks of goods");
         CHECK(blockSizes(laneWith(blocks(entry.first), 39)) == entry.second);
     }
+}
+
+TEST_CASE("U-RB-01/thirtyNineBlocks: 39 whole-truck items on 39 reservations go 19 + 19 + 1, each once" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    CHECK(blockSizes(input) == vector<size_t>{19, 19, 1});
+    const M5LaneOutcome outcome = plan(input, blocksOnly());
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 39);
+    vector<int> shipped(input.atoms.size(), 0);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() == 1);
+        for (const size_t atom : truck.atoms) ++shipped[atom];
+    }
+    CHECK(all_of(shipped.begin(), shipped.end(), [](int count) { return count == 1; }));
+    CHECK(outcome.leftOver.empty());
+    requireInvariants(outcome, input);
+    m5Evidence::note("expected", {"19", "19", "1"});
 }
 
 TEST_CASE("X-BLK-04 several groups share 21: a first block of 19 leaves 2 for everything else" * doctest::test_suite("m5")) {
@@ -351,6 +369,115 @@ TEST_CASE("U-RS-01 trucks never exceed the reserved count, whatever the goods" *
         CHECK(outcome.selected->trucks.size() == slots);
         requireInvariants(outcome, input);
     }
+}
+
+TEST_CASE("U-RS-01/hundredAndOneReserved: one unit on 101 reservations ships on one truck, 100 unused, no empty loads" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput input = laneWith(fx30Units("u", 1), 101);
+    const M5LaneOutcome outcome = plan(input, profile);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 1);
+    CHECK(outcome.selected->trucks[0].atoms == vector<size_t>{0});
+    REQUIRE(outcome.delta);
+    CHECK(outcome.delta->trucks.size() == 1);
+    CHECK(outcome.leftOver.empty());
+    const M5ReportData report = buildReportData(outcome, input, &profile, {});
+    CHECK(report.loadedTrucks == 1);
+    CHECK(report.unitLoadsShipped == 1.0);
+    CHECK(report.unusedReservations == 100);
+    CHECK_FALSE(report.penaltyAmount.has_value());
+    CHECK(report.penalty == "unknown");
+    requireInvariants(outcome, input);
+    m5Evidence::note("expected", {"1 loaded truck", "100 unused", "penalty unknown"});
+}
+
+TEST_CASE("U-RS-09/zeroDayWindow: pull forward on with a 0-day window ships due-D goods only" * doctest::test_suite("m5")) {
+    M5LaneDateInput input = laneWith({fx30("dueD"), fx30("dueD1", "A", 0, dayAfter(1), kD)}, 1, kDefaultTrailer, true);
+    input.dates.maxDaysPulledForward = 0;
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    CHECK(shippedIds(outcome, input) == set<string>{"dueD"});
+    REQUIRE(outcome.leftOver.size() == 1);
+    CHECK(input.atoms[outcome.leftOver[0].atom].id == "dueD1");
+    CHECK(outcome.leftOver[0].cause == LeftOverCause::NotEligible);
+    CHECK(input.atoms[1].components[0].dueDate == dayAfter(1));
+    requireInvariants(outcome, input);
+    input.dates.maxDaysPulledForward = 1;
+    CHECK(shippedIds(plan(input, syntheticProfile()), input) == set<string>{"dueD", "dueD1"});
+    m5Evidence::note("expected", {"dueD ships", "dueD1 left NotEligible for its own date"});
+}
+
+namespace {
+
+// A monotonic clock beside a system wall clock that tests may move by days; the budget reads only the
+// monotonic one.
+class DualClock final : public Clock {
+public:
+    double nowSeconds() const override { return monotonic_; }
+    double wallSeconds() const { return wall_; }
+    void advance(double seconds) {
+        monotonic_ += seconds;
+        wall_ += seconds;
+    }
+    void shiftWall(double seconds) { wall_ += seconds; }
+
+private:
+    double monotonic_ = 500.0;
+    double wall_ = 1'785'000'000.0;
+};
+
+constexpr double kDaySeconds = 24.0 * 3600.0;
+
+}  // namespace
+
+TEST_CASE("U-PF-07/wallClockShift: wall-clock jumps neither extend nor cut a 10-second monotonic allowance" * doctest::test_suite("m5")) {
+    DualClock clock;
+    Budget budget({10.0, nullopt, "FX-CLOCK 10 s"}, clock);
+    clock.advance(3.0);
+    CHECK(budget.remainingSeconds() == 7.0);
+    clock.shiftWall(kDaySeconds);
+    CHECK(budget.remainingSeconds() == 7.0);
+    CHECK_FALSE(budget.exhausted());
+    clock.shiftWall(-kDaySeconds);
+    CHECK(budget.remainingSeconds() == 7.0);
+    clock.shiftWall(-kDaySeconds);
+    CHECK(budget.elapsedSeconds() == 3.0);
+    CHECK_FALSE(budget.exhausted());
+    clock.advance(6.5);
+    CHECK_FALSE(budget.exhausted());
+    clock.advance(0.5);
+    CHECK(budget.exhausted());
+    CHECK(budget.remainingSeconds() == 0.0);
+    CHECK(budget.elapsedSeconds() == 10.0);
+
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 3);
+    auto run = [&](double secondsBeforeB) {
+        DualClock laneClock;
+        M5RunServices services(laneClock);
+        services.allowanceSeconds = 10.0;
+        services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+        services.beforeMethod = [&](MethodId method) {
+            if (method == MethodId::PatternRepeat) {
+                laneClock.advance(3.0);
+                laneClock.shiftWall(kDaySeconds);
+                laneClock.shiftWall(-2.0 * kDaySeconds);
+            } else {
+                laneClock.advance(secondsBeforeB);
+            }
+        };
+        return planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    };
+    const M5LaneOutcome inTime = run(6.5);
+    CHECK(inTime.stop == StopReason::Completed);
+    CHECK_FALSE(inTime.timing.exhausted);
+    CHECK(inTime.timing.elapsedSeconds == 9.5);
+    CHECK(shippedCount(inTime) == 60);
+    const M5LaneOutcome stopped = run(7.0);
+    CHECK(stopped.stop == StopReason::BudgetExhausted);
+    CHECK(stopped.timing.exhausted);
+    CHECK(stopped.timing.elapsedSeconds == 10.0);
+    CHECK(stopped.kind == OutcomeKind::TimeoutWithIncumbent);
+    requireInvariants(stopped, input);
+    m5Evidence::note("expected", {"remaining 7 after 3 s and +/-24 h", "exhausted at 10 monotonic s"});
 }
 
 TEST_CASE("U-RS-02 X-RES-10 unused reservations and their penalty: known rates add, missing is unknown" * doctest::test_suite("m5")) {
@@ -660,6 +787,32 @@ TEST_CASE("X-DATE-07 U-CF-06 carry and pull never hold the same goods twice acro
         for (const string& id : shippedIds(control.outcomes[date], control.inputs[date])) CHECK(everShipped.insert(id).second);
     }
     CHECK(everShipped.size() == 30);
+}
+
+TEST_CASE("X-DATE-07/reversedInputDates: reversing the source rows leaves each date's allocation unchanged" * doctest::test_suite("m5")) {
+    const TrailerCapability capFifteen{630.0, 100.0, 108.0, 45000.0, 15};
+    auto allocation = [&](bool reversed) {
+        vector<Atom> future = fx30Units("t", 20, "A", 0, dayAfter(1));
+        if (reversed) reverse(future.begin(), future.end());
+        M5LaneDateInput today = laneWith(future, 1, capFifteen, true);
+        M5LaneDateInput tomorrow = laneWith(future, 1, capFifteen, true);
+        tomorrow.departure = dayAfter(1);
+        for (Atom& atom : tomorrow.atoms) atom.components[0].offerKind = OfferKind::Required;
+        FakeClock clock;
+        const LinkedDateBenchmark linked = benchmarkLinkedDates({today, tomorrow}, syntheticProfile(), physicalSettings(), clock);
+        REQUIRE(linked.outcomes.size() == 2);
+        return vector<set<string>>{shippedIds(linked.outcomes[0], linked.inputs[0]), shippedIds(linked.outcomes[1], linked.inputs[1])};
+    };
+    const vector<set<string>> normal = allocation(false), reversed = allocation(true);
+    CHECK(normal == reversed);
+    CHECK(normal[0].size() == 15);
+    CHECK(normal[1].size() == 5);
+    set<string> everShipped;
+    for (const set<string>& date : normal) {
+        for (const string& id : date) CHECK(everShipped.insert(id).second);
+    }
+    CHECK(everShipped.size() == 20);
+    m5Evidence::note("expected", {"15 on D", "5 on D+1", "same IDs in both row orders"});
 }
 
 TEST_CASE("X-DATE-10 date arithmetic crosses months, years and leap days with M4's helper" * doctest::test_suite("m5")) {

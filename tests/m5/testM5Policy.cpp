@@ -1,6 +1,8 @@
 #include "doctest.h"
 #include "m5Budget.hpp"
 #include "m5Policy.hpp"
+#include "support/m5Evidence.hpp"
+#include "support/m5Fixtures.hpp"
 
 #include <cmath>
 #include <limits>
@@ -111,7 +113,7 @@ TEST_CASE("U-FL-03 rear-inch limit: default, overrides and invalid values" * doc
         CHECK(profile.fullness.rearInchLimit == limit);
         CHECK_FALSE(profile.fullness.rearInchLimitDefaulted);
     }
-    for (const json& bad : {json(-1), json(0), json(kMaxRearInchLimit + 1), json("14"), json(nullptr)}) {
+    for (const json& bad : {json(-1), json(0), json(0.001), json("14"), json(nullptr)}) {
         block["fullness"]["rearInchLimit"] = bad;
         requireRejected(block, "rear-inch limit " + bad.dump());
     }
@@ -207,4 +209,62 @@ TEST_CASE("X-BLK-07 a slice never extends the lane-date's deadline" * doctest::t
     clock.now = 100.0;
     CHECK(budget.exhausted());
     CHECK(budget.pastSlice(end));
+}
+
+TEST_CASE("U-AC-04/zeroAndRange: x and y must be above zero and at most 1,000,000 lb and 100,000 cu ft" * doctest::test_suite("m5")) {
+    json block = productionBlock();
+    const auto readsAs = [&](const json& x, const json& y) {
+        block["acceptance"] = {{"weightLb", x}, {"cubeCuFt", y}};
+        const M5PolicyProfile profile = loadProfile(block);
+        REQUIRE(profile.acceptance.has_value());
+        CHECK(profile.acceptance->weightLb == x.get<double>());
+        CHECK(profile.acceptance->cubeCuFt == y.get<double>());
+    };
+    readsAs(0.01, 0.01);
+    readsAs(1'000'000, 100'000);
+    // Above one 45,000 lb trailer's payload: the cube branch may still pass, so x is not refused.
+    readsAs(50'000, 3'000);
+    CHECK(evaluateAcceptance(20'000.0, 3'000.5 * 1728.0, NumericAcceptance{50'000.0, 3'000.0}).accepted);
+    const double infinity = numeric_limits<double>::infinity(), notANumber = numeric_limits<double>::quiet_NaN();
+    for (const pair<json, json>& bad :
+         {pair<json, json>{0, 3000}, {40000, 0}, {0.0, 0.0}, {-0.01, 3000}, {40000, -1}, {1'000'000.01, 3000}, {40000, 100'000.01},
+          {infinity, 3000}, {40000, notANumber}, {1e300, 3000}, {"40000", 3000}, {40000, nullptr}}) {
+        block["acceptance"] = {{"weightLb", bad.first}, {"cubeCuFt", bad.second}};
+        requireRejected(block, "acceptance " + block["acceptance"].dump());
+    }
+    m5Evidence::note("expected", {"zero refused", "x up to 1,000,000 lb", "y up to 100,000 cu ft"});
+}
+
+TEST_CASE("U-FL-03/zeroAndMaximumRange: the rear-inch limit runs from 0.01 in to the slot's interior length" * doctest::test_suite("m5")) {
+    json block = productionBlock();
+    for (const json& bad : {json(0), json(0.009), json(-0.01), json(numeric_limits<double>::infinity()),
+                            json(numeric_limits<double>::quiet_NaN()), json("0.01")}) {
+        block["fullness"]["rearInchLimit"] = bad;
+        requireRejected(block, "rear-inch limit " + bad.dump());
+    }
+    // 30 FX-30 units stand 600 in deep on the 630 in floor: 30 in at the rear.
+    const M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 30), 1);
+    const auto planWithLimit = [&](double limit) {
+        block["fullness"]["rearInchLimit"] = limit;
+        M5PolicyProfile profile = m5Fixtures::syntheticProfile();
+        profile.fullness = loadProfile(block).fullness;
+        return m5Fixtures::plan(input, profile);
+    };
+    const auto fullByRear = [](const M5LaneOutcome& outcome) {
+        REQUIRE(outcome.fullness.size() == 1);
+        return outcome.fullness[0].byRearInches;
+    };
+    CHECK_FALSE(fullByRear(planWithLimit(0.01)));
+    CHECK_FALSE(fullByRear(planWithLimit(29.99)));
+    CHECK(fullByRear(planWithLimit(30.0)));
+    CHECK(fullByRear(planWithLimit(630.0)));
+    for (const double overLength : {630.01, 1e6}) {
+        INFO("rear-inch limit " << overLength);
+        const M5LaneOutcome refused = planWithLimit(overLength);
+        CHECK(refused.kind == OutcomeKind::ConfigurationIncomplete);
+        CHECK_FALSE(refused.selected.has_value());
+        REQUIRE(refused.leftOver.size() == 30);
+        for (const LeftOver& left : refused.leftOver) CHECK(left.cause == LeftOverCause::ConfigurationIncomplete);
+    }
+    m5Evidence::note("expected", {"below 0.01 refused at load", "30 in FULL at limit 30, not at 29.99", "630.01 refused at planning"});
 }

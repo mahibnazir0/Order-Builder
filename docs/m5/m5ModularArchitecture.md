@@ -1983,3 +1983,16 @@ validated is discarded, and with no checked incumbent there is no plan. The orch
 repair of a failed method candidate runs through it with cap 1. Tests: `tests/m5/testM5RepairLoop.cpp`
 (X-REB-10/oscillatingRepairCycle, R-1c/invalidDonorRestore), `tests/m5/testM5Solver.cpp` (X-CG-22 x2,
 U-FF-01/ffdConcreteGap).
+
+Integration and configuration as implemented (PR-10a). CL-01 and CL-03 domains (decision 4, set by Mahib,
+not confirmed by Tom): `loadProfile` refuses an acceptance x or y that is not above zero, x above
+`kMaxAcceptanceWeightLb` (1,000,000 lb) or y above `kMaxAcceptanceCubeCuFt` (100,000 cu ft), and a rear-inch
+limit below `kMinRearInchLimit` (0.01 in); the former fixed 120-in ceiling is gone. `planLaneDate` refuses,
+as configuration incomplete and before any search, a rear-inch limit above any reserved slot's interior
+length, compared in whole hundredths of an inch. R-7 m4Path and m5Path run the A/B/A sequence through
+`planShipDates`; routing reaches M5 only when reserved trucks exceed the threshold (at least 2), so m5Path
+uses three slots per lane, and the one-slot form stays at the direct seam. Tests: `tests/m5/testM5Policy.cpp`
+(U-AC-04/zeroAndRange, U-FL-03/zeroAndMaximumRange), `tests/m5/testM5Integration.cpp` (R-7 m4Path/m5Path,
+X-STATE-04/thresholdSnapshotInFlight), `tests/m5/testM5Scenarios.cpp` (U-RS-01, U-RS-09, U-RB-01, U-PF-07,
+X-DATE-07), `tests/m5/testM5Orchestrator.cpp` (X-STATE-02/unselectedMethodProof),
+`tests/m5/testM5TieRule.cpp` (X-STATE-10/sameSlotTieConcurrent).

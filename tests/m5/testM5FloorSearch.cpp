@@ -136,7 +136,7 @@ TEST_CASE("U-PF-09/sequentialLimits: route 5, per call 3: P stops at its call li
 
     // Q's witness is still checked after the route's states are gone: validation is not search.
     const M5LaneDateInput q11 = atomsAlong(53.0, 11);
-    const WitnessMeasure checked = validateSuppliedWitness(q11, firstAtoms(11), *q.witness, kSlot);
+    const WitnessMeasure checked = validateSuppliedWitness(q11, firstAtoms(11), *q.witness, kSlot, physicalSettings().floor);
     const OracleWitness oracle = oracleCheck(*q.witness, 53.0);
     CHECK(oracle.valid);
     CHECK(oracle.extentIn == 583.0);
@@ -319,7 +319,7 @@ TEST_CASE("X-PAT-18/undecidedWithIncumbent: checked W10 is kept, ten shipped and
     CHECK(oracle.valid);
     CHECK(oracle.extentIn == 520.0);
     CHECK(oracle.weightLb == 10000.0);
-    CHECK(validateSuppliedWitness(input, firstAtoms(10), w10, kSlot).valid);
+    CHECK(validateSuppliedWitness(input, firstAtoms(10), w10, kSlot, physicalSettings().floor).valid);
 
     RouteSearchBudget route("X-PAT-18 undecidedWithIncumbent", 3, 1'000);
     atomic<int> ledger{0};
@@ -360,7 +360,7 @@ TEST_CASE("X-PAT-18/witnessCertificate: W11 is legal without enumeration; the de
     CHECK(oracle.valid);
     CHECK(oracle.extentIn == 572.0);
     CHECK(oracle.weightLb == 11000.0);
-    const WitnessMeasure measure = validateSuppliedWitness(input, firstAtoms(11), w11, kSlot);
+    const WitnessMeasure measure = validateSuppliedWitness(input, firstAtoms(11), w11, kSlot, physicalSettings().floor);
     CHECK(measure.valid);
     CHECK(measure.occupiedExtentIn == 572.0);
     CHECK(measure.rearInches == 58.0);
@@ -401,7 +401,7 @@ TEST_CASE("X-PAT-18/provedNoFitControl: thirteen atoms are refused by a complete
     CHECK(oracle.valid);
     CHECK(oracle.extentIn == 624.0);
     CHECK(oracle.weightLb == 12000.0);
-    CHECK(validateSuppliedWitness(input, firstAtoms(12), w12, kSlot).valid);
+    CHECK(validateSuppliedWitness(input, firstAtoms(12), w12, kSlot, physicalSettings().floor).valid);
 
     BoundedSearchResult refused;
     refused.verdict = FloorVerdict::DoesNotFit;
@@ -427,7 +427,7 @@ TEST_CASE("X-PAT-18/invalidSuppliedWitness: U10 moved onto U0 with the stale ext
     REQUIRE(moved.claimedExtentIn == 572.0);
     CHECK_FALSE(oracleCheck(moved, 52.0).valid);
 
-    const WitnessMeasure measure = validateSuppliedWitness(input, firstAtoms(11), moved, kSlot);
+    const WitnessMeasure measure = validateSuppliedWitness(input, firstAtoms(11), moved, kSlot, physicalSettings().floor);
     CHECK_FALSE(measure.valid);
     CHECK(measure.occupiedExtentIn == 520.0);
     bool overlap = false, staleExtent = false;
@@ -437,4 +437,33 @@ TEST_CASE("X-PAT-18/invalidSuppliedWitness: U10 moved onto U0 with the stale ext
     }
     CHECK(overlap);
     CHECK(staleExtent);
+}
+
+TEST_CASE("X-PAT-18 a supplied witness is judged by the site's turning rule: a turned footprint fails when pallets cannot turn"
+          * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = atomsAlong(52.0, 2);
+    const LayoutWitness longSideAcross = rowWitness(52.0, 2);
+    LayoutWitness shortSideAcross;
+    shortSideAcross.placements = {{0, 0.0, 0.0, 100.0, 52.0}, {1, 100.0, 0.0, 100.0, 52.0}};
+    shortSideAcross.claimedExtentIn = 200.0;
+    const auto turnedFinding = [](const WitnessMeasure& measure) {
+        return any_of(measure.findings.begin(), measure.findings.end(),
+                      [](const string& finding) { return finding.find("is turned") != string::npos; });
+    };
+    ob::FloorPatternSettings turning = physicalSettings().floor;
+    CHECK(validateSuppliedWitness(input, firstAtoms(2), longSideAcross, kSlot, turning).valid);
+    CHECK(validateSuppliedWitness(input, firstAtoms(2), shortSideAcross, kSlot, turning).valid);
+
+    ob::FloorPatternSettings fixedLong = turning;
+    fixedLong.allowRotation = false;
+    fixedLong.fixedOrientation = ob::FixedOrientation::LongSideAcross;
+    CHECK(validateSuppliedWitness(input, firstAtoms(2), longSideAcross, kSlot, fixedLong).valid);
+    const WitnessMeasure refused = validateSuppliedWitness(input, firstAtoms(2), shortSideAcross, kSlot, fixedLong);
+    CHECK_FALSE(refused.valid);
+    CHECK(turnedFinding(refused));
+
+    ob::FloorPatternSettings fixedShort = fixedLong;
+    fixedShort.fixedOrientation = ob::FixedOrientation::ShortSideAcross;
+    CHECK(validateSuppliedWitness(input, firstAtoms(2), shortSideAcross, kSlot, fixedShort).valid);
+    CHECK(turnedFinding(validateSuppliedWitness(input, firstAtoms(2), longSideAcross, kSlot, fixedShort)));
 }

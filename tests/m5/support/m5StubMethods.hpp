@@ -21,10 +21,13 @@ public:
             plan_.push_back(atoms);
         }
     }
+    // Supplies its plans as exact: proven best for each truck count within this stub's own model.
+    void markExact() { exact_ = true; }
     ob::m5::MethodId id() const override { return id_; }
     ob::m5::GroupSupply supplyForGroup(const ob::m5::MethodContext& context, const ob::m5::GroupId& group) const override {
         ob::m5::GroupSupply supply;
         supply.group = group;
+        supply.exact = exact_;
         supply.plans.push_back({});
         ob::m5::GroupTrucks ofGroup;
         for (const ob::m5::Truck& truck : plan_) {
@@ -39,6 +42,7 @@ public:
 private:
     ob::m5::MethodId id_;
     ob::m5::GroupTrucks plan_;
+    bool exact_ = false;
 };
 
 } // namespace m5Stubs

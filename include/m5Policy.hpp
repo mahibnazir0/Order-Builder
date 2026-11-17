@@ -89,16 +89,21 @@ struct AcceptanceDecision {
 AcceptanceDecision evaluateAcceptance(double weightLb, double cubeCubicIn, const NumericAcceptance& rule);
 
 // Reads root["m5"]. Throws std::runtime_error naming the key for a malformed block: a missing or
-// non-finite, zero or negative secondsPerLoad; a rear-inch limit that is not finite and positive
-// or above kMaxRearInchLimit; a block size, scarcity window or gap that is not a whole number at
-// least 1; an unknown method policy; a routing count mode or scope other than reservedTrucks per
-// lane and ship date; a present acceptance block with a missing, non-finite or negative x or y.
+// non-finite, zero or negative secondsPerLoad; a rear-inch limit that is not finite or below
+// kMinRearInchLimit (its upper end, the slot's interior length, is checked by planLaneDate); a block
+// size, scarcity window or gap that is not a whole number at least 1; an unknown method policy; a routing
+// count mode or scope other than reservedTrucks per lane and ship date; a present acceptance block with
+// a missing, non-finite, zero or negative x or y, or x above kMaxAcceptanceWeightLb or y above
+// kMaxAcceptanceCubeCuFt.
 M5PolicyProfile loadProfile(const nlohmann::json& m5Block);
 
 // Whether the params root asks for M5: an "m5" object whose "enabled" is true.
 bool m5Enabled(const nlohmann::json& root);
 
-constexpr double kMaxRearInchLimit = 120.0;
+// Validation domains set by Mahib on 17 Nov 2026 (decision 4), not confirmed by Tom.
+constexpr double kMinRearInchLimit = 0.01;
+constexpr double kMaxAcceptanceWeightLb = 1'000'000.0;
+constexpr double kMaxAcceptanceCubeCuFt = 100'000.0;
 // The largest allowance a lane-date may declare: about 31 years. Beyond it the product of seconds
 // per load and reservations is a configuration error, not a silently saturated deadline.
 constexpr double kMaxAllowanceSeconds = 1.0e9;

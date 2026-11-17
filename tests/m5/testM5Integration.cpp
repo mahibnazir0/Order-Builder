@@ -10,8 +10,11 @@
 #include "support/m5Fixtures.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <memory>
+#include <optional>
+#include <set>
 #include <stdexcept>
 
 using namespace std;
@@ -271,4 +274,168 @@ TEST_CASE("X-ROUTE-09 a forced M5 plan leaves no setting behind for a normal run
     CHECK(first.trucks.size() == second.trucks.size());
     const SelectionPlan without = plan(day, selectorSettings());
     CHECK(without.routes[0].status == RouteStatus::Escalated);
+}
+
+namespace {
+
+// R-7: lanes 2027 and 2028 to 2528 TL, each with `slots` reservations on 6 Aug and, per lane, 30 per slot
+// FX-30 units (100 x 20 in, 108 in, 1,500 lb: 30 fill a trailer's payload) of P11 due 5 Aug and as many P0
+// due 6 Aug, all available 6 Aug. Line numbers are the units' identities.
+Day pastDueLanes(int slots) {
+    vector<SelectionItem> goods;
+    size_t line = 0;
+    const size_t perClass = 30 * static_cast<size_t>(slots);
+    for (size_t lane = 0; lane < 2; ++lane) {
+        for (const int priority : {11, 0}) {
+            for (size_t unit = 0; unit < perClass; ++unit) {
+                SelectionItem fx30 = item(lane, line++, 1500.0, priority, 100.0, 20.0);
+                fx30.heightIn = 108.0;
+                fx30.cubeCubicIn = 100.0 * 20.0 * 108.0;
+                fx30.availDate = "2026-08-06";
+                if (priority == 11) fx30.shipDate = "2026-08-05";
+                goods.push_back(fx30);
+            }
+        }
+    }
+    return dayOf({group("2027"), group("2028")}, line, goods, {reserved("2027", slots), reserved("2028", slots)});
+}
+
+struct LaneShipment {
+    size_t overdue = 0;
+    size_t current = 0;
+    set<size_t> lines;
+};
+
+map<string, LaneShipment> shippedByLane(const Day& day, const SelectionPlan& selection) {
+    map<string, LaneShipment> lanes;
+    for (const PlannedTruck& truck : selection.trucks) {
+        for (const size_t index : truck.items) {
+            const SelectionItem& shipped = day.items.items[index];
+            LaneShipment& lane = lanes[day.run.segregation.groups[shipped.groupIndex].key.locationFrom];
+            (shipped.priority == 11 ? lane.overdue : lane.current) += 1;
+            lane.lines.insert(shipped.lineIndices.front());
+        }
+    }
+    return lanes;
+}
+
+// The A/B/A sequence in one process, each step checked against a fresh day planned once with the same
+// settings; carry on, pull-forward off. Lane B (2028) never has an override.
+void checkPastDueSequence(int slots, int m5Threshold, bool withPlanner) {
+    const size_t perLane = 30 * static_cast<size_t>(slots);
+    LaneClassifierSettings routing = kRouting;
+    routing.m5Threshold = m5Threshold;
+    SelectorSettings settings = selectorSettings();
+    if (withPlanner) settings.largeLanePlanner = plannerOf();
+    const auto run = [&](const Day& day, const LaneClassifierSettings& lanes) {
+        const ShipDatePlan planned = planShipDates(day.run, day.book, day.items, lanes, settings, {true, false}, 10);
+        REQUIRE(accountedOnce(planned.plan, day.items.items.size()));
+        for (const LaneRoute& route : planned.classification.routes) {
+            if (!route.itemIndices.empty()) CHECK((route.method == SolveMethod::M5) == withPlanner);
+        }
+        return planned.plan;
+    };
+    LaneClassifierSettings overridden = routing;
+    overridden.pastDueOrderByLane[{"2027", "2528", "TL"}] = PastDueOrder::PriorityFirst;
+
+    const Day day = pastDueLanes(slots);
+    const map<string, LaneShipment> ageFirst = shippedByLane(day, run(day, routing));
+    const map<string, LaneShipment> override = shippedByLane(day, run(day, overridden));
+    const map<string, LaneShipment> removed = shippedByLane(day, run(day, routing));
+    for (const char* const lane : {"2027", "2028"}) {
+        INFO("lane " << lane);
+        CHECK(ageFirst.at(lane).overdue == perLane);
+        CHECK(ageFirst.at(lane).current == 0);
+        CHECK(removed.at(lane).overdue == perLane);
+        CHECK(removed.at(lane).current == 0);
+        CHECK(removed.at(lane).lines == ageFirst.at(lane).lines);
+    }
+    CHECK(override.at("2027").current == perLane);
+    CHECK(override.at("2027").overdue == 0);
+    CHECK(override.at("2028").overdue == perLane);
+    CHECK(override.at("2028").lines == ageFirst.at("2028").lines);
+
+    const Day fresh = pastDueLanes(slots);
+    for (const char* const lane : {"2027", "2028"}) {
+        CHECK(shippedByLane(fresh, run(fresh, overridden)).at(lane).lines == override.at(lane).lines);
+        CHECK(shippedByLane(fresh, run(fresh, routing)).at(lane).lines == ageFirst.at(lane).lines);
+    }
+    m5Evidence::note("expected", {"AgeFirst both overdue", "override A current, B overdue", "removed both overdue"});
+}
+
+}  // namespace
+
+TEST_CASE("R-7/m4Path: the per-lane past-due order through M4's selector, A/B/A, lane B never inherits" * doctest::test_suite("m5")) {
+    checkPastDueSequence(1, 20, false);
+}
+
+// A lane reaches M5 through routing only above the threshold, which is at least 2, so a one-slot lane cannot;
+// this path keeps the scarcity with 3 slots per lane and 90 + 90 units. The one-slot form runs at the direct
+// seam (R-7 a lane's own past-due order).
+TEST_CASE("R-7/m5Path: the per-lane past-due order through routing into M5, A/B/A, lane B never inherits" * doctest::test_suite("m5")) {
+    checkPastDueSequence(3, 2, true);
+}
+
+namespace {
+
+// Runs `whilePaused` once, inside the first lane-date it is handed, then plans it with the wrapped planner.
+class PausingPlanner : public LargeLanePlanner {
+public:
+    PausingPlanner(shared_ptr<const LargeLanePlanner> inner, function<void()> whilePaused)
+        : inner_(std::move(inner)), whilePaused_(std::move(whilePaused)) {}
+    LargeLaneResult plan(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
+                         const SelectorSettings& settings) const override {
+        if (whilePaused_) {
+            whilePaused_();
+            whilePaused_ = nullptr;
+        }
+        return inner_->plan(request, run, items, settings);
+    }
+
+private:
+    shared_ptr<const LargeLanePlanner> inner_;
+    mutable function<void()> whilePaused_;
+};
+
+}  // namespace
+
+TEST_CASE("X-STATE-04/thresholdSnapshotInFlight: a threshold changed while M5 plans neither reroutes it nor leaks into a fresh run" * doctest::test_suite("m5")) {
+    const Day inFlightDay = dayWithReserved(21, 40);
+    const Day freshDay = dayWithReserved(21, 40);
+    LaneClassifierSettings live = kRouting;
+    REQUIRE(live.m5Threshold == 20);
+    optional<ShipDatePlan> fresh;
+    SelectorSettings settings = selectorSettings();
+    settings.largeLanePlanner = make_shared<PausingPlanner>(plannerOf(), [&] {
+        live.m5Threshold = 50;
+        SelectorSettings freshSettings = selectorSettings();
+        freshSettings.largeLanePlanner = plannerOf();
+        fresh = planShipDates(freshDay.run, freshDay.book, freshDay.items, live, freshSettings, {true, false}, 10);
+    });
+    const ShipDatePlan inFlight = planShipDates(inFlightDay.run, inFlightDay.book, inFlightDay.items, live, settings, {true, false}, 10);
+    REQUIRE(fresh);
+    CHECK(live.m5Threshold == 50);
+    REQUIRE(inFlight.classification.routes.size() == 1);
+    CHECK(inFlight.classification.routes[0].method == SolveMethod::M5);
+    REQUIRE(inFlight.plan.largeLanes.size() == 1);
+    CHECK(inFlight.plan.largeLanes[0].planned);
+    CHECK(inFlight.plan.trucks.size() == 2);
+    CHECK(accountedOnce(inFlight.plan, inFlightDay.items.items.size()));
+    REQUIRE(fresh->classification.routes.size() == 1);
+    CHECK(fresh->classification.routes[0].method != SolveMethod::M5);
+    CHECK(fresh->plan.largeLanes.empty());
+    CHECK(fresh->plan.trucks.size() == 2);
+    CHECK(accountedOnce(fresh->plan, freshDay.items.items.size()));
+
+    // Each run equals a fresh process with its own threshold.
+    LaneClassifierSettings twenty = kRouting, fifty = kRouting;
+    fifty.m5Threshold = 50;
+    SelectorSettings plain = selectorSettings();
+    plain.largeLanePlanner = plannerOf();
+    const Day again = dayWithReserved(21, 40);
+    CHECK(planShipDates(again.run, again.book, again.items, twenty, plain, {true, false}, 10).plan.trucks.size()
+          == inFlight.plan.trucks.size());
+    CHECK(planShipDates(again.run, again.book, again.items, fifty, plain, {true, false}, 10).classification.routes[0].method
+          == fresh->classification.routes[0].method);
+    m5Evidence::note("expected", {"in-flight M5 at threshold 20", "fresh M4 at threshold 50"});
 }

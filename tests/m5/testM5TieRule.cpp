@@ -5,12 +5,16 @@
 // by canonical records; it never calls production code.
 #include "doctest.h"
 #include "m5Allocation.hpp"
+#include "m5Commit.hpp"
+#include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Orchestrator.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
+#include "support/m5StubMethods.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -457,4 +461,67 @@ TEST_CASE("X-RES-13/ineligibleGroupIgnored: G0 available only from 8 Aug has no 
     CHECK(notEligible == 3);
     m5Evidence::note("expected", {{"winner", "G2"}, {"g", 2}, {"G0LeftNotEligible", 3}});
     m5Evidence::note("actual", {{"winner", winnerOf(outcome, input)}, {"G0LeftNotEligible", notEligible}});
+}
+
+TEST_CASE("X-STATE-10/sameSlotTieConcurrent: G1's and a stale G2 candidate race for LA 6 Aug's one slot; only G1 commits, once" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = tieLane(kLaneA, kAug6, groupsOf({"G1", "G2"}));
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const M5LaneOutcome selected = plan(input, syntheticProfile());
+    REQUIRE(winnerOf(selected, input) == "G1");
+    REQUIRE(selected.delta);
+    set<string> g1Atoms;
+    for (const TruckPlan& truck : selected.delta->trucks) {
+        for (const size_t atom : truck.atoms) g1Atoms.insert(input.atoms[atom].id);
+    }
+    REQUIRE(g1Atoms.size() == 3);
+
+    // The competing candidate: G2's three atoms, planned from a second snapshot of the same lane-date.
+    M5LaneDateInput otherInput = input;
+    otherInput.sourceVersion = "fx-tie-second-snapshot";
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, GroupTrucks{Truck{3, 4, 5}})};
+    const M5LaneOutcome competing = planLaneDate(otherInput, syntheticProfile(), physicalSettings(), services);
+    REQUIRE(winnerOf(competing, otherInput) == "G2");
+    REQUIRE(competing.delta);
+    const DemandSnapshot otherSnapshot = *buildSnapshot(otherInput).snapshot;
+    REQUIRE(otherSnapshot.id != snapshot.id);
+
+    for (int round = 0; round < 50; ++round) {
+        CommitLedger ledger;
+        OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 1};
+        atomic<bool> go{false};
+        ApplyStatus g1Status = ApplyStatus::StaleSnapshot, g2Status = ApplyStatus::Applied;
+        thread g1([&] {
+            while (!go.load()) this_thread::yield();
+            g1Status = ledger.applyIfCurrent(*selected.delta, snapshot, state);
+        });
+        thread g2([&] {
+            while (!go.load()) this_thread::yield();
+            g2Status = ledger.applyIfCurrent(*competing.delta, otherSnapshot, state);
+        });
+        go = true;
+        g1.join();
+        g2.join();
+        CHECK(g1Status == ApplyStatus::Applied);
+        CHECK(g2Status == ApplyStatus::StaleSnapshot);
+        CHECK(state.consumedAtoms == g1Atoms);
+        CHECK(state.slotsUsed == 1);
+        CHECK(state.reservationVersion == snapshot.input.pool.version + 1);
+        CHECK(ledger.applyIfCurrent(*selected.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+        CHECK(state.slotsUsed == 1);
+    }
+
+    // Rebased on what G1 left, G2 has no slot: it ships nothing and debits nothing.
+    const DemandSnapshot residual = residualAfter(snapshot, *selected.delta);
+    CHECK(residual.input.pool.slots.empty());
+    CHECK(residual.input.atoms.size() == 3);
+    const M5LaneOutcome rebased = plan(residual.input, syntheticProfile());
+    CHECK(shippedGroups(rebased, residual.input).empty());
+    size_t sourceUnits = 0;
+    for (const TruckPlan& truck : selected.delta->trucks) {
+        for (const size_t atom : truck.atoms) sourceUnits += input.atoms[atom].components.size();
+    }
+    CHECK(sourceUnits == 6);
+    m5Evidence::note("expected", {"G1 Applied once", "G2 StaleSnapshot", "1 slot", "6 source unit loads"});
 }

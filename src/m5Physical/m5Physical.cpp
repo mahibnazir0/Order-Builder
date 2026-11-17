@@ -271,7 +271,7 @@ WitnessMeasure measureSuppliedWitness(const vector<PlacedRectangle>& placed, con
 }
 
 WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const vector<size_t>& atoms, const LayoutWitness& witness,
-                                       const TrailerCapability& capability) {
+                                       const TrailerCapability& capability, const FloorPatternSettings& floor) {
     vector<PlacedRectangle> placed;
     placed.reserve(witness.placements.size());
     for (const WitnessPlacement& placement : witness.placements) {
@@ -293,7 +293,14 @@ WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const vecto
         if (!seen.insert(placement.atom).second) measure.findings.push_back("the witness places atom " + atom.id + " twice");
         const bool lengthwise = sameHundredths(placement.lengthIn, atom.floor.longSideIn) && sameHundredths(placement.widthIn, atom.floor.shortSideIn);
         const bool crosswise = sameHundredths(placement.lengthIn, atom.floor.shortSideIn) && sameHundredths(placement.widthIn, atom.floor.longSideIn);
-        if (!lengthwise && !crosswise) measure.findings.push_back("atom " + atom.id + " is placed with a footprint it does not have");
+        if (!lengthwise && !crosswise) {
+            measure.findings.push_back("atom " + atom.id + " is placed with a footprint it does not have");
+        } else if (!floor.allowRotation) {
+            // Without turning, every footprint goes in with the fixed side across: the long side across is
+            // the crosswise placement, the short side across the lengthwise one. A square satisfies both.
+            const bool fixedWay = floor.fixedOrientation == FixedOrientation::LongSideAcross ? crosswise : lengthwise;
+            if (!fixedWay) measure.findings.push_back("atom " + atom.id + " is turned, and this site's forklifts cannot turn pallets");
+        }
     }
     for (const size_t atom : expected) {
         if (!seen.count(atom)) measure.findings.push_back("the witness leaves atom " + input.atoms[atom].id + " off the floor");

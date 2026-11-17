@@ -2804,3 +2804,13 @@ result to the merged M4 code.
   three-across row is never a proof that the load cannot fit, and a supplied witness is judged on its own
   rectangles. The v12 fixture's 33.30 x 20 in footprint is replaced by 40 x 33.30 in because M4's
   three-across turns the shorter side across.
+- CL-01 and CL-03 validation domains (decision 4, 17 November 2026, set by Mahib as engineering
+  defaults, not confirmed by Tom). CL-01: the acceptance x (weight, lb) and y (cube, cu ft) must each be
+  finite and above zero, x at most 1,000,000 lb and y at most 100,000 cu ft; zero, negative, non-finite,
+  malformed and larger values are refused with an explicit error. Neither is limited by one trailer's
+  payload or cube, because the other branch of the OR may still pass. CL-03: a missing rear-inch limit uses
+  the default 14 in and is reported as the default; a given limit is accepted from 0.01 in up to the
+  reserved trailer's interior length. Zero, negative, non-finite, malformed and values below 0.01 in are
+  refused when the settings are read; a limit above a slot's interior length is refused before that
+  lane-date is planned (configuration incomplete, every good left with that reason). U-AC-04/zeroAndRange
+  and U-FL-03/zeroAndMaximumRange are therefore selected for the current milestone.

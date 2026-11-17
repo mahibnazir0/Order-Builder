@@ -156,6 +156,14 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
                            {"the reserved slots carry different trailer sizes or payloads: the reservation feed has no per-truck "
                             "trailer, so M5 plans one trailer per lane-date; only the unit-load cap may differ by slot (open item C9)"});
     }
+    const optional<int64_t> rearLimit = hundredthsRoundedUp(profile.fullness.rearInchLimit);
+    for (size_t slot = 0; slot < input.pool.slots.size(); ++slot) {
+        const optional<int64_t> length = hundredthsRoundedDown(input.pool.slots[slot].lengthIn);
+        if (!rearLimit || *rearLimit < 1 || !length || *rearLimit > *length) {
+            return configurationIncomplete(input, "the FULL rear-inch limit must be from 0.01 in up to reserved slot "
+                                                      + to_string(slot) + "'s interior length (CL-03)");
+        }
+    }
     const DemandSnapshot& snapshot = *build.snapshot;
     const size_t slotCount = input.pool.slots.size();
 

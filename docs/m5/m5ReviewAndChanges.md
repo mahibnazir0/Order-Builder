@@ -19,6 +19,12 @@
 - PR-9 (17 Nov 2026): recorded pricing tolerance and pricing seam (X-CG-22); bounded repair loop runRepair
   (X-REB-10, R-1c/invalidDonorRestore); architecture Section 22 "Solver and repair as implemented". Spec
   unchanged; X-CG-22 testFile tests/m5/testM5Solver.cpp, X-REB-10 tests/m5/testM5RepairLoop.cpp.
+- PR-10a (17 Nov 2026): CL-01 and CL-03 validation domains (decision 4) recorded in Section 43 and the
+  architecture; U-AC-04/zeroAndRange and U-FL-03/zeroAndMaximumRange moved from BLOCKED to selected,
+  NOT_RUN. Requirement SHA-256 is now `2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53`. Integration and configuration variants added for
+  R-7, U-RS-01, U-RS-09, U-RB-01, U-PF-07, X-DATE-07, X-STATE-02, X-STATE-04 and X-STATE-10.
+  validateSuppliedWitness now applies the no-turning setting (allowRotation false): a footprint must go in
+  with fixedOrientation's side across (open item from PR-7).
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

@@ -179,13 +179,17 @@ TEST_CASE("m5Registry: the committed manifest is the v12 one: requirement hash, 
     }
     CHECK(manifest.variants.size() == 557);
     CHECK(keys.size() == 557);
-    // Decision D1 (17 Nov 2026) selected R-7's two conditional integration variants: 552 NOT_RUN, 5 BLOCKED.
-    CHECK(byStatus["NOT_RUN"] == 552);
-    CHECK(byStatus["BLOCKED"] == 5);
+    // Decision D1 selected R-7's two conditional integration variants and decision 4 (both 17 Nov 2026)
+    // U-AC-04/zeroAndRange and U-FL-03/zeroAndMaximumRange: 554 NOT_RUN, 3 BLOCKED.
+    CHECK(byStatus["NOT_RUN"] == 554);
+    CHECK(byStatus["BLOCKED"] == 3);
     CHECK(byRequirement["required"] == 548);
     CHECK(byRequirement["conditional"] == 9);
     for (const Variant& variant : manifest.variants) {
-        if (variant.testId != "R-7" || (variant.variant != "m4Path" && variant.variant != "m5Path")) continue;
+        const bool selectedByDecision = (variant.testId == "R-7" && (variant.variant == "m4Path" || variant.variant == "m5Path"))
+                                        || (variant.testId == "U-AC-04" && variant.variant == "zeroAndRange")
+                                        || (variant.testId == "U-FL-03" && variant.variant == "zeroAndMaximumRange");
+        if (!selectedByDecision) continue;
         CHECK(variant.selected);
         CHECK(variant.decisionRecorded);
         CHECK(variant.executionStatus == "NOT_RUN");

@@ -3170,13 +3170,16 @@
         {
           "variant": "zeroAndRange",
           "requirement": "conditional",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "BLOCKED until CL-01 validation domain is recorded",
+          "note": "Domain recorded by decision 4 (17 Nov 2026), set by Mahib, not confirmed by Tom.",
           "evidenceScope": "SYNTHETIC",
-          "blocker": "BLOCKED until CL-01 validation domain is recorded",
-          "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. BLOCKED until CL-01 validation domain is recorded",
-          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."
+          "expectedBehavior": "Zero, negative, non-finite, malformed and out-of-range x and y are refused; x is accepted above zero up to 1,000,000 lb and y above zero up to 100,000 cu ft, never limited by one trailer. Selected by decision 4 (17 Nov 2026); NOT_RUN until executed.",
+          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Decision 4 (17 Nov 2026): the engineering validation domain is recorded (set by Mahib, not confirmed by Tom); the variant is selected for the current milestone.",
+          "selectionDecisionRef": "decision 4, architecture Section 22; v12 Section 43",
+          "activationCondition": "Selected 17 Nov 2026 by decision 4."
         },
         {
           "variant": "productionProfile",
@@ -6165,13 +6168,16 @@
         {
           "variant": "zeroAndMaximumRange",
           "requirement": "conditional",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "Engineering zero/maximum supported rear-limit domain must be recorded before this conditional domain variant runs; missing uses the stated default 14 and is not blocked.",
+          "note": "Domain recorded by decision 4 (17 Nov 2026), set by Mahib, not confirmed by Tom.",
           "evidenceScope": "SYNTHETIC",
-          "blocker": "Engineering zero/maximum supported rear-limit domain must be recorded before this conditional domain variant runs; missing uses the stated default 14 and is not blocked.",
-          "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. Engineering zero/maximum supported rear-limit domain must be recorded before this conditional domain variant runs; missing uses the stated default 14 and is not blocked.",
-          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."
+          "expectedBehavior": "Zero, negative, non-finite, malformed and below-0.01 limits are refused when read; 0.01 in up to the slot's interior length is accepted and changes labels; above the interior length the lane-date is configuration incomplete before planning. Selected by decision 4 (17 Nov 2026); NOT_RUN until executed.",
+          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Decision 4 (17 Nov 2026): the engineering validation domain is recorded (set by Mahib, not confirmed by Tom); the variant is selected for the current milestone.",
+          "selectionDecisionRef": "decision 4, architecture Section 22; v12 Section 43",
+          "activationCondition": "Selected 17 Nov 2026 by decision 4."
         }
       ],
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
@@ -12462,7 +12468,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -16912,7 +16918,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-COM",
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5TieRule.cpp",
       "fixture": "V7 = 20 identified FX-30/two slots; atomic O1 ten-unit commit, conflicts/staleversion/replay/continuation",
       "entryPoint": "DIRECT",
       "oracle": "STATE + LEDGER",
@@ -18305,7 +18311,7 @@
   "requirementSource": {
     "fileName": "M5_Edge_Cases_and_Tests_v12.md",
     "revision": "v12",
-    "sha256": "4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d",
+    "sha256": "2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53",
     "namedTestCount": 304
   },
   "schemaNotes": "Schema 2 retains source identity, scoped variant expectations/dependencies and evidence scope. Optional selection metadata explicitly records deferred conditional R-7 integration; reportedBaseline is attributed historical evidence only. No application results are implied. v12 retains all v11 IDs and variants; 162 P12 mapping in m5Phase1V11Reconciliation.json.",

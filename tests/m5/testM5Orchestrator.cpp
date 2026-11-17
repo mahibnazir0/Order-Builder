@@ -1,5 +1,6 @@
 #include "doctest.h"
 #include "m5Report.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5StubMethods.hpp"
 
@@ -133,6 +134,42 @@ TEST_CASE("X-STATE-02 X-STATE-09 methods' results are never added together" * do
     CHECK(plan(small, on).kind == OutcomeKind::CompletedZeroDispatch);
     CHECK(plan(small, syntheticProfile()).kind == OutcomeKind::CompletedWithDispatch);
     CHECK(plan(small, on).kind == OutcomeKind::CompletedZeroDispatch);
+}
+
+TEST_CASE("X-STATE-02/unselectedMethodProof: B's own-model certificate is never attached to the selected A" * doctest::test_suite("m5")) {
+    // Atoms 0-29 are P0, atom 30 is P11; one slot holds 30.
+    vector<Atom> atoms = fx30Units("p0-", 30);
+    atoms.push_back(fx30("p11-100", "A", 11));
+    const M5LaneDateInput input = laneWith(atoms, 1);
+    Truck thirtyP0, twentyNineP0AndP11;
+    for (size_t atom = 0; atom < 30; ++atom) thirtyP0.push_back(atom);
+    for (size_t atom = 0; atom < 29; ++atom) twentyNineP0AndP11.push_back(atom);
+    twentyNineP0AndP11.push_back(30);
+    auto methodB = make_shared<m5Stubs::FixedMethod>(MethodId::RollingBlocks, GroupTrucks{twentyNineP0AndP11});
+    methodB->markExact();
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, GroupTrucks{thirtyP0}), methodB};
+    const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK(outcome.methods[0].selected);
+    CHECK(outcome.methods[1].ran);
+    CHECK(outcome.methods[1].validated);
+    CHECK_FALSE(outcome.methods[1].selected);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->method == MethodId::PatternRepeat);
+    REQUIRE(outcome.selected->trucks.size() == 1);
+    CHECK(outcome.selected->trucks[0].atoms == thirtyP0);
+    CHECK(outcome.selected->evidence.proof == ProofStatus::Unproven);
+    CHECK_FALSE(outcome.selected->evidence.lowerBound.has_value());
+    CHECK(outcome.selected->evidence.boundModel.empty());
+    CHECK(outcome.selected->evidence.proofModel.empty());
+    CHECK(outcome.proof == ProofStatus::Unproven);
+    REQUIRE(outcome.delta);
+    REQUIRE(outcome.delta->trucks.size() == 1);
+    REQUIRE(outcome.leftOver.size() == 1);
+    CHECK(outcome.leftOver[0].atom == 30);
+    m5Evidence::note("expected", {"A selected: 30 P0", "proof Unproven", "no bound or model from B"});
 }
 
 TEST_CASE("Q6 equality stops the count phase: B is skipped with its reason" * doctest::test_suite("m5")) {

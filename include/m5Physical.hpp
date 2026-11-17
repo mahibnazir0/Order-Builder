@@ -102,11 +102,13 @@ struct WitnessMeasure {
 WitnessMeasure measureSuppliedWitness(const std::vector<PlacedRectangle>& placed, const TrailerCapability& capability);
 
 // Pure validation of a supplied layout witness for these atoms on one slot (R-PROOF, X-PAT-18): each atom
-// placed exactly once in its own footprint (either way round), on the floor and overlapping none, under the
-// ceiling; payload and unit-load cap in whole hundredths; and the claimed extent equal to the measured one.
-// It never searches and never arranges a replacement: a witness that fails is rejected as supplied.
+// placed exactly once in its own footprint (either way round, or only with floor.fixedOrientation's side
+// across when floor.allowRotation is false), on the floor and overlapping none, under the ceiling; payload
+// and unit-load cap in whole hundredths; and the claimed extent equal to the measured one. It never
+// searches and never arranges a replacement: a witness that fails is rejected as supplied.
 WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms,
-                                       const LayoutWitness& witness, const TrailerCapability& capability);
+                                       const LayoutWitness& witness, const TrailerCapability& capability,
+                                       const FloorPatternSettings& floor);
 
 // Atoms physically alike - footprint, height, levels, weight and unit loads to the bit - share a
 // class: one that does not fit a truck, its twin does not either. The class signature names the atom's

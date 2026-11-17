@@ -88,8 +88,9 @@ M5PolicyProfile loadProfile(const json& block) {
     const auto rear = fullness.find("rearInchLimit");
     if (rear != fullness.end()) {
         profile.fullness.rearInchLimit = readQuantity(*rear, "m5.fullness.rearInchLimit");
-        if (profile.fullness.rearInchLimit > kMaxRearInchLimit) {
-            throw runtime_error("params: m5.fullness.rearInchLimit must be at most " + to_string(kMaxRearInchLimit));
+        // The upper end is each slot's interior length, checked when a lane-date is planned (CL-03).
+        if (profile.fullness.rearInchLimit < kMinRearInchLimit) {
+            throw runtime_error("params: m5.fullness.rearInchLimit must be at least 0.01 in");
         }
         profile.fullness.rearInchLimitDefaulted = false;
     }
@@ -128,8 +129,16 @@ M5PolicyProfile loadProfile(const json& block) {
     readOptional(block, "acceptance", [&](const json& value, const string& key) {
         if (!value.is_object()) throw runtime_error("params: " + key + " must be an object when present");
         NumericAcceptance rule;
-        rule.weightLb = readQuantity(requiredField(value, "weightLb", key), key + ".weightLb", ZeroAllowed::Yes);
-        rule.cubeCuFt = readQuantity(requiredField(value, "cubeCuFt", key), key + ".cubeCuFt", ZeroAllowed::Yes);
+        // CL-01: x and y are judged on their own, never against one trailer's payload or cube, since the
+        // other branch of the OR may still pass.
+        rule.weightLb = readQuantity(requiredField(value, "weightLb", key), key + ".weightLb");
+        rule.cubeCuFt = readQuantity(requiredField(value, "cubeCuFt", key), key + ".cubeCuFt");
+        if (rule.weightLb > kMaxAcceptanceWeightLb) {
+            throw runtime_error("params: " + key + ".weightLb must be at most 1,000,000 lb");
+        }
+        if (rule.cubeCuFt > kMaxAcceptanceCubeCuFt) {
+            throw runtime_error("params: " + key + ".cubeCuFt must be at most 100,000 cu ft");
+        }
         profile.acceptance = rule;
     });
     return profile;
