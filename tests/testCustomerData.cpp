@@ -12,10 +12,7 @@ namespace {
 // Sets OB_CUSTOMER_DATA for one test and puts back what was there.
 class CustomerDataSetting {
 public:
-    explicit CustomerDataSetting(const optional<string>& value) {
-        if (const char* before = getenv("OB_CUSTOMER_DATA")) previous_ = before;
-        assign(value);
-    }
+    explicit CustomerDataSetting(const optional<string>& value) : previous_(customerData::setting()) { assign(value); }
     ~CustomerDataSetting() { assign(previous_); }
     CustomerDataSetting(const CustomerDataSetting&) = delete;
     CustomerDataSetting& operator=(const CustomerDataSetting&) = delete;

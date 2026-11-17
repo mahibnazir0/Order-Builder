@@ -6,16 +6,35 @@
 #include "doctest.h"
 
 #include <cstdlib>
+#include <optional>
 #include <string>
 
 namespace customerData {
 
+// OB_CUSTOMER_DATA as set, or nothing when unset. MSVC rejects std::getenv under /W4 /WX (C4996),
+// so Windows reads it with _dupenv_s.
+inline std::optional<std::string> setting() {
+#ifdef _WIN32
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, "OB_CUSTOMER_DATA") != 0 || value == nullptr) return std::nullopt;
+    std::string read(value);
+    std::free(value);
+    value = nullptr;
+    return read;
+#else
+    const char* value = std::getenv("OB_CUSTOMER_DATA");
+    if (value == nullptr) return std::nullopt;
+    return std::string(value);
+#endif
+}
+
 enum class Requirement { Required, Optional, Unreadable };
 
 inline Requirement requirement() {
-    const char* setting = std::getenv("OB_CUSTOMER_DATA");
-    if (setting == nullptr || std::string(setting) == "required") return Requirement::Required;
-    if (std::string(setting) == "optional") return Requirement::Optional;
+    const std::optional<std::string> value = setting();
+    if (!value || *value == "required") return Requirement::Required;
+    if (*value == "optional") return Requirement::Optional;
     return Requirement::Unreadable;
 }
 
@@ -28,7 +47,7 @@ inline void reportMissing(const std::string& what) {
         MESSAGE("skipped (data not present): " << what);
         return;
     case Requirement::Unreadable:
-        FAIL_CHECK("OB_CUSTOMER_DATA is \"" << std::getenv("OB_CUSTOMER_DATA") << "\", not \"required\" or \"optional\"; " << what);
+        FAIL_CHECK("OB_CUSTOMER_DATA is \"" << setting().value_or("") << "\", not \"required\" or \"optional\"; " << what);
         return;
     case Requirement::Required:
         FAIL_CHECK(what);
