@@ -11,7 +11,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <stdexcept>
+#include <tuple>
 
 using namespace std;
 using namespace ob::m5;
@@ -282,62 +284,394 @@ TEST_CASE("U-AC-02 U-AC-03 productionProfile: no truck is withheld for minimum l
     CHECK(countCause(withPolicy, LeftOverCause::AcceptanceWithheld) == 10);
 }
 
-TEST_CASE("U-AC-06 acceptance never overrides a hard constraint" * doctest::test_suite("m5")) {
-    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
-    const M5LaneDateInput control = laneWith(fx30Units("u", 30), 1);
-    const CandidatePlan full = oneTruck(control, 30);
-    CHECK(validateFinal(full, *buildSnapshot(control).snapshot, policy, physicalSettings()).allPassed());
+namespace {
 
-    auto rejected = [&](const M5LaneDateInput& input, const CandidatePlan& candidate, const string& section) {
-        const ValidationReport report = validateFinal(candidate, *buildSnapshot(input).snapshot, policy, physicalSettings());
-        CHECK_FALSE(report.allPassed());
-        CHECK(any_of(report.findings.begin(), report.findings.end(), [&](const ValidationFinding& finding) { return finding.section == section; }));
-    };
-    rejected(laneWith(fx30Units("u", 30), 1, {630.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap}), full, "physical");
-    rejected(laneWith(fx30Units("u", 30), 1, {599.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap}), full, "physical");
+// U-AC-06: one hard constraint broken on the otherwise valid 30-unit FX-30 truck (45,000 lb, 3,750 cu ft),
+// which meets x = 40,000 lb / y = 3,000 cu ft on both branches. The validator rejects it, names the
+// broken section, and nothing is committed.
+void requireHardConstraintWins(const M5LaneDateInput& input, const M5PolicyProfile& profile, const string& section) {
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan candidate = oneTruck(laneWith(fx30Units("u", 30), 1), 30);
+    candidate.validation = validateFinal(candidate, snapshot, profile, physicalSettings());
+    const ValidationReport& report = *candidate.validation;
+    CHECK_FALSE(report.allPassed());
+    if (profile.acceptance) CHECK(report.acceptance == SectionStatus::Pass);
+    const bool named = any_of(report.findings.begin(), report.findings.end(),
+                              [&](const ValidationFinding& finding) { return finding.section == section; });
+    CHECK(named);
+    for (const ValidationFinding& finding : report.findings) CHECK(finding.section != "acceptance");
+    string error;
+    CHECK_FALSE(buildDelta(candidate, snapshot, profile, &error).has_value());
+    CHECK_FALSE(error.empty());
+    m5Evidence::note("expected", {"rejected before dispatch", "section " + section, "nothing committed"});
+}
+
+M5PolicyProfile uac06Policy() { return withAcceptance(syntheticProfile(), 40000.0, 3000.0); }
+
+void requireControlPasses(const M5PolicyProfile& profile) {
+    const M5LaneDateInput control = laneWith(fx30Units("u", 30), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(control).snapshot;
+    CandidatePlan full = oneTruck(control, 30);
+    full.validation = validateFinal(full, snapshot, profile, physicalSettings());
+    CHECK(full.validation->allPassed());
+    string error;
+    CHECK(buildDelta(full, snapshot, profile, &error).has_value());
+}
+
+}  // namespace
+
+TEST_CASE("U-AC-06/weightLimit40k: a 45,000 lb truck on a 40,000 lb trailer is rejected although it meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 1, {630.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap}), uac06Policy(),
+                              "physical");
+}
+
+TEST_CASE("U-AC-06/dimension: a 600 in load on a 599 in floor is rejected although it meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 1, {599.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap}), uac06Policy(),
+                              "physical");
+}
+
+TEST_CASE("U-AC-06/dueAfterPullOff: a unit due after D with pull-forward off is rejected although the truck meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
+    M5LaneDateInput dueLater = laneWith(fx30Units("u", 30), 1);
+    REQUIRE_FALSE(dueLater.dates.pullForward);
+    dueLater.atoms[4].components[0].dueDate = dayAfter(2);
+    requireHardConstraintWins(dueLater, uac06Policy(), "eligibility");
+    // An unavailable unit is the same kind of break.
     M5LaneDateInput unavailable = laneWith(fx30Units("u", 30), 1);
     unavailable.atoms[3].components[0].availableDate = dayAfter(1);
-    rejected(unavailable, full, "eligibility");
-    M5LaneDateInput dueLater = laneWith(fx30Units("u", 30), 1);
-    dueLater.atoms[4].components[0].dueDate = dayAfter(2);
-    rejected(dueLater, full, "eligibility");
+    requireHardConstraintWins(unavailable, uac06Policy(), "eligibility");
+}
+
+TEST_CASE("U-AC-06/mixedGroups: a truck mixing two do-not-mix groups is rejected although it meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
     M5LaneDateInput mixed = laneWith(fx30Units("u", 30), 1);
     mixed.atoms[5].group = "B";
-    rejected(mixed, full, "groups");
-    rejected(laneWith(fx30Units("u", 30), 0), full, "reservations");
+    requireHardConstraintWins(mixed, uac06Policy(), "groups");
 }
 
-TEST_CASE("U-AC-07 a repair clears stale acceptance; validation recomputes 3,000 cu ft exactly" * doctest::test_suite("m5")) {
+TEST_CASE("U-AC-06/zeroReservations: a truck with no reservation is rejected although it meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 0), uac06Policy(), "reservations");
+}
+
+TEST_CASE("U-AC-06/productionProfile: with acceptance OFF every hard-constraint break still rejects the truck" * doctest::test_suite("m5")) {
+    const M5PolicyProfile production = syntheticProfile();
+    requireControlPasses(production);
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 1, {630.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap}), production,
+                              "physical");
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 1, {599.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap}), production,
+                              "physical");
+    M5LaneDateInput dueLater = laneWith(fx30Units("u", 30), 1);
+    dueLater.atoms[4].components[0].dueDate = dayAfter(2);
+    requireHardConstraintWins(dueLater, production, "eligibility");
+    M5LaneDateInput mixed = laneWith(fx30Units("u", 30), 1);
+    mixed.atoms[5].group = "B";
+    requireHardConstraintWins(mixed, production, "groups");
+    requireHardConstraintWins(laneWith(fx30Units("u", 30), 0), production, "reservations");
+}
+
+namespace {
+
+// U-AC-07: 25 FX-30 units (37,500 lb, 3,125 cu ft, accepted on cube) lose one to a repair: 36,000 lb and
+// exactly 3,000 cu ft, which fails both strict branches.
+struct RepairedTruck {
+    M5LaneDateInput input = laneWith(fx30Units("u", 25), 1);
+    DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan accepted = oneTruck(input, 25);
+
+    explicit RepairedTruck(const M5PolicyProfile& profile) {
+        accepted.validation = validateFinal(accepted, snapshot, profile, physicalSettings());
+        REQUIRE(accepted.validation->allPassed());
+    }
+};
+
+double weightOf(const M5LaneDateInput& input, const TruckPlan& truck) {
+    double weight = 0.0;
+    for (const size_t atom : truck.atoms) weight += input.atoms[atom].weightLb;
+    return weight;
+}
+
+double cubeCuFtOf(const M5LaneDateInput& input, const TruckPlan& truck) {
+    double cube = 0.0;
+    for (const size_t atom : truck.atoms) cube += input.atoms[atom].floor.cubeCubicIn;
+    return cube / 1728.0;
+}
+
+// Every atom once: on a truck or in leftOver.
+void requireReconciled(const CandidatePlan& plan, size_t atoms) {
+    vector<int> seen(atoms, 0);
+    for (const TruckPlan& truck : plan.trucks) {
+        for (const size_t atom : truck.atoms) seen[atom] += 1;
+    }
+    for (const LeftOver& left : plan.leftOver) seen[left.atom] += 1;
+    CHECK(count(seen.begin(), seen.end(), 1) == static_cast<ptrdiff_t>(atoms));
+}
+
+RepairRun repairRemovingOne(const RepairedTruck& fixture, const M5PolicyProfile& profile, const StopCheck& stop) {
+    const auto comparator = makeComparator(ComparatorKind::M4Urgency, tieOrderFor(fixture.snapshot));
+    const UrgencyDomain domain(fixture.snapshot);
+    const RepairProposal removeOne = [](CandidatePlan& work, size_t) {
+        if (work.trucks.empty() || work.trucks[0].atoms.size() < 25) return false;
+        CandidateEditor(work).removeToLeftOver(0, work.trucks[0].atoms.back(), LeftOverCause::OverReservation);
+        return true;
+    };
+    return runRepair(fixture.accepted, fixture.snapshot, profile, physicalSettings(), *comparator, domain, removeOne, 1, stop);
+}
+
+}  // namespace
+
+TEST_CASE("U-AC-07/mutation: removing one of 25 units fails acceptance at 3,000 cu ft; stale flags cannot authorise it" * doctest::test_suite("m5")) {
     const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
-    const M5LaneDateInput input = laneWith(fx30Units("u", 25), 1);
-    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
-    CandidatePlan candidate = oneTruck(input, 25);
-    candidate.validation = validateFinal(candidate, snapshot, policy, physicalSettings());
-    REQUIRE(candidate.validation->allPassed());
-    const uint64_t before = candidate.revision;
-    CandidateEditor(candidate).removeToLeftOver(0, 24, LeftOverCause::OverReservation);
-    CHECK(candidate.revision == before + 1);
-    CHECK_FALSE(candidate.validation.has_value());
-    // A stale report restored by a fault cannot authorise the changed truck.
+    const RepairedTruck fixture(policy);
+    CHECK(weightOf(fixture.input, fixture.accepted.trucks[0]) == 37500.0);
+    CHECK(cubeCuFtOf(fixture.input, fixture.accepted.trucks[0]) == 3125.0);
+    CHECK(fixture.accepted.validation->acceptance == SectionStatus::Pass);
+
+    CandidatePlan mutated = fixture.accepted;
+    const uint64_t before = mutated.revision;
+    CandidateEditor(mutated).removeToLeftOver(0, 24, LeftOverCause::OverReservation);
+    CHECK(mutated.revision == before + 1);
+    CHECK_FALSE(mutated.validation.has_value());
+    CHECK(weightOf(fixture.input, mutated.trucks[0]) == 36000.0);
+    CHECK(cubeCuFtOf(fixture.input, mutated.trucks[0]) == 3000.0);
+    requireReconciled(mutated, 25);
+
+    storeRows(mutated, fixture.input);  // as runRepair re-stores the edited truck's rows
+    // The pre-mutation report put back by a fault cannot authorise the changed truck.
+    CandidatePlan stale = mutated;
+    stale.validation = fixture.accepted.validation;
     string error;
-    CandidatePlan stale = candidate;
-    stale.validation = validateFinal(oneTruck(input, 25), snapshot, policy, physicalSettings());
-    stale.validation->revision = before;
-    CHECK_FALSE(buildDelta(stale, snapshot, policy, &error).has_value());
-    const ValidationReport recomputed = validateFinal(candidate, snapshot, policy, physicalSettings());
+    CHECK_FALSE(buildDelta(stale, fixture.snapshot, policy, &error).has_value());
+    const ValidationReport recomputed = validateFinal(mutated, fixture.snapshot, policy, physicalSettings());
     CHECK(recomputed.acceptance == SectionStatus::Fail);
     CHECK(recomputed.conservation == SectionStatus::Pass);
+    CHECK(recomputed.physical == SectionStatus::Pass);
+    for (const ValidationFinding& finding : recomputed.findings) CHECK(finding.section == "acceptance");
+
+    // Through the repair loop: the mutated copy fails, so the independently valid 25-unit incumbent stays.
+    const RepairRun run = repairRemovingOne(fixture, policy, StopCheck());
+    REQUIRE(run.incumbent);
+    CHECK(run.incumbent->trucks[0].atoms.size() == 25);
+    REQUIRE(run.incumbent->validation);
+    CHECK(run.incumbent->validation->revision == run.incumbent->revision);
+    CHECK(validateFinal(*run.incumbent, fixture.snapshot, policy, physicalSettings()).allPassed());
+    m5Evidence::note("expected", {"25: 37,500 lb, 3,125 cu ft accepted", "24: 36,000 lb, 3,000 cu ft rejected",
+                                  "stale report refused", "valid incumbent kept"});
 }
 
-TEST_CASE("U-AC-08 acceptance is recomputed when the profile changes: A, B, A" * doctest::test_suite("m5")) {
+TEST_CASE("U-AC-07/interruptAfterMutation: a stop right after the mutation publishes no stale acceptance" * doctest::test_suite("m5")) {
+    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const RepairedTruck fixture(policy);
+    bool mutated = false;
+    const auto comparator = makeComparator(ComparatorKind::M4Urgency, tieOrderFor(fixture.snapshot));
+    const UrgencyDomain domain(fixture.snapshot);
+    const RepairProposal removeOne = [&](CandidatePlan& work, size_t) {
+        CandidateEditor(work).removeToLeftOver(0, work.trucks[0].atoms.back(), LeftOverCause::OverReservation);
+        mutated = true;
+        return true;
+    };
+    const StopCheck stopAfterMutation = [&] { return mutated; };
+    const RepairRun run =
+        runRepair(fixture.accepted, fixture.snapshot, policy, physicalSettings(), *comparator, domain, removeOne, 4, stopAfterMutation);
+    CHECK(mutated);
+    CHECK(run.iterations == 1);
+    // The 24-unit copy was never validated, so it is discarded; only the valid start can stand.
+    for (const uint64_t revision : run.checkedRevisions) CHECK(revision == fixture.accepted.revision);
+    REQUIRE(run.incumbent);
+    CHECK(run.incumbent->trucks[0].atoms.size() == 25);
+    CHECK(run.incumbent->leftOver.empty());
+    REQUIRE(run.incumbent->validation);
+    CHECK(run.incumbent->validation->revision == run.incumbent->revision);
+    string error;
+    CHECK(buildDelta(*run.incumbent, fixture.snapshot, policy, &error).has_value());
+    m5Evidence::note("expected", {"stopped after the mutation", "unvalidated copy discarded", "25-unit incumbent only"});
+}
+
+TEST_CASE("U-AC-07/productionProfile: a repair clears stale validation and fullness labels; both are recomputed" * doctest::test_suite("m5")) {
+    const M5PolicyProfile production = syntheticProfile();
+    const RepairedTruck fixture(production);
+    const vector<FullnessLabel> before = evaluateFullness(fixture.accepted, fixture.snapshot,
+                                                          remainingAfterSelected(fixture.snapshot, fixture.accepted), production,
+                                                          physicalSettings());
+    REQUIRE(before.size() == 1);
+    CHECK(before[0].rearInches == doctest::Approx(130.0));
+    CHECK(before[0].candidateRevision == fixture.accepted.revision);
+
+    CandidatePlan mutated = fixture.accepted;
+    CandidateEditor(mutated).removeToLeftOver(0, 24, LeftOverCause::OverReservation);
+    CHECK_FALSE(mutated.validation.has_value());
+    CHECK(before[0].candidateRevision != mutated.revision);
+    storeRows(mutated, fixture.input);  // as runRepair re-stores the edited truck's rows
+    const vector<FullnessLabel> after =
+        evaluateFullness(mutated, fixture.snapshot, remainingAfterSelected(fixture.snapshot, mutated), production, physicalSettings());
+    REQUIRE(after.size() == 1);
+    CHECK(after[0].candidateRevision == mutated.revision);
+    CHECK(after[0].rearInches == doctest::Approx(150.0));
+    CHECK(after[0].weightPercent == doctest::Approx(80.0));
+    CHECK(after[0].state == FullnessState::NotFull);
+    const ValidationReport recomputed = validateFinal(mutated, fixture.snapshot, production, physicalSettings());
+    CHECK(recomputed.allPassed());
+    CHECK(recomputed.acceptance == SectionStatus::NotApplicable);
+    CHECK(recomputed.revision == mutated.revision);
+    requireReconciled(mutated, 25);
+}
+
+namespace {
+
+// U-AC-08: the same 20-unit candidate (30,000 lb, 2,500 cu ft) under A (y 2,400) and B (y 3,000).
+struct ProfileRun {
+    bool accepted = false;
+    size_t shipped = 0;
+    string profileKey;
+};
+
+ProfileRun runUnder(double y, const string& profileId = "fx-synthetic", int revision = 1) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, y);
+    profile.profileId = profileId;
+    profile.profileRevision = revision;
+    ProfileRun run;
+    const ValidationReport report = validateFinal(oneTruck(input, 20), snapshot, profile, physicalSettings());
+    run.accepted = report.acceptance == SectionStatus::Pass;
+    run.profileKey = report.profileKey;
+    const M5LaneOutcome outcome = plan(input, profile);
+    run.shipped = shippedCount(outcome);
+    return run;
+}
+
+}  // namespace
+
+TEST_CASE("U-AC-08/ABAinProcess: A, B, A in one process give accepted, rejected, accepted" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
     const CandidatePlan candidate = oneTruck(input, 20);
     const M5PolicyProfile a = withAcceptance(syntheticProfile(), 40000.0, 2400.0);
     const M5PolicyProfile b = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
-    CHECK(validateFinal(candidate, snapshot, a, physicalSettings()).allPassed());
-    CHECK_FALSE(validateFinal(candidate, snapshot, b, physicalSettings()).allPassed());
-    CHECK(validateFinal(candidate, snapshot, a, physicalSettings()).allPassed());
+    vector<bool> verdicts;
+    vector<size_t> shipped;
+    vector<string> keys;
+    for (const M5PolicyProfile* profile : {&a, &b, &a}) {
+        const ValidationReport report = validateFinal(candidate, snapshot, *profile, physicalSettings());
+        CHECK(report.physical == SectionStatus::Pass);
+        verdicts.push_back(report.allPassed());
+        keys.push_back(report.profileKey);
+        shipped.push_back(shippedCount(plan(input, *profile)));
+    }
+    CHECK(verdicts == vector<bool>{true, false, true});
+    CHECK(shipped == vector<size_t>{20, 0, 20});
+    CHECK(keys[0] == keys[2]);
+    CHECK(keys[0] != keys[1]);
+    m5Evidence::note("expected", {"true", "false", "true"});
+}
+
+TEST_CASE("U-AC-08/freshProcess: each profile run from fresh state equals the in-process A, B, A results" * doctest::test_suite("m5")) {
+    // M5 keeps no process-wide state (no static or thread_local caches in src/m5*), so a run built from
+    // fresh input, snapshot and profile objects stands for a fresh process.
+    const ProfileRun freshA = runUnder(2400.0), freshB = runUnder(3000.0), freshAAgain = runUnder(2400.0);
+    CHECK(freshA.accepted);
+    CHECK_FALSE(freshB.accepted);
+    CHECK(freshAAgain.accepted);
+    CHECK(freshA.shipped == 20);
+    CHECK(freshB.shipped == 0);
+    CHECK(freshAAgain.shipped == 20);
+    CHECK(freshA.profileKey == freshAAgain.profileKey);
+    CHECK(freshA.profileKey != freshB.profileKey);
+    m5Evidence::note("expected", {"true", "false", "true", "fresh state, same binary"});
+}
+
+TEST_CASE("U-AC-08/sameIdRevision: revising one profile id's thresholds re-decides acceptance" * doctest::test_suite("m5")) {
+    const ProfileRun first = runUnder(2400.0, "customer-same", 1);
+    const ProfileRun revised = runUnder(3000.0, "customer-same", 2);
+    const ProfileRun restored = runUnder(2400.0, "customer-same", 3);
+    CHECK(first.accepted);
+    CHECK_FALSE(revised.accepted);
+    CHECK(restored.accepted);
+    CHECK(first.shipped == 20);
+    CHECK(revised.shipped == 0);
+    CHECK(restored.shipped == 20);
+    CHECK(first.profileKey != revised.profileKey);
+    CHECK(first.profileKey != restored.profileKey);
+    m5Evidence::note("expected", {"true", "false", "true", "keys differ by revision"});
+}
+
+TEST_CASE("U-AC-02/synthetic: of five trucks the failing second one is withheld; first, middle and last ship" * doctest::test_suite("m5")) {
+    // 130 FX-30 units on five slots arranged 30, 10, 30, 30, 30: only the 10-unit truck (15,000 lb,
+    // 1,250 cu ft) fails x = 40,000 lb / y = 3,000 cu ft.
+    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const M5LaneDateInput input = laneWith(fx30Units("u", 130), 5);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan candidate;
+    size_t next = 0;
+    for (const size_t carried : {30, 10, 30, 30, 30}) {
+        TruckPlan truck;
+        truck.slot = candidate.trucks.size();
+        truck.group = "A";
+        for (size_t unit = 0; unit < carried; ++unit) truck.atoms.push_back(next++);
+        candidate.trucks.push_back(truck);
+    }
+    storeRows(candidate, input);
+    const ValidationReport report = validateFinal(candidate, snapshot, policy, physicalSettings());
+    CHECK(report.acceptance == SectionStatus::Fail);
+    set<size_t> failing;
+    for (const ValidationFinding& finding : report.findings) {
+        CHECK(finding.section == "acceptance");
+        REQUIRE(finding.truck.has_value());
+        failing.insert(*finding.truck);
+    }
+    CHECK(failing == set<size_t>{1});
+
+    CandidateEditor(candidate).removeTruck(1, LeftOverCause::AcceptanceWithheld);
+    const ValidationReport after = validateFinal(candidate, snapshot, policy, physicalSettings());
+    CHECK(after.allPassed());
+    CHECK(candidate.trucks.size() == 4);
+    size_t shipped = 0;
+    for (const TruckPlan& truck : candidate.trucks) shipped += truck.atoms.size();
+    CHECK(shipped == 120);
+    CHECK(candidate.leftOver.size() == 10);
+    for (const LeftOver& left : candidate.leftOver) CHECK(left.cause == LeftOverCause::AcceptanceWithheld);
+    m5Evidence::note("expected", {"truck 2 of 5 withheld", "120 ship", "10 withheld"});
+}
+
+TEST_CASE("U-AC-03/synthetic: a failing truck in each of two groups fails on its own; groups are never mixed to pass" * doctest::test_suite("m5")) {
+    // Groups A and B each hold 40 FX-30 units: one full truck of 30 and one of 10 per group; each 10-unit
+    // truck fails, and A + B together (20 units) would still fail, so no mixing could pass either.
+    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A"), fx30Units("b", 40, "B")), 4);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan candidate;
+    for (const auto& [group, first, carried] : vector<tuple<string, size_t, size_t>>{{"A", 0, 30}, {"A", 30, 10}, {"B", 40, 30}, {"B", 70, 10}}) {
+        TruckPlan truck;
+        truck.slot = candidate.trucks.size();
+        truck.group = group;
+        for (size_t unit = 0; unit < carried; ++unit) truck.atoms.push_back(first + unit);
+        candidate.trucks.push_back(truck);
+    }
+    storeRows(candidate, input);
+    const ValidationReport report = validateFinal(candidate, snapshot, policy, physicalSettings());
+    set<size_t> failing;
+    for (const ValidationFinding& finding : report.findings) {
+        CHECK(finding.section == "acceptance");
+        REQUIRE(finding.truck.has_value());
+        failing.insert(*finding.truck);
+    }
+    CHECK(failing == set<size_t>{1, 3});
+    CHECK(report.groups == SectionStatus::Pass);
+
+    const M5LaneOutcome outcome = plan(input, policy);
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 2);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() == 30);
+        for (const size_t atom : truck.atoms) CHECK(input.atoms[atom].group == truck.group);
+    }
+    CHECK(shippedOfGroup(outcome, input, "A") == 30);
+    CHECK(shippedOfGroup(outcome, input, "B") == 30);
+    CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 20);
+    m5Evidence::note("expected", {"A: 30 ship, 10 withheld", "B: 30 ship, 10 withheld", "no mixed truck"});
 }
 
 TEST_CASE("U-AC-08 productionProfile: rear limits 14, 30, 14 give NOT FULL, FULL, NOT FULL" * doctest::test_suite("m5")) {

@@ -564,7 +564,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | X-META-01 | P0 | Every unordered multiset with repetition of 0 to 7 item occurrences, each size an integer from 1 to 6, capacity 6. Th... | M-OPT / TEST | WP9 | FX-COUNT generated | CORE | BRUTE + META | 01 10 18 19 | - | - | ciSubset (required, NOT_RUN); full (required, NOT_RUN) |
 | X-META-02 | P0 | Small exact case: multiply all sizes and capacity by 10, then 100 | M-OPT / TEST | WP9 | FX-COUNT generated | CORE | BRUTE + META | 01 10 18 19 | - | - | synthetic (required, NOT_RUN) |
-| X-META-03 | P1 | Shuffle input rows | M-ORC / M-ALC M-LED | WP9 | FX-30 / FX-COUNT | DIRECT | META | 01 12 13 18 | - | CL-02 | synthetic (required, NOT_RUN) |
+| X-META-03 | P1 | Shuffle input rows (Scoped to M5 input. Shuffling raw input-file rows changes results because M4 stacking follows file order (architecture 22.9); for Saif/Tom.) | M-ORC / M-ALC M-LED | WP9 | FX-30 / FX-COUNT | DIRECT | META | 01 12 13 18 | - | CL-02 | synthetic (required, NOT_RUN) |
 | X-META-04 | P0 | Split one line into two with the same total; merge back | M-ORC / M-ALC M-LED | WP9 | FX-30 / FX-COUNT | DIRECT | META | 01 12 13 18 | - | CL-02 | synthetic (required, NOT_RUN) |
 | X-META-05 | P0 | Rename products/groups/source lines without changing physical or priority data; include a tied-allocation case and a ... | M-ORC / M-ALC M-LED | WP9 | FX-30 / FX-COUNT | DIRECT | META | 01 12 13 18 | - | CL-02 | synthetic (required, NOT_RUN) |
 | X-META-06 | P0 | Copy a lane into a second, fully separate lane | M-ORC / M-ALC M-LED | WP9 | FX-30 / FX-COUNT | DIRECT | META | 01 12 13 18 | - | CL-02, ED-21 | synthetic (required, NOT_RUN) |

@@ -14083,7 +14083,7 @@
       "customerGate": "NOT_EVALUATED",
       "executionStatus": "NOT_RUN",
       "blocker": "",
-      "acceptanceGateNote": "",
+      "acceptanceGateNote": "Scoped to M5 input. Shuffling raw input-file rows changes results because M4 stacking follows file order (architecture 22.9); for Saif/Tom. Decision 2 (Mahib, 18 Nov 2026): the test shuffles one synthetic lane-date's M5 input (atoms and source lines); each atom keeps its own ID (never re-numbered by position); the same goods (by ID) ship and the truck count is the same.",
       "runnableAfter": "WP9",
       "variants": [
         {
@@ -14091,7 +14091,7 @@
           "requirement": "required",
           "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "Synthetic fixture variant; executable now",
+          "note": "Synthetic fixture variant; executable now. Scoped to M5 input. Shuffling raw input-file rows changes results because M4 stacking follows file order (architecture 22.9); for Saif/Tom.",
           "evidenceScope": "SYNTHETIC",
           "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. Synthetic fixture variant; executable now",
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."

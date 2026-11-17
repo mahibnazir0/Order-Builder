@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 
 using namespace std;
 using namespace ob::m5;
@@ -223,6 +224,36 @@ TEST_CASE("U-AC-05 productionProfile: a floor-full display truck ships; the x/y-
     REQUIRE(production.fullness.size() == 1);
     CHECK(production.fullness.front().byFloorLimit);
     CHECK(shippedCount(plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0))) == 0);
+}
+
+TEST_CASE("U-AC-05/synthetic: 30 floor-full displays below x/y are withheld; floor fullness is no override" * doctest::test_suite("m5")) {
+    vector<Atom> displays;
+    for (int unit = 0; unit < 30; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
+    const M5LaneDateInput input = laneWith(displays, 1);
+    vector<size_t> all(input.atoms.size());
+    iota(all.begin(), all.end(), size_t{0});
+    // The truck is legal and floor-full: one display per position, none stacked, 600 in of the 630 in floor.
+    const PhysicalCheck floorFull = checkTruck(input, all, kDefaultTrailer, physicalSettings());
+    REQUIRE(floorFull.fits);
+    CHECK(floorFull.layout.positions == 30);
+    CHECK(floorFull.layout.usedLengthIn == doctest::Approx(600.0));
+    double weight = 0.0, cube = 0.0;
+    for (const Atom& atom : input.atoms) {
+        CHECK(atom.floor.levels == 1);
+        weight += atom.weightLb;
+        cube += atom.floor.cubeCubicIn;
+    }
+    CHECK(weight == 24000.0);
+    CHECK(cube == 2'880'000.0);
+    const AcceptanceDecision decision = evaluateAcceptance(weight, cube, NumericAcceptance{40000.0, 3000.0});
+    CHECK_FALSE(decision.byWeight);
+    CHECK_FALSE(decision.byCube);
+
+    const M5LaneOutcome withheld = plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0));
+    CHECK(shippedCount(withheld) == 0);
+    CHECK(withheld.leftOver.size() == 30);
+    for (const LeftOver& left : withheld.leftOver) CHECK(left.cause == LeftOverCause::AcceptanceWithheld);
+    m5Evidence::note("expected", {"withheld", "30 positions, 600 in", "24,000 lb", "1,666.67 cu ft"});
 }
 
 TEST_CASE("X-E2E-09 30 displays: exact cube 5000/3 cu ft; y = 3,000 withholds, y = 1,000 dispatches" * doctest::test_suite("m5")) {

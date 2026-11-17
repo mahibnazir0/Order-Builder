@@ -40,22 +40,149 @@ void requireRejected(json block, const string& why) {
 
 }  // namespace
 
-TEST_CASE("U-AC-01 acceptance is strict on both branches" * doctest::test_suite("m5")) {
+TEST_CASE("U-AC-01/synthetic: of the four trucks only 40,001 lb and 3,000.1 cu ft are accepted" * doctest::test_suite("m5")) {
     const NumericAcceptance rule{40000.0, 3000.0};
     const double cubicInchesPerCubicFoot = 1728.0;
-    CHECK_FALSE(evaluateAcceptance(40000.0, 2000.0 * cubicInchesPerCubicFoot, rule).accepted);
-    CHECK(evaluateAcceptance(40001.0, 2000.0 * cubicInchesPerCubicFoot, rule).accepted);
-    CHECK_FALSE(evaluateAcceptance(20000.0, 3000.0 * cubicInchesPerCubicFoot, rule).accepted);
-    CHECK(evaluateAcceptance(20000.0, 3000.1 * cubicInchesPerCubicFoot, rule).accepted);
+    const AcceptanceDecision atWeight = evaluateAcceptance(40000.0, 2000.0 * cubicInchesPerCubicFoot, rule);
+    CHECK_FALSE(atWeight.byWeight);
+    CHECK_FALSE(atWeight.byCube);
+    CHECK_FALSE(atWeight.accepted);
+    const AcceptanceDecision overWeight = evaluateAcceptance(40001.0, 2000.0 * cubicInchesPerCubicFoot, rule);
+    CHECK(overWeight.byWeight);
+    CHECK_FALSE(overWeight.byCube);
+    CHECK(overWeight.accepted);
+    const AcceptanceDecision atCube = evaluateAcceptance(20000.0, 3000.0 * cubicInchesPerCubicFoot, rule);
+    CHECK_FALSE(atCube.byCube);
+    CHECK_FALSE(atCube.accepted);
+    const AcceptanceDecision overCube = evaluateAcceptance(20000.0, 3000.1 * cubicInchesPerCubicFoot, rule);
+    CHECK_FALSE(overCube.byWeight);
+    CHECK(overCube.byCube);
+    CHECK(overCube.accepted);
+    m5Evidence::note("expected", {"40000/2000 no", "40001/2000 yes", "20000/3000 no", "20000/3000.1 yes"});
 }
 
-TEST_CASE("U-AC-09 acceptance keeps distinctions finer than 0.001" * doctest::test_suite("m5")) {
-    const NumericAcceptance rule{40000.0, 3000.0};
-    CHECK(evaluateAcceptance(40000.0001, 0.0, rule).byWeight);
-    CHECK_FALSE(evaluateAcceptance(40000.0, 0.0, rule).byWeight);
-    const double exactlyY = 3000.0 * 1728.0;
-    CHECK_FALSE(evaluateAcceptance(0.0, exactlyY, rule).byCube);
-    CHECK(evaluateAcceptance(0.0, exactlyY + 0.0001, rule).byCube);
+TEST_CASE("U-AC-01/productionProfile: no acceptance block is valid and OFF; a malformed one is still refused" * doctest::test_suite("m5")) {
+    json block = productionBlock();
+    const M5PolicyProfile profile = loadProfile(block);
+    CHECK_FALSE(profile.acceptance.has_value());
+    CHECK(profile.profileId == "customer2-production");
+    block["acceptance"] = json::array({40000, 3000});
+    requireRejected(block, "acceptance given as an array");
+    block["acceptance"] = {{"weightLb", 40000}, {"cubeCuFt", "3000"}};
+    requireRejected(block, "y as text");
+    // The predicate is not consulted: a 20,000 lb, 2,000 cu ft truck ships with the production profile.
+    const M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 16), 1);
+    M5PolicyProfile production = m5Fixtures::syntheticProfile();
+    production.acceptance = profile.acceptance;
+    CHECK(m5Fixtures::shippedCount(m5Fixtures::plan(input, production)) == 16);
+    m5Evidence::note("expected", {"absent block valid, policy OFF", "malformed block refused", "16 of 16 ship"});
+}
+
+TEST_CASE("U-AC-04/valuesAndMalformed: x and y are read, change the verdict, and bad values are errors" * doctest::test_suite("m5")) {
+    json block = productionBlock();
+    const auto acceptanceOf = [&](double x, double y) {
+        block["acceptance"] = {{"weightLb", x}, {"cubeCuFt", y}};
+        const M5PolicyProfile profile = loadProfile(block);
+        REQUIRE(profile.acceptance.has_value());
+        CHECK(profile.acceptance->weightLb == x);
+        CHECK(profile.acceptance->cubeCuFt == y);
+        return *profile.acceptance;
+    };
+    // The same 30,000 lb, 2,500 cu ft truck under three declared thresholds.
+    const double weight = 30000.0, cube = 2500.0 * 1728.0;
+    CHECK(evaluateAcceptance(weight, cube, acceptanceOf(40000, 2400)).accepted);
+    CHECK_FALSE(evaluateAcceptance(weight, cube, acceptanceOf(40000, 3000)).accepted);
+    CHECK(evaluateAcceptance(weight, cube, acceptanceOf(29999.5, 3000)).accepted);
+    const string configKey = loadProfile(block).key();
+    CHECK(acceptanceOf(40000, 3000).cubeCuFt == 3000.0);
+    CHECK(loadProfile(block).key() != configKey);
+
+    const double infinity = numeric_limits<double>::infinity(), notANumber = numeric_limits<double>::quiet_NaN();
+    block["acceptance"] = {{"cubeCuFt", 3000}};
+    requireRejected(block, "x missing");
+    block["acceptance"] = {{"weightLb", 40000}};
+    requireRejected(block, "y missing");
+    block["acceptance"] = json::object();
+    requireRejected(block, "both missing");
+    for (const pair<json, json>& bad : {pair<json, json>{"40000", 3000}, {40000, true}, {json::array({40000}), 3000},
+                                        {notANumber, 3000}, {40000, notANumber}, {infinity, 3000}, {40000, -infinity},
+                                        {1e300, 3000}, {40000, 1e300}}) {
+        block["acceptance"] = {{"weightLb", bad.first}, {"cubeCuFt", bad.second}};
+        requireRejected(block, "acceptance " + block["acceptance"].dump());
+    }
+    // A literal beyond double range overflows: the profile text is refused, never read as a default.
+    const string overflowing = R"({"weightLb": 1e400, "cubeCuFt": 3000})";
+    bool refused = false;
+    try {
+        block["acceptance"] = json::parse(overflowing);
+        (void)loadProfile(block);
+    } catch (const exception&) {
+        refused = true;
+    }
+    CHECK(refused);
+    m5Evidence::note("expected", {"40000/2400 accept", "40000/3000 reject", "29999.5/3000 accept",
+                                  "missing, malformed, NaN, infinity, overflow refused"});
+}
+
+namespace {
+
+// U-AC-09's binary-exact neighbours of the thresholds: 1/4096 cu ft and 1/256 lb.
+constexpr double kCubeGrainCuFt = 1.0 / 4096.0;
+constexpr double kWeightGrainLb = 1.0 / 256.0;
+const NumericAcceptance kSubGrainRule{40000.0, 3000.0};
+
+bool acceptedByCube(double cubeCuFt) {
+    const AcceptanceDecision result = evaluateAcceptance(20000.0, cubeCuFt * 1728.0, kSubGrainRule);
+    CHECK_FALSE(result.byWeight);
+    CHECK(result.byCube == result.accepted);
+    return result.accepted;
+}
+
+bool acceptedByWeight(double weightLb) {
+    const AcceptanceDecision result = evaluateAcceptance(weightLb, 2000.0 * 1728.0, kSubGrainRule);
+    CHECK_FALSE(result.byCube);
+    CHECK(result.byWeight == result.accepted);
+    return result.accepted;
+}
+
+}  // namespace
+
+TEST_CASE("U-AC-09/cubeBelow: 3,000 - 1/4096 cu ft is not accepted" * doctest::test_suite("m5")) {
+    CHECK(3000.0 - kCubeGrainCuFt == 2999.999755859375);
+    CHECK_FALSE(acceptedByCube(3000.0 - kCubeGrainCuFt));
+}
+
+TEST_CASE("U-AC-09/cubeEqual: exactly 3,000 cu ft is not accepted (strict)" * doctest::test_suite("m5")) {
+    CHECK_FALSE(acceptedByCube(3000.0));
+}
+
+TEST_CASE("U-AC-09/cubeAbove: 3,000 + 1/4096 cu ft is accepted although it prints as 3,000.000" * doctest::test_suite("m5")) {
+    CHECK(3000.0 + kCubeGrainCuFt == 3000.000244140625);
+    CHECK(acceptedByCube(3000.0 + kCubeGrainCuFt));
+}
+
+TEST_CASE("U-AC-09/weightBelow: 40,000 - 1/256 lb is not accepted" * doctest::test_suite("m5")) {
+    CHECK_FALSE(acceptedByWeight(40000.0 - kWeightGrainLb));
+}
+
+TEST_CASE("U-AC-09/weightEqual: exactly 40,000 lb is not accepted (strict)" * doctest::test_suite("m5")) {
+    CHECK_FALSE(acceptedByWeight(40000.0));
+}
+
+TEST_CASE("U-AC-09/weightAbove: 40,000 + 1/256 lb is accepted" * doctest::test_suite("m5")) {
+    CHECK(acceptedByWeight(40000.0 + kWeightGrainLb));
+}
+
+TEST_CASE("U-AC-09/policyOff: with acceptance OFF the same sub-grain trucks all ship" * doctest::test_suite("m5")) {
+    // Policy OFF: no predicate, so a truck below, at or above the thresholds ships alike.
+    const M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 20), 1);
+    const M5PolicyProfile off = m5Fixtures::syntheticProfile();
+    REQUIRE_FALSE(off.acceptance.has_value());
+    const M5LaneOutcome outcome = m5Fixtures::plan(input, off);
+    CHECK(m5Fixtures::shippedCount(outcome) == 20);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == SectionStatus::NotApplicable);
 }
 
 TEST_CASE("X-REPORT-04 cube decides at full precision beside y = 3,300 cu ft" * doctest::test_suite("m5")) {
