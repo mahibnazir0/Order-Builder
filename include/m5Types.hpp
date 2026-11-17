@@ -74,6 +74,9 @@ struct TrailerCapability {
     double widthIn = 0.0;
     double heightIn = 0.0;
     double maxWeightLb = 0.0;
+    // Whole component unit loads this slot may carry (ED-20, R-9): the slot's own limit, never a
+    // universal 64. Zero means none was supplied, which is a configuration error, not "no cap".
+    std::int64_t maxUnitLoads = 0;
     std::string signature() const;  // equal capabilities share patterns and supplies
 };
 

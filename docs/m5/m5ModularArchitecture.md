@@ -1914,3 +1914,14 @@ and per-PR reports stay in the build folder; `docs/m5/m5RepoInventory.md` holds 
 | D5 | Evidence records are written by every run into `<build>/m5Evidence/<commit>/` (`<commit>-dirty` for a build with changes not committed), attached to deliveries, never committed | `tests/m5/support/m5Evidence.hpp`, listener `tests/m5/m5EvidenceListener.cpp`; status entry `m5EvidenceStatus`; gate `ob_tests -tc="m5Acceptance*" --no-skip` (X-RUN-09) |
 | D6 | The 40-minute benchmark runs only in the final real-data PR (or on request), alone, on mains power | - |
 | D7 | Client-visible clean-up of earlier milestones is the repository owner's; M5 changes add no such content | - |
+
+ED-20 as implemented (PR-5): `TrailerCapability::maxUnitLoads` (signed 64-bit, 1 to 2^63 - 1) is the
+slot's own cap and part of its signature, so snapshot identity, validation currency and the pattern
+cache key all change with it. `m5UnitLoads` parses the cap exactly (text, JSON integer, or a number
+read as a double) and counts unit loads as whole hundredths with checked sums; `checkTruck` compares
+the components' total with the cap exactly. A slot with no usable cap gives a named
+ConfigurationIncomplete before planning; integration replicates the validated M4
+`selection.maxUnitLoadsPerTruck` onto every slot. At the direct seam, slots may differ in cap only
+(any other difference stays refused, C9): methods plan truck t for the t-th slot, largest cap first,
+and assembly gives the truck with the most unit loads the roomiest slot. The truck-count bound also
+counts whole atoms, ceil(atoms / floor(cap / smallest atom)). Tests: `tests/m5/testM5UnitLoadCap.cpp`.

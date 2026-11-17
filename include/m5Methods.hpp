@@ -75,10 +75,10 @@ public:
 // alone, and - with can-go fill off - due by the departure.
 std::vector<std::size_t> rankedCandidates(const MethodContext& context, const GroupId& group);
 
-// The L1 bound on the trucks `atoms` need on floor area, payload and the unit-load cap: no packing
-// of them uses fewer (Section 8.2). A bound of the capacity-only model, never a layout.
-long long trucksAtLeast(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms,
-                        const TrailerCapability& capability, const PhysicalSettings& physical);
+// The bound on the trucks `atoms` need on floor area, payload and the unit-load cap, the last also
+// counting whole atoms (a cap of 5 holds two atoms of 2 unit loads, not 2.5): no packing of them uses
+// fewer (Section 8.2). A bound of the capacity-only model, never a layout or a certificate of one.
+long long trucksAtLeast(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms, const TrailerCapability& capability);
 
 // Pattern copies: min(stock / patternSize, slots), checked. Zero for an empty pattern or no stock
 // (X-PAT-01, X-PAT-03); counts past 2^62 are refused rather than wrapped (X-PAT-04).

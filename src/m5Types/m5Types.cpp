@@ -23,7 +23,7 @@ string LaneKey::text() const { return origin + " -> " + destination + " " + ship
 string TrailerCapability::signature() const {
     // Hex floats print every bit, so two capabilities share a signature only when equal.
     ostringstream out;
-    out << hexfloat << lengthIn << 'x' << widthIn << 'x' << heightIn << '/' << maxWeightLb;
+    out << hexfloat << lengthIn << 'x' << widthIn << 'x' << heightIn << '/' << maxWeightLb << "/units" << maxUnitLoads;
     return out.str();
 }
 

@@ -93,7 +93,8 @@ vector<m5::M5LaneDateInput> laneDates(const PipelineResult& run, const m5::LaneK
     for (const string& date : dates) {
         const optional<LargeLaneRequest> request = m5::forcedRequest(run, run.laneClassification, lane, date);
         if (!request) continue;
-        inputs.push_back(m5::gatherLaneDate(*request, run, run.selectionItems, shippedDateRules(run), nullopt));
+        inputs.push_back(m5::gatherLaneDate(*request, run, run.selectionItems, shippedDateRules(run), nullopt,
+                                                  run.selectionParams.selector.maxUnitLoadsPerTruck));
     }
     return inputs;
 }

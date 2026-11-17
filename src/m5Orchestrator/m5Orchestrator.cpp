@@ -2,7 +2,11 @@
 #include "m5Repair.hpp"
 #include "m5Solver.hpp"
 
+#include "m5UnitLoads.hpp"
+
 #include <algorithm>
+#include <limits>
+#include <numeric>
 #include <set>
 
 using namespace std;
@@ -26,13 +30,6 @@ M5LaneOutcome leftOverAll(const M5LaneDateInput& input, LeftOverCause cause, Out
     outcome.reservedTrucks = static_cast<long long>(input.pool.slots.size());
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) outcome.leftOver.push_back({atom, cause});
     return outcome;
-}
-
-bool oneTrailer(const ReservationPool& pool) {
-    for (const TrailerCapability& slot : pool.slots) {
-        if (slot.signature() != pool.slots.front().signature()) return false;
-    }
-    return true;
 }
 
 bool isRequired(const Atom& atom) {
@@ -59,17 +56,35 @@ CandidatePlan assemble(const DemandSnapshot& snapshot, MethodId method, const Al
     plan.method = method;
     const vector<TrailerCapability>& slots = snapshot.input.pool.slots;
     vector<char> shipped(snapshot.input.atoms.size(), 0);
+    vector<Truck> chosenTrucks;
+    vector<size_t> groupOfTruck;
     for (size_t group = 0; group < allocation.chosen.size(); ++group) {
         for (const Truck& atoms : allocation.chosen[group]) {
             if (atoms.empty()) continue;
-            TruckPlan truck;
-            truck.slot = plan.trucks.size();
-            truck.group = snapshot.groups[group];
-            truck.atoms = atoms;
-            truck.layout = checkTruck(snapshot.input, atoms, slots[truck.slot], physical).layout;
-            for (const size_t atom : atoms) shipped[atom] = 1;
-            plan.trucks.push_back(std::move(truck));
+            chosenTrucks.push_back(atoms);
+            groupOfTruck.push_back(group);
         }
+    }
+    // Slots that differ in cap: the truck holding the most unit loads takes the roomiest slot, so a cap
+    // follows its slot and a smaller one never receives a load planned for a larger (ED-20). One
+    // trailer for all: the slots in order, as before.
+    vector<size_t> truckOrder(chosenTrucks.size());
+    iota(truckOrder.begin(), truckOrder.end(), size_t{0});
+    const vector<size_t> slotOrder = slotsBestFirst(snapshot.input.pool);
+    const bool sameCap = slotsAreAlike(snapshot.input.pool);
+    if (!sameCap) {
+        vector<int64_t> loadOf;
+        for (const Truck& atoms : chosenTrucks) loadOf.push_back(unitLoadHundredthsOfAtoms(snapshot.input, atoms).value_or(numeric_limits<int64_t>::max()));
+        stable_sort(truckOrder.begin(), truckOrder.end(), [&](size_t left, size_t right) { return loadOf[left] > loadOf[right]; });
+    }
+    for (size_t rank = 0; rank < truckOrder.size(); ++rank) {
+        TruckPlan truck;
+        truck.slot = sameCap || rank >= slotOrder.size() ? rank : slotOrder[rank];
+        truck.group = snapshot.groups[groupOfTruck[truckOrder[rank]]];
+        truck.atoms = chosenTrucks[truckOrder[rank]];
+        if (truck.slot < slots.size()) truck.layout = checkTruck(snapshot.input, truck.atoms, slots[truck.slot], physical).layout;
+        for (const size_t atom : truck.atoms) shipped[atom] = 1;
+        plan.trucks.push_back(std::move(truck));
     }
     // With the optional policy on, a good left while slots stay empty was withheld for it.
     const bool slotsLeft = plan.trucks.size() < slots.size();
@@ -101,7 +116,10 @@ optional<CandidatePlan> repairOnce(const CandidatePlan& failed, const DemandSnap
         CandidateEditor editor(work);
         for (auto truck = broken.rbegin(); truck != broken.rend(); ++truck) editor.removeTruck(*truck, LeftOverCause::OverReservation);
     }
-    for (size_t truck = 0; truck < work.trucks.size(); ++truck) work.trucks[truck].slot = truck;
+    // A truck keeps its own slot where the caps differ: the cap belongs to the slot (ED-20).
+    if (slotsAreAlike(snapshot.input.pool)) {
+        for (size_t truck = 0; truck < work.trucks.size(); ++truck) work.trucks[truck].slot = truck;
+    }
     work.validation = validateFinal(work, snapshot, profile, physical, stop);
     if (!work.validation->allPassed()) return nullopt;
     return work;
@@ -130,14 +148,21 @@ M5LaneOutcome configurationIncomplete(const M5LaneDateInput& input, const string
 
 M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& profile, const PhysicalSettings& physical,
                            const M5RunServices& services) {
+    for (size_t slot = 0; slot < input.pool.slots.size(); ++slot) {
+        if (input.pool.slots[slot].maxUnitLoads < 1) {
+            return configurationIncomplete(input, "reserved slot " + to_string(slot)
+                                                      + " has no unit-load cap: a whole number from 1 to 9223372036854775807 is "
+                                                        "required, and none is assumed (ED-20)");
+        }
+    }
     SnapshotBuild build = buildSnapshot(input);
     if (!build.snapshot) {
         return leftOverAll(input, LeftOverCause::InvalidInput, OutcomeKind::InvalidInput, StopReason::InputInvalid, build.errors);
     }
-    if (!oneTrailer(input.pool)) {
+    if (!input.pool.slots.empty() && !slotsDifferOnlyInCap(input.pool)) {
         return leftOverAll(input, LeftOverCause::InvalidInput, OutcomeKind::InvalidInput, StopReason::InputInvalid,
-                           {"the reserved slots carry different trailers: the reservation feed has no per-truck trailer, so "
-                            "M5 plans one trailer per lane-date (open item C9)"});
+                           {"the reserved slots carry different trailer sizes or payloads: the reservation feed has no per-truck "
+                            "trailer, so M5 plans one trailer per lane-date; only the unit-load cap may differ by slot (open item C9)"});
     }
     const DemandSnapshot& snapshot = *build.snapshot;
     const size_t slotCount = input.pool.slots.size();
@@ -164,9 +189,11 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
 
     vector<char> unfittable(input.atoms.size(), 0);
     size_t eligibleFitting = 0, requiredFitting = 0;
+    const size_t bestSlot = slotCount > 0 ? slotsBestFirst(input.pool).front() : 0;
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
         if (!snapshot.eligibility[atom].eligible) continue;
-        if (slotCount > 0 && !checkTruck(input, {atom}, input.pool.slots.front(), physical).fits) {
+        // Fits a slot alone: the roomiest, since slots differ only in cap.
+        if (slotCount > 0 && !checkTruck(input, {atom}, input.pool.slots[bestSlot], physical).fits) {
             unfittable[atom] = 1;
             continue;
         }
@@ -259,7 +286,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
             // A's count against the bound, on the same goods: only when A shipped all of them.
             long long bound = 0;
             for (const GroupId& group : snapshot.groups) {
-                bound += trucksAtLeast(input, rankedCandidates(context, group), input.pool.slots.front(), physical);
+                bound += trucksAtLeast(input, rankedCandidates(context, group), input.pool.slots[bestSlot]);
             }
             outcome.escalation.bound = bound;
             size_t shippedAtoms = 0;

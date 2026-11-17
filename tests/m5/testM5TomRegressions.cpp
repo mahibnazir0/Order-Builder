@@ -7,6 +7,7 @@
 // compared with their recorded SHA-256 before use.
 #include "doctest.h"
 #include "json.hpp"
+#include "m5UnitLoads.hpp"
 #include "shipDatePlanner.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
@@ -335,14 +336,9 @@ ob::m5::M5LaneDateInput m5InputOf(const Scenario& scenario) {
         atom.components.push_back(component);
         atoms.push_back(atom);
     }
-    const ob::m5::TrailerCapability trailer{scenario.lengthIn, scenario.widthIn, scenario.heightIn, scenario.payloadLb};
+    const ob::m5::TrailerCapability trailer{scenario.lengthIn, scenario.widthIn, scenario.heightIn, scenario.payloadLb,
+                                            ob::m5::unitLoadCapFromNumber(scenario.unitLoadCap).value.value_or(0)};
     return m5Fixtures::laneWith(atoms, 1, trailer);
-}
-
-ob::m5::PhysicalSettings m5PhysicalOf(const Scenario& scenario) {
-    ob::m5::PhysicalSettings physical = m5Fixtures::physicalSettings();
-    physical.maxUnitLoadsPerTruck = scenario.unitLoadCap;
-    return physical;
 }
 
 struct M5Run {
@@ -354,7 +350,7 @@ struct M5Run {
 M5Run runM5(const Scenario& scenario) {
     M5Run run;
     run.input = m5InputOf(scenario);
-    const ob::m5::PhysicalSettings physical = m5PhysicalOf(scenario);
+    const ob::m5::PhysicalSettings physical = m5Fixtures::physicalSettings();
     m5Fixtures::FakeClock clock;
     const ob::m5::M5RunServices services(clock);
     run.outcome = ob::m5::planLaneDate(run.input, m5Fixtures::syntheticProfile(), physical, services);
@@ -808,7 +804,26 @@ TEST_CASE("R-9/m5Path: the unit-load cap 64 gives 64 and 68 gives 68 through the
         CHECK(run.verdict.weightLb == 500.0 * bound);
         actual.push_back({{"cap", cap}, {"bound", bound}, {"referenceLengthIn", reference[row].at("length")}, {"verdict", verdictJson(run.verdict)}});
     }
-    m5Evidence::note("expected", {{"cap64", 64}, {"cap68", 68}});
-    m5Evidence::note("notCovered", "missing or non-positive cap fails before planning: needs the per-slot cap of ED-20 (PR-5)");
-    m5Evidence::note("actual", actual);
+    // A missing, non-positive or invalid cap fails before planning, with nothing planned or committed: the
+    // configured value is converted as gatherLaneDate converts it, and an unusable one leaves the slot uncapped.
+    json refused = json::array();
+    for (const double badCap : {0.0, -64.0, 64.5, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity()}) {
+        Scenario scenario = capacityScenario(64.0);
+        scenario.unitLoadCap = badCap;
+        const ob::m5::M5LaneDateInput input = m5InputOf(scenario);
+        CHECK(input.pool.slots.front().maxUnitLoads == 0);
+        m5Fixtures::FakeClock clock;
+        const ob::m5::M5RunServices services(clock);
+        const ob::m5::M5LaneOutcome outcome =
+            ob::m5::planLaneDate(input, m5Fixtures::syntheticProfile(), m5Fixtures::physicalSettings(), services);
+        CHECK(outcome.kind == ob::m5::OutcomeKind::ConfigurationIncomplete);
+        CHECK_FALSE(outcome.selected);
+        CHECK_FALSE(outcome.delta);
+        CHECK(outcome.leftOver.size() == input.atoms.size());
+        CHECK_FALSE(outcome.findings.empty());
+        refused.push_back({{"cap", std::isfinite(badCap) ? json(badCap) : json(std::isnan(badCap) ? "NaN" : "infinity")},
+                           {"outcome", ob::m5::outcomeKindName(outcome.kind)}});
+    }
+    m5Evidence::note("expected", {{"cap64", 64}, {"cap68", 68}, {"invalidCaps", "configuration incomplete before planning"}});
+    m5Evidence::note("actual", {{"caps", actual}, {"invalidCaps", refused}});
 }

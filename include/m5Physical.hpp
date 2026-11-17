@@ -29,7 +29,6 @@ namespace m5 {
 
 struct PhysicalSettings {
     FloorPatternSettings floor;
-    std::optional<double> maxUnitLoadsPerTruck;
     // Row groupings one packing check may search. Final validation searches with floor's own
     // limit; a packing refusal under this smaller one only costs fill, never a wrong truck.
     long long searchStatesPerPackingCheck = 20000;
@@ -39,6 +38,16 @@ struct PhysicalSettings {
 
 TrailerSpec trailerOf(const TrailerCapability& capability);
 
+// The slots' indices with the largest unit-load cap first, ties in the pool's own order. Truck t of a
+// plan is built for the t-th of them, so a cap travels with its slot, never with an array position.
+std::vector<std::size_t> slotsBestFirst(const ReservationPool& pool);
+
+// True when every slot has the same trailer, payload and cap.
+bool slotsAreAlike(const ReservationPool& pool);
+
+// True when the slots share one trailer's size and payload, whatever their unit-load caps (ED-20).
+bool slotsDifferOnlyInCap(const ReservationPool& pool);
+
 struct PhysicalCheck {
     bool fits = false;
     bool undecided = false;              // refused only because the row search ran out of states
@@ -46,8 +55,9 @@ struct PhysicalCheck {
     FloorLayout layout;                  // indices are positions in the atoms checked
 };
 
-// The atoms (indices into input.atoms) as one truck on `capability`. A null budget searches with
-// the floor settings' own state limit.
+// The atoms (indices into input.atoms) as one truck on `capability`: its size, payload and unit-load
+// cap (whole counts, checked, compared exactly), then its floor rows. A null budget searches with the
+// floor settings' own state limit.
 PhysicalCheck checkTruck(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms,
                          const TrailerCapability& capability, const PhysicalSettings& settings,
                          FloorSearchBudget* budget = nullptr);
@@ -73,7 +83,9 @@ struct WitnessMeasure {
 WitnessMeasure measureSuppliedWitness(const std::vector<PlacedRectangle>& placed, const TrailerCapability& capability);
 
 // Atoms physically alike - footprint, height, levels, weight and unit loads to the bit - share a
-// class: one that does not fit a truck, its twin does not either.
+// class: one that does not fit a truck, its twin does not either. The class signature names the atom's
+// content, so it is the same in every lane-date.
+std::string classSignatureOf(const Atom& atom);
 std::vector<std::size_t> physicalClassOf(const M5LaneDateInput& input);
 
 // The most copies of `prototype` that fit one truck on `capability`, at most `available`. Zero when
@@ -102,28 +114,29 @@ void fillTruck(const M5LaneDateInput& input, const std::vector<std::size_t>& cla
                const std::vector<std::size_t>& ranked, std::vector<char>& placed, const TrailerCapability& capability,
                const PhysicalSettings& settings, const StopCheck& stop);
 
-// Truck after truck, each filled most urgent first, up to maxTrucks: the first k trucks of the
-// result are this packing's best plan for k trucks. Atoms that fit no truck alone are skipped.
+// Truck after truck, each filled most urgent first, truck t for slots[t] and at most slots.size()
+// trucks: the first k trucks of the result are this packing's best plan for k trucks. Atoms that fit
+// no truck alone are skipped.
 std::vector<std::vector<std::size_t>> packByUrgency(const M5LaneDateInput& input, const std::vector<std::size_t>& ranked,
-                                                    const TrailerCapability& capability, const PhysicalSettings& settings,
-                                                    std::size_t maxTrucks, const StopCheck& stop);
+                                                    const std::vector<TrailerCapability>& slots, const PhysicalSettings& settings,
+                                                    const StopCheck& stop);
 
 // The atom as M4's packers see it, ranked by its most urgent line under the lane's past-due order.
 KnapsackItem knapsackItemOf(const M5LaneDateInput& input, std::size_t atom);
 
-// M4's knapsack truck after truck (selectNextTruck), each truck judged by checkTruck on
-// `capability`, so each is the best load of what is left that M4's search can prove. Empty when
-// M4's packer cannot count the goods on its grains.
+// M4's knapsack truck after truck (selectNextTruck), truck t judged by checkTruck on slots[t], so each
+// is the best load of what is left that M4's search can prove. Empty when M4's packer cannot count the
+// goods on its grains.
 std::vector<std::vector<std::size_t>> packByKnapsack(const M5LaneDateInput& input, const std::vector<std::size_t>& ranked,
-                                                     const TrailerCapability& capability, const PhysicalSettings& settings,
-                                                     std::size_t maxTrucks);
+                                                     const std::vector<TrailerCapability>& slots, const PhysicalSettings& settings);
 
 // M4's binPacker (branch and price, first-fit decreasing past its item limit) on floor area and
 // payload, then each truck trimmed least urgent first until checkTruck passes, then refilled from
-// `ranked`. The careful method for one block.
+// `ranked`. The careful method for one block. Slots that differ in unit-load cap are packed in order
+// instead, as M4's packer knows one capacity per bin.
 std::vector<std::vector<std::size_t>> packCarefully(const M5LaneDateInput& input, const std::vector<std::size_t>& ranked,
-                                                    const TrailerCapability& capability, const PhysicalSettings& settings,
-                                                    std::size_t maxTrucks, const StopCheck& stop);
+                                                    const std::vector<TrailerCapability>& slots, const PhysicalSettings& settings,
+                                                    const StopCheck& stop);
 
 } // namespace m5
 } // namespace ob

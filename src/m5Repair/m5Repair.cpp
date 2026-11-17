@@ -57,7 +57,7 @@ bool accepted(const DemandSnapshot& snapshot, const Truck& truck, const NumericA
 }  // namespace
 
 vector<size_t> rebalanceForAcceptance(GroupTrucks& trucks, const DemandSnapshot& snapshot, const M5PolicyProfile& profile,
-                                      const PhysicalSettings& physical, const TrailerCapability& capability, const StopCheck& stop) {
+                                      const PhysicalSettings& physical, const vector<TrailerCapability>& slots, const StopCheck& stop) {
     vector<size_t> withheld;
     if (!profile.acceptance) return withheld;
     const NumericAcceptance& rule = *profile.acceptance;
@@ -81,7 +81,7 @@ vector<size_t> rebalanceForAcceptance(GroupTrucks& trucks, const DemandSnapshot&
                         if (donorAfter.empty() || !accepted(snapshot, donorAfter, rule)) continue;
                         Truck recipientAfter = work[recipient];
                         recipientAfter.insert(upper_bound(recipientAfter.begin(), recipientAfter.end(), *atom), *atom);
-                        if (!checkTruck(snapshot.input, recipientAfter, capability, physical).fits) continue;
+                        if (!checkTruck(snapshot.input, recipientAfter, slots.at(recipient), physical).fits) continue;
                         work[donor] = std::move(donorAfter);
                         work[recipient] = std::move(recipientAfter);
                         moved = true;

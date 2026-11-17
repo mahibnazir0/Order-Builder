@@ -40,11 +40,11 @@ private:
     CandidatePlan& plan_;
 };
 
-// The group's trucks rebalanced in place; returns the atoms of trucks withheld. Does nothing and
-// returns nothing when the profile has no acceptance policy.
+// The group's trucks rebalanced in place, truck t judged on slots[t]; returns the atoms of trucks
+// withheld. Does nothing and returns nothing when the profile has no acceptance policy.
 std::vector<std::size_t> rebalanceForAcceptance(GroupTrucks& trucks, const DemandSnapshot& snapshot,
                                                 const M5PolicyProfile& profile, const PhysicalSettings& physical,
-                                                const TrailerCapability& capability, const StopCheck& stop);
+                                                const std::vector<TrailerCapability>& slots, const StopCheck& stop);
 
 } // namespace m5
 } // namespace ob

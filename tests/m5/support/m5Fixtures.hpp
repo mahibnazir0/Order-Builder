@@ -8,6 +8,7 @@
 #include "m5Types.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <set>
 #include <string>
@@ -24,7 +25,10 @@ inline std::string dayAfter(int days) {
     return "2026-08-" + std::string(day < 10 ? "0" : "") + std::to_string(day);
 }
 
-inline const ob::m5::TrailerCapability kDefaultTrailer{630.0, 100.0, 108.0, 45000.0};
+// A synthetic cap far above anything a fixture loads, so it binds only where a test sets its own (ED-20).
+constexpr std::int64_t kFixtureUnitLoadCap = 1'000'000;
+
+inline const ob::m5::TrailerCapability kDefaultTrailer{630.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap};
 
 // A unit with one source line of its own.
 inline ob::m5::Atom unitOf(const std::string& id, const std::string& group, double longSide, double shortSide, double height,

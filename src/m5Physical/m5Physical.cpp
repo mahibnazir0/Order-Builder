@@ -1,4 +1,5 @@
 #include "m5Physical.hpp"
+#include "m5UnitLoads.hpp"
 #include "truckCheck.hpp"
 
 #include <algorithm>
@@ -17,27 +18,39 @@ namespace {
 
 struct LoadTotals {
     double weightLb = 0.0;
-    double unitLoads = 0.0;
+    std::int64_t unitLoadHundredths = 0;  // checked; see m5UnitLoads.hpp
+    bool unitLoadsOverflowed = false;
     double areaSqIn = 0.0;
 };
+
+void addUnitLoads(LoadTotals& totals, const Atom& atom) {
+    const optional<int64_t> atomLoads = hundredthsOfUnitLoads(atom.unitLoads);
+    const optional<int64_t> grown = atomLoads ? addCounts(totals.unitLoadHundredths, *atomLoads) : nullopt;
+    if (grown) {
+        totals.unitLoadHundredths = *grown;
+    } else {
+        totals.unitLoadsOverflowed = true;
+    }
+}
 
 LoadTotals totalsOf(const M5LaneDateInput& input, const vector<size_t>& atoms) {
     LoadTotals totals;
     for (const size_t index : atoms) {
         const Atom& atom = input.atoms[index];
         totals.weightLb += atom.weightLb;
-        totals.unitLoads += atom.unitLoads;
+        addUnitLoads(totals, atom);
         totals.areaSqIn += atom.floor.longSideIn * atom.floor.shortSideIn;
     }
     return totals;
 }
 
 // Necessary conditions only, so a refusal here is one checkTruck would make too.
-bool mayFit(const Atom& atom, const LoadTotals& totals, const TrailerCapability& capability,
-            const PhysicalSettings& settings) {
+bool mayFit(const Atom& atom, const LoadTotals& totals, const TrailerCapability& capability) {
     if (atom.floor.heightIn > capability.heightIn) return false;
     if (totals.weightLb + atom.weightLb > capability.maxWeightLb) return false;
-    if (settings.maxUnitLoadsPerTruck && totals.unitLoads + atom.unitLoads > *settings.maxUnitLoadsPerTruck) return false;
+    LoadTotals grown = totals;
+    addUnitLoads(grown, atom);
+    if (grown.unitLoadsOverflowed || grown.unitLoadHundredths > capInHundredths(capability.maxUnitLoads)) return false;
     return totals.areaSqIn + atom.floor.longSideIn * atom.floor.shortSideIn <= capability.lengthIn * capability.widthIn;
 }
 
@@ -47,14 +60,14 @@ vector<size_t> withAtom(const vector<size_t>& truck, size_t atom) {
     return grown;
 }
 
-string classSignature(const Atom& atom) {
+}  // namespace
+
+string classSignatureOf(const Atom& atom) {
     ostringstream out;
     out << hexfloat << atom.floor.longSideIn << ',' << atom.floor.shortSideIn << ',' << atom.floor.heightIn << ','
         << atom.floor.levels << ',' << atom.weightLb << ',' << atom.unitLoads;
     return out.str();
 }
-
-}  // namespace
 
 TrailerSpec trailerOf(const TrailerCapability& capability) {
     TrailerSpec trailer;
@@ -66,15 +79,54 @@ TrailerSpec trailerOf(const TrailerCapability& capability) {
     return trailer;
 }
 
+vector<size_t> slotsBestFirst(const ReservationPool& pool) {
+    vector<size_t> order(pool.slots.size());
+    for (size_t slot = 0; slot < order.size(); ++slot) order[slot] = slot;
+    stable_sort(order.begin(), order.end(),
+                [&](size_t left, size_t right) { return pool.slots[left].maxUnitLoads > pool.slots[right].maxUnitLoads; });
+    return order;
+}
+
+bool slotsAreAlike(const ReservationPool& pool) {
+    return all_of(pool.slots.begin(), pool.slots.end(),
+                  [&](const TrailerCapability& slot) { return slot.signature() == pool.slots.front().signature(); });
+}
+
+bool slotsDifferOnlyInCap(const ReservationPool& pool) {
+    for (const TrailerCapability& slot : pool.slots) {
+        const TrailerCapability& first = pool.slots.front();
+        if (slot.lengthIn != first.lengthIn || slot.widthIn != first.widthIn || slot.heightIn != first.heightIn
+            || slot.maxWeightLb != first.maxWeightLb) {
+            return false;
+        }
+    }
+    return true;
+}
+
 PhysicalCheck checkTruck(const M5LaneDateInput& input, const vector<size_t>& atoms, const TrailerCapability& capability,
                          const PhysicalSettings& settings, FloorSearchBudget* budget) {
+    PhysicalCheck check;
+    // The cap is judged on the components' quantities in whole hundredths, summed with checked
+    // arithmetic and compared exactly; the cached per-atom figure is never trusted for a final answer
+    // (ED-20, ED-ARITH).
+    if (capability.maxUnitLoads < 1) {
+        check.findings.push_back("the slot has no unit-load cap: a whole number from 1 is required");
+        return check;
+    }
+    const optional<int64_t> unitLoads = unitLoadHundredthsOfAtoms(input, atoms);
+    if (!unitLoads) {
+        check.findings.push_back("the load's unit loads are not multiples of 0.01, or their sum overflows a 64-bit count");
+        return check;
+    }
+    if (*unitLoads > capInHundredths(capability.maxUnitLoads)) {
+        check.findings.push_back("load holds " + unitLoadsText(*unitLoads) + " unit loads, over the cap of " + to_string(capability.maxUnitLoads));
+        return check;
+    }
     vector<FloorItem> floorItems;
     floorItems.reserve(atoms.size());
     for (const size_t index : atoms) floorItems.push_back(input.atoms[index].floor);
     const LoadTotals totals = totalsOf(input, atoms);
-    TruckLoadCheck load = checkTruckLoad(floorItems, totals.weightLb, totals.unitLoads, trailerOf(capability),
-                                         settings.floor, settings.maxUnitLoadsPerTruck, budget);
-    PhysicalCheck check;
+    TruckLoadCheck load = checkTruckLoad(floorItems, totals.weightLb, 0.0, trailerOf(capability), settings.floor, nullopt, budget);
     check.fits = load.verdict == TruckFit::Fits;
     check.undecided = load.verdict == TruckFit::Undecided;
     check.findings = std::move(load.findings);
@@ -119,7 +171,7 @@ vector<size_t> physicalClassOf(const M5LaneDateInput& input) {
     vector<size_t> classOf;
     classOf.reserve(input.atoms.size());
     for (const Atom& atom : input.atoms) {
-        classOf.push_back(classes.try_emplace(classSignature(atom), classes.size()).first->second);
+        classOf.push_back(classes.try_emplace(classSignatureOf(atom), classes.size()).first->second);
     }
     return classOf;
 }
@@ -131,7 +183,9 @@ int bestSingleClassLoad(const M5LaneDateInput& input, size_t prototype, const Tr
     // Bounds no load can pass, so the search below starts at the most that could fit.
     double most = available;
     if (atom.weightLb > 0.0) most = min(most, floor(capability.maxWeightLb / atom.weightLb));
-    if (settings.maxUnitLoadsPerTruck) most = min(most, floor(*settings.maxUnitLoadsPerTruck / atom.unitLoads));
+    const optional<int64_t> copyLoads = unitLoadHundredthsOfAtom(atom);
+    if (!copyLoads || capability.maxUnitLoads < 1 || *copyLoads > capInHundredths(capability.maxUnitLoads)) return 0;
+    if (*copyLoads > 0) most = min(most, static_cast<double>(capInHundredths(capability.maxUnitLoads) / *copyLoads));
     most = min(most, floor(capability.lengthIn * capability.widthIn / (atom.floor.longSideIn * atom.floor.shortSideIn)));
     if (settings.floor.maxPositions) most = min(most, static_cast<double>(*settings.floor.maxPositions));
     const TrailerSpec trailer = trailerOf(capability);
@@ -162,7 +216,7 @@ void fillTruck(const M5LaneDateInput& input, const vector<size_t>& classOf, vect
         if (stop && stop()) return;
         if (placed[candidate] || refusedClasses.count(classOf[candidate])) continue;
         const Atom& atom = input.atoms[candidate];
-        if (!mayFit(atom, totals, capability, settings)) {
+        if (!mayFit(atom, totals, capability)) {
             refusedClasses.insert(classOf[candidate]);
             continue;
         }
@@ -175,20 +229,19 @@ void fillTruck(const M5LaneDateInput& input, const vector<size_t>& classOf, vect
         truck = std::move(grown);
         placed[candidate] = 1;
         totals.weightLb += atom.weightLb;
-        totals.unitLoads += atom.unitLoads;
+        addUnitLoads(totals, atom);
         totals.areaSqIn += atom.floor.longSideIn * atom.floor.shortSideIn;
     }
 }
 
 vector<vector<size_t>> packByUrgency(const M5LaneDateInput& input, const vector<size_t>& ranked,
-                                     const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks,
-                                     const StopCheck& stop) {
+                                     const vector<TrailerCapability>& slots, const PhysicalSettings& settings, const StopCheck& stop) {
     const vector<size_t> classOf = physicalClassOf(input);
     vector<char> placed(input.atoms.size(), 0);
     vector<vector<size_t>> trucks;
-    while (trucks.size() < maxTrucks && !(stop && stop())) {
+    while (trucks.size() < slots.size() && !(stop && stop())) {
         vector<size_t> truck;
-        fillTruck(input, classOf, truck, ranked, placed, capability, settings, stop);
+        fillTruck(input, classOf, truck, ranked, placed, slots[trucks.size()], settings, stop);
         if (truck.empty()) break;
         trucks.push_back(std::move(truck));
     }
@@ -218,8 +271,8 @@ KnapsackItem knapsackItemOf(const M5LaneDateInput& input, size_t index) {
 }
 
 vector<vector<size_t>> packByKnapsack(const M5LaneDateInput& input, const vector<size_t>& ranked,
-                                      const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks) {
-    if (ranked.empty() || maxTrucks == 0) return {};
+                                      const vector<TrailerCapability>& slots, const PhysicalSettings& settings) {
+    if (ranked.empty() || slots.empty()) return {};
     vector<KnapsackItem> items;
     items.reserve(ranked.size());
     for (const size_t index : ranked) items.push_back(knapsackItemOf(input, index));
@@ -230,23 +283,26 @@ vector<vector<size_t>> packByKnapsack(const M5LaneDateInput& input, const vector
         sort(atoms.begin(), atoms.end());
         return atoms;
     };
-    TruckLimits limits;
-    limits.fits = [&](const vector<size_t>& chosen) {
-        const PhysicalCheck check = checkTruck(input, atomsOf(chosen), capability, settings);
-        return check.fits ? TruckFit::Fits : check.undecided ? TruckFit::Undecided : TruckFit::DoesNotFit;
-    };
-    if (settings.maxUnitLoadsPerTruck) {
-        ItemLimit unitLoads{{}, *settings.maxUnitLoadsPerTruck};
+    // The search prunes on the unit-load sum as a double; the final answer is checkTruck's exact count.
+    auto limitsOf = [&](const TrailerCapability& capability) {
+        TruckLimits limits;
+        limits.fits = [&, capability](const vector<size_t>& chosen) {
+            const PhysicalCheck check = checkTruck(input, atomsOf(chosen), capability, settings);
+            return check.fits ? TruckFit::Fits : check.undecided ? TruckFit::Undecided : TruckFit::DoesNotFit;
+        };
+        ItemLimit unitLoads{{}, static_cast<double>(capability.maxUnitLoads)};
         for (const KnapsackItem& item : items) unitLoads.perItem.push_back(item.unitLoads);
         limits.limits.push_back(std::move(unitLoads));
-    }
+        return limits;
+    };
     vector<vector<size_t>> trucks;
     try {
-        const KnapsackCapacity capacity{capability.lengthIn * capability.widthIn, capability.maxWeightLb, capability.heightIn};
         vector<size_t> remaining(items.size());
         for (size_t position = 0; position < remaining.size(); ++position) remaining[position] = position;
-        while (trucks.size() < maxTrucks && !remaining.empty()) {
-            const KnapsackSelection truck = selectNextTruck(items, remaining, capacity, settings.knapsack, limits);
+        while (trucks.size() < slots.size() && !remaining.empty()) {
+            const TrailerCapability& capability = slots[trucks.size()];
+            const KnapsackCapacity capacity{capability.lengthIn * capability.widthIn, capability.maxWeightLb, capability.heightIn};
+            const KnapsackSelection truck = selectNextTruck(items, remaining, capacity, settings.knapsack, limitsOf(capability));
             if (truck.chosen.empty()) break;
             trucks.push_back(atomsOf(truck.chosen));
             remaining = truck.leftOver;
@@ -258,9 +314,12 @@ vector<vector<size_t>> packByKnapsack(const M5LaneDateInput& input, const vector
 }
 
 vector<vector<size_t>> packCarefully(const M5LaneDateInput& input, const vector<size_t>& ranked,
-                                     const TrailerCapability& capability, const PhysicalSettings& settings, size_t maxTrucks,
-                                     const StopCheck& stop) {
-    if (ranked.empty() || maxTrucks == 0) return {};
+                                     const vector<TrailerCapability>& slots, const PhysicalSettings& settings, const StopCheck& stop) {
+    if (ranked.empty() || slots.empty()) return {};
+    const TrailerCapability& capability = slots.front();
+    const size_t maxTrucks = slots.size();
+    const bool oneCap = all_of(slots.begin(), slots.end(), [&](const TrailerCapability& slot) { return slot.signature() == capability.signature(); });
+    if (!oneCap) return packByUrgency(input, ranked, slots, settings, stop);
     vector<KnapsackItem> items;
     items.reserve(ranked.size());
     for (const size_t index : ranked) items.push_back(knapsackItemOf(input, index));
@@ -271,7 +330,7 @@ vector<vector<size_t>> packCarefully(const M5LaneDateInput& input, const vector<
     } catch (const invalid_argument&) {
         // Goods M4's packer cannot count on its grains (a weightless stack, say) are packed in
         // order instead; the trucks are checked the same way.
-        return packByUrgency(input, ranked, capability, settings, maxTrucks, stop);
+        return packByUrgency(input, ranked, slots, settings, stop);
     }
 
     // Positions in `ranked` order the trucks' atoms most urgent first, so a trim drops the least.

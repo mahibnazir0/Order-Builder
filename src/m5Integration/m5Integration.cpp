@@ -1,6 +1,7 @@
 #include "m5Integration.hpp"
 #include "m5Orchestrator.hpp"
 #include "m5Report.hpp"
+#include "m5UnitLoads.hpp"
 #include "reportFormat.hpp"
 #include "pipeline.hpp"
 #include "selectionParams.hpp"
@@ -127,7 +128,7 @@ LargeLaneReport reportShell(const LargeLaneRequest& request) {
 }  // namespace
 
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
-                               const DateRules& dates, const optional<double>& penaltyPerUnusedTruck) {
+                               const DateRules& dates, const optional<double>& penaltyPerUnusedTruck, double maxUnitLoadsPerTruck) {
     M5LaneDateInput input;
     input.lane = {request.origin, request.destination, request.shipCondition};
     input.departure = request.shipDate;
@@ -158,7 +159,7 @@ M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineRe
     input.sourceScopeComplete = true;
     const TrailerSpec& trailer = run.trailer;
     const TrailerCapability capability{trailer.interiorLengthIn, trailer.interiorWidthIn, trailer.stackHeightCeilingIn,
-                                       trailer.weightLimitLb};
+                                       trailer.weightLimitLb, unitLoadCapFromNumber(maxUnitLoadsPerTruck).value.value_or(0)};
     input.pool.slots.assign(static_cast<size_t>(max(0LL, request.reservedTrucks)), capability);
     input.pool.penaltyPerUnusedTruck = penaltyPerUnusedTruck;
     input.sourceVersion = run.demand.request_id + "#" + request.origin + "-" + request.destination + "-" + request.shipCondition + "@"
@@ -169,7 +170,6 @@ M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineRe
 PhysicalSettings physicalSettingsOf(const SelectorSettings& settings) {
     PhysicalSettings physical;
     physical.floor = settings.floor;
-    if (settings.maxUnitLoadsPerTruck > 0.0) physical.maxUnitLoadsPerTruck = settings.maxUnitLoadsPerTruck;
     physical.searchStatesPerPackingCheck = min(physical.searchStatesPerPackingCheck, settings.floor.searchStateLimit);
     physical.binPacker = settings.binPacker;
     physical.knapsack = settings.knapsack;
@@ -257,7 +257,8 @@ LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const 
     }
     try {
         const M5LaneDateInput input =
-            gatherLaneDate(request, run, items, dates_, profile_ ? profile_->penaltyPerUnusedTruck : nullopt);
+            gatherLaneDate(request, run, items, dates_, profile_ ? profile_->penaltyPerUnusedTruck : nullopt,
+                           settings.maxUnitLoadsPerTruck);
         const PhysicalSettings physical = physicalSettingsOf(settings);
         const FunctionClock clock(settings.clock);
         const M5RunServices services(clock);

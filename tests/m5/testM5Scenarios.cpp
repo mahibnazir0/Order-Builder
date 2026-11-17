@@ -246,7 +246,7 @@ TEST_CASE("X-REB-01 single-product patterns must not lock in 3 bins where 2 mixe
 }
 
 TEST_CASE("X-REB-02 X-REB-08 groups never mix and no move breaks the weight limit" * doctest::test_suite("m5")) {
-    const TrailerCapability tenThousand{630.0, 100.0, 108.0, 10000.0};
+    const TrailerCapability tenThousand{630.0, 100.0, 108.0, 10000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput apart = laneWith({unitOf("a", "A", 100, 60, 50, 4000), unitOf("b", "B", 100, 40, 50, 4000)}, 2, tenThousand);
     const M5LaneOutcome outcome = plan(apart, syntheticProfile());
     requireInvariants(outcome, apart);

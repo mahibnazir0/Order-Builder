@@ -133,7 +133,7 @@ TEST_CASE("X-PAT-08 a pattern is rechecked on a smaller trailer, not copied" * d
     const M5LaneDateInput input = laneWith({unitOf("long", "A", 625, 100, 108, 1000), unitOf("heavy", "A", 600, 100, 108, 42000),
                                             unitOf("fine", "A", 590, 100, 108, 30000)},
                                            1);
-    const TrailerCapability shortTrailer{600.0, 100.0, 108.0, 40000.0};
+    const TrailerCapability shortTrailer{600.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap};
     CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
     CHECK_FALSE(checkTruck(input, {0}, shortTrailer, physicalSettings()).fits);
     CHECK(checkTruck(input, {1}, kDefaultTrailer, physicalSettings()).fits);
@@ -272,7 +272,7 @@ TEST_CASE("U-FL-06 exact 98% weight and 14 in rear boundaries, on the slot's own
         CHECK(label.rearInches == 430.0);
         CHECK(label.fitStatus == RemainingFitStatus::Fits);
     }
-    const TrailerCapability light{630.0, 100.0, 108.0, 30000.0};
+    const TrailerCapability light{630.0, 100.0, 108.0, 30000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput onLight = laneWith({unitOf("load", "A", 200, 100, 108, 29400), unitOf("left", "A", 100, 20, 108, 1)}, 1, light);
     CHECK(labelOf(onLight, {0}).byWeight);
     const M5LaneDateInput onHeavy = laneWith({unitOf("load", "A", 200, 100, 108, 29400), unitOf("left", "A", 100, 20, 108, 1)}, 1);
@@ -370,14 +370,14 @@ TEST_CASE("U-RM-04 fullness and the optional acceptance are independent" * docte
 }
 
 TEST_CASE("U-DA-05 a reserved trailer of its own size overrides the run's default" * doctest::test_suite("m5")) {
-    const TrailerCapability own{600.0, 100.0, 108.0, 40000.0};
+    const TrailerCapability own{600.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1, own);
     CHECK(bestSingleClassLoad(input, 0, own, physicalSettings(), 100) == 26);
     CHECK(shippedCount(plan(input, syntheticProfile())) == 26);
 }
 
 TEST_CASE("X-RES-12 X-E2E-06 the physical adapter sizes each trailer; a mixed pool is refused (C9)" * doctest::test_suite("m5")) {
-    const TrailerCapability small{630.0, 100.0, 108.0, 30000.0};
+    const TrailerCapability small{630.0, 100.0, 108.0, 30000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith(fx30Units("u", 50), 2);
     CHECK(bestSingleClassLoad(input, 0, kDefaultTrailer, physicalSettings(), 100) == 30);
     CHECK(bestSingleClassLoad(input, 0, small, physicalSettings(), 100) == 20);

@@ -36,8 +36,12 @@ struct SelectionParams;
 
 namespace m5 {
 
+// Every reserved slot gets the run's trailer and the unit-load cap `maxUnitLoadsPerTruck` (the validated
+// M4 setting, replicated onto the slots until the reservation feed carries per-slot caps, C9). A value
+// that is not a whole number from 1 leaves the slots with no cap, which planLaneDate refuses before planning.
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
-                               const DateRules& dates, const std::optional<double>& penaltyPerUnusedTruck);
+                               const DateRules& dates, const std::optional<double>& penaltyPerUnusedTruck,
+                               double maxUnitLoadsPerTruck);
 
 PhysicalSettings physicalSettingsOf(const SelectorSettings& settings);
 

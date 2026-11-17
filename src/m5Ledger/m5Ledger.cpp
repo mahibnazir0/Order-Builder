@@ -1,6 +1,7 @@
 #include "m5Ledger.hpp"
 #include "demand_types.hpp"
 #include "isoDate.hpp"
+#include "m5UnitLoads.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -54,6 +55,9 @@ void checkAtom(const Atom& atom, size_t index, vector<string>& errors) {
         }
         componentUnitLoads += component.unitLoads;
     }
+    if (isfinite(componentUnitLoads) && !hundredthsOfUnitLoads(componentUnitLoads)) {
+        errors.push_back(name + " carries " + to_string(componentUnitLoads) + " unit loads, past what a 64-bit count of hundredths holds");
+    }
     if (isfinite(componentUnitLoads) && fabs(componentUnitLoads - atom.unitLoads) > kUnitLoadSumTolerance * max(1.0, atom.unitLoads)) {
         errors.push_back(name + " carries " + to_string(atom.unitLoads) + " unit loads but its lines add up to "
                          + to_string(componentUnitLoads));
@@ -66,6 +70,9 @@ void checkPool(const ReservationPool& pool, vector<string>& errors) {
         if (!positiveFinite(capability.lengthIn) || !positiveFinite(capability.widthIn) || !positiveFinite(capability.heightIn)
             || !positiveFinite(capability.maxWeightLb)) {
             errors.push_back("reserved slot " + to_string(slot) + " has a trailer size or weight limit that is not finite and above zero");
+        }
+        if (capability.maxUnitLoads < 1) {
+            errors.push_back("reserved slot " + to_string(slot) + " has no unit-load cap: a whole number from 1 to 9223372036854775807 is required");
         }
     }
     if (pool.penaltyPerUnusedTruck && (!isfinite(*pool.penaltyPerUnusedTruck) || *pool.penaltyPerUnusedTruck < 0.0)) {

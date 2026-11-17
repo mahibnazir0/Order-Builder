@@ -110,6 +110,12 @@ inline std::vector<std::string> invariantViolations(const ob::m5::M5LaneOutcome&
             }
         }
         if (weight > slot.maxWeightLb) violations.push_back("INV-02 over the weight limit");
+        // ED-20: the slot's own cap, on the components' quantities (never stacks or records).
+        double unitLoads = 0.0;
+        for (const std::size_t atom : truck.atoms) {
+            for (const ob::m5::Component& component : input.atoms[atom].components) unitLoads += component.unitLoads;
+        }
+        if (slot.maxUnitLoads < 1 || unitLoads > static_cast<double>(slot.maxUnitLoads)) violations.push_back("ED-20 over the slot's unit-load cap");
         for (const std::string& problem :
              m5LayoutChecker::witnessProblems(truck.layout, items, slot.lengthIn, slot.widthIn, slot.heightIn, floor)) {
             violations.push_back("INV-03 " + problem);

@@ -2,10 +2,6 @@
 # ID|status|reason. NOT_RUN: planned, with the pull request that adds it. BLOCKED: a named prerequisite is
 # missing. EXTERNAL: covered by the ctest entry named. None of these is ever a pass; variant results come
 # only from evidence records.
-X-PAT-16|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
-X-PAT-17|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
-X-STATE-11|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
-X-CG-21|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
 X-PAT-18|NOT_RUN|PR-6: Fits/DoesNotFit/Undecided and supplied witnesses
 X-PAT-19|NOT_RUN|PR-6: three-across uses side <= 33.3 in
 U-PF-09|NOT_RUN|PR-7: shared floor-search state budget (ED-19)

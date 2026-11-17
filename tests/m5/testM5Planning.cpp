@@ -85,14 +85,14 @@ TEST_CASE("X-PAT-01 X-PAT-03 X-PAT-04 pattern copies by stock and slots, checked
 }
 
 TEST_CASE("X-PAT-11 cube never stands in for a floor: one of two 60 x 60 in a 100 x 100" * doctest::test_suite("m5")) {
-    const TrailerCapability trailer{100.0, 100.0, 100.0, 45000.0};
+    const TrailerCapability trailer{100.0, 100.0, 100.0, 45000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith({unitOf("a", "A", 60, 60, 100, 100), unitOf("b", "A", 60, 60, 100, 100)}, 1, trailer);
     CHECK_FALSE(checkTruck(input, {0, 1}, trailer, physicalSettings()).fits);
     CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
 }
 
 TEST_CASE("X-PAT-12 a load turned to fit a narrow trailer fits" * doctest::test_suite("m5")) {
-    const TrailerCapability trailer{100.0, 60.0, 100.0, 45000.0};
+    const TrailerCapability trailer{100.0, 60.0, 100.0, 45000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith({unitOf("a", "A", 100, 60, 100, 100)}, 1, trailer);
     CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
 }
@@ -109,7 +109,7 @@ TEST_CASE("X-PAT-13 limits are exact: at the limit fits, a step over does not" *
 }
 
 TEST_CASE("X-PAT-14 planning by floor never turns the weight limit off" * doctest::test_suite("m5")) {
-    const TrailerCapability trailer{630.0, 100.0, 108.0, 10000.0};
+    const TrailerCapability trailer{630.0, 100.0, 108.0, 10000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith({unitOf("a", "A", 48, 40, 50, 6000), unitOf("b", "A", 48, 40, 50, 6000)}, 2, trailer);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     requireInvariants(outcome, input);
@@ -291,8 +291,8 @@ TEST_CASE("U-AC-06 acceptance never overrides a hard constraint" * doctest::test
         CHECK_FALSE(report.allPassed());
         CHECK(any_of(report.findings.begin(), report.findings.end(), [&](const ValidationFinding& finding) { return finding.section == section; }));
     };
-    rejected(laneWith(fx30Units("u", 30), 1, {630.0, 100.0, 108.0, 40000.0}), full, "physical");
-    rejected(laneWith(fx30Units("u", 30), 1, {599.0, 100.0, 108.0, 45000.0}), full, "physical");
+    rejected(laneWith(fx30Units("u", 30), 1, {630.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap}), full, "physical");
+    rejected(laneWith(fx30Units("u", 30), 1, {599.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap}), full, "physical");
     M5LaneDateInput unavailable = laneWith(fx30Units("u", 30), 1);
     unavailable.atoms[3].components[0].availableDate = dayAfter(1);
     rejected(unavailable, full, "eligibility");
@@ -549,7 +549,7 @@ TEST_CASE("U-RS-05 X-DATA-13 X-DATA-11 bad input is refused before planning" * d
     M5LaneDateInput repeated = laneWith(fx30Units("u", 2), 1);
     repeated.atoms[1].components[0].source = repeated.atoms[0].components[0].source;
     CHECK(plan(repeated, syntheticProfile()).kind == OutcomeKind::CompletedWithDispatch);
-    M5LaneDateInput badSlot = laneWith(fx30Units("u", 2), 1, {630.0, 0.0, 108.0, 45000.0});
+    M5LaneDateInput badSlot = laneWith(fx30Units("u", 2), 1, {630.0, 0.0, 108.0, 45000.0, kFixtureUnitLoadCap});
     CHECK(plan(badSlot, syntheticProfile()).kind == OutcomeKind::InvalidInput);
 }
 
