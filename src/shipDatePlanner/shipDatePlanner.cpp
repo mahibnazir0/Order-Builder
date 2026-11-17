@@ -20,13 +20,16 @@ namespace ob {
 namespace {
 
 // Goods the next date's trucks could take. Not an unfittable good (no truck takes it), one left to
-// M5 (it plans them), or one on a lane-date that failed (the run must report that, not hide it).
+// M5 with no planner, or one on a lane-date that failed (the run must report that, not hide it):
+// M5's no-result, configuration and input failures stay where they are. Goods M5's optional
+// minimum-load policy withheld carry like an overflow (M5 ED-15).
 bool carriesOver(LeftOverReason reason) {
     switch (reason) {
     case LeftOverReason::NoReservation:
     case LeftOverReason::OverReservation:
     case LeftOverReason::FloorEviction:
-    case LeftOverReason::UnitLoadCap: return true;
+    case LeftOverReason::UnitLoadCap:
+    case LeftOverReason::AcceptanceWithheld: return true;
     default: return false;
     }
 }
@@ -155,16 +158,20 @@ private:
             built_[use.reservationIndex] += use.built;
             if (use.escalated) escalated_[use.reservationIndex] = 1;
         }
+        largeLanes_.insert(largeLanes_.end(), datePlan.largeLanes.begin(), datePlan.largeLanes.end());
     }
 
     // Each lane with trucks reserved on `date` is offered goods due later, earliest due first. A
     // truck carries one group's goods, so each group's last, part-filled truck is first topped up
     // with the group's own, which costs no other group a truck; then, while the reservation has
-    // room, the lane's goods fill the trucks left, until they are estimated to fill it.
+    // room, the lane's goods fill the trucks left, until they are estimated to fill it. A lane-date
+    // above m5Threshold is offered them only when an M5 planner is registered to plan it (M5 P10):
+    // it ranks them after every good due by the date, as the classifier does.
     void offerPulledForward(const string& date, vector<string>& routeDates) const {
         for (size_t lane = 0; lane < lanes_.items.size(); ++lane) {
             const auto reserved = lanes_.reservedTrucks[lane].find(date);
-            if (reserved == lanes_.reservedTrucks[lane].end() || reserved->second > routing_.m5Threshold) continue;
+            if (reserved == lanes_.reservedTrucks[lane].end()) continue;
+            if (reserved->second > routing_.m5Threshold && !selector_.largeLanePlanner) continue;
             const double trucks = static_cast<double>(reserved->second);
             TruckShares laneOffered;
             map<size_t, TruckShares> groupOffered;
@@ -247,6 +254,7 @@ private:
             return tie(left.itemIndex, left.routeIndex) < tie(right.itemIndex, right.routeIndex);
         });
         merged.moved = std::move(moved_);
+        merged.largeLanes = std::move(largeLanes_);
 
         merged.reservations.reserve(book_.reservations.size());
         for (size_t index = 0; index < book_.reservations.size(); ++index) {
@@ -280,6 +288,7 @@ private:
     vector<MovedItem> moved_;
     vector<long long> built_;     // parallel to the book's reservations
     vector<char> escalated_;
+    vector<LargeLaneReport> largeLanes_;  // dates run ascending, so by date, then lane
 };
 
 } // anonymous namespace

@@ -50,6 +50,10 @@ struct SelectionItem {
     // Joined-line indices bottom to top, one per level. Indices, never pointers, so items stay
     // copy-safe.
     std::vector<std::size_t> lineIndices;
+    // Unit loads each level carries of its line, parallel to lineIndices: one, or less on a line's
+    // last, partial unit load. Empty in items built by hand; M5 then deals item.unitLoads out a
+    // whole unit load per level, as buildSelectionItems does.
+    std::vector<double> lineUnitLoads;
 
     double footprintLongIn = 0.0;  // the larger of its levels' footprints, per side
     double footprintShortIn = 0.0;

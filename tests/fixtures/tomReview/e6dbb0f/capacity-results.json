@@ -1,0 +1,16 @@
+[
+  {
+    "configured_cap": 64.0,
+    "invariant_violations": 0,
+    "length": 576.0,
+    "proven": true,
+    "unit_loads": 64.0
+  },
+  {
+    "configured_cap": 68.0,
+    "invariant_violations": 0,
+    "length": 612.0,
+    "proven": true,
+    "unit_loads": 68.0
+  }
+]

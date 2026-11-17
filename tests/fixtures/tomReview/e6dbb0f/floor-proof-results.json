@@ -1,0 +1,187 @@
+{
+  "alternative_rows": [
+    {
+      "depth": 50.0,
+      "pattern": "single",
+      "placements": [
+        {
+          "item": 0,
+          "turned": false
+        }
+      ],
+      "width": 100.0
+    },
+    {
+      "depth": 60.0,
+      "pattern": "single",
+      "placements": [
+        {
+          "item": 1,
+          "turned": false
+        }
+      ],
+      "width": 100.0
+    },
+    {
+      "depth": 96.0,
+      "pattern": "wide-narrow",
+      "placements": [
+        {
+          "item": 2,
+          "turned": false
+        },
+        {
+          "item": 3,
+          "turned": true
+        }
+      ],
+      "width": 100.0
+    },
+    {
+      "depth": 120.0,
+      "pattern": "narrow-narrow",
+      "placements": [
+        {
+          "item": 4,
+          "turned": true
+        },
+        {
+          "item": 5,
+          "turned": true
+        }
+      ],
+      "width": 98.0
+    },
+    {
+      "depth": 80.0,
+      "pattern": "narrow-narrow",
+      "placements": [
+        {
+          "item": 6,
+          "turned": true
+        },
+        {
+          "item": 10,
+          "turned": true
+        }
+      ],
+      "width": 96.0
+    },
+    {
+      "depth": 120.0,
+      "pattern": "narrow-narrow",
+      "placements": [
+        {
+          "item": 7,
+          "turned": true
+        },
+        {
+          "item": 8,
+          "turned": true
+        }
+      ],
+      "width": 96.0
+    },
+    {
+      "depth": 60.0,
+      "pattern": "single",
+      "placements": [
+        {
+          "item": 9,
+          "turned": false
+        }
+      ],
+      "width": 100.0
+    }
+  ],
+  "date_planner_proven": true,
+  "date_planner_unit_loads": 10.0,
+  "invariant_violations": 0,
+  "items": [
+    {
+      "height": 50.0,
+      "long": 100.0,
+      "short": 50.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 100.0,
+      "short": 60.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 60.0,
+      "short": 60.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 96.0,
+      "short": 40.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 100.0,
+      "short": 50.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 120.0,
+      "short": 48.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 80.0,
+      "short": 48.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 120.0,
+      "short": 48.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 120.0,
+      "short": 48.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 100.0,
+      "short": 60.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    },
+    {
+      "height": 50.0,
+      "long": 80.0,
+      "short": 48.0,
+      "unit_loads": 1.0,
+      "weight": 1000.0
+    }
+  ],
+  "known_feasible_unit_loads": 11,
+  "proven": true,
+  "selected_length": 530.0,
+  "selected_unit_loads": 10.0,
+  "sorted_length": 640.0,
+  "trial": 31,
+  "unproven_because": "",
+  "valid_alternative_length": 586.0
+}

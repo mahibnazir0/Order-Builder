@@ -34,3 +34,33 @@ tests/importer/august/
 /m2_run_*.txt
 /run_*.txt
 
+
+# Root-level working notes and drafts: documents live in docs/; README.md stays tracked.
+/*.md
+!/README.md
+
+# Archives (client extract packages, review packages): commit the unpacked synthetic files only.
+*.zip
+*.7z
+
+# Client extract files wherever they land (names as the client's systems write them).
+**/Demand-*.json
+**/PH-Aug*.json
+**/*-STR-*.json
+**/*PLACEHOLDER*.json
+**/Customer2-*.csv
+**/AutoO2-Testing-Data-*
+
+# M1 run summaries written at the root from real extracts.
+/M1_Output_*.txt
+/m1Output*.txt
+
+# Temp files the params tests used to write, and stray logs.
+tests/params/_tmp_*.json
+*.log
+
+# Compiler output outside a build folder (e.g. a helper built in the source tree).
+*.obj
+*.exe
+*.pdb
+*.ilk

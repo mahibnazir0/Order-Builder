@@ -33,7 +33,9 @@
 // limits) reaches its reservation: offering every later good to every date
 // would only slow the solvers. A truck carries one group's goods, so each
 // group's part-filled truck is first topped up with the group's own later
-// goods. A lane-date above m5Threshold is left to M5 and offered none.
+// goods. A lane-date above m5Threshold is left to M5: offered later goods only when an M5 planner
+// is registered (SelectorSettings::largeLanePlanner), which fills spare trucks with them only after
+// every good due by the date. Goods it does not load return to their own date, as M4's do.
 //
 // With both rules off the plan is classifyLanes then selectLoads, each good on
 // its own date, exactly as before the rules existed.

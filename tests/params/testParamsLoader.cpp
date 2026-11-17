@@ -1,8 +1,10 @@
 #include "doctest.h"
 #include "paramsLoader.hpp"
+#include "../runTempFolder.hpp"
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -33,8 +35,10 @@ bool isPrintableAscii(const string& text) {
     });
 }
 
+using testTemp::runTempFolder;
+
 string writeParamsFile(const string& fileName, const string& content) {
-    const string path = "tests/params/" + fileName;
+    const string path = (runTempFolder() / fileName).string();
     ofstream out(path, ios::binary);
     out << content;
     return path;
@@ -410,6 +414,15 @@ TEST_CASE("params missing file is rejected with the path in the message") {
 
 TEST_CASE("params directory path is rejected with the path in the message") {
     CHECK_THROWS_WITH_AS(loadParams("tests/params"), doctest::Contains("tests/params"), runtime_error);
+}
+
+TEST_CASE("params temp files go to this run's own folder under the system temp folder, never tests/params") {
+    const filesystem::path written = writeParamsFile("_tmp_location.json", "{}");
+    CHECK(written.parent_path() == runTempFolder());
+    CHECK(filesystem::equivalent(runTempFolder().parent_path(), filesystem::temp_directory_path()));
+    CHECK(filesystem::exists(written));
+    CHECK_FALSE(filesystem::exists("tests/params/_tmp_location.json"));
+    remove(written.string().c_str());
 }
 
 TEST_CASE("params empty file is rejected as invalid JSON") {

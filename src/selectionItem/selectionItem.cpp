@@ -122,6 +122,7 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                     }
                     if (line.metrics.error != UnitLoadMetricsError::None) {
                         item.lineIndices.push_back(lineIndex);
+                        item.lineUnitLoads.push_back(0.0);
                         continue;
                     }
                     // Copies past the line's last unit load carry nothing of it.
@@ -130,6 +131,7 @@ SelectionItems buildSelectionItems(const PipelineResult& run, const PlanningWind
                     unallocated[lineIndex] -= share;
 
                     item.lineIndices.push_back(lineIndex);
+                    item.lineUnitLoads.push_back(share);
                     item.unitLoads += share;
                     item.weightLb += share * line.weightPerUnitLoadLb;
                     item.heightIn += line.metrics.unitLoadHeightIn;

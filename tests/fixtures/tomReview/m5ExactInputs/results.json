@@ -1,0 +1,23 @@
+[
+  {
+    "case": "R-1a",
+    "expected": 25,
+    "length": 600.0,
+    "proven": true,
+    "selected": 25.0
+  },
+  {
+    "case": "R-1b",
+    "expected": 2,
+    "length": 50.0,
+    "proven": true,
+    "selected": 2.0
+  },
+  {
+    "case": "R-5a",
+    "expected": 23,
+    "length": 624.0,
+    "proven": true,
+    "selected": 23.0
+  }
+]

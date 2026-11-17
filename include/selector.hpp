@@ -59,13 +59,28 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace ob {
 
-enum class PackingMethod { Knapsack, GreedyKnapsack, PatternPacker, BinPacker, FirstFitDecreasing };
+// The M5 planner a run registers for lane-dates routed to M5 (largeLanePlanner.hpp). Declared
+// here so the selector's settings can hold one without M4 depending on M5's code.
+class LargeLanePlanner;
+
+// M5PatternRepeat and M5RollingBlocks are M5's methods A and B: the selector never runs them
+// itself, it records which one the registered planner kept.
+enum class PackingMethod {
+    Knapsack,
+    GreedyKnapsack,
+    PatternPacker,
+    BinPacker,
+    FirstFitDecreasing,
+    M5PatternRepeat,
+    M5RollingBlocks,
+};
 
 // No defaults for the figures: each comes from the run's settings.
 struct SelectorSettings {
@@ -87,6 +102,9 @@ struct SelectorSettings {
     // Called as each method starts on a route; empty in a run. Tests throw from it to stand in
     // for a solver that fails.
     std::function<void(std::size_t routeIndex, PackingMethod method)> beforeMethod;
+    // Plans the lane-dates routed to M5. Empty leaves their goods over as EscalatedToM5, as
+    // before M5 existed, so every M4 result stays as it was.
+    std::shared_ptr<const LargeLanePlanner> largeLanePlanner;
 };
 
 enum class AttemptOutcome {
@@ -154,6 +172,12 @@ enum class LeftOverReason {
     FloorEviction,        // its truck's rows did not fit with it
     UnitLoadCap,          // its truck was over maxUnitLoadsPerTruck with it
     LaneUnsolved,         // every method threw
+    // M5 only. Withheld by the optional minimum-load policy, which is off for this customer: the
+    // check runs at export, after M5. Carried forward like an overflow when it is on.
+    AcceptanceWithheld,
+    M5NoResult,                 // M5 stopped, failed or timed out before any checked plan
+    M5ConfigurationIncomplete,  // the params file's "m5" block is malformed: nothing was planned
+    M5InvalidInput,             // the lane-date's goods or reservation are not valid M5 input
 };
 
 struct LeftOverItem {
@@ -184,6 +208,18 @@ struct MovedItem {
     bool pulledForward = false;
 };
 
+// What M5 planned on one lane-date, for the report: its rendered sections and what the run's
+// outcome turns on.
+struct LargeLaneReport {
+    std::string origin;
+    std::string destination;
+    std::string shipCondition;
+    std::string shipDate;
+    std::string outcome;       // the M5 outcome kind, e.g. "completed with dispatch"
+    bool planned = false;      // a checked plan came back, however many trucks it holds
+    std::string text;          // plain ASCII, sections 3A-3E for this lane-date
+};
+
 struct SelectionPlan {
     std::vector<PlannedTruck> trucks;     // by route, then fullest first
     std::vector<RouteOutcome> routes;     // parallel to LaneClassification::routes
@@ -191,6 +227,7 @@ struct SelectionPlan {
     std::vector<MovedItem> moved;         // ascending by item, then route; empty from selectLoads
     std::vector<ReservationUse> reservations;  // parallel to ReservationBook::reservations
     long long penaltyExposureTrucks = 0;  // reserved trucks left unused, escalated ones included
+    std::vector<LargeLaneReport> largeLanes;  // by lane, then date: one per lane-date M5 planned
 };
 
 // One group's route as the selector solves it - the method chain, then the floor, fill and

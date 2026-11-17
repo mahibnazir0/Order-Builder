@@ -1,0 +1,72 @@
+{
+  "provenance": "Exact synthetic review inputs, not reconstructed customer data",
+  "rotation_allowed": true,
+  "hard_groups": 1,
+  "reserved_trucks": 1,
+  "expected": "Maximize same-priority unit loads subject to the given physical and unit-load limits.",
+  "case": "R-1b",
+  "trailer": {
+    "length_in": 100,
+    "width_in": 100,
+    "height_in": 108,
+    "payload_lb": 45000,
+    "max_unit_loads": 64
+  },
+  "items": [
+    {
+      "id": 0,
+      "product": "P0",
+      "length_in": 60,
+      "width_in": 60,
+      "height_in": 50,
+      "weight_lb": 100,
+      "unit_loads_per_stack": 1,
+      "priority": 0,
+      "ship_date": "2026-08-06",
+      "available_date": "2026-08-01",
+      "stackability": "Fixed prebuilt stack; select as one item, no restacking required; floor rotation allowed."
+    },
+    {
+      "id": 1,
+      "product": "P1",
+      "length_in": 60,
+      "width_in": 60,
+      "height_in": 50,
+      "weight_lb": 100,
+      "unit_loads_per_stack": 1,
+      "priority": 0,
+      "ship_date": "2026-08-06",
+      "available_date": "2026-08-01",
+      "stackability": "Fixed prebuilt stack; select as one item, no restacking required; floor rotation allowed."
+    },
+    {
+      "id": 2,
+      "product": "P2",
+      "length_in": 50,
+      "width_in": 50,
+      "height_in": 50,
+      "weight_lb": 100,
+      "unit_loads_per_stack": 1,
+      "priority": 0,
+      "ship_date": "2026-08-06",
+      "available_date": "2026-08-01",
+      "stackability": "Fixed prebuilt stack; select as one item, no restacking required; floor rotation allowed."
+    },
+    {
+      "id": 3,
+      "product": "P3",
+      "length_in": 50,
+      "width_in": 50,
+      "height_in": 50,
+      "weight_lb": 100,
+      "unit_loads_per_stack": 1,
+      "priority": 0,
+      "ship_date": "2026-08-06",
+      "available_date": "2026-08-01",
+      "stackability": "Fixed prebuilt stack; select as one item, no restacking required; floor rotation allowed."
+    }
+  ],
+  "expected_unit_loads": 2,
+  "feasible_witness_length_in": 50,
+  "witness": "Two 50 x 50 items side by side on the 100 x 100 floor; the two 60 x 60 items do not fit together."
+}

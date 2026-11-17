@@ -59,10 +59,27 @@ add_library(ob_core STATIC
   src/columnGeneration/columnGeneration.cpp
   src/binPacker/binPacker.cpp
   src/selector/selector.cpp
+  src/largeLanePlanner/largeLanePlanner.cpp
   src/shipDatePlanner/shipDatePlanner.cpp
   src/selectionReporter/selectionReporter.cpp
   src/benchmarkHarness/benchmarkHarness.cpp
   src/selectionParams/selectionParams.cpp
+  src/truckCheck/truckCheck.cpp
+  src/m5Types/m5Types.cpp
+  src/m5UnitLoads/m5UnitLoads.cpp
+  src/m5Policy/m5Policy.cpp
+  src/m5Budget/m5Budget.cpp
+  src/m5Ledger/m5Ledger.cpp
+  src/m5Physical/m5Physical.cpp
+  src/m5Allocation/m5Allocation.cpp
+  src/m5Validation/m5Validation.cpp
+  src/m5Repair/m5Repair.cpp
+  src/m5Methods/m5Methods.cpp
+  src/m5Commit/m5Commit.cpp
+  src/m5Solver/m5Solver.cpp
+  src/m5Orchestrator/m5Orchestrator.cpp
+  src/m5Report/m5Report.cpp
+  src/m5Integration/m5Integration.cpp
 )
 
 target_include_directories(ob_core PUBLIC
@@ -134,6 +151,21 @@ add_executable(ob_tests
   tests/benchmarkHarness/testM4Benchmark.cpp
   tests/selectionParams/testSelectionParams.cpp
   tests/testPipelineMilestone4.cpp
+  tests/m5/testM5Policy.cpp
+  tests/m5/testM5Solver.cpp
+  tests/m5/testM5Planning.cpp
+  tests/m5/testM5Orchestrator.cpp
+  tests/m5/testM5Integration.cpp
+  tests/m5/testM5RealData.cpp
+  tests/m5/testM5Physical.cpp
+  tests/m5/testM5Scenarios.cpp
+  tests/m5/testM5Routing.cpp
+  tests/m5/testM5Coverage.cpp
+  tests/m5/testM5Fixtures.cpp
+  tests/m5/testM5Checkers.cpp
+  tests/m5/testM5TomRegressions.cpp
+  tests/m5/testM5UnitLoadCap.cpp
+  tests/m5/m5EvidenceListener.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.
@@ -155,6 +187,18 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt"
                                             OB_M4_FILL_DIAGNOSIS="${CMAKE_BINARY_DIR}/m4FillDiagnosis.txt"
                                             OB_M4_PROOF_COVERAGE="${CMAKE_BINARY_DIR}/m4ProofCoverage.txt")
+# M5 evidence records (traceability Section 11) go beside the build, under the commit the build came
+# from; the identity is rewritten at every build so a record never names a stale commit.
+add_custom_target(m5BuildIdentity ALL
+                  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                          -DOUTPUT=${CMAKE_BINARY_DIR}/m5BuildIdentity.txt
+                          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/m5BuildIdentity.cmake
+                  VERBATIM)
+add_dependencies(ob_tests m5BuildIdentity)
+target_compile_definitions(ob_tests PRIVATE OB_M5_EVIDENCE_DIR="${CMAKE_BINARY_DIR}/m5Evidence"
+                                            OB_M5_BUILD_IDENTITY="${CMAKE_BINARY_DIR}/m5BuildIdentity.txt"
+                                            OB_M5_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+                                            OB_M5_BUILD_CONFIG="$<CONFIG>")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
@@ -167,3 +211,22 @@ add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
 # clean clone passes; here --no-skip runs it, so a missing extract fails by name.
 add_test(NAME m4Benchmark COMMAND ob_tests -ts=m4Benchmark --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# M5's synthetic suite on its own (the m5 test suite inside ob_tests).
+add_test(NAME m5Core COMMAND ob_tests -ts=m5
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# M5 on the real 4-6 August extracts; fails, naming each file, when the data is absent.
+add_test(NAME m5RealData COMMAND ob_tests -ts=m5RealData --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# U-PF-04: the M4 thread test runs clean under --success.
+add_test(NAME m4BenchmarkThreadsSuccess
+         COMMAND ob_tests "-tc=m4Benchmark: every held extract plans the same at one thread*" --no-skip --success
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# PUB-01..03 (ACC-1) on OR-Library's binpack1.txt (tests/m5/data/orlib/, SHA-256 in README.txt there).
+add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The state of every manifest variant at this build, from the evidence records the entries above
+# wrote: <build>/m5Evidence/<commit>/m5EvidenceStatus.txt. It reports; it does not accept. The
+# acceptance gate itself is ob_tests "-tc=m5Acceptance*" --no-skip (X-RUN-09).
+add_test(NAME m5EvidenceStatus COMMAND ob_tests "-tc=m5EvidenceStatus*" --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(m5EvidenceStatus PROPERTIES DEPENDS "ob_tests;augustAcceptance;m5Core;m5RealData;m5Published")

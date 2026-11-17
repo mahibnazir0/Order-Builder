@@ -1,0 +1,78 @@
+{
+  "all_13_actual_layout_fits": true,
+  "first_12_layout_length": 632.0,
+  "full_13_layout_length": 617.0,
+  "items": [
+    {
+      "levels": 1,
+      "long": 72.0,
+      "short": 60.0
+    },
+    {
+      "levels": 2,
+      "long": 80.0,
+      "short": 48.0
+    },
+    {
+      "levels": 2,
+      "long": 120.0,
+      "short": 48.0
+    },
+    {
+      "levels": 2,
+      "long": 120.0,
+      "short": 48.0
+    },
+    {
+      "levels": 2,
+      "long": 48.0,
+      "short": 48.0
+    },
+    {
+      "levels": 2,
+      "long": 80.0,
+      "short": 48.0
+    },
+    {
+      "levels": 1,
+      "long": 96.0,
+      "short": 40.0
+    },
+    {
+      "levels": 2,
+      "long": 72.0,
+      "short": 60.0
+    },
+    {
+      "levels": 2,
+      "long": 80.0,
+      "short": 48.0
+    },
+    {
+      "levels": 1,
+      "long": 72.0,
+      "short": 60.0
+    },
+    {
+      "levels": 2,
+      "long": 60.0,
+      "short": 60.0
+    },
+    {
+      "levels": 2,
+      "long": 60.0,
+      "short": 60.0
+    },
+    {
+      "levels": 2,
+      "long": 40.0,
+      "short": 33.0
+    }
+  ],
+  "route_proven": true,
+  "selected_unit_loads": 23.0,
+  "trailer_length": 630.0,
+  "trial": 6109,
+  "unproven_because": "",
+  "width": 100
+}

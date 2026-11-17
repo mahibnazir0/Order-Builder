@@ -1,0 +1,19 @@
+M4 review at e6dbb0fa28ba4640e359558a341a1065dff5f895 — 12 November 2026
+
+All inputs in this attachment are synthetic. No customer fixture package is included.
+
+1. Export/check out the reviewed contractor revision and build it:
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+   cmake --build build -j 6
+
+2. Compile the included floor_proof_probe.cpp against that checkout:
+   c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -I include -I tests -I third_party /path/to/floor_proof_probe.cpp build/libob_core.a -pthread -o floor_proof_probe
+   ./floor_proof_probe
+
+The deterministic synthetic search finds the included eleven-item case at trial 31. It outputs 10 UL, proven=true, through selectLoads and planShipDates; all eleven fit in the independently checked layout in verified-layout.json (586 inches). floor-proof-results.json contains every input footprint and the witness rows. The witness uses only existing row patterns. Coordinate checks verify uniqueness, bounds and non-overlap. Raising nodeLimit alone cannot make the heuristic accept the eleven-item arrangement.
+
+3. Compile capacity_probe.cpp in the same way. It shows the effect of configured maxUnitLoadsPerTruck=64 versus 68 on 34 two-high stacks of footprint 48 x 36. This is a physical capacity example, not authorization to raise all customers' caps.
+
+4. The original fourteen-stack case requested by Saif is exactness-counterexample.json. To rerun the matching original probe, compile proof_standard_probe.cpp in the same way and run it from the folder containing monotonicity-standard-results.json. proof-standard-results.jsonl contains its corrected current results: 23 UL rather than 22, across all nine distractor variants. The first variant is the exact originally reported fourteen-stack case. Product ordering P100...P112 must be preserved.
+
+The expected optimal unit count for the new case is 11: it contains only eleven offered single-UL items and the layout places them all. Reporting a completed restricted search is not proof of optimal physical selection.
