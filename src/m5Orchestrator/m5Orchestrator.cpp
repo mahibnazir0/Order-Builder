@@ -140,6 +140,12 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
                                                   + to_string(settingsIn.floor.searchStateLimit) + ", routeSearchStateLimit "
                                                   + to_string(settingsIn.floor.routeSearchStateLimit) + ")");
     }
+    // The slots' identity first, so an unknown or mixed equipment type is reported as such, never as a
+    // missing cap or size of a slot built for it.
+    const vector<string> identityErrors = slotIdentityErrors(input);
+    if (!identityErrors.empty()) {
+        return leftOverAll(input, LeftOverCause::InvalidInput, OutcomeKind::InvalidInput, StopReason::InputInvalid, identityErrors);
+    }
     for (size_t slot = 0; slot < input.pool.slots.size(); ++slot) {
         if (input.pool.slots[slot].maxUnitLoads < 1) {
             return configurationIncomplete(input, "reserved slot " + to_string(slot)

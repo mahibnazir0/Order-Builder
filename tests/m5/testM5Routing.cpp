@@ -4,12 +4,17 @@
 #include "../m4SmallDay.hpp"
 #include "../m4SyntheticDay.hpp"
 #include "converter.hpp"
+#include "floorPattern.hpp"
 #include "joiner.hpp"
 #include "m5Integration.hpp"
+#include "m5UnitLoads.hpp"
+#include "paramsFields.hpp"
 #include "pipeline.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -256,4 +261,190 @@ TEST_CASE("U-DA-04 X-DATA-05 the pallet type is chosen by whole pallets, not by 
     const Joiner::PalletTypePick backward = Joiner::choosePalletType(reversed, 12.0);
     CHECK(forward.choice == PalletTypeChoice::SeveralDivide);
     CHECK(forward.product->pallet_id == backward.product->pallet_id);
+}
+
+namespace {
+
+// Tom's 40 ft high-cube container, inside sizes as sent (smaller value of each range), in millimetres.
+// Payload and cap are test values stated here: Tom has not sent them (containerRun stays BLOCKED).
+nlohmann::json containerType(double payloadLb = 50000.0, int maxUnitLoads = 40) {
+    return {{"equipment", "40HC"}, {"lengthMm", 12032}, {"widthMm", 2350}, {"heightMm", 2698},
+            {"payloadLb", payloadLb}, {"maxUnitLoads", maxUnitLoads}};
+}
+
+nlohmann::json m5BlockWith(const nlohmann::json& trailerTypes) {
+    nlohmann::json block = readParamsFile("config/orderBuilderParams.json")["m5"];
+    block["trailerTypes"] = trailerTypes;
+    return block;
+}
+
+const m5::TrailerCapability kTyped53F{630.0, 100.0, 108.0, 45000.0, 64};
+
+shared_ptr<const m5::M5LargeLanePlanner> typedPlanner(map<string, m5::TrailerCapability> types) {
+    m5::M5PolicyProfile profile = m5Fixtures::syntheticProfile();
+    profile.trailerTypes = std::move(types);
+    return make_shared<m5::M5LargeLanePlanner>(profile, "", m5::DateRules{false, 10}, 20);
+}
+
+// One lane-date with `goods` items on 21 reservations; the request as the selector hands it over.
+struct Handover {
+    Day day;
+    LargeLaneRequest request;
+};
+
+Handover handoverOf(size_t goods) {
+    Handover handover{dayOf({group("2027")}, goods, itemsOf(0, goods, 0), {reserved("2027", 21)}), {}};
+    handover.request = largeLaneRequestOf(handover.day.run, handover.day.classification, {0});
+    return handover;
+}
+
+void requireRefusedWhole(const LargeLaneResult& result, size_t goods, const string& reasonText) {
+    CHECK_FALSE(result.report.planned);
+    CHECK(result.trucks.empty());
+    CHECK(result.reservationsUsed == 0);
+    REQUIRE(result.leftOver.size() == goods);
+    for (const LeftOverItem& left : result.leftOver) CHECK(left.reason == LeftOverReason::M5InvalidInput);
+    INFO(result.report.text);
+    CHECK(result.report.text.find(reasonText) != string::npos);
+}
+
+}  // namespace
+
+TEST_CASE("U-DA-07/mmConversion: the container converts with 25.4 exactly and keeps the smaller value of each range" * doctest::test_suite("m5")) {
+    const m5::M5PolicyProfile profile = m5::loadProfile(m5BlockWith(nlohmann::json::array({containerType()})));
+    REQUIRE(profile.trailerTypes.count("40HC") == 1);
+    const m5::TrailerCapability& container = profile.trailerTypes.at("40HC");
+    CHECK(container.lengthIn == 12032.0 / 25.4);
+    CHECK(container.widthIn == 2350.0 / 25.4);
+    CHECK(container.heightIn == 2698.0 / 25.4);
+    CHECK(fabs(container.lengthIn - 473.700787) < 5e-7);
+    CHECK(fabs(container.widthIn - 92.519685) < 5e-7);
+    CHECK(fabs(container.heightIn - 106.220472) < 5e-7);
+    CHECK(container.maxWeightLb == 50000.0);
+    CHECK(container.maxUnitLoads == 40);
+    CHECK(fabs(container.lengthIn * container.widthIn / 144.0 - 304.35) < 0.005);
+    CHECK(fabs(container.lengthIn * container.widthIn * container.heightIn / 1728.0 - 2694.03) < 0.005);
+    // Final checks see 473.70 x 92.51 x 106.22 in whole hundredths, rounded down, never up.
+    CHECK(*m5::hundredthsRoundedDown(container.lengthIn) == 47370);
+    CHECK(*m5::hundredthsRoundedDown(container.widthIn) == 9251);
+    CHECK(*m5::hundredthsRoundedDown(container.heightIn) == 10622);
+    const m5::M5PolicyProfile shipped = m5::loadProfile(readParamsFile("config/orderBuilderParams.json")["m5"]);
+    CHECK(shipped.trailerTypes.empty());
+    m5Evidence::note("expected", {"473.700787 x 92.519685 x 106.220472 in", "304.35 sq ft", "2694.03 cu ft"});
+}
+
+TEST_CASE("U-DA-07/rowPatterns: 48 x 40 stacks in the 92.52 in container: 80 and 88 in rows, never 96" * doctest::test_suite("m5")) {
+    const m5::TrailerCapability container = m5::loadProfile(m5BlockWith(nlohmann::json::array({containerType()}))).trailerTypes.at("40HC");
+    // Independent widths: two short sides, a long and a short side, two long sides.
+    CHECK(40.0 + 40.0 <= container.widthIn);
+    CHECK(48.0 + 40.0 <= container.widthIn);
+    CHECK_FALSE(48.0 + 48.0 <= container.widthIn);
+    vector<FloorItem> stacks(18, FloorItem{48.0, 40.0, 50.0, 1, 48.0 * 40.0 * 50.0});
+    const FloorLayout layout = arrangeFloor(stacks, m5::trailerOf(container), m5Fixtures::physicalSettings().floor);
+    REQUIRE_FALSE(layout.rows.empty());
+    size_t twoAcross = 0;
+    for (const FloorRow& row : layout.rows) {
+        CHECK(row.widthIn <= container.widthIn);
+        CHECK(row.pattern != FloorPatternKind::WideWide);
+        if (row.placements.size() == 2) ++twoAcross;
+    }
+    CHECK(twoAcross > 0);
+    CHECK(layout.positions == 18);
+    m5Evidence::note("expected", {"80 fits", "88 fits", "96 never"});
+}
+
+TEST_CASE("U-DA-07/missingLimitsRejected: a type without payload or unit-load cap is a named configuration error" * doctest::test_suite("m5")) {
+    const auto refusedNaming = [](const nlohmann::json& type, const string& key) {
+        INFO(type.dump());
+        bool refused = false;
+        try {
+            m5::loadProfile(m5BlockWith(nlohmann::json::array({type})));
+        } catch (const runtime_error& error) {
+            refused = true;
+            CHECK(string(error.what()).find(key) != string::npos);
+        }
+        CHECK(refused);
+    };
+    nlohmann::json noPayload = containerType(), noCap = containerType(), zeroCap = containerType(), both = containerType(),
+                   noWidth = containerType();
+    noPayload.erase("payloadLb");
+    noCap.erase("maxUnitLoads");
+    zeroCap["maxUnitLoads"] = 0;
+    both["lengthIn"] = 473.7;
+    noWidth.erase("widthMm");
+    refusedNaming(noPayload, "payloadLb");
+    refusedNaming(noCap, "maxUnitLoads");
+    refusedNaming(zeroCap, "maxUnitLoads");
+    refusedNaming(both, "length");
+    refusedNaming(noWidth, "width");
+    refusedNaming(containerType(-1.0), "payloadLb");
+    refusedNaming(nlohmann::json::object({{"equipment", "40HC"}}), "length");
+    refusedNaming(nlohmann::json("40HC"), "trailerTypes[0]");
+    CHECK_THROWS_AS(m5::loadProfile(m5BlockWith(nlohmann::json::array({containerType(), containerType()}))), runtime_error);
+    CHECK_THROWS_AS(m5::loadProfile(m5BlockWith(nlohmann::json::object())), runtime_error);
+    m5Evidence::note("expected", {"payloadLb named", "maxUnitLoads named", "never 45,000 lb or 64"});
+}
+
+TEST_CASE("U-DA-07/unknownTypeNoFallback: a reservation of equipment outside the catalogue is refused, never sized as 53F" * doctest::test_suite("m5")) {
+    const size_t goods = 40;
+    Day day = dayOf({group("2027")}, goods, itemsOf(0, goods, 0), {reserved("2027", 21)});
+    PlaceholderRecord unknown = reserved("2027", 21);
+    unknown.zzna_equip_size = "UNKNOWN_TYPE";
+    day.book = buildReservationBook({unknown}, kCtl, kPlanDate, {"53F", {"53F", "UNKNOWN_TYPE"}});
+    day.classification = classifyLanes(day.run, day.book, day.items, kRouting);
+    REQUIRE(day.classification.routes[0].method == SolveMethod::M5);
+    REQUIRE(day.classification.routes[0].reservedEquipment == vector<string>(21, "UNKNOWN_TYPE"));
+    SelectorSettings settings = selectorSettings();
+    settings.largeLanePlanner = typedPlanner({{"53F", kTyped53F}});
+    const SelectionPlan selection = selectLoads(day.run, day.book, day.items, day.classification, settings);
+    CHECK(selection.trucks.empty());
+    REQUIRE(selection.largeLanes.size() == 1);
+    CHECK_FALSE(selection.largeLanes[0].planned);
+    CHECK(selection.largeLanes[0].text.find("unknown equipment 'UNKNOWN_TYPE'") != string::npos);
+    CHECK(selection.leftOver.size() == goods);
+    for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::M5InvalidInput);
+    m5Evidence::note("expected", {"refused: unknown equipment", "0 trucks", "40 left M5InvalidInput"});
+}
+
+TEST_CASE("U-DA-05/mixedRunRejected: one lane-date with an A slot and a B slot of different sizes is refused as mixed equipment" * doctest::test_suite("m5")) {
+    Handover handover = handoverOf(40);
+    handover.request.reservedTrucks = 2;
+    handover.request.slotEquipment = {"A", "B"};
+    const m5::TrailerCapability typeA{630.0, 100.0, 108.0, 45000.0, 64}, typeB{600.0, 96.0, 108.0, 40000.0, 60};
+    const LargeLaneResult result = typedPlanner({{"A", typeA}, {"B", typeB}})->plan(handover.request, handover.day.run, handover.day.items,
+                                                                                    selectorSettings());
+    requireRefusedWhole(result, 40, "mixed equipment on one lane-date (A and B)");
+    // A direct adapter test with explicit, equal slots still plans.
+    const m5::M5LaneDateInput direct = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 30), 2);
+    CHECK(m5Fixtures::shippedCount(m5Fixtures::plan(direct, m5Fixtures::syntheticProfile())) == 30);
+    m5Evidence::note("expected", {"refused: mixed equipment", "no trucks", "no commit"});
+}
+
+TEST_CASE("X-ROUTE-05/malformedHandoffReservation: a negative count or an invalid equipment identity is refused, never zero trucks" * doctest::test_suite("m5")) {
+    Handover negative = handoverOf(40);
+    negative.request.reservedTrucks = -1;
+    requireRefusedWhole(m5Planner()->plan(negative.request, negative.day.run, negative.day.items, selectorSettings()), 40,
+                        "the hand-over reserves -1 trucks");
+
+    Handover badIdentity = handoverOf(40);
+    badIdentity.request.slotEquipment.assign(21, "53F");
+    badIdentity.request.slotEquipment[3] = "NOT-A-TYPE";
+    requireRefusedWhole(typedPlanner({{"53F", kTyped53F}})->plan(badIdentity.request, badIdentity.day.run, badIdentity.day.items,
+                                                               selectorSettings()),
+                        40, "unknown equipment 'NOT-A-TYPE'");
+
+    // The valid control on the same planner plans; exact-duplicate reservation rows stay refused the same
+    // way however often the book is built.
+    const Handover control = handoverOf(40);
+    REQUIRE(control.request.slotEquipment == vector<string>(21, "53F"));
+    const LargeLaneResult planned = typedPlanner({{"53F", kTyped53F}})->plan(control.request, control.day.run, control.day.items,
+                                                                             selectorSettings());
+    CHECK(planned.report.planned);
+    CHECK(planned.trucks.size() == 2);
+    for (int build = 0; build < 2; ++build) {
+        const ReservationBook book = buildReservationBook({reserved("2027", 11), reserved("2027", 11)}, kCtl, kPlanDate, {"53F", {"53F"}});
+        CHECK(book.reservations.empty());
+        CHECK(book.skipped.size() == 2);
+    }
+    m5Evidence::note("expected", {"-1 refused by name", "unknown identity refused", "control 2 trucks"});
 }

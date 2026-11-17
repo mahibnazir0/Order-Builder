@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -84,6 +85,12 @@ struct ReservationPool {
     ReservationVersion version = 1;
     std::vector<TrailerCapability> slots;      // one per reserved truck, shared by every group
     std::optional<double> penaltyPerUnusedTruck;  // CL-06: empty is unknown, never zero
+    // The hand-over's reserved count as received, so a negative one is refused rather than clamped to
+    // zero trucks (X-ROUTE-05). Empty in direct inputs, which state their slots alone.
+    std::optional<long long> declaredTrucks;
+    // Each slot's equipment code, parallel to slots, when the run has a trailer-type catalogue (U-DA-07);
+    // empty when every slot is M4's own trailer. Not part of a slot's signature: equal facts pack alike.
+    std::vector<std::string> slotEquipment;
 };
 
 struct DateRules {
@@ -115,6 +122,9 @@ struct M5LaneDateInput {
     // The lane's own past-due order (P9): the run's unless the lane is set apart.
     PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
     std::string sourceVersion;  // identity of the hand-over this input was gathered from
+    // The run's trailer-type catalogue, frozen with the input: a slot naming equipment must match its
+    // entry exactly. Empty: no catalogue, and no slot may name equipment.
+    std::map<std::string, TrailerCapability> trailerTypes;
 };
 
 enum class LeftOverCause {

@@ -64,6 +64,11 @@ void checkAtom(const Atom& atom, size_t index, vector<string>& errors) {
     }
 }
 
+bool sameFacts(const TrailerCapability& left, const TrailerCapability& right) {
+    return left.lengthIn == right.lengthIn && left.widthIn == right.widthIn && left.heightIn == right.heightIn
+           && left.maxWeightLb == right.maxWeightLb && left.maxUnitLoads == right.maxUnitLoads;
+}
+
 void checkPool(const ReservationPool& pool, vector<string>& errors) {
     for (size_t slot = 0; slot < pool.slots.size(); ++slot) {
         const TrailerCapability& capability = pool.slots[slot];
@@ -146,6 +151,38 @@ Eligibility atomEligibility(const Atom& atom, const string& departure, const Dat
     return result;
 }
 
+vector<string> slotIdentityErrors(const M5LaneDateInput& input) {
+    vector<string> errors;
+    const ReservationPool& pool = input.pool;
+    if (pool.declaredTrucks && (*pool.declaredTrucks < 0 || static_cast<unsigned long long>(*pool.declaredTrucks) != pool.slots.size())) {
+        errors.push_back("the hand-over reserves " + to_string(*pool.declaredTrucks) + " trucks for " + to_string(pool.slots.size())
+                         + " slots: a reserved count is a whole number from 0, and the lane-date is not planned on a guess");
+    }
+    set<string> equipment;
+    for (size_t slot = 0; slot < pool.slots.size(); ++slot) {
+        const TrailerCapability& capability = pool.slots[slot];
+        const string name = "reserved slot " + to_string(slot);
+        const string code = slot < pool.slotEquipment.size() ? pool.slotEquipment[slot] : string();
+        if (code.empty()) {
+            if (!input.trailerTypes.empty()) errors.push_back(name + " names no equipment, and the run has a trailer-type catalogue");
+            continue;
+        }
+        equipment.insert(code);
+        const auto entry = input.trailerTypes.find(code);
+        if (entry == input.trailerTypes.end()) {
+            errors.push_back(name + " names unknown equipment '" + code
+                             + "': it is not in the trailer-type catalogue, and no 53F size, payload or cap is assumed");
+        } else if (!sameFacts(capability, entry->second)) {
+            errors.push_back(name + "'s size, payload or cap differs from the catalogue entry for '" + code + "'");
+        }
+    }
+    if (equipment.size() > 1) {
+        errors.push_back("mixed equipment on one lane-date (" + *equipment.begin() + " and " + *equipment.rbegin()
+                         + "): one trailer type per lane-date is supported (C9, U-DA-05)");
+    }
+    return errors;
+}
+
 SnapshotBuild buildSnapshot(const M5LaneDateInput& input) {
     SnapshotBuild build;
     vector<string>& errors = build.errors;
@@ -162,6 +199,8 @@ SnapshotBuild buildSnapshot(const M5LaneDateInput& input) {
         }
     }
     checkPool(input.pool, errors);
+    const vector<string> identity = slotIdentityErrors(input);
+    errors.insert(errors.end(), identity.begin(), identity.end());
     checkSourcesAgree(input, errors);
     if (!errors.empty()) return build;
 

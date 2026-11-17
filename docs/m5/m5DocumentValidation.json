@@ -1375,12 +1375,12 @@
   "reviewedOutputs": {
     "M5_Edge_Cases_and_Tests_v12.md": "2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53",
     "m5DeveloperHandover.md": "7700623f40702d7871110a9148fd909dedbfcfb7e1f23216cc4076f7670f585e",
-    "m5ModularArchitecture.md": "ec00cfd0f9834a47c292297fe8435b4a6df5219e980bcb5ffc7cca122faf7e72",
+    "m5ModularArchitecture.md": "60273549646b60055a1b1c6a1dbca43530edf6636deec55b1d6358334ab5fda5",
     "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
-    "m5ReviewAndChanges.md": "29496ebbcb68bc9106508436f0c7570bc6fe57774266c09884048ef5b4faee3c",
-    "m5TestManifest.json": "b1958ebe6e5a4e629f5fc42b9f5dd1d2c1215a975f906b70ec42b7dabad38e0f",
+    "m5ReviewAndChanges.md": "57616e28ac1af5d7911dc22086b065d3e854ed36d5ca6a32fbcc358d49455105",
+    "m5TestManifest.json": "bcee3a4fe42a4e5b5d2d9cf7fb5b8cfe09c84950b96269f6bc5c8168804bb079",
     "m5TestTraceability.md": "e23b74e1265a19f236d2bc74005f7f7ac3ad361f3753a4a0958e619efe05836f"
   },
   "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
@@ -1490,7 +1490,7 @@
       "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
       "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
       "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
-      "m5ReviewAndChanges.md": "17c985f9fd120497ce620c404f35e073979f88ee29256241658e8b4e1afa6263",
+      "m5ReviewAndChanges.md": "29496ebbcb68bc9106508436f0c7570bc6fe57774266c09884048ef5b4faee3c",
       "m5TestManifest.json": "b1958ebe6e5a4e629f5fc42b9f5dd1d2c1215a975f906b70ec42b7dabad38e0f",
       "m5TestTraceability.md": "e23b74e1265a19f236d2bc74005f7f7ac3ad361f3753a4a0958e619efe05836f"
     },

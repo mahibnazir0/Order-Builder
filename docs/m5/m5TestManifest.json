@@ -5243,7 +5243,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Physical.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5366,7 +5366,7 @@
         "M-VAL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Routing.cpp (planned, PR-10)",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Container profile 473.700787 x 92.519685 x 106.220472 in (12,032 x 2,350 x 2,698 mm); 48 x 40 in stacks; FX-30 goods",
       "localOverrides": "One trailer type for the whole run",
       "entryPoint": "ROUTE + DIRECT",

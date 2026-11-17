@@ -24,6 +24,39 @@ void readOptional(const json& block, const char* key, Read read) {
 
 int readWholeCount(const json& value, const string& key) { return readInteger(value, key, 1); }
 
+// One inside dimension, given in inches or in millimetres (converted with the exact 25.4), never both.
+double readDimensionIn(const json& entry, const string& dimension, const string& name) {
+    const auto inches = entry.find(dimension + "In"), millimetres = entry.find(dimension + "Mm");
+    if ((inches == entry.end()) == (millimetres == entry.end())) {
+        throw runtime_error("params: " + name + " needs exactly one of " + dimension + "In and " + dimension + "Mm");
+    }
+    if (inches != entry.end()) return readQuantity(*inches, name + "." + dimension + "In");
+    return readQuantity(*millimetres, name + "." + dimension + "Mm") / kMillimetresPerInch;
+}
+
+// U-DA-07: every type states its sizes, payload and unit-load cap; a missing one is an error, never the
+// 53F trailer's 45,000 lb or 64.
+map<string, TrailerCapability> readTrailerTypes(const json& value, const string& key) {
+    if (!value.is_array()) throw runtime_error("params: " + key + " must be an array when present");
+    map<string, TrailerCapability> types;
+    for (size_t index = 0; index < value.size(); ++index) {
+        const json& entry = value[index];
+        const string name = key + "[" + to_string(index) + "]";
+        if (!entry.is_object()) throw runtime_error("params: " + name + " must be an object");
+        TrailerCapability type;
+        const string equipment = readString(requiredField(entry, "equipment", name), name + ".equipment");
+        type.lengthIn = readDimensionIn(entry, "length", name);
+        type.widthIn = readDimensionIn(entry, "width", name);
+        type.heightIn = readDimensionIn(entry, "height", name);
+        type.maxWeightLb = readQuantity(requiredField(entry, "payloadLb", name), name + ".payloadLb");
+        type.maxUnitLoads = readWholeCount(requiredField(entry, "maxUnitLoads", name), name + ".maxUnitLoads");
+        if (!types.emplace(equipment, type).second) {
+            throw runtime_error("params: " + name + ".equipment '" + equipment + "' is listed twice");
+        }
+    }
+    return types;
+}
+
 }  // namespace
 
 string M5PolicyProfile::key() const {
@@ -126,6 +159,7 @@ M5PolicyProfile loadProfile(const json& block) {
         profile.penaltyPerUnusedTruck = readQuantity(penalty, name + ".penaltyPerUnusedTruck", ZeroAllowed::Yes);
     }
 
+    readOptional(block, "trailerTypes", [&](const json& value, const string& key) { profile.trailerTypes = readTrailerTypes(value, key); });
     readOptional(block, "acceptance", [&](const json& value, const string& key) {
         if (!value.is_object()) throw runtime_error("params: " + key + " must be an object when present");
         NumericAcceptance rule;

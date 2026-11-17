@@ -51,6 +51,12 @@ struct SnapshotBuild {
 // nothing, and non-finite alike - and every date and priority, before freezing the input.
 SnapshotBuild buildSnapshot(const M5LaneDateInput& input);
 
+// The reserved slots' identity, checked before any other planning step: a declared count that is negative
+// or differs from the slots, equipment missing from or disagreeing with the trailer-type catalogue, a slot
+// without equipment when there is a catalogue, and more than one equipment type on one lane-date (C9,
+// U-DA-05). Empty when the slots are as declared.
+std::vector<std::string> slotIdentityErrors(const M5LaneDateInput& input);
+
 struct ResidualSource {
     SourceLineId source;
     GroupId group;

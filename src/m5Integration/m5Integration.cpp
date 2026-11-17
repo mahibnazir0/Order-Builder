@@ -128,7 +128,8 @@ LargeLaneReport reportShell(const LargeLaneRequest& request) {
 }  // namespace
 
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
-                               const DateRules& dates, const optional<double>& penaltyPerUnusedTruck, double maxUnitLoadsPerTruck) {
+                               const DateRules& dates, const optional<double>& penaltyPerUnusedTruck, double maxUnitLoadsPerTruck,
+                               const map<string, TrailerCapability>& trailerTypes) {
     M5LaneDateInput input;
     input.lane = {request.origin, request.destination, request.shipCondition};
     input.departure = request.shipDate;
@@ -157,10 +158,25 @@ M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineRe
         input.excluded.push_back({"item " + to_string(index), groupLabel(run, item.groupIndex), item.unitLoads, reason});
     }
     input.sourceScopeComplete = true;
-    const TrailerSpec& trailer = run.trailer;
-    const TrailerCapability capability{trailer.interiorLengthIn, trailer.interiorWidthIn, trailer.stackHeightCeilingIn,
-                                       trailer.weightLimitLb, unitLoadCapFromNumber(maxUnitLoadsPerTruck).value.value_or(0)};
-    input.pool.slots.assign(static_cast<size_t>(max(0LL, request.reservedTrucks)), capability);
+    // A negative count gets no slots here and is refused by name when planned (X-ROUTE-05).
+    input.pool.declaredTrucks = request.reservedTrucks;
+    const size_t slots = static_cast<size_t>(max(0LL, request.reservedTrucks));
+    if (trailerTypes.empty()) {
+        const TrailerSpec& trailer = run.trailer;
+        const TrailerCapability capability{trailer.interiorLengthIn, trailer.interiorWidthIn, trailer.stackHeightCeilingIn,
+                                           trailer.weightLimitLb, unitLoadCapFromNumber(maxUnitLoadsPerTruck).value.value_or(0)};
+        input.pool.slots.assign(slots, capability);
+    } else {
+        input.trailerTypes = trailerTypes;
+        input.pool.slots.reserve(slots);
+        input.pool.slotEquipment.reserve(slots);
+        for (size_t slot = 0; slot < slots; ++slot) {
+            const string code = slot < request.slotEquipment.size() ? request.slotEquipment[slot] : string();
+            const auto entry = trailerTypes.find(code);
+            input.pool.slots.push_back(entry != trailerTypes.end() ? entry->second : TrailerCapability{});
+            input.pool.slotEquipment.push_back(code);
+        }
+    }
     input.pool.penaltyPerUnusedTruck = penaltyPerUnusedTruck;
     input.sourceVersion = run.demand.request_id + "#" + request.origin + "-" + request.destination + "-" + request.shipCondition + "@"
                           + request.shipDate;
@@ -258,7 +274,7 @@ LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const 
     try {
         const M5LaneDateInput input =
             gatherLaneDate(request, run, items, dates_, profile_ ? profile_->penaltyPerUnusedTruck : nullopt,
-                           settings.maxUnitLoadsPerTruck);
+                           settings.maxUnitLoadsPerTruck, profile_ ? profile_->trailerTypes : map<string, TrailerCapability>{});
         const PhysicalSettings physical = physicalSettingsOf(settings);
         const FunctionClock clock(settings.clock);
         const M5RunServices services(clock);

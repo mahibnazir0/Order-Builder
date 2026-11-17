@@ -88,6 +88,8 @@ struct LaneRoute {
     std::size_t groupIndex = 0;     // into PipelineResult::segregation.groups
     std::string shipDate;
     long long reservedTrucks = 0;   // the lane's reservation on shipDate
+    // The equipment code of each reserved truck, in the reservation's row order (M5 trailer types).
+    std::vector<std::string> reservedEquipment;
     // Groups of this lane drawing on the same reservation.
     std::size_t groupsSharingReservation = 1;
     // This group's share of reservedTrucks (rule 2). The shares of a lane-date add up to its

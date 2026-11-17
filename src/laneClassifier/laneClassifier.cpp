@@ -267,6 +267,11 @@ LaneClassification classifyLanes(const PipelineResult& run, const ReservationBoo
         const Reservation* reservation = findReservation(
             book, group.key.locationFrom, group.key.locationTo, group.key.shipCondition, route.shipDate);
         route.reservedTrucks = reservation ? reservation->trucks : 0;
+        if (reservation) {
+            for (const ReservationEntry& entry : reservation->entries) {
+                route.reservedEquipment.insert(route.reservedEquipment.end(), static_cast<size_t>(max(0, entry.trucks)), entry.equipment);
+            }
+        }
         route.groupsSharingReservation = laneGroups.size();
         if (group.splitReason == SplitReason::DoNotMix) {
             route.conflict = ConflictReason::DoNotMix;

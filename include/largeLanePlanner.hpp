@@ -36,6 +36,7 @@ struct LargeLaneRequest {
     std::string shipCondition;
     std::string shipDate;
     long long reservedTrucks = 0;  // the lane-date's pool, shared by every group
+    std::vector<std::string> slotEquipment;  // each reserved truck's equipment code, as the reservation gives it
     // Parallel, one entry per route (group) of the lane-date, in route order.
     std::vector<std::size_t> routeIndices;
     std::vector<std::size_t> groupIndices;

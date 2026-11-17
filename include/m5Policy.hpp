@@ -61,6 +61,9 @@ struct M5PolicyProfile {
     std::uint32_t profileRevision = 1;
     EvidenceScope scope = EvidenceScope::RealCustomer;
     std::optional<NumericAcceptance> acceptance;  // empty: OFF, the customer's export check
+    // The trailer-type catalogue by equipment code (U-DA-07), from the optional m5.trailerTypes. Empty: every
+    // reserved slot is the run's own trailer with selection.maxUnitLoadsPerTruck, as before.
+    std::map<std::string, TrailerCapability> trailerTypes;
     FullnessRule fullness;
     double secondsPerLoad = 0.0;                  // user setting; no default
     PastDueOrder order = PastDueOrder::AgeFirst;
@@ -102,6 +105,7 @@ bool m5Enabled(const nlohmann::json& root);
 
 // Validation domains set by Mahib on 17 Nov 2026 (decision 4), not confirmed by Tom.
 constexpr double kMinRearInchLimit = 0.01;
+constexpr double kMillimetresPerInch = 25.4;
 constexpr double kMaxAcceptanceWeightLb = 1'000'000.0;
 constexpr double kMaxAcceptanceCubeCuFt = 100'000.0;
 // The largest allowance a lane-date may declare: about 31 years. Beyond it the product of seconds

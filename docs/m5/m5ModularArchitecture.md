@@ -1996,3 +1996,21 @@ uses three slots per lane, and the one-slot form stays at the direct seam. Tests
 X-STATE-04/thresholdSnapshotInFlight), `tests/m5/testM5Scenarios.cpp` (U-RS-01, U-RS-09, U-RB-01, U-PF-07,
 X-DATE-07), `tests/m5/testM5Orchestrator.cpp` (X-STATE-02/unselectedMethodProof),
 `tests/m5/testM5TieRule.cpp` (X-STATE-10/sameSlotTieConcurrent).
+
+Trailer types and the typed hand-over (PR-10b, U-DA-07, U-DA-05, X-ROUTE-05, X-DATA-13). The optional
+`m5.trailerTypes` array is the trailer-type catalogue: each entry names its `equipment` code, each inside
+dimension in inches (`lengthIn`, ...) or millimetres (`lengthMm`, ..., divided by 25.4 exactly), and its
+`payloadLb` and `maxUnitLoads`; a missing payload or cap, both units for one dimension, or a duplicate code
+is a named configuration error, never 45,000 lb or 64. Absent (as shipped), every reserved slot is the
+run's own trailer with `selection.maxUnitLoadsPerTruck`, exactly as before. M4's classifier now carries each
+reserved truck's equipment code (`LaneRoute::reservedEquipment`, from the reservation rows) and
+`LargeLaneRequest::slotEquipment` hands it to M5; nothing else in M4 reads it. With a catalogue,
+`gatherLaneDate` sizes each slot from its code's entry and freezes the catalogue with the input.
+`slotIdentityErrors` (m5Ledger), checked first by `planLaneDate` and again by `buildSnapshot`, refuses as
+invalid input: a declared reserved count that is negative or differs from the slots (it is kept in
+`ReservationPool::declaredTrucks`, never clamped to zero), an unknown code, a slot whose facts differ from
+its catalogue entry, a slot without a code when there is a catalogue, and two codes on one lane-date (C9).
+The M4 floor report for M5 trucks still uses the run's trailer; a container-only run (U-DA-07/containerRun)
+stays BLOCKED until Tom gives its payload and unit-load limit. Tests: `tests/m5/testM5Routing.cpp`
+(U-DA-07 x4, U-DA-05/mixedRunRejected, X-ROUTE-05/malformedHandoffReservation), `tests/m5/testM5Planning.cpp`
+(X-DATA-13/inconsistentSlotCapabilities).

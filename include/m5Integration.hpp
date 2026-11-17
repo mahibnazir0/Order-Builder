@@ -25,6 +25,7 @@
 #include "m5Policy.hpp"
 #include "m5Physical.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,9 +40,12 @@ namespace m5 {
 // Every reserved slot gets the run's trailer and the unit-load cap `maxUnitLoadsPerTruck` (the validated
 // M4 setting, replicated onto the slots until the reservation feed carries per-slot caps, C9). A value
 // that is not a whole number from 1 leaves the slots with no cap, which planLaneDate refuses before planning.
+// With a trailer-type catalogue, each slot is its reservation's equipment type from it (an unknown code
+// leaves a slot with no facts, which planning refuses by name); without one, every slot is the run's
+// trailer with maxUnitLoadsPerTruck.
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
                                const DateRules& dates, const std::optional<double>& penaltyPerUnusedTruck,
-                               double maxUnitLoadsPerTruck);
+                               double maxUnitLoadsPerTruck, const std::map<std::string, TrailerCapability>& trailerTypes = {});
 
 PhysicalSettings physicalSettingsOf(const SelectorSettings& settings);
 

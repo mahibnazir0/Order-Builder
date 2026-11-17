@@ -5,6 +5,7 @@
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
 #include "m5Validation.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5Oracles.hpp"
 
@@ -627,4 +628,45 @@ TEST_CASE("X-STATE-10 commitment is atomic, idempotent and refuses stale or conf
     const DemandSnapshot residual = residualAfter(snapshot, *outcome.delta);
     CHECK(residual.input.atoms.size() == 0);
     CHECK(residual.id != snapshot.id);
+}
+
+TEST_CASE("X-DATA-13/inconsistentSlotCapabilities: payload 0, cap 0, NaN width or a slot unlike its catalogue type is refused before packing" * doctest::test_suite("m5")) {
+    const auto refused = [](const M5LaneDateInput& input, OutcomeKind kind, LeftOverCause cause, const string& reasonText) {
+        const M5LaneDateInput before = input;
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        CHECK(outcome.kind == kind);
+        CHECK_FALSE(outcome.selected.has_value());
+        CHECK_FALSE(outcome.delta.has_value());
+        CHECK(outcome.floorSearch.statesCharged == 0);
+        REQUIRE(outcome.leftOver.size() == input.atoms.size());
+        for (const LeftOver& left : outcome.leftOver) CHECK(left.cause == cause);
+        const bool named = any_of(outcome.findings.begin(), outcome.findings.end(),
+                                  [&](const string& finding) { return finding.find(reasonText) != string::npos; });
+        INFO(reasonText);
+        CHECK(named);
+        CHECK(input.pool.slots.size() == before.pool.slots.size());
+    };
+    const M5LaneDateInput valid = laneWith(fx30Units("u", 30), 1);
+    REQUIRE(shippedCount(plan(valid, syntheticProfile())) == 30);
+
+    M5LaneDateInput noPayload = valid;
+    noPayload.pool.slots[0].maxWeightLb = 0.0;
+    refused(noPayload, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "weight limit that is not finite and above zero");
+    M5LaneDateInput noCap = valid;
+    noCap.pool.slots[0].maxUnitLoads = 0;
+    refused(noCap, OutcomeKind::ConfigurationIncomplete, LeftOverCause::ConfigurationIncomplete, "no unit-load cap");
+    M5LaneDateInput nanWidth = valid;
+    nanWidth.pool.slots[0].widthIn = numeric_limits<double>::quiet_NaN();
+    refused(nanWidth, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "trailer size or weight limit");
+
+    M5LaneDateInput mismatch = valid;
+    mismatch.trailerTypes = {{"53F", kDefaultTrailer}};
+    mismatch.pool.slotEquipment = {"53F"};
+    REQUIRE(shippedCount(plan(mismatch, syntheticProfile())) == 30);
+    mismatch.pool.slots[0].maxWeightLb = 40000.0;
+    refused(mismatch, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "differs from the catalogue entry for '53F'");
+    M5LaneDateInput undeclared = valid;
+    undeclared.trailerTypes = {{"53F", kDefaultTrailer}};
+    refused(undeclared, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "names no equipment");
+    m5Evidence::note("expected", {"payload 0 refused", "cap 0 refused", "NaN width refused", "catalogue mismatch refused"});
 }

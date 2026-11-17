@@ -25,6 +25,7 @@ LargeLaneRequest largeLaneRequestOf(const PipelineResult& run, const LaneClassif
     request.shipCondition = lane.shipCondition;
     request.shipDate = first.shipDate;
     request.reservedTrucks = first.reservedTrucks;
+    request.slotEquipment = first.reservedEquipment;
     request.pastDueOrder = first.pastDueOrder;
     for (const size_t routeIndex : routeIndices) {
         const LaneRoute& route = classification.routes[routeIndex];

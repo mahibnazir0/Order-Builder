@@ -25,6 +25,10 @@
   R-7, U-RS-01, U-RS-09, U-RB-01, U-PF-07, X-DATE-07, X-STATE-02, X-STATE-04 and X-STATE-10.
   validateSuppliedWitness now applies the no-turning setting (allowRotation false): a footprint must go in
   with fixedOrientation's side across (open item from PR-7).
+- PR-10b (17 Nov 2026): optional trailer-type catalogue `m5.trailerTypes` (U-DA-07), equipment per reserved
+  truck in the M4 hand-over, slot identity checks (U-DA-05/mixedRunRejected, X-ROUTE-05, X-DATA-13). Spec
+  unchanged; architecture Section 22 "Trailer types and the typed hand-over"; U-DA-07 testFile now
+  tests/m5/testM5Routing.cpp. Shipped params have no catalogue, so M4 and the August results are unchanged.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).
