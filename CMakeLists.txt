@@ -186,6 +186,8 @@ endif()
 # The CLI tests run the real executable, so it must be built first and found by path.
 add_dependencies(ob_tests order_builder)
 target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_builder>")
+# U-AC-08/freshProcess re-runs ob_tests itself to compare with a fresh process.
+target_compile_definitions(ob_tests PRIVATE OB_TESTS_PATH="$<TARGET_FILE:ob_tests>")
 # The M4 benchmark suite writes its report for the client here, beside the build, and beside it
 # the diagnosis of what limits each truck's fill.
 target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt"

@@ -15,10 +15,15 @@
 #include "support/m5StubMethods.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
+#include <map>
 #include <memory>
 #include <random>
+#include <regex>
 #include <set>
 
 using namespace std;
@@ -617,22 +622,231 @@ TEST_CASE("R-5b seeded single trucks of 6-11 stacks are never worse than brute f
     }
 }
 
-TEST_CASE("U-CG-01 U-CG-03 U-CG-04 U-CG-05 one type, exact fits and one unit too big" * doctest::test_suite("m5")) {
+TEST_CASE("U-CG-01/synthetic: up to 10 items, column generation uses as many trucks as brute force, with a valid packing" * doctest::test_suite("m5")) {
+    mt19937 generator(20261118);
+    uniform_int_distribution<long long> size(1, 10);
+    uniform_int_distribution<size_t> count(1, 10);
+    size_t cases = 0;
+    for (int round = 0; round < 300; ++round) {
+        vector<long long> sizes(count(generator));
+        for (long long& item : sizes) item = size(generator);
+        const ScalarModel model = scalarModel(sizes, 10);
+        const ScalarResult result = solveCuttingStock(model, ScalarLimits());
+        INFO("round " << round);
+        REQUIRE(result.packing.has_value());
+        CHECK(result.impossible.empty());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(sizes, 10));
+        ++cases;
+    }
+    CHECK(cases == 300);
+    m5Evidence::note("expected", {"300 seeded cases of 1-10 items, sizes 1-10, capacity 10", "bins == brute force on every case"});
+}
+
+TEST_CASE("U-CG-03/synthetic: one item type is one pattern repeated; the remainder is kept, never rounded up" * doctest::test_suite("m5")) {
+    // Seventeen items of 2 in bins of 10: three bins of five and one of the remaining two.
     ScalarModel oneType;
     oneType.sizes.assign(17, 2);
     oneType.capacity = 10;
     const ScalarResult result = solveCuttingStock(oneType, ScalarLimits());
-    CHECK(result.packing->bins.size() == 4);
+    REQUIRE(result.packing.has_value());
+    CHECK(m5Oracles::packingValid(oneType, *result.packing, result.impossible));
+    vector<size_t> perBin;
     size_t packed = 0;
-    for (const auto& bin : result.packing->bins) packed += bin.size();
+    for (const auto& bin : result.packing->bins) {
+        perBin.push_back(bin.size());
+        packed += bin.size();
+    }
+    sort(perBin.begin(), perBin.end());
+    CHECK(perBin == vector<size_t>{2, 5, 5, 5});
     CHECK(packed == 17);
-    const ScalarModel exact = scalarModel({10, 11}, 10);
-    const ScalarResult edge = solveCuttingStock(exact, ScalarLimits());
-    CHECK(edge.packing->bins.size() == 1);
-    CHECK(edge.impossible == vector<size_t>{1});
+
+    // The same on trailers: 35 FX-30 on two slots ship 30 + 5, never two full trucks; on one slot 30 ship and 5 stay.
+    const M5LaneDateInput twoSlots = laneWith(fx30Units("u", 35), 2);
+    const M5LaneOutcome both = plan(twoSlots, syntheticProfile());
+    requireInvariants(both, twoSlots);
+    REQUIRE(both.selected);
+    vector<size_t> truckLoads;
+    for (const TruckPlan& truck : both.selected->trucks) truckLoads.push_back(truck.atoms.size());
+    sort(truckLoads.begin(), truckLoads.end());
+    CHECK(truckLoads == vector<size_t>{5, 30});
+    const M5LaneDateInput oneSlot = laneWith(fx30Units("u", 35), 1);
+    const M5LaneOutcome single = plan(oneSlot, syntheticProfile());
+    requireInvariants(single, oneSlot);
+    CHECK(shippedCount(single) == 30);
+    CHECK(single.leftOver.size() == 5);
+    m5Evidence::note("expected", {"bins 5,5,5,2 (17 packed)", "two slots: 30 + 5", "one slot: 30 ship, 5 kept"});
 }
 
-TEST_CASE("U-CG-06 X-CG-08 at its round cap pricing stops with a checked result and no runaway columns" * doctest::test_suite("m5")) {
+TEST_CASE("U-CG-04/synthetic: an item exactly the trailer's width or length fits, with no rounding error" * doctest::test_suite("m5")) {
+    const ScalarModel exact = scalarModel({10, 10}, 10);
+    const ScalarResult result = solveCuttingStock(exact, ScalarLimits());
+    REQUIRE(result.packing.has_value());
+    CHECK(result.impossible.empty());
+    CHECK(result.packing->bins.size() == 2);
+
+    // 630 x 100 in, 108 in, 45,000 lb: exactly the trailer's length, width, height and payload.
+    const M5LaneDateInput block = laneWith({fxBlock("block")}, 1);
+    const PhysicalCheck blockCheck = checkTruck(block, {0}, kDefaultTrailer, physicalSettings());
+    CHECK(blockCheck.fits);
+    CHECK(blockCheck.findings.empty());
+    const M5LaneOutcome outcome = plan(block, syntheticProfile());
+    requireInvariants(outcome, block);
+    CHECK(shippedCount(outcome) == 1);
+    // A 100 in wide item, 300 in long: two stand nose to tail in exactly 600 in.
+    const M5LaneDateInput wide = laneWith({unitOf("w1", "A", 300.0, 100.0, 50.0, 1000.0), unitOf("w2", "A", 300.0, 100.0, 50.0, 1000.0)}, 1);
+    const PhysicalCheck wideCheck = checkTruck(wide, {0, 1}, kDefaultTrailer, physicalSettings());
+    CHECK(wideCheck.fits);
+    m5Evidence::note("expected", {"size 10 in bins of 10: one each", "630 x 100 x 108 in, 45,000 lb block fits", "two 300 x 100 in fit"});
+}
+
+TEST_CASE("U-CG-05/synthetic: one unit too big does not fit unless an allowed turn fits; no tolerance lets it in" * doctest::test_suite("m5")) {
+    const ScalarResult scalar = solveCuttingStock(scalarModel({11, 10}, 10), ScalarLimits());
+    CHECK(scalar.impossible == vector<size_t>{0});
+    REQUIRE(scalar.packing.has_value());
+    CHECK(scalar.packing->bins.size() == 1);
+
+    // One step (0.01) over each limit, with no turn that helps.
+    const vector<pair<string, Atom>> tooBig{
+        {"length 630.01", unitOf("long", "A", 630.01, 20.0, 108.0, 1500.0)},
+        {"both sides 100.01", unitOf("square", "A", 100.01, 100.01, 50.0, 1500.0)},
+        {"height 108.01", unitOf("tall", "A", 100.0, 20.0, 108.01, 1500.0)},
+        {"weight 45,000.01", unitOf("heavy", "A", 100.0, 20.0, 108.0, 45000.01)},
+    };
+    for (const auto& [label, atom] : tooBig) {
+        INFO(label);
+        const M5LaneDateInput input = laneWith({atom}, 1);
+        const PhysicalCheck check = checkTruck(input, {0}, kDefaultTrailer, physicalSettings());
+        CHECK_FALSE(check.fits);
+        CHECK_FALSE(check.undecided);
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        CHECK(shippedCount(outcome) == 0);
+        REQUIRE(outcome.leftOver.size() == 1);
+        CHECK(outcome.leftOver.front().cause == LeftOverCause::Unfittable);
+    }
+    // 100.01 in on one side only: turned along the trailer it fits.
+    const M5LaneDateInput turned = laneWith({unitOf("turn", "A", 100.01, 99.0, 50.0, 1500.0)}, 1);
+    CHECK(checkTruck(turned, {0}, kDefaultTrailer, physicalSettings()).fits);
+    CHECK(shippedCount(plan(turned, syntheticProfile())) == 1);
+    m5Evidence::note("expected", {"11 in bins of 10 impossible", "0.01 over length, both sides, height, weight: no fit",
+                                  "100.01 x 99 in fits turned"});
+}
+
+TEST_CASE("U-CG-06/synthetic: at the iteration cap it stops with status, the checked result, an honest gap and the goods left" * doctest::test_suite("m5")) {
+    // Item 10 (size 11) is larger than the bin: it is the goods left.
+    const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2, 4, 4, 7, 1, 11}, 10);
+    ScalarLimits capped;
+    capped.maxColumnRounds = 1;
+    capped.exactMaxItems = 0;  // no exact shortcut: the column rounds are what stops
+    const ScalarResult result = solveCuttingStock(model, capped);
+    CHECK(result.evidence.termination == Termination::IterationCap);
+    REQUIRE(result.packing.has_value());
+    CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+    CHECK(result.impossible == vector<size_t>{10});
+    CHECK(result.evidence.columnsGenerated <= model.sizes.size() + 1);
+    REQUIRE(result.evidence.incumbent.has_value());
+    CHECK(*result.evidence.incumbent == static_cast<long long>(result.packing->bins.size()));
+    REQUIRE(result.evidence.lowerBound.has_value());
+    const long long best = m5Oracles::bruteForceBins({6, 5, 3, 2, 2, 2, 4, 4, 7, 1}, 10);
+    CHECK(*result.evidence.lowerBound <= best);
+    CHECK(best <= *result.evidence.incumbent);
+    CHECK(result.evidence.proof != ProofStatus::ProvenInfeasible);
+    if (*result.evidence.lowerBound < *result.evidence.incumbent) CHECK(result.evidence.proof != ProofStatus::ProvenOptimal);
+    CHECK(result.evidence.lpStatus == "pricingIncomplete");
+
+    // The simplex's own iteration cap stops it the same way: a status, a checked result, the goods left.
+    ScalarLimits simplexCapped;
+    simplexCapped.simplexIterationLimit = 1;
+    simplexCapped.exactMaxItems = 0;
+    const ScalarResult simplexStop = solveCuttingStock(model, simplexCapped);
+    CHECK(simplexStop.evidence.termination == Termination::IterationCap);
+    REQUIRE(simplexStop.packing.has_value());
+    CHECK(m5Oracles::packingValid(model, *simplexStop.packing, simplexStop.impossible));
+    CHECK(simplexStop.impossible == vector<size_t>{10});
+    CHECK(simplexStop.evidence.lpStatus != "converged");
+    REQUIRE(simplexStop.evidence.incumbent.has_value());
+    if (simplexStop.evidence.lowerBound) CHECK(*simplexStop.evidence.lowerBound <= best);
+    m5Evidence::note("expected", {"round cap and simplex cap: termination iteration cap", "checked packing",
+                                  "lower bound <= optimum <= incumbent", "item 10 left"});
+}
+
+TEST_CASE("U-CG-07/synthetic: stopped before a first result says none and keeps every good; after, the checked result and an honest gap" * doctest::test_suite("m5")) {
+    const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2}, 10);
+    const ScalarResult before = solveCuttingStock(model, ScalarLimits(), [] { return true; });
+    CHECK_FALSE(before.packing.has_value());
+    CHECK(before.evidence.termination == Termination::Budget);
+    CHECK(before.impossible.empty());
+    CHECK(before.evidence.proof != ProofStatus::ProvenInfeasible);
+    CHECK_FALSE(before.evidence.incumbent.has_value());
+
+    int checks = 0;
+    const ScalarResult after = solveCuttingStock(model, ScalarLimits(), [&] { return ++checks > 1; });
+    REQUIRE(after.packing.has_value());
+    CHECK(m5Oracles::packingValid(model, *after.packing, after.impossible));
+    CHECK(after.evidence.termination == Termination::Budget);
+    CHECK(after.packing->bins.size() == 3);
+    CHECK(after.evidence.proof == ProofStatus::Unproven);
+    REQUIRE(after.evidence.incumbent.has_value());
+    CHECK(*after.evidence.incumbent == 3);
+    if (after.evidence.lowerBound) CHECK(*after.evidence.lowerBound <= m5Oracles::bruteForceBins(model.sizes, 10));
+
+    // At lane level: a run stopped before any result ships nothing, keeps every good as "no result" and
+    // never calls it impossible.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 40), 2);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.workAllowance = 0;
+    const M5LaneOutcome stopped = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    CHECK(shippedCount(stopped) == 0);
+    CHECK(stopped.leftOver.size() == 40);
+    CHECK(countCause(stopped, LeftOverCause::NoResult) == 40);
+    CHECK(countCause(stopped, LeftOverCause::Unfittable) == 0);
+    CHECK(stopped.proof != ProofStatus::ProvenInfeasible);
+    m5Evidence::note("expected", {"before: no packing, no incumbent, nothing impossible", "after: 3 bins, unproven",
+                                  "lane stopped first: 40 kept as no result"});
+}
+
+TEST_CASE("U-CG-08/structural: M5 uses M4's one columnGeneration implementation, with no second copy" * doctest::test_suite("m5")) {
+    // A code-review check over the source tree: the covering LP and the pattern pricer are defined once,
+    // in src/columnGeneration, and M5's solver calls them.
+    const regex lpDefinition(R"(CoveringLpSolution\s+solveCoveringLp\s*\([^;]*\)\s*\{)");
+    const regex pricerDefinition(R"(class\s+PatternPricer\b[^;]*\{)");
+    const regex simplexLike(R"(\b(pivot|simplex)\w*\s*\()", regex::icase);
+    map<string, size_t> lpDefinitions, pricerDefinitions;
+    vector<string> m5SimplexCode;
+    for (const string& root : {string("src"), string("include")}) {
+        for (const auto& entry : filesystem::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file()) continue;
+            const string path = entry.path().generic_string();
+            ifstream file(entry.path(), ios::binary);
+            const string text((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
+            lpDefinitions[path] += static_cast<size_t>(distance(sregex_iterator(text.begin(), text.end(), lpDefinition), sregex_iterator()));
+            pricerDefinitions[path] += static_cast<size_t>(distance(sregex_iterator(text.begin(), text.end(), pricerDefinition), sregex_iterator()));
+            if (path.find("/m5") != string::npos && regex_search(text, simplexLike)) m5SimplexCode.push_back(path);
+        }
+    }
+    size_t lpTotal = 0, pricerTotal = 0;
+    for (const auto& [path, count] : lpDefinitions) {
+        lpTotal += count;
+        if (count) CHECK(path == "src/columnGeneration/columnGeneration.cpp");
+    }
+    for (const auto& [path, count] : pricerDefinitions) {
+        pricerTotal += count;
+        if (count) CHECK(path.find("columnGeneration") != string::npos);
+    }
+    CHECK(lpTotal == 1);
+    CHECK(pricerTotal == 1);
+    CHECK(m5SimplexCode.empty());
+    ifstream solver("src/m5Solver/m5Solver.cpp", ios::binary);
+    REQUIRE(solver.good());
+    const string solverText((istreambuf_iterator<char>(solver)), istreambuf_iterator<char>());
+    CHECK(solverText.find("#include \"columnGeneration.hpp\"") != string::npos);
+    CHECK(solverText.find("solveCoveringLp(") != string::npos);
+    CHECK(solverText.find("PatternPricer") != string::npos);
+    m5Evidence::note("expected", {"solveCoveringLp defined once (src/columnGeneration)", "PatternPricer defined once", "m5Solver calls both"});
+}
+
+TEST_CASE("X-CG-08 at its round cap pricing stops with a checked result and no runaway columns" * doctest::test_suite("m5")) {
     const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2, 4, 4, 7, 1}, 10);
     ScalarLimits capped;
     capped.maxColumnRounds = 1;
@@ -643,7 +857,7 @@ TEST_CASE("U-CG-06 X-CG-08 at its round cap pricing stops with a checked result 
     CHECK(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(model.sizes, 10));
 }
 
-TEST_CASE("U-CG-07 X-CG-11 stopped before or after a first result: none, or the checked FFD" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-11 stopped before or after a first result: none, or the checked FFD" * doctest::test_suite("m5")) {
     const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2}, 10);
     const ScalarResult before = solveCuttingStock(model, ScalarLimits(), [] { return true; });
     CHECK_FALSE(before.packing.has_value());
@@ -824,32 +1038,6 @@ TEST_CASE("X-DATE-10 date arithmetic crosses months, years and leap days with M4
     CHECK(componentEligibility(component, "2026-12-25", {true, 10}).eligible);
     component.dueDate = "2027-01-05";
     CHECK_FALSE(componentEligibility(component, "2026-12-25", {true, 10}).eligible);
-}
-
-TEST_CASE("U-CF-04 global required precedence: 31 required P11 beat 30 future P0 across groups" * doctest::test_suite("m5")) {
-    const vector<Atom> atoms = concat(fx30Units("b", 30, "B", 0, dayAfter(1)), fx30Units("a", 31, "A", 11));
-    M5LaneDateInput two = laneWith(atoms, 2, kDefaultTrailer, true);
-    two.pastDueOrder = ob::PastDueOrder::PriorityFirst;
-    const M5LaneOutcome outcome = plan(two, syntheticProfile());
-    CHECK(shippedOfGroup(outcome, two, "A") == 31);
-    CHECK(shippedOfGroup(outcome, two, "B") == 0);
-    M5LaneDateInput three = two;
-    three.pool.slots.push_back(kDefaultTrailer);
-    CHECK(shippedCount(plan(three, syntheticProfile())) == 61);
-}
-
-TEST_CASE("U-CF-07 spare capacity takes exactly five future units beside 25 required" * doctest::test_suite("m5")) {
-    vector<Atom> atoms = fx30Units("req", 25, "A", 11);
-    atoms = concat(atoms, fx30Units("go", 10, "A", 0, dayAfter(10)));
-    atoms.push_back(fx30("far", "A", 0, dayAfter(11)));
-    atoms.push_back(fx30("unavailable", "A", 0, dayAfter(5), dayAfter(1)));
-    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    const set<string> shipped = shippedIds(outcome, input);
-    CHECK(shipped.size() == 30);
-    CHECK(count_if(shipped.begin(), shipped.end(), [](const string& id) { return id.rfind("req", 0) == 0; }) == 25);
-    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 2);
-    CHECK(shippedCount(plan(laneWith(atoms, 1, kDefaultTrailer, false), syntheticProfile())) == 25);
 }
 
 // ------------------------------------------------------------------------------ input data

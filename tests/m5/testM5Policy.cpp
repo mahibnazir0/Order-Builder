@@ -193,11 +193,19 @@ TEST_CASE("X-REPORT-04 cube decides at full precision beside y = 3,300 cu ft" * 
     CHECK(evaluateAcceptance(20000.0, 3307.5 * 1728.0, rule).accepted);
 }
 
-TEST_CASE("U-AC-04 productionProfile: an absent acceptance block is OFF" * doctest::test_suite("m5")) {
+TEST_CASE("U-AC-04/productionProfile: an absent acceptance block is valid and OFF; a present malformed one is still an error" * doctest::test_suite("m5")) {
     const M5PolicyProfile profile = loadProfile(productionBlock());
     CHECK_FALSE(profile.acceptance.has_value());
     CHECK(profile.profileId == "customer2-production");
     CHECK_FALSE(profile.penaltyPerUnusedTruck.has_value());
+    json block = productionBlock();
+    block["acceptance"] = "on";
+    requireRejected(block, "acceptance given as a string");
+    block["acceptance"] = {{"weightLb", 40000}};
+    requireRejected(block, "acceptance without y");
+    block["acceptance"] = json::array();
+    requireRejected(block, "acceptance given as an array");
+    m5Evidence::note("expected", {"absent: OFF, valid", "malformed: configuration error"});
 }
 
 TEST_CASE("U-AC-04 a present acceptance block is read, and a malformed one refused" * doctest::test_suite("m5")) {

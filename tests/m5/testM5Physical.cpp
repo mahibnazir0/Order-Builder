@@ -215,15 +215,35 @@ TEST_CASE("U-PB-11 R-1c a changed truck loses its proof and its validation" * do
     CHECK_FALSE(recheck.allPassed());
 }
 
-TEST_CASE("U-AC-05 productionProfile: a floor-full display truck ships; the x/y-only policy withholds it" * doctest::test_suite("m5")) {
+TEST_CASE("U-AC-05/productionProfile: the U-FL-04 display truck ships; FULL by floor limit only with its no-fit witness" * doctest::test_suite("m5")) {
+    // 31 X-E2E-09 displays (48 x 40 in, 50 in, 800 lb), one group and reservation: 30 stand in 600 x 96 in.
     vector<Atom> displays;
     for (int unit = 0; unit < 31; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
     const M5LaneDateInput input = laneWith(displays, 1);
     const M5LaneOutcome production = plan(input, syntheticProfile());
+    REQUIRE(production.selected);
     CHECK(shippedCount(production) == 30);
+    CHECK(none_of(production.leftOver.begin(), production.leftOver.end(),
+                  [](const LeftOver& left) { return left.cause == LeftOverCause::AcceptanceWithheld; }));
     REQUIRE(production.fullness.size() == 1);
-    CHECK(production.fullness.front().byFloorLimit);
-    CHECK(shippedCount(plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0))) == 0);
+    const FullnessLabel& label = production.fullness.front();
+    CHECK(label.state == FullnessState::Full);
+    CHECK(label.byFloorLimit);
+    CHECK_FALSE(label.byWeight);
+    CHECK(label.fitStatus == RemainingFitStatus::ProvenNoFit);
+    CHECK_FALSE(label.fitScope.empty());
+    CHECK(label.rearInches == doctest::Approx(30.0));
+    CHECK(label.weightPercent == doctest::Approx(24000.0 / 450.0));
+    CHECK(label.bucket == FullnessBucket::GoodsRemain);
+    // A fitting same-group residual clears the floor-limit reason; the label never changes dispatch.
+    vector<Atom> withSmall(displays.begin(), displays.begin() + 30);
+    withSmall.push_back(unitOf("small", "A", 20.0, 20.0, 20.0, 50.0));
+    const M5LaneDateInput control = laneWith(withSmall, 1);
+    const M5LaneOutcome fitting = plan(control, syntheticProfile());
+    CHECK(shippedCount(fitting) == 31);
+    REQUIRE(fitting.fullness.size() == 1);
+    CHECK_FALSE(fitting.fullness.front().byFloorLimit);
+    m5Evidence::note("expected", {"30 ship", "FULL by floor limit, no-fit witness recorded", "rear 30 in, 24,000 lb", "fitting control clears it"});
 }
 
 TEST_CASE("U-AC-05/synthetic: 30 floor-full displays below x/y are withheld; floor fullness is no override" * doctest::test_suite("m5")) {

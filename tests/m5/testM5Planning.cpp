@@ -1,6 +1,7 @@
 // M5 planning through its direct seam (v7 0.4): small fixtures call planLaneDate, never M4 routing.
 #include "doctest.h"
 #include "m5Commit.hpp"
+#include "m5FloorSearch.hpp"
 #include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
@@ -8,9 +9,16 @@
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5Oracles.hpp"
+#include "../runTempFolder.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <limits>
+#include <map>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <tuple>
@@ -273,15 +281,63 @@ TEST_CASE("X-REB-09 rebalance both sides of a strict acceptance boundary" * doct
     }
 }
 
-TEST_CASE("U-AC-02 U-AC-03 productionProfile: no truck is withheld for minimum load" * doctest::test_suite("m5")) {
-    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 5, "A"), fx30Units("b", 5, "B")), 2);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    CHECK(shippedCount(outcome) == 10);
+namespace {
+
+// Acceptance OFF: every truck ships, each with its own CL-03 fullness label, none withheld for minimum load.
+void requireNoneWithheld(const M5LaneOutcome& outcome, const M5LaneDateInput& input, size_t trucks, size_t units) {
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == trucks);
+    CHECK(shippedCount(outcome) == units);
     CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 0);
-    CHECK(outcome.fullness.size() == 2);
-    const M5LaneOutcome withPolicy = plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0));
-    CHECK(shippedCount(withPolicy) == 0);
-    CHECK(countCause(withPolicy, LeftOverCause::AcceptanceWithheld) == 10);
+    REQUIRE(outcome.fullness.size() == trucks);
+    set<size_t> labelled;
+    for (const FullnessLabel& label : outcome.fullness) labelled.insert(label.truck);
+    CHECK(labelled.size() == trucks);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        for (const size_t atom : truck.atoms) CHECK(input.atoms[atom].group == truck.group);
+    }
+}
+
+}  // namespace
+
+TEST_CASE("U-AC-02/productionProfile: with acceptance OFF the light second truck of five ships and every truck is labelled" * doctest::test_suite("m5")) {
+    const M5PolicyProfile production = syntheticProfile();
+    REQUIRE_FALSE(production.acceptance.has_value());
+    const M5LaneDateInput input = laneWith(fx30Units("u", 130), 5);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan candidate;
+    size_t next = 0;
+    for (const size_t carried : {30, 10, 30, 30, 30}) {
+        TruckPlan truck;
+        truck.slot = candidate.trucks.size();
+        truck.group = "A";
+        for (size_t unit = 0; unit < carried; ++unit) truck.atoms.push_back(next++);
+        candidate.trucks.push_back(truck);
+    }
+    storeRows(candidate, input);
+    candidate.validation = validateFinal(candidate, snapshot, production, physicalSettings());
+    CHECK(candidate.validation->allPassed());
+    CHECK(candidate.validation->acceptance != SectionStatus::Fail);
+    CHECK(candidate.validation->findings.empty());
+    string error;
+    CHECK(buildDelta(candidate, snapshot, production, &error).has_value());
+    const vector<FullnessLabel> labels =
+        evaluateFullness(candidate, snapshot, remainingAfterSelected(snapshot, candidate), production, physicalSettings());
+    REQUIRE(labels.size() == 5);
+    CHECK(labels[1].state == FullnessState::NotFull);
+    for (const size_t full : {0, 2, 3, 4}) CHECK(labels[full].state == FullnessState::Full);
+    requireNoneWithheld(plan(input, production), input, 5, 130);
+    m5Evidence::note("expected", {"30,10,30,30,30 all pass and ship", "truck 2 labelled NOT FULL, the rest FULL", "0 withheld"});
+}
+
+TEST_CASE("U-AC-03/productionProfile: with acceptance OFF each group's light truck ships on its own, labelled, unmixed" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A"), fx30Units("b", 40, "B")), 4);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireNoneWithheld(outcome, input, 4, 80);
+    CHECK(shippedOfGroup(outcome, input, "A") == 40);
+    CHECK(shippedOfGroup(outcome, input, "B") == 40);
+    m5Evidence::note("expected", {"A 30 + 10 and B 30 + 10 ship", "4 labels", "no mixed truck", "0 withheld"});
 }
 
 namespace {
@@ -338,10 +394,35 @@ TEST_CASE("U-AC-06/dueAfterPullOff: a unit due after D with pull-forward off is 
     REQUIRE_FALSE(dueLater.dates.pullForward);
     dueLater.atoms[4].components[0].dueDate = dayAfter(2);
     requireHardConstraintWins(dueLater, uac06Policy(), "eligibility");
-    // An unavailable unit is the same kind of break.
+}
+
+TEST_CASE("U-AC-06/unavailable: a component not available on D is rejected although the truck meets x/y" * doctest::test_suite("m5")) {
+    requireControlPasses(uac06Policy());
     M5LaneDateInput unavailable = laneWith(fx30Units("u", 30), 1);
     unavailable.atoms[3].components[0].availableDate = dayAfter(1);
     requireHardConstraintWins(unavailable, uac06Policy(), "eligibility");
+}
+
+TEST_CASE("U-AC-06/control: the unchanged 30-unit candidate passes the validator and commits once" * doctest::test_suite("m5")) {
+    for (const M5PolicyProfile& profile : {uac06Policy(), syntheticProfile()}) {
+        INFO("acceptance " << (profile.acceptance ? "on" : "off"));
+        const M5LaneDateInput control = laneWith(fx30Units("u", 30), 1);
+        const DemandSnapshot snapshot = *buildSnapshot(control).snapshot;
+        CandidatePlan full = oneTruck(control, 30);
+        full.validation = validateFinal(full, snapshot, profile, physicalSettings());
+        CHECK(full.validation->allPassed());
+        CHECK(full.validation->findings.empty());
+        CHECK(full.validation->physical == SectionStatus::Pass);
+        string error;
+        const optional<CommitDelta> delta = buildDelta(full, snapshot, profile, &error);
+        REQUIRE(delta.has_value());
+        CommitLedger ledger;
+        OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 1};
+        CHECK(ledger.applyIfCurrent(*delta, snapshot, state) == ApplyStatus::Applied);
+        CHECK(state.consumedAtoms.size() == 30);
+        CHECK(state.slotsUsed == 1);
+    }
+    m5Evidence::note("expected", {"control passes (acceptance on and off)", "30 units, 1 reservation committed"});
 }
 
 TEST_CASE("U-AC-06/mixedGroups: a truck mixing two do-not-mix groups is rejected although it meets x/y" * doctest::test_suite("m5")) {
@@ -567,19 +648,82 @@ TEST_CASE("U-AC-08/ABAinProcess: A, B, A in one process give accepted, rejected,
     m5Evidence::note("expected", {"true", "false", "true"});
 }
 
-TEST_CASE("U-AC-08/freshProcess: each profile run from fresh state equals the in-process A, B, A results" * doctest::test_suite("m5")) {
-    // M5 keeps no process-wide state (no static or thread_local caches in src/m5*), so a run built from
-    // fresh input, snapshot and profile objects stands for a fresh process.
-    const ProfileRun freshA = runUnder(2400.0), freshB = runUnder(3000.0), freshAAgain = runUnder(2400.0);
-    CHECK(freshA.accepted);
-    CHECK_FALSE(freshB.accepted);
-    CHECK(freshAAgain.accepted);
-    CHECK(freshA.shipped == 20);
-    CHECK(freshB.shipped == 0);
-    CHECK(freshAAgain.shipped == 20);
-    CHECK(freshA.profileKey == freshAAgain.profileKey);
-    CHECK(freshA.profileKey != freshB.profileKey);
-    m5Evidence::note("expected", {"true", "false", "true", "fresh state, same binary"});
+namespace {
+
+// One profile run as its own process prints these lines; the parent reads them back.
+void printFreshProcessRun(double y) {
+    // The first route budget of a fresh process takes identity 1 from the process-wide counter.
+    const RouteSearchBudget firstBudget("freshProcess", 1, 1);
+    const ProfileRun run = runUnder(y);
+    cout << "freshProcess.firstRouteIdentity=" << firstBudget.identity() << "\n"
+         << "freshProcess.accepted=" << (run.accepted ? 1 : 0) << "\n"
+         << "freshProcess.shipped=" << run.shipped << "\n"
+         << "freshProcess.profileKey=" << run.profileKey << "\n";
+}
+
+struct ChildRun {
+    int status = -1;
+    map<string, string> fields;
+};
+
+ChildRun runInFreshProcess(const string& childCase) {
+    const filesystem::path output = testTemp::runTempFolder() / ("freshProcess_" + childCase + ".txt");
+    const auto quoted = [](const string& text) { return "\"" + text + "\""; };
+    string command = quoted(filesystem::path(OB_TESTS_PATH).make_preferred().string()) + " " +
+                     quoted("-tc=m5 fresh-process child " + childCase + ":*") + " > " + quoted(output.string()) + " 2>&1";
+#ifdef _WIN32
+    // cmd.exe strips the outer quotes of a line that starts with one; give it a pair to strip.
+    command = "\"" + command + "\"";
+#endif
+    ChildRun child;
+    child.status = system(command.c_str());
+    ifstream lines(output);
+    const string prefix = "freshProcess.";
+    for (string line; getline(lines, line);) {
+        if (line.rfind(prefix, 0) != 0) continue;
+        const size_t equals = line.find('=');
+        if (equals != string::npos) child.fields[line.substr(prefix.size(), equals - prefix.size())] = line.substr(equals + 1);
+    }
+    return child;
+}
+
+}  // namespace
+
+// Children of U-AC-08/freshProcess: each runs one profile and prints its result. Run alone they check the
+// same outcome, so they are never empty.
+TEST_CASE("m5 fresh-process child A: y 2,400 cu ft" * doctest::test_suite("m5")) {
+    printFreshProcessRun(2400.0);
+    CHECK(runUnder(2400.0).accepted);
+}
+
+TEST_CASE("m5 fresh-process child B: y 3,000 cu ft" * doctest::test_suite("m5")) {
+    printFreshProcessRun(3000.0);
+    CHECK_FALSE(runUnder(3000.0).accepted);
+}
+
+TEST_CASE("U-AC-08/freshProcess: each profile run in a fresh process equals the in-process A, B, A results" * doctest::test_suite("m5")) {
+    // M5 has process-wide state: the route-budget identity counter (nextRouteIdentity, m5FloorSearch.cpp;
+    // search of src/m5* and include/m5* in pr11b-report.txt). So each run is a real second process.
+    const ProfileRun inA = runUnder(2400.0), inB = runUnder(3000.0), inAAgain = runUnder(2400.0);
+    const RouteSearchBudget probe("inProcess", 1, 1);
+    REQUIRE(probe.identity() > 1);
+    const ChildRun freshA = runInFreshProcess("A"), freshB = runInFreshProcess("B"), freshAAgain = runInFreshProcess("A");
+    vector<string> verdicts;
+    for (const auto& [inProcess, fresh] : {pair{&inA, &freshA}, pair{&inB, &freshB}, pair{&inAAgain, &freshAAgain}}) {
+        CHECK(fresh->status == 0);
+        REQUIRE(fresh->fields.size() == 4);
+        CHECK(fresh->fields.at("firstRouteIdentity") == "1");
+        CHECK(fresh->fields.at("accepted") == (inProcess->accepted ? "1" : "0"));
+        CHECK(fresh->fields.at("shipped") == to_string(inProcess->shipped));
+        CHECK(fresh->fields.at("profileKey") == inProcess->profileKey);
+        verdicts.push_back(fresh->fields.at("accepted"));
+    }
+    CHECK(verdicts == vector<string>{"1", "0", "1"});
+    CHECK(inA.shipped == 20);
+    CHECK(inB.shipped == 0);
+    CHECK(freshA.fields.at("profileKey") == freshAAgain.fields.at("profileKey"));
+    CHECK(freshA.fields.at("profileKey") != freshB.fields.at("profileKey"));
+    m5Evidence::note("expected", {"true", "false", "true", "three child processes of ob_tests, identities start at 1"});
 }
 
 TEST_CASE("U-AC-08/sameIdRevision: revising one profile id's thresholds re-decides acceptance" * doctest::test_suite("m5")) {
@@ -674,21 +818,44 @@ TEST_CASE("U-AC-03/synthetic: a failing truck in each of two groups fails on its
     m5Evidence::note("expected", {"A: 30 ship, 10 withheld", "B: 30 ship, 10 withheld", "no mixed truck"});
 }
 
-TEST_CASE("U-AC-08 productionProfile: rear limits 14, 30, 14 give NOT FULL, FULL, NOT FULL" * doctest::test_suite("m5")) {
-    vector<Atom> units;
-    for (int unit = 0; unit < 31; ++unit) units.push_back(unitOf("t" + to_string(100 + unit), "A", 100, 20, 108, 300));
-    const M5LaneDateInput input = laneWith(units, 1);
-    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
-    const CandidatePlan candidate = oneTruck(input, 30);
-    vector<FullnessState> states;
-    for (const double limit : {14.0, 30.0, 14.0}) {
+TEST_CASE("U-AC-08/productionProfile: rear limits 14, 30, 14 give NOT FULL, FULL by rear, NOT FULL; also by revision of one ID" * doctest::test_suite("m5")) {
+    // 31 nonstackable TLD units 20 x 100 x 108 in, 300 lb; the controlled candidate holds 30 (rear 30 in,
+    // 9,000 lb) and the 31st, eligible, still fits. Every run builds a fresh snapshot.
+    auto labelUnder = [](double limit, const string& profileId, uint32_t revision) {
+        vector<Atom> units;
+        for (int unit = 0; unit < 31; ++unit) units.push_back(unitOf("t" + to_string(100 + unit), "A", 100, 20, 108, 300));
+        const M5LaneDateInput input = laneWith(units, 1);
+        const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+        const CandidatePlan candidate = oneTruck(input, 30);
         M5PolicyProfile profile = syntheticProfile();
+        profile.profileId = profileId;
+        profile.profileRevision = revision;
         profile.fullness.rearInchLimit = limit;
         const vector<FullnessLabel> labels =
             evaluateFullness(candidate, snapshot, remainingAfterSelected(snapshot, candidate), profile, physicalSettings());
-        states.push_back(labels.front().state);
+        REQUIRE(labels.size() == 1);
+        CHECK(labels.front().rearInches == doctest::Approx(30.0));
+        CHECK(labels.front().weightPercent == doctest::Approx(9000.0 / 450.0));
+        CHECK(labels.front().fitStatus == RemainingFitStatus::Fits);
+        CHECK_FALSE(labels.front().byWeight);
+        CHECK_FALSE(labels.front().byFloorLimit);
+        return pair<FullnessLabel, string>{labels.front(), profile.key()};
+    };
+    const vector<double> limits{14.0, 30.0, 14.0};
+    vector<FullnessState> states, revisedStates;
+    vector<string> keys;
+    for (const double limit : limits) states.push_back(labelUnder(limit, "fx-synthetic", 1).first.state);
+    for (size_t run = 0; run < limits.size(); ++run) {
+        const pair<FullnessLabel, string> revised = labelUnder(limits[run], "customer-same", static_cast<uint32_t>(run + 1));
+        revisedStates.push_back(revised.first.state);
+        CHECK(revised.first.byRearInches == (limits[run] == 30.0));
+        keys.push_back(revised.second);
     }
-    CHECK(states == vector<FullnessState>{FullnessState::NotFull, FullnessState::Full, FullnessState::NotFull});
+    const vector<FullnessState> expected{FullnessState::NotFull, FullnessState::Full, FullnessState::NotFull};
+    CHECK(states == expected);
+    CHECK(revisedStates == expected);
+    CHECK(set<string>(keys.begin(), keys.end()).size() == 3);
+    m5Evidence::note("expected", {"NOT FULL, FULL by rear (30 in), NOT FULL", "same with one profile ID revised 1, 2, 3", "rear 30 in, 9,000 lb"});
 }
 
 TEST_CASE("U-FL-01 29 then 30 FX-30 units: NOT FULL with goods left, FULL by weight with none" * doctest::test_suite("m5")) {
@@ -787,55 +954,578 @@ TEST_CASE("U-FL-09 an interrupted fit check is Unknown, never a conclusive label
     CHECK(label.state == FullnessState::Undetermined);
 }
 
-TEST_CASE("U-CF-01 can-go goods fill only room the goods due by D leave" * doctest::test_suite("m5")) {
-    const vector<Atom> atoms = concat(fx30Units("req", 10, "A", 5), fx30Units("cango", 30, "A", 0, dayAfter(3)));
-    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
+namespace {
+
+// FX-CANGO helpers: every input below has pull-forward ON with a 10-day window unless a variant says otherwise.
+Atom withDates(Atom atom, const string& due, const string& available = kD) {
+    for (Component& component : atom.components) {
+        component.dueDate = due;
+        component.availableDate = available;
+        component.offerKind = due > kD ? OfferKind::CanGo : OfferKind::Required;
+    }
+    return atom;
+}
+
+size_t shippedWithPrefix(const set<string>& shipped, const string& prefix) {
+    return static_cast<size_t>(count_if(shipped.begin(), shipped.end(), [&](const string& id) { return id.rfind(prefix, 0) == 0; }));
+}
+
+LeftOverCause causeOf(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& id) {
+    for (const LeftOver& left : outcome.leftOver) {
+        if (input.atoms[left.atom].id == id) return left.cause;
+    }
+    FAIL("not left over: " << id);
+    return LeftOverCause::OverReservation;
+}
+
+size_t leftOverEntriesOf(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& id) {
+    return static_cast<size_t>(count_if(outcome.leftOver.begin(), outcome.leftOver.end(),
+                                        [&](const LeftOver& left) { return input.atoms[left.atom].id == id; }));
+}
+
+EligibilityReason eligibilityOf(const M5LaneDateInput& input, const string& id) {
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
+        if (input.atoms[atom].id == id) return snapshot.eligibility[atom].reason;
+    }
+    FAIL("no atom " << id);
+    return EligibilityReason::Ok;
+}
+
+M5PolicyProfile profileWithMethod(MethodPolicy method) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.method = method;
+    return profile;
+}
+
+double weightOfTruck(const M5LaneDateInput& input, const TruckPlan& truck) {
+    double weight = 0.0;
+    for (const size_t atom : truck.atoms) weight += input.atoms[atom].weightLb;
+    return weight;
+}
+
+double cubicFeetOfTruck(const M5LaneDateInput& input, const TruckPlan& truck) {
+    double cubicInches = 0.0;
+    for (const size_t atom : truck.atoms) cubicInches += input.atoms[atom].floor.cubeCubicIn;
+    return cubicInches / 1728.0;
+}
+
+// U-CF-04: group `requiredGroup` has 31 FX-30 units due D at P11; group `futureGroup` 30 at P0 due/available as
+// given; B is presented first unless the rows are reversed.
+M5LaneDateInput cf04Lane(size_t slots, const string& futureDue = dayAfter(1), const string& futureAvailable = kD,
+                         bool reversed = false, const string& requiredGroup = "A", const string& futureGroup = "B") {
+    vector<Atom> atoms = concat(fx30Units("b", 30, futureGroup, 0, futureDue, futureAvailable), fx30Units("a", 31, requiredGroup, 11));
+    if (reversed) reverse(atoms.begin(), atoms.end());
+    M5LaneDateInput input = laneWith(atoms, slots, kDefaultTrailer, true);
+    input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
+    return input;
+}
+
+// All 31 required units in two nonempty legal trucks of their own group; B's 30 remain over the reservations.
+void requireRequiredWinsTwoSlots(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& requiredGroup) {
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 2);
+    vector<size_t> loads;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK_FALSE(truck.atoms.empty());
+        CHECK(truck.atoms.size() <= 30);
+        CHECK(truck.group == requiredGroup);
+        for (const size_t atom : truck.atoms) CHECK(input.atoms[atom].group == requiredGroup);
+        loads.push_back(truck.atoms.size());
+    }
+    sort(loads.begin(), loads.end());
+    CHECK(loads == vector<size_t>{1, 30});
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shippedWithPrefix(shipped, "a") == 31);
+    CHECK(shippedWithPrefix(shipped, "b") == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 30);
+    CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 0);
+    CHECK(outcome.requiredService == ServiceLevel::Full);
+    m5Evidence::note("expected", {"A 31 in two trucks (30 + 1)", "B 30 remain", "no mixed truck"});
+}
+
+// The third slot: every eligible unit ships, 61 in three trucks, none mixed.
+void requireAllSixtyOne(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 3);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() <= 30);
+        for (const size_t atom : truck.atoms) CHECK(input.atoms[atom].group == truck.group);
+    }
+    CHECK(shippedCount(outcome) == 61);
+    CHECK(outcome.leftOver.empty());
+}
+
+// The B controls (due D+11, or available D+1) cannot ship early even with a third slot.
+void requireFutureControlStays(const M5LaneDateInput& input, EligibilityReason reason) {
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shippedWithPrefix(shipped, "a") == 31);
+    CHECK(shippedWithPrefix(shipped, "b") == 0);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 30);
+    CHECK(eligibilityOf(input, "b100") == reason);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 2);
+    m5Evidence::note("expected", {"A 31 ship", "B 30 not eligible", "third slot unused"});
+}
+
+}  // namespace
+
+TEST_CASE("U-CF-01/synthetic: can-go goods fill only the room the goods due by D leave" * doctest::test_suite("m5")) {
+    // One slot holds 30 FX-30. Ten due D and thirty due D+3, all available D, one group.
+    const M5LaneDateInput input = laneWith(concat(fx30Units("req", 10), fx30Units("cango", 30, "A", 0, dayAfter(3))), 1,
+                                           kDefaultTrailer, true);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     requireInvariants(outcome, input);
     const set<string> shipped = shippedIds(outcome, input);
     CHECK(shipped.size() == 30);
-    for (int unit = 0; unit < 10; ++unit) CHECK(shipped.count("req" + to_string(100 + unit)) == 1);
+    CHECK(shippedWithPrefix(shipped, "req") == 10);
+    CHECK(shippedWithPrefix(shipped, "cango") == 20);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 10);
     CHECK(outcome.requiredService == ServiceLevel::Full);
+    REQUIRE(outcome.selected);
+    CHECK(weightOfTruck(input, outcome.selected->trucks.front()) == 45000.0);
+
+    // A full truck of goods due D: no can-go good displaces one of them.
+    const M5LaneDateInput full = laneWith(concat(fx30Units("req", 30), fx30Units("cango", 30, "A", 0, dayAfter(3))), 1,
+                                          kDefaultTrailer, true);
+    const M5LaneOutcome fullOutcome = plan(full, syntheticProfile());
+    requireInvariants(fullOutcome, full);
+    const set<string> fullShipped = shippedIds(fullOutcome, full);
+    CHECK(shippedWithPrefix(fullShipped, "req") == 30);
+    CHECK(shippedWithPrefix(fullShipped, "cango") == 0);
+    m5Evidence::note("expected", {"10 required + 20 can-go", "10 can-go over the reservation", "30 required: no can-go"});
 }
 
-TEST_CASE("U-CF-02 X-DATE-01 can-go window: D+10 may load, D+11 and unavailable goods may not" * doctest::test_suite("m5")) {
-    vector<Atom> atoms = fx30Units("d", 10);
-    atoms = concat(atoms, fx30Units("d9-", 10, "A", 0, dayAfter(9)));
+TEST_CASE("U-CF-02/synthetic: X-DATE-01 the can-go window is the configured pull-forward limit; D+11 and unavailable goods stay" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = fx30Units("d0-", 10);
     atoms = concat(atoms, fx30Units("d10-", 10, "A", 0, dayAfter(10)));
     atoms = concat(atoms, fx30Units("d11-", 10, "A", 0, dayAfter(11)));
     atoms = concat(atoms, fx30Units("late-", 5, "A", 0, dayAfter(5), dayAfter(1)));
-    const M5LaneDateInput input = laneWith(atoms, 2, kDefaultTrailer, true);
+    M5LaneDateInput input = laneWith(atoms, 2, kDefaultTrailer, true);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     requireInvariants(outcome, input);
-    CHECK(shippedCount(outcome) == 30);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.size() == 20);
+    CHECK(shippedWithPrefix(shipped, "d0-") == 10);
+    CHECK(shippedWithPrefix(shipped, "d10-") == 10);
+    CHECK(shippedWithPrefix(shipped, "d11-") == 0);
+    CHECK(shippedWithPrefix(shipped, "late-") == 0);
     CHECK(countCause(outcome, LeftOverCause::NotEligible) == 15);
+    CHECK(eligibilityOf(input, "d11-100") == EligibilityReason::DueBeyondPullWindow);
+    CHECK(eligibilityOf(input, "late-100") == EligibilityReason::NotAvailable);
+
+    // The window follows the setting: 11 days lets D+11 in; 9 days keeps D+10 out. Availability never moves.
+    input.dates.maxDaysPulledForward = 11;
+    const M5LaneOutcome wider = plan(input, syntheticProfile());
+    requireInvariants(wider, input);
+    const set<string> widerShipped = shippedIds(wider, input);
+    CHECK(shippedWithPrefix(widerShipped, "d11-") == 10);
+    CHECK(shippedWithPrefix(widerShipped, "late-") == 0);
+    input.dates.maxDaysPulledForward = 9;
+    const M5LaneOutcome narrower = plan(input, syntheticProfile());
+    requireInvariants(narrower, input);
+    CHECK(shippedWithPrefix(shippedIds(narrower, input), "d10-") == 0);
+    CHECK(eligibilityOf(input, "d10-100") == EligibilityReason::DueBeyondPullWindow);
+    m5Evidence::note("expected", {"window 10: D+10 ships, D+11 and unavailable stay (15)", "window 11: D+11 ships", "window 9: D+10 stays"});
 }
 
-TEST_CASE("U-CF-04 required goods win scarce reservations across groups" * doctest::test_suite("m5")) {
-    const vector<Atom> atoms = concat(fx30Units("req", 20, "A", 11), fx30Units("cango", 30, "B", 0, dayAfter(2)));
-    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
+TEST_CASE("U-CF-04/methodA: Method A ships all 31 required units; B's 30 future units remain" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf04Lane(2);
+    requireRequiredWinsTwoSlots(plan(input, profileWithMethod(MethodPolicy::PatternOnly)), input, "A");
+}
+
+TEST_CASE("U-CF-04/methodB: Method B ships all 31 required units; B's 30 future units remain" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf04Lane(2);
+    requireRequiredWinsTwoSlots(plan(input, profileWithMethod(MethodPolicy::BlocksOnly)), input, "A");
+}
+
+TEST_CASE("U-CF-04/inputPermutation: B first, reversed rows and swapped group names give the same answer" * doctest::test_suite("m5")) {
+    for (const bool reversed : {false, true}) {
+        for (const bool swapped : {false, true}) {
+            INFO("reversed " << reversed << ", swapped " << swapped);
+            const string requiredGroup = swapped ? "B" : "A", futureGroup = swapped ? "A" : "B";
+            const M5LaneDateInput input = cf04Lane(2, dayAfter(1), kD, reversed, requiredGroup, futureGroup);
+            requireRequiredWinsTwoSlots(plan(input, syntheticProfile()), input, requiredGroup);
+        }
+    }
+}
+
+TEST_CASE("U-CF-04/thirdReservation: with a third slot all 61 units ship in three trucks" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf04Lane(3);
+    requireAllSixtyOne(plan(input, syntheticProfile()), input);
+    m5Evidence::note("expected", {"61 ship", "3 trucks", "none mixed"});
+}
+
+TEST_CASE("U-CF-04/outsideWindow: B due D+11 cannot ship early, even with a third slot" * doctest::test_suite("m5")) {
+    requireFutureControlStays(cf04Lane(3, dayAfter(11)), EligibilityReason::DueBeyondPullWindow);
+}
+
+TEST_CASE("U-CF-04/unavailable: B available D+1 cannot ship early, even with a third slot" * doctest::test_suite("m5")) {
+    requireFutureControlStays(cf04Lane(3, dayAfter(1), dayAfter(1)), EligibilityReason::NotAvailable);
+}
+
+namespace {
+
+// U-CF-05: 21 reservations, no goods due by D, one indivisible FX-BLOCK due D+1 (as given), pull as given.
+M5LaneDateInput cf05Lane(size_t slots, bool pullForward, const string& due = dayAfter(1), const string& available = kD) {
+    return laneWith({withDates(fxBlock("block"), due, available)}, slots, kDefaultTrailer, pullForward);
+}
+
+void requireBlockRetained(const M5LaneDateInput& input, LeftOverCause cause) {
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    CHECK(shippedOfGroup(outcome, input, "A") == 20);
-    CHECK(shippedOfGroup(outcome, input, "B") == 0);
+    requireInvariants(outcome, input);
+    CHECK(shippedCount(outcome) == 0);
+    CHECK_FALSE(outcome.hasCandidate);
+    CHECK(outcome.kind != OutcomeKind::CompletedWithDispatch);
+    REQUIRE(outcome.leftOver.size() == 1);
+    CHECK(outcome.leftOver.front().cause == cause);
 }
 
-TEST_CASE("U-CF-05 an existing reserved date with only can-go goods still ships them" * doctest::test_suite("m5")) {
-    const M5LaneDateInput input = laneWith({fxBlock("future")}, 1, kDefaultTrailer, true);
-    M5LaneDateInput canGoOnly = input;
-    canGoOnly.atoms[0].components[0].dueDate = dayAfter(2);
-    canGoOnly.atoms[0].components[0].offerKind = OfferKind::CanGo;
-    const M5LaneOutcome outcome = plan(canGoOnly, syntheticProfile());
-    CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
-    CHECK(shippedCount(outcome) == 1);
+}  // namespace
+
+TEST_CASE("U-CF-05/pullOff: with pull-forward off the can-go-only block stays; nothing ships on D" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf05Lane(21, false);
+    requireBlockRetained(input, LeftOverCause::NotEligible);
+    CHECK(eligibilityOf(input, "block") == EligibilityReason::PullForwardOff);
+    m5Evidence::note("expected", {"0 ship", "block retained: pull-forward off"});
 }
 
-TEST_CASE("U-CF-08 an impossible required stack cannot block feasible can-go fill" * doctest::test_suite("m5")) {
-    vector<Atom> atoms{unitOf("tall", "A", 48, 40, 130, 500)};
-    atoms = concat(atoms, fx30Units("cango", 10, "A", 0, dayAfter(2)));
-    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
+TEST_CASE("U-CF-05/zeroReservations: with no reservation nothing ships and no truck is made up" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf05Lane(0, true);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    CHECK(shippedCount(outcome) == 10);
-    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 1);
+    requireInvariants(outcome, input);
+    CHECK(shippedCount(outcome) == 0);
+    CHECK(outcome.reservedTrucks == 0);
+    CHECK_FALSE(outcome.delta.has_value());
+    REQUIRE(outcome.leftOver.size() == 1);
+    CHECK(outcome.leftOver.front().cause != LeftOverCause::NotEligible);
+    m5Evidence::note("expected", {"0 ship", "0 reservations, none manufactured"});
+}
+
+TEST_CASE("U-CF-05/outsideWindow: a block due D+11 stays" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf05Lane(21, true, dayAfter(11));
+    requireBlockRetained(input, LeftOverCause::NotEligible);
+    CHECK(eligibilityOf(input, "block") == EligibilityReason::DueBeyondPullWindow);
+    m5Evidence::note("expected", {"0 ship", "block retained: due beyond the window"});
+}
+
+TEST_CASE("U-CF-05/unavailable: a block available D+1 stays" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf05Lane(21, true, dayAfter(1), dayAfter(1));
+    requireBlockRetained(input, LeftOverCause::NotEligible);
+    CHECK(eligibilityOf(input, "block") == EligibilityReason::NotAvailable);
+    m5Evidence::note("expected", {"0 ship", "block retained: not available on D"});
+}
+
+namespace {
+
+// U-CF-06 at the selection/commit seam: D has 21 reservations with R10 due D and F20 due D+1 (available D);
+// D+1 has 20 reservations. Candidate A ships R10 + F20 in one truck on D, B ships R10 only.
+struct Cf06Fixture {
+    M5LaneDateInput today;
+    M5LaneDateInput tomorrow;
+    DemandSnapshot snapshot;
+    CommitDelta deltaA;
+    CommitDelta deltaB;
+};
+
+CommitDelta validatedDelta(const M5LaneDateInput& input, const DemandSnapshot& snapshot, size_t carried) {
+    CandidatePlan candidate = oneTruck(input, carried);
+    candidate.validation = validateFinal(candidate, snapshot, syntheticProfile(), physicalSettings());
+    REQUIRE(candidate.validation->allPassed());
+    string error;
+    const optional<CommitDelta> delta = buildDelta(candidate, snapshot, syntheticProfile(), &error);
+    INFO(error);
+    REQUIRE(delta.has_value());
+    return *delta;
+}
+
+Cf06Fixture cf06Fixture() {
+    Cf06Fixture fixture;
+    fixture.today = laneWith(concat(fx30Units("r", 10), fx30Units("f", 20, "A", 0, dayAfter(1))), 21, kDefaultTrailer, true);
+    fixture.tomorrow = laneWith(fx30Units("f", 20, "A", 0, dayAfter(1)), 20, kDefaultTrailer, true);
+    fixture.tomorrow.departure = dayAfter(1);
+    for (Atom& atom : fixture.tomorrow.atoms) atom.components[0].offerKind = OfferKind::Required;
+    fixture.snapshot = *buildSnapshot(fixture.today).snapshot;
+    fixture.deltaA = validatedDelta(fixture.today, fixture.snapshot, 30);
+    fixture.deltaB = validatedDelta(fixture.today, fixture.snapshot, 10);
+    return fixture;
+}
+
+OperationalState freshState(const DemandSnapshot& snapshot) {
+    return OperationalState{snapshot.id, snapshot.input.pool.version, {}, 0, snapshot.input.pool.slots.size()};
+}
+
+// What D+1 (an M4 date) is handed: its own goods less those a committed D delta consumed.
+M5LaneDateInput laterInput(const Cf06Fixture& fixture, const OperationalState& state) {
+    M5LaneDateInput later = fixture.tomorrow;
+    later.atoms.erase(remove_if(later.atoms.begin(), later.atoms.end(), [&](const Atom& atom) { return state.consumedAtoms.count(atom.id) > 0; }),
+                      later.atoms.end());
+    return later;
+}
+
+// Per source over both dates: committed on D, then whatever D+1 ships of what it sees.
+map<string, int> shipmentsBySource(const Cf06Fixture& fixture, const OperationalState& state) {
+    map<string, int> uses;
+    for (const string& id : state.consumedAtoms) ++uses[id];
+    const M5LaneDateInput later = laterInput(fixture, state);
+    for (const string& id : shippedIds(plan(later, syntheticProfile()), later)) ++uses[id];
+    return uses;
+}
+
+void requireEachOnce(const map<string, int>& uses) {
+    CHECK(uses.size() == 30);
+    for (const auto& [id, count] : uses) {
+        INFO(id);
+        CHECK(count == 1);
+    }
+}
+
+size_t futureSeenLater(const Cf06Fixture& fixture, const OperationalState& state) { return laterInput(fixture, state).atoms.size(); }
+
+}  // namespace
+
+TEST_CASE("U-CF-06/AthenB: A selected and committed; unselected B never consumes F" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState state = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, state) == ApplyStatus::Applied);
+    CHECK(ledger.applyIfCurrent(fixture.deltaB, fixture.snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms.size() == 30);
+    CHECK(state.slotsUsed == 1);
+    CHECK(state.reservationVersion == fixture.snapshot.input.pool.version + 1);
+    CHECK(futureSeenLater(fixture, state) == 0);
+    const M5LaneDateInput later = laterInput(fixture, state);
+    CHECK(shippedCount(plan(later, syntheticProfile())) == 0);
+    requireEachOnce(shipmentsBySource(fixture, state));
+    m5Evidence::note("expected", {"A: R10 + F20 on D", "B refused (payload conflict)", "D+1 sees F0", "30 ship once"});
+}
+
+TEST_CASE("U-CF-06/BthenA: B selected and committed; unselected A never consumes F" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState state = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaB, fixture.snapshot, state) == ApplyStatus::Applied);
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms.size() == 10);
+    for (const string& id : state.consumedAtoms) CHECK(id.rfind("r", 0) == 0);
+    CHECK(futureSeenLater(fixture, state) == 20);
+    requireEachOnce(shipmentsBySource(fixture, state));
+    m5Evidence::note("expected", {"B: R10 on D", "A refused (payload conflict)", "D+1 sees and ships F20", "30 ship once, never 50"});
+}
+
+TEST_CASE("U-CF-06/Aalone: A alone removes F20 from D+1 exactly once" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState state = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, state) == ApplyStatus::Applied);
+    CHECK(futureSeenLater(fixture, state) == 0);
+    const DemandSnapshot residual = residualAfter(fixture.snapshot, fixture.deltaA);
+    CHECK(residual.input.atoms.empty());
+    CHECK(residual.input.pool.slots.size() == 20);
+    requireEachOnce(shipmentsBySource(fixture, state));
+    m5Evidence::note("expected", {"30 on D", "D+1 sees F0 and builds no truck for them", "20 reservations left on D"});
+}
+
+TEST_CASE("U-CF-06/Balone: B alone ships R10 on D; D+1 sees and ships F20" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState state = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaB, fixture.snapshot, state) == ApplyStatus::Applied);
+    CHECK(futureSeenLater(fixture, state) == 20);
+    const M5LaneDateInput later = laterInput(fixture, state);
+    CHECK(shippedCount(plan(later, syntheticProfile())) == 20);
+    const DemandSnapshot residual = residualAfter(fixture.snapshot, fixture.deltaB);
+    CHECK(residual.input.atoms.size() == 20);  // the unused provisional offer is not a committed carry
+    requireEachOnce(shipmentsBySource(fixture, state));
+    m5Evidence::note("expected", {"R10 on D", "F20 on D+1", "30 ship once"});
+}
+
+TEST_CASE("U-CF-06/failureBeforeCommit: a commit refused before it applies leaves F20 for D+1" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState moved = freshState(fixture.snapshot);
+    ++moved.reservationVersion;  // the reservations changed after A was checked
+    const OperationalState before = moved;
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, moved) == ApplyStatus::StaleSnapshot);
+    CHECK(moved.consumedAtoms == before.consumedAtoms);
+    CHECK(moved.slotsUsed == before.slotsUsed);
+    CHECK(moved.reservationVersion == before.reservationVersion);
+    CHECK(futureSeenLater(fixture, moved) == 20);
+    // The same delta can still commit once the state is the one it was checked against.
+    OperationalState current = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, current) == ApplyStatus::Applied);
+    CHECK(futureSeenLater(fixture, current) == 0);
+    m5Evidence::note("expected", {"stale: nothing applied", "F20 still available to D+1"});
+}
+
+TEST_CASE("U-CF-06/retryAfterCommit: retrying a committed delta replays idempotently; F is consumed once" * doctest::test_suite("m5")) {
+    const Cf06Fixture fixture = cf06Fixture();
+    CommitLedger ledger;
+    OperationalState state = freshState(fixture.snapshot);
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, state) == ApplyStatus::Applied);
+    const OperationalState afterFirst = state;
+    CHECK(ledger.applyIfCurrent(fixture.deltaA, fixture.snapshot, state) == ApplyStatus::AlreadyApplied);
+    CHECK(state.consumedAtoms == afterFirst.consumedAtoms);
+    CHECK(state.slotsUsed == 1);
+    CHECK(state.reservationVersion == afterFirst.reservationVersion);
+    // A retry from the reconciled residual has nothing left to take.
+    const DemandSnapshot residual = residualAfter(fixture.snapshot, fixture.deltaA);
+    CHECK(residual.input.atoms.empty());
+    CHECK(residual.input.pool.version == fixture.snapshot.input.pool.version + 1);
+    requireEachOnce(shipmentsBySource(fixture, state));
+    m5Evidence::note("expected", {"second apply: already applied", "consumed 30 once", "residual empty"});
+}
+
+namespace {
+
+// U-CF-07: one slot; 25 required P11 due D, ten can-go P0 due D+10, one due D+11, one due D+5 available D+1.
+M5LaneDateInput cf07Lane(size_t required = 25, bool pullForward = true, bool reversed = false) {
+    vector<Atom> atoms = fx30Units("req", required, "A", 11);
+    atoms = concat(atoms, fx30Units("go", 10, "A", 0, dayAfter(10)));
+    atoms.push_back(fx30("far", "A", 0, dayAfter(11)));
+    atoms.push_back(fx30("unavailable", "A", 0, dayAfter(5), dayAfter(1)));
+    if (reversed) reverse(atoms.begin(), atoms.end());
+    M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, pullForward);
+    input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
+    return input;
+}
+
+set<string> requireExactSpareFill(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 1);
+    const TruckPlan& truck = outcome.selected->trucks.front();
+    CHECK(truck.atoms.size() == 30);
+    CHECK(weightOfTruck(input, truck) == 45000.0);
+    CHECK(cubicFeetOfTruck(input, truck) == 3750.0);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shippedWithPrefix(shipped, "req") == 25);
+    CHECK(shippedWithPrefix(shipped, "go") == 5);
+    CHECK(shipped.count("far") == 0);
+    CHECK(shipped.count("unavailable") == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 5);
+    CHECK(causeOf(outcome, input, "far") == LeftOverCause::NotEligible);
+    CHECK(causeOf(outcome, input, "unavailable") == LeftOverCause::NotEligible);
+    CHECK(eligibilityOf(input, "far") == EligibilityReason::DueBeyondPullWindow);
+    CHECK(eligibilityOf(input, "unavailable") == EligibilityReason::NotAvailable);
+    m5Evidence::note("expected", {"25 required + 5 can-go = 30", "45,000 lb", "3,750 cu ft", "5 can-go over, far and unavailable not eligible"});
+    set<string> future;
+    for (const string& id : shipped) {
+        if (id.rfind("go", 0) == 0) future.insert(id);
+    }
+    return future;
+}
+
+}  // namespace
+
+TEST_CASE("U-CF-07/methodA: Method A adds exactly five can-go units beside the 25 required" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf07Lane();
+    requireExactSpareFill(plan(input, profileWithMethod(MethodPolicy::PatternOnly)), input);
+}
+
+TEST_CASE("U-CF-07/methodB: Method B adds exactly five can-go units beside the 25 required" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf07Lane();
+    requireExactSpareFill(plan(input, profileWithMethod(MethodPolicy::BlocksOnly)), input);
+}
+
+TEST_CASE("U-CF-07/pullOff: with pull-forward off only the 25 required ship" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf07Lane(25, false);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.size() == 25);
+    CHECK(shippedWithPrefix(shipped, "req") == 25);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 12);
+    CHECK(eligibilityOf(input, "go100") == EligibilityReason::PullForwardOff);
+    m5Evidence::note("expected", {"25 ship", "12 future units not eligible (pull-forward off)"});
+}
+
+TEST_CASE("U-CF-07/requiredAlreadyFull: with 30 required units no future unit is added" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf07Lane(30);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.size() == 30);
+    CHECK(shippedWithPrefix(shipped, "req") == 30);
+    CHECK(shippedWithPrefix(shipped, "go") == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 10);
+    m5Evidence::note("expected", {"30 required ship", "0 future"});
+}
+
+TEST_CASE("U-CF-07/equalFutureIds: equal future units are chosen by the canonical record order, whatever the row order" * doctest::test_suite("m5")) {
+    // ED-21 T2: among equal goods the lowest (source line, atom ID) records come first.
+    const M5LaneDateInput forward = cf07Lane(25, true, false), backward = cf07Lane(25, true, true);
+    const set<string> forwardFuture = requireExactSpareFill(plan(forward, syntheticProfile()), forward);
+    const set<string> backwardFuture = requireExactSpareFill(plan(backward, syntheticProfile()), backward);
+    CHECK(forwardFuture == set<string>{"go100", "go101", "go102", "go103", "go104"});
+    CHECK(backwardFuture == forwardFuture);
+}
+
+namespace {
+
+// U-CF-08: one slot; H is required, F is 30 FX-30 units due D+1 and available D.
+M5LaneDateInput cf08Lane(const Atom& required) {
+    return laneWith(concat({required}, fx30Units("f", 30, "A", 0, dayAfter(1))), 1, kDefaultTrailer, true);
+}
+
+}  // namespace
+
+TEST_CASE("U-CF-08/impossibleRequired: an overweight required TLD never ships or splits; all 30 future units do" * doctest::test_suite("m5")) {
+    // H: nonstackable 20 x 100 x 108 in, 45,001 lb > 45,000 lb payload on every slot.
+    const M5LaneDateInput input = cf08Lane(unitOf("H", "A", 100.0, 20.0, 108.0, 45001.0));
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.count("H") == 0);
+    CHECK(shippedWithPrefix(shipped, "f") == 30);
+    CHECK(leftOverEntriesOf(outcome, input, "H") == 1);
+    CHECK(causeOf(outcome, input, "H") == LeftOverCause::Unfittable);
+    CHECK(outcome.leftOver.size() == 1);
+    CHECK(shipped.size() + outcome.leftOver.size() == 31);
+    CHECK(outcome.stop == StopReason::Completed);
+    const PhysicalCheck alone = checkTruck(input, {0}, kDefaultTrailer, physicalSettings());
+    CHECK_FALSE(alone.fits);
+    CHECK_FALSE(alone.undecided);
+    m5Evidence::note("expected", {"F30 ship", "H unserved once: fits no reserved trailer (45,001 lb)", "31 accounted"});
+}
+
+TEST_CASE("U-CF-08/feasibleRequiredControl: a valid required unit in H's place ships, with 29 future units" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf08Lane(fx30("H"));
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.count("H") == 1);
+    CHECK(shippedWithPrefix(shipped, "f") == 29);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 1);
+    CHECK(outcome.requiredService == ServiceLevel::Full);
+    m5Evidence::note("expected", {"H ships", "29 future ship", "1 future over the reservation"});
+}
+
+TEST_CASE("U-CF-08/unprovenRequiredControl: a required unit whose fit was never decided is not labelled impossible" * doctest::test_suite("m5")) {
+    // H fits. A one-unit check needs no row search, so it is decided even with the route's search states
+    // spent; with them spent every multi-unit truck is Undecided. H must never be reported as fitting no
+    // trailer to make room for future goods.
+    const M5LaneDateInput input = cf08Lane(fx30("H"));
+    PhysicalSettings starved = physicalSettings();
+    starved.routeBudget = make_shared<RouteSearchBudget>("unproven", 1, 1);
+    REQUIRE(starved.routeBudget->admit(1) == 1);  // the route's only state is spent
+    const PhysicalCheck alone = checkTruckInRoute(input, {0}, kDefaultTrailer, starved, 1);
+    CHECK(alone.fits);
+    CHECK_FALSE(alone.undecided);
+    FakeClock clock;
+    const M5RunServices services(clock);
+    const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), starved, services);
+    for (const LeftOver& left : outcome.leftOver) {
+        INFO(input.atoms[left.atom].id << ": " << leftOverCauseName(left.cause));
+        CHECK(left.cause != LeftOverCause::Unfittable);
+    }
+    const set<string> shipped = shippedIds(outcome, input);
+    if (shipped.count("H") == 0) CHECK(shippedWithPrefix(shipped, "f") == 0);
+    m5Evidence::note("expected", {"H never labelled 'fits no reserved trailer' while undecided", "no future good ships in its place"});
 }
 
 TEST_CASE("X-DATE-06 every component's date is checked, inside a mixed stack too" * doctest::test_suite("m5")) {

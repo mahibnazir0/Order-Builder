@@ -230,7 +230,7 @@ TEST_CASE("X-META-08 a do-not-mix rule never lowers the exact best" * doctest::t
 // PUB-01..03 need OR-Library's binpack1.txt in tests/m5/data/orlib/. It is skipped in the full run so a
 // clone without it still passes; the m5Published ctest entry runs it with --no-skip, where a missing
 // file fails by name. Neither a skip nor a missing file is a pass.
-TEST_CASE("ACC-1 U-CG-02 PUB-01 PUB-02 PUB-03 Falkenauer u120_00..02 reach their proven optima" * doctest::test_suite("m5Published")
+TEST_CASE("U-CG-02/published PUB-01/published PUB-02/published PUB-03/published: ACC-1 Falkenauer u120_00..02 reach their proven optima with an independently checked packing" * doctest::test_suite("m5Published")
           * doctest::skip()) {
     const string path = "tests/m5/data/orlib/binpack1.txt";
     ifstream file(path);
@@ -255,8 +255,13 @@ TEST_CASE("ACC-1 U-CG-02 PUB-01 PUB-02 PUB-03 Falkenauer u120_00..02 reach their
         REQUIRE(model.sizes.size() == 120);
         const ScalarResult result = solveChecked(model);
         INFO(name);
+        REQUIRE(result.packing.has_value());
+        CHECK(result.impossible.empty());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
         CHECK(static_cast<long long>(result.packing->bins.size()) == optimum);
     }
+    m5Evidence::input("binpack1", path);
+    m5Evidence::note("expected", {"u120_00 48", "u120_01 49", "u120_02 46", "packings checked independently"});
 }
 
 // ---- X-CG-22 and U-FF-01/ffdConcreteGap (tests v12 Section 42) -------------------------------------

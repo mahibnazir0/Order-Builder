@@ -230,7 +230,8 @@ TEST_CASE("R-7 P9 the per-lane past-due order is optional, and refused when malf
     }
 }
 
-TEST_CASE("U-CF-03 can-go goods pulled into an M5 date leave the later date once" * doctest::test_suite("m5")) {
+TEST_CASE("U-CF-03/synthetic: can-go goods pulled into an M5 date leave the later date once; OFF keeps them for D+1" * doctest::test_suite("m5")) {
+    // Lane 2027: 21 reservations on 6 Aug (> 20: M5) and 20 on 7 Aug (M4). Lines 0-9 due 6 Aug, 10-29 due 7 Aug.
     vector<SelectionItem> goods;
     for (size_t index = 0; index < 10; ++index) goods.push_back(item(0, index));
     for (size_t index = 10; index < 30; ++index) {
@@ -240,29 +241,80 @@ TEST_CASE("U-CF-03 can-go goods pulled into an M5 date leave the later date once
     }
     const Day day = dayOf({group("2027")}, 30, goods, {reserved("2027", 21, "2026-08-06"), reserved("2027", 20, "2026-08-07")});
     SelectorSettings settings = selectorSettings();
+    // Per source over both dates: each line on exactly one truck, on the date given.
+    auto linesByDate = [](const SelectionPlan& selection) {
+        map<size_t, string> dateOfLine;
+        for (const PlannedTruck& truck : selection.trucks) {
+            for (const size_t index : truck.items) CHECK(dateOfLine.emplace(index, truck.shipDate).second);
+        }
+        return dateOfLine;
+    };
 
     SUBCASE("pull-forward on: all 30 ship on the M5 date, none on the later one") {
         settings.largeLanePlanner = plannerOf(m5Fixtures::syntheticProfile(), "", true);
         const ShipDatePlan planned = planShipDates(day.run, day.book, day.items, kRouting, settings, {true, true}, 10);
         CHECK(accountedOnce(planned.plan, 30));
-        size_t onSixth = 0;
-        for (const PlannedTruck& truck : planned.plan.trucks) {
-            CHECK(truck.shipDate == "2026-08-06");
-            onSixth += truck.items.size();
-        }
-        CHECK(onSixth == 30);
+        const map<size_t, string> dateOfLine = linesByDate(planned.plan);
+        CHECK(dateOfLine.size() == 30);
+        for (const auto& [line, date] : dateOfLine) CHECK(date == "2026-08-06");
+        CHECK(planned.plan.leftOver.empty());
         REQUIRE(planned.plan.largeLanes.size() == 1);
+        CHECK(planned.plan.largeLanes[0].shipDate == "2026-08-06");
+        CHECK(planned.plan.largeLanes[0].planned);
         CHECK(planned.plan.largeLanes[0].text.find("can-go") != string::npos);
+        m5Evidence::note("expected", {"30 on 6 Aug (M5, 21 > 20)", "0 on 7 Aug", "each line once"});
     }
     SUBCASE("pull-forward off: the later goods wait for their own date") {
         settings.largeLanePlanner = plannerOf(m5Fixtures::syntheticProfile(), "", false);
         const ShipDatePlan planned = planShipDates(day.run, day.book, day.items, kRouting, settings, {true, false}, 10);
         CHECK(accountedOnce(planned.plan, 30));
-        map<string, size_t> byDate;
-        for (const PlannedTruck& truck : planned.plan.trucks) byDate[truck.shipDate] += truck.items.size();
-        CHECK(byDate["2026-08-06"] == 10);
-        CHECK(byDate["2026-08-07"] == 20);
+        const map<size_t, string> dateOfLine = linesByDate(planned.plan);
+        CHECK(dateOfLine.size() == 30);
+        for (const auto& [line, date] : dateOfLine) CHECK(date == (line < 10 ? "2026-08-06" : "2026-08-07"));
     }
+    SUBCASE("direct M5 seam (stated): 21 slots on D take R10 + F20; D+1's 20 slots then see nothing") {
+        const vector<m5::Atom> required = m5Fixtures::fx30Units("r", 10);
+        const vector<m5::Atom> future = m5Fixtures::fx30Units("f", 20, "A", 0, m5Fixtures::dayAfter(1));
+        vector<m5::Atom> today = required;
+        today.insert(today.end(), future.begin(), future.end());
+        m5::M5LaneDateInput first = m5Fixtures::laneWith(today, 21, m5Fixtures::kDefaultTrailer, true);
+        m5::M5LaneDateInput second = m5Fixtures::laneWith(future, 20, m5Fixtures::kDefaultTrailer, true);
+        second.departure = m5Fixtures::dayAfter(1);
+        for (m5::Atom& atom : second.atoms) atom.components[0].offerKind = m5::OfferKind::Required;
+        m5Fixtures::FakeClock clock;
+        const m5::LinkedDateBenchmark linked = m5::benchmarkLinkedDates({first, second}, m5Fixtures::syntheticProfile(),
+                                                                        m5Fixtures::physicalSettings(), clock);
+        REQUIRE(linked.outcomes.size() == 2);
+        CHECK(m5Fixtures::shippedCount(linked.outcomes[0]) == 30);
+        CHECK(linked.inputs[1].atoms.empty());
+        CHECK(m5Fixtures::shippedCount(linked.outcomes[1]) == 0);
+    }
+}
+
+TEST_CASE("U-CF-05/normalRouteCanGoOnly: a reserved M5 date with only a can-go block reaches M5 and ships it" * doctest::test_suite("m5")) {
+    // Lane 2027: 21 reservations on 6 Aug, T = 20, no goods due by 6 Aug. One FX-BLOCK (630 x 100 x 108 in,
+    // 45,000 lb) due 7 Aug, available 6 Aug. Nothing is reserved on 7 Aug and nothing is made up.
+    SelectionItem block = item(0, 0, 45000.0, 0, 630.0, 100.0);
+    block.heightIn = 108.0;
+    block.cubeCubicIn = 630.0 * 100.0 * 108.0;
+    block.shipDate = "2026-08-07";
+    block.availDate = "2026-08-06";
+    const Day day = dayOf({group("2027")}, 1, {block}, {reserved("2027", 21, "2026-08-06")});
+    SelectorSettings settings = selectorSettings();
+    settings.largeLanePlanner = plannerOf(m5Fixtures::syntheticProfile(), "", true);
+    const ShipDatePlan planned = planShipDates(day.run, day.book, day.items, kRouting, settings, {true, true}, 10);
+    CHECK(accountedOnce(planned.plan, 1));
+    REQUIRE(planned.plan.largeLanes.size() == 1);
+    CHECK(planned.plan.largeLanes[0].shipDate == "2026-08-06");
+    CHECK(planned.plan.largeLanes[0].planned);
+    REQUIRE(planned.plan.trucks.size() == 1);
+    CHECK(planned.plan.trucks[0].shipDate == "2026-08-06");
+    CHECK(planned.plan.trucks[0].items == vector<size_t>{0});
+    CHECK(planned.plan.leftOver.empty());
+    set<string> datesWithTrucks;
+    for (const PlannedTruck& truck : planned.plan.trucks) datesWithTrucks.insert(truck.shipDate);
+    CHECK(datesWithTrucks == set<string>{"2026-08-06"});
+    m5Evidence::note("expected", {"1 truck on 6 Aug with the whole block", "20 reservations unused", "reached M5 at 21 > 20"});
 }
 
 TEST_CASE("X-ROUTE-09 a forced M5 plan leaves no setting behind for a normal run" * doctest::test_suite("m5")) {
