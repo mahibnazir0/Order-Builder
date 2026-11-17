@@ -31,7 +31,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 4
       # The benchmark needs the client's data and runs for minutes, so it is left to our machines.
       - name: Test
         run: ctest --test-dir build -C Release -E m4Benchmark --output-on-failure
@@ -52,7 +52,9 @@ jobs:
         run: >-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }}
+      # Unbounded make -j runs every test file through GCC at once, which exhausts the runner's
+      # memory and gets the job killed (exit 143); the runner has 4 cores.
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel 4
       - name: Test
         run: ctest --test-dir build -E m4Benchmark --output-on-failure
