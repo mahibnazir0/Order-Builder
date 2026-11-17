@@ -106,6 +106,7 @@ add_executable(ob_tests
   tests/testPipelineDeterminism.cpp
   tests/testMilestone2Guarantees.cpp
   tests/testNewExtracts.cpp
+  tests/testCustomerData.cpp
   tests/cli/testCli.cpp
   tests/trailerSpec/testTrailerSpec.cpp
   tests/palletSpec/testPalletSpec.cpp
@@ -154,13 +155,16 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 # the diagnosis of what limits each truck's fill.
 target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt"
                                             OB_M4_FILL_DIAGNOSIS="${CMAKE_BINARY_DIR}/m4FillDiagnosis.txt"
-                                            OB_M4_PROOF_COVERAGE="${CMAKE_BINARY_DIR}/m4ProofCoverage.txt")
+                                            OB_M4_PROOF_COVERAGE="${CMAKE_BINARY_DIR}/m4ProofCoverage.txt"
+                                            OB_M4_LANE_DATES="${CMAKE_BINARY_DIR}/m4LaneDates.csv"
+                                            OB_M4_CLIENT_GOODS_CHECK="${CMAKE_BINARY_DIR}/m4ClientGoodsCheck.txt")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
 add_test(NAME ob_tests COMMAND ob_tests
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-# The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent.
+# The 4-6 August acceptance run on its own; it fails, naming each file, when the data is absent
+# (reports it skipped instead under OB_CUSTOMER_DATA=optional, as the PR checks set).
 add_test(NAME augustAcceptance COMMAND ob_tests -ts=augustAcceptance
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 # The M4 benchmark over every extract held. Its presence check is skipped in the full run, so a

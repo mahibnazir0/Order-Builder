@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "customerData.hpp"
 #include "importer/crossDayFixtures.hpp"
 #include "stackRules.hpp"
 
@@ -59,8 +60,8 @@ map<PlannerSite, size_t> flaggedLinesByPair(const PipelineResult& result) {
 TEST_CASE("new extracts: every day's fixtures are present, so the extract tests ran") {
     for (size_t day = 0; day < kDayCount; ++day) {
         if (!dayPresent(day)) {
-            FAIL_CHECK(labels[day] << ": " << directories[day]
-                       << " is incomplete (confidential and gitignored; see README, Test data)");
+            customerData::reportMissing(string(labels[day]) + ": " + directories[day]
+                                        + " is incomplete (confidential and gitignored; see README, Test data)");
         }
     }
 }

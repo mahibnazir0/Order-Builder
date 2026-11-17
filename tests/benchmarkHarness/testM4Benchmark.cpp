@@ -1036,6 +1036,186 @@ TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their row
     MESSAGE("proof coverage written to " << OB_M4_PROOF_COVERAGE);
 }
 
+// Every route of each August day, one row each, with the client's unit loads on its lane-date,
+// so a change is compared lane-date by lane-date against an earlier build and against the
+// client's own loads. The file holds customer figures and stays beside the build.
+TEST_CASE("m4Benchmark: every August route is written with the client's unit loads on its lane-date" * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
+    ofstream out(OB_M4_LANE_DATES);
+    out << "day,origin,destination,shipCondition,shipDate,groupIndex,reservedTrucksLaneDate,trucksAllocated,routedMethod,"
+           "stacksOffered,unitLoadsOffered,trucksBuilt,stacksShipped,unitLoadsShipped,proven,unprovenBecause,"
+           "clientLoadsOnLaneDate,clientUnitLoadsOnLaneDate,shippedByShipDateAndPriority\n";
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        const ClientDay& client = clientDay(run);
+        map<tuple<string, string, string, string>, pair<size_t, double>> clientByLaneDate;
+        for (const auto& laneDay : client.achieved.laneDays) {
+            double unitLoads = 0.0;
+            for (const size_t truck : laneDay.truckIndices) {
+                const InputTruck& load = client.achieved.trucks[truck];
+                for (const InputTruckLine& line : load.lines) unitLoads += clientLineUnitLoads(load, line, *day.run);
+            }
+            clientByLaneDate[make_tuple(laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition, laneDay.shipDate)] =
+                {laneDay.loads, unitLoads};
+        }
+        vector<pair<size_t, double>> shippedByRoute(day.classification.routes.size(), {0, 0.0});
+        vector<map<pair<string, int>, double>> classesByRoute(day.classification.routes.size());
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            shippedByRoute[truck.routeIndex].first += truck.items.size();
+            shippedByRoute[truck.routeIndex].second += truck.unitLoads;
+            for (const size_t item : truck.items) {
+                const SelectionItem& shipped = day.items.items[item];
+                classesByRoute[truck.routeIndex][{shipped.shipDate, shipped.priority}] += shipped.unitLoads;
+            }
+        }
+        for (size_t route = 0; route < day.classification.routes.size(); ++route) {
+            const LaneRoute& lane = day.classification.routes[route];
+            const RouteOutcome& outcome = day.plan.routes[route];
+            const GroupKey& key = day.run->segregation.groups[lane.groupIndex].key;
+            const auto found = clientByLaneDate.find(make_tuple(key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate));
+            const pair<size_t, double> clientSide = found == clientByLaneDate.end() ? pair<size_t, double>{0, 0.0} : found->second;
+            out << day.label << ',' << key.locationFrom << ',' << key.locationTo << ',' << key.shipCondition << ','
+                << lane.shipDate << ',' << lane.groupIndex << ',' << lane.reservedTrucks << ',' << lane.trucksAllocated << ','
+                << solveMethodName(lane.method) << ',' << lane.itemIndices.size() << ',' << fixed << setprecision(2)
+                << lane.unitLoads << ',' << outcome.trucksBuilt << ',' << shippedByRoute[route].first << ','
+                << shippedByRoute[route].second << ',' << (outcome.proven ? 1 : 0) << ",\"" << outcome.unprovenBecause
+                << "\"," << clientSide.first << ',' << clientSide.second << ',';
+            for (const auto& shippedClass : classesByRoute[route]) {
+                out << shippedClass.first.first << '|' << shippedClass.first.second << '=' << shippedClass.second << ';';
+            }
+            out << '\n';
+        }
+    }
+    MESSAGE("lane-dates written to " << OB_M4_LANE_DATES);
+}
+
+// Where the client loaded more unit loads than we did on a lane-date that reserved one truck, his
+// goods are found among our stacks (a stack is his when every line it holds is on his load) and
+// put through our own checks: where our plan put each, and whether his stacks fit one of our
+// trucks on its rows, payload and unit-load cap. Stacks that fit and were offered to our route
+// mean our load was not the best; stacks that do not fit mean the two systems disagree on what
+// is legal.
+TEST_CASE("m4Benchmark: the client's fuller one-truck loads are put through our own checks" * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustSolutionsPresent());
+    const SelectorSettings settings = realDataSettings();
+    ofstream out(OB_M4_CLIENT_GOODS_CHECK);
+    out << "Lane-dates reserving one truck where the client's load carries more unit loads than our truck.\n"
+           "His stacks are ours whose every line is on his load.\n";
+    for (size_t run = 0; run < 3; ++run) {
+        const HeldDay& day = augustDay(run);
+        const ClientDay& client = clientDay(run);
+        const PipelineResult& pipeline = *day.run;
+        vector<long long> routeOfItem(day.items.items.size(), -1);
+        for (const PlannedTruck& truck : day.plan.trucks) {
+            for (const size_t item : truck.items) routeOfItem[item] = static_cast<long long>(truck.routeIndex);
+        }
+        unordered_map<size_t, LeftOverReason> leftOverReason;
+        for (const LeftOverItem& left : day.plan.leftOver) leftOverReason.emplace(left.itemIndex, left.reason);
+        map<tuple<string, string, string, string>, const acceptanceTests::AchievedLaneDay*> clientByLaneDate;
+        for (const auto& laneDay : client.achieved.laneDays) {
+            clientByLaneDate[make_tuple(laneDay.locationFrom, laneDay.locationTo, laneDay.shipCondition, laneDay.shipDate)] = &laneDay;
+        }
+        out << "\n" << day.label << "\n";
+        for (size_t route = 0; route < day.classification.routes.size(); ++route) {
+            const LaneRoute& lane = day.classification.routes[route];
+            if (lane.reservedTrucks != 1 || lane.groupsSharingReservation != 1) continue;
+            const GroupKey& key = pipeline.segregation.groups[lane.groupIndex].key;
+            const auto found = clientByLaneDate.find(make_tuple(key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate));
+            if (found == clientByLaneDate.end() || found->second->truckIndices.size() != 1) continue;
+            const InputTruck& load = client.achieved.trucks[found->second->truckIndices.front()];
+            double clientUnitLoads = 0.0;
+            unordered_set<string> clientIdprs;
+            for (const InputTruckLine& line : load.lines) {
+                clientUnitLoads += clientLineUnitLoads(load, line, pipeline);
+                clientIdprs.insert(line.idpr);
+            }
+            double ourUnitLoads = 0.0;
+            for (const PlannedTruck& truck : day.plan.trucks) {
+                if (truck.routeIndex == route) ourUnitLoads += truck.unitLoads;
+            }
+            if (clientUnitLoads <= ourUnitLoads + 1e-6) continue;
+
+            const unordered_set<size_t> offered(lane.itemIndices.begin(), lane.itemIndices.end());
+            vector<size_t> hisStacks;
+            for (size_t item = 0; item < day.items.items.size(); ++item) {
+                const SelectionItem& stack = day.items.items[item];
+                if (stack.groupIndex != lane.groupIndex && !offered.count(item)) {
+                    const GroupKey& itemKey = pipeline.segregation.groups[stack.groupIndex].key;
+                    if (itemKey.locationFrom != key.locationFrom || itemKey.locationTo != key.locationTo) continue;
+                }
+                const bool allHis = all_of(stack.lineIndices.begin(), stack.lineIndices.end(), [&](const size_t line) {
+                    return clientIdprs.count(pipeline.join.lines[line].str->idpr) > 0;
+                });
+                if (allHis && !stack.lineIndices.empty()) hisStacks.push_back(item);
+            }
+            double hisUnitLoads = 0.0, hisWeightLb = 0.0, offeredUnitLoads = 0.0;
+            map<string, double> elsewhere;
+            vector<FloorItem> floor;
+            for (const size_t item : hisStacks) {
+                const SelectionItem& stack = day.items.items[item];
+                hisUnitLoads += stack.unitLoads;
+                hisWeightLb += stack.weightLb;
+                floor.push_back(floorItemFrom(stack));
+                if (offered.count(item)) {
+                    offeredUnitLoads += stack.unitLoads;
+                    if (routeOfItem[item] == static_cast<long long>(route)) elsewhere["on our truck"] += stack.unitLoads;
+                    else elsewhere["offered, left off our truck"] += stack.unitLoads;
+                } else if (routeOfItem[item] >= 0) {
+                    elsewhere["on our truck of " + day.classification.routes[static_cast<size_t>(routeOfItem[item])].shipDate] += stack.unitLoads;
+                } else {
+                    const auto left = leftOverReason.find(item);
+                    elsewhere[string("not offered: ") + (left == leftOverReason.end() ? "rejected or not in a route" : leftOverReasonName(left->second))]
+                        += stack.unitLoads;
+                }
+            }
+            FloorSearchBudget budget{10000000};
+            const FloorLayout layout = arrangeFloor(floor, pipeline.trailer, settings.floor, &budget);
+            const bool floorFits = layout.fitsLength && layout.withinMaxPositions && layout.unplaceableItems.empty();
+            out << "  " << key.locationFrom << " -> " << key.locationTo << " " << key.shipCondition << " " << lane.shipDate
+                << (day.plan.routes[route].proven ? " (ours proven)" : " (ours unproven)") << ": client load " << load.id << " "
+                << fixed << setprecision(2) << clientUnitLoads << " UL, ours " << ourUnitLoads << " UL\n"
+                << "    his goods as our stacks: " << hisStacks.size() << " stacks, " << hisUnitLoads << " UL, "
+                << setprecision(0) << hisWeightLb << " lb; on our floor: "
+                << (floorFits ? "fit" : (layout.fitUnproven ? "undecided at 10,000,000 states" : "do not fit")) << " ("
+                << setprecision(1) << layout.usedLengthIn << " in of " << pipeline.trailer.interiorLengthIn << ")"
+                << (hisWeightLb > pipeline.trailer.weightLimitLb ? ", over payload" : "")
+                << (hisUnitLoads > settings.maxUnitLoadsPerTruck + 1e-6 ? ", over the unit-load cap" : "") << "\n"
+                << "    of which offered to our route: " << setprecision(2) << offeredUnitLoads << " UL; where they went:";
+            for (const auto& place : elsewhere) out << " " << place.first << " " << place.second << " UL;";
+            out << "\n";
+            if (!floorFits || hisWeightLb > pipeline.trailer.weightLimitLb || hisUnitLoads > settings.maxUnitLoadsPerTruck + 1e-6
+                || offeredUnitLoads + 1e-6 < hisUnitLoads) {
+                continue;
+            }
+            // His whole load was ours to take and fits our truck: ours must rank above it, class by
+            // class (rank date, priority, ship date), or the proof is wrong.
+            const auto classOf = [&](const SelectionItem& stack) {
+                return make_tuple(rankDateOf(stack.shipDate, lane.shipDate, day.classification.pastDueOrder), stack.priority,
+                                  stack.shipDate);
+            };
+            map<tuple<string, int, string>, pair<double, double>> byClass;  // ours, his
+            for (const PlannedTruck& truck : day.plan.trucks) {
+                if (truck.routeIndex != route) continue;
+                for (const size_t item : truck.items) byClass[classOf(day.items.items[item])].first += day.items.items[item].unitLoads;
+            }
+            for (const size_t item : hisStacks) byClass[classOf(day.items.items[item])].second += day.items.items[item].unitLoads;
+            string verdict = "equal on every class: ours wins on floor area or ties";
+            for (const auto& entry : byClass) {
+                if (fabs(entry.second.first - entry.second.second) < 1e-6) continue;
+                ostringstream text;
+                text << (entry.second.first > entry.second.second ? "ours ranks higher" : "HIS RANKS HIGHER, A WRONG PROOF")
+                     << " at class " << get<0>(entry.first) << " p" << get<1>(entry.first) << " " << get<2>(entry.first) << ": ours "
+                     << entry.second.first << " UL, his " << entry.second.second;
+                verdict = text.str();
+                break;
+            }
+            out << "    his load was ours to take and fits our truck; " << verdict << "\n";
+            if (day.plan.routes[route].proven) CHECK_MESSAGE(verdict.rfind("HIS", 0) != 0, verdict);
+        }
+    }
+    MESSAGE("client goods check written to " << OB_M4_CLIENT_GOODS_CHECK);
+}
+
 TEST_CASE("m4Benchmark: August fill is no worse than measured on 2 Nov" * doctest::skip()) {
     struct Fill {
         double cubicFeetAtLeast;

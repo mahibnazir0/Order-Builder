@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "customerData.hpp"
 #include "importer/crossDayFixtures.hpp"
 
 #include <algorithm>
@@ -49,7 +50,7 @@ private:
 // a clone without them must never pass a suite that ran none of them.
 TEST_CASE("crossDay: the extract fixtures are present, so the extract tests ran") {
     for (const string& problem : missingExtracts()) {
-        FAIL_CHECK(problem << " (confidential and gitignored; see README, Test data)");
+        customerData::reportMissing(problem + " (confidential and gitignored; see README, Test data)");
     }
 }
 
