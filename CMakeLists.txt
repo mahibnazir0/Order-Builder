@@ -167,6 +167,7 @@ add_executable(ob_tests
   tests/m5/testM5TomRegressions.cpp
   tests/m5/testM5UnitLoadCap.cpp
   tests/m5/testM5FloorSearch.cpp
+  tests/m5/testM5TieRule.cpp
   tests/m5/m5EvidenceListener.cpp
 )
 

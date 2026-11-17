@@ -10814,7 +10814,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Scenarios.cpp (planned, PR-8)",
+      "testFile": "tests/m5/testM5TieRule.cpp",
       "fixture": "FX-TIE: FX-CAP-ATOM T2 atoms; groups G1/G2(/G3), three atoms (six unit loads) each, all P0; one slot cap 6 per lane-date; lanes LA 9001|9004|TL, LB 9001|9003|TL, LC 9001|9002|TL; ship dates 6/7/8 Aug 2028",
       "localOverrides": "Acceptance OFF, carry/pull OFF, fresh snapshots per run, direct M5 invocation",
       "entryPoint": "DIRECT",
@@ -14203,7 +14203,7 @@
         "M-LED"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5TieRule.cpp",
       "fixture": "FX-30 / FX-COUNT",
       "localOverrides": "",
       "entryPoint": "DIRECT",

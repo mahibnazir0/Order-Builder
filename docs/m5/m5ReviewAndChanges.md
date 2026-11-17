@@ -13,6 +13,9 @@
 - PR-7 (17 Nov 2026): ED-19 implemented (architecture Section 22, "ED-19 as implemented"): one floor-search
   state ledger per lane-date run shared by every M5 floor check, typed stops, decided-only caching, pure
   supplied-witness validation. Spec unchanged; X-PAT-18 and U-PF-09 testFile now tests/m5/testM5FloorSearch.cpp.
+- PR-8 (17 Nov 2026): ED-21 implemented (architecture Section 22, "ED-21 as implemented"): lane-and-date
+  rotated group order, then canonical records (source-line ID, then atom ID in place of the slot ID, which is
+  assigned after allocation). Spec unchanged; X-RES-13 and X-META-06 testFile now tests/m5/testM5TieRule.cpp.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

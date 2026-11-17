@@ -1,5 +1,6 @@
 #include "m5Allocation.hpp"
 #include "demand_types.hpp"
+#include "isoDate.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -57,6 +58,8 @@ AllocationKey keyOf(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
                 const long long thousandths = llround(component.unitLoads * 1000.0);
                 key.shippedByClass[domain.indexOf(component)] += thousandths;
                 key.shippedByPriority[static_cast<size_t>(component.priority)] += thousandths;
+                key.shippedByGroup[atom.group] += thousandths;
+                key.records.emplace_back(component.source, atom.id);
             }
             sources.push_back(atom.id);
         }
@@ -65,6 +68,7 @@ AllocationKey keyOf(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
     }
     sort(members.begin(), members.end());
     key.membership.push_back(std::move(members));
+    sort(key.records.begin(), key.records.end());
     return key;
 }
 
@@ -76,18 +80,39 @@ void addTo(AllocationKey& total, const AllocationKey& part) {
         total.shippedByPriority[index] += part.shippedByPriority[index];
     }
     total.loadedTrucks += part.loadedTrucks;
+    for (const auto& [group, thousandths] : part.shippedByGroup) total.shippedByGroup[group] += thousandths;
+    const auto middle = static_cast<ptrdiff_t>(total.records.size());
+    total.records.insert(total.records.end(), part.records.begin(), part.records.end());
+    inplace_merge(total.records.begin(), total.records.begin() + middle, total.records.end());
     total.membership.insert(total.membership.end(), part.membership.begin(), part.membership.end());
 }
 
 namespace {
 
+long long shippedOf(const AllocationKey& key, const GroupId& group) {
+    const auto found = key.shippedByGroup.find(group);
+    return found == key.shippedByGroup.end() ? 0 : found->second;
+}
+
 class M4UrgencyComparator final : public AllocationComparator {
 public:
+    explicit M4UrgencyComparator(TieOrder ties) : ties_(std::move(ties)) {}
     bool better(const AllocationKey& left, const AllocationKey& right) const override {
         if (left.shippedByClass != right.shippedByClass) return left.shippedByClass > right.shippedByClass;
+        for (const GroupId& group : ties_.groups) {
+            const long long leftShipped = shippedOf(left, group), rightShipped = shippedOf(right, group);
+            if (leftShipped != rightShipped) return leftShipped > rightShipped;
+        }
+        if (left.records != right.records) return left.records < right.records;
         return left.membership < right.membership;
     }
-    string id() const override { return "ED-02 urgency classes (rank date, priority, ship date), then canonical membership"; }
+    string id() const override {
+        return "ED-02 urgency classes (rank date, priority, ship date), then ED-21 (rotated group order r=" + to_string(ties_.rotation)
+               + " of " + to_string(ties_.groups.size()) + ", then canonical records)";
+    }
+
+private:
+    TieOrder ties_;
 };
 
 class FxPriorityComparator final : public AllocationComparator {
@@ -102,9 +127,37 @@ public:
 
 }  // namespace
 
-unique_ptr<AllocationComparator> makeComparator(ComparatorKind kind) {
+unique_ptr<AllocationComparator> makeComparator(ComparatorKind kind, TieOrder ties) {
     if (kind == ComparatorKind::FxPriority) return make_unique<FxPriorityComparator>();
-    return make_unique<M4UrgencyComparator>();
+    return make_unique<M4UrgencyComparator>(std::move(ties));
+}
+
+uint32_t fnv1a32(const string& text) {
+    uint32_t hash = 2166136261u;
+    for (const char character : text) {
+        hash ^= static_cast<uint32_t>(static_cast<unsigned char>(character));
+        hash *= 16777619u;  // unsigned: wraps mod 2^32
+    }
+    return hash;
+}
+
+string tieLaneText(const LaneKey& lane) { return lane.origin + "|" + lane.destination + "|" + lane.shipCondition; }
+
+TieOrder tieOrderFor(const DemandSnapshot& snapshot) {
+    TieOrder order;
+    order.laneKey = fnv1a32(tieLaneText(snapshot.input.lane));
+    order.dayNumber = daysBetween("1970-01-01", snapshot.input.departure);
+    for (size_t atom = 0; atom < snapshot.input.atoms.size(); ++atom) {
+        if (snapshot.eligibility[atom].eligible) order.groups.push_back(snapshot.input.atoms[atom].group);
+    }
+    sort(order.groups.begin(), order.groups.end());
+    order.groups.erase(unique(order.groups.begin(), order.groups.end()), order.groups.end());
+    if (order.groups.empty()) return order;
+    const long long count = static_cast<long long>(order.groups.size());
+    const long long dayPart = ((order.dayNumber % count) + count) % count;  // non-negative before 1970 too
+    order.rotation = static_cast<size_t>((static_cast<long long>(order.laneKey % static_cast<uint32_t>(count)) + dayPart) % count);
+    rotate(order.groups.begin(), order.groups.begin() + static_cast<ptrdiff_t>(order.rotation), order.groups.end());
+    return order;
 }
 
 AllocationResult allocate(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const vector<GroupSupply>& supplies,

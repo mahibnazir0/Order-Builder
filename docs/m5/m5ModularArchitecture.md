@@ -1956,3 +1956,16 @@ Not yet: final validation and the assembled trucks' layouts re-run M4's arrangem
 per-search limit outside the route ledger instead of validating the stored rows as a witness. On the
 August data the one M5 lane-date (7 Aug 2028 -> 2574 TL) charges 0 states. Tests:
 `tests/m5/testM5FloorSearch.cpp` (U-PF-09 x5, X-PAT-18 x5) and R-8/m5Path (states charged on the route).
+
+ED-21 as implemented (PR-8): `m5Allocation` builds a `TieOrder` per lane-date from the frozen snapshot
+(`tieOrderFor`): the groups with at least one date-eligible atom, sorted bytewise by stable ID, rotated by
+r = (laneKey mod g + dayNumber mod g) mod g, with laneKey = `fnv1a32("origin|destination|mode")` in unsigned
+32-bit arithmetic and dayNumber = `daysBetween("1970-01-01", shipDate)` (taken non-negative mod g). The
+production comparator (ED-02) compares the urgency-class vector, then T1 shipped unit loads per group in
+that order, then T2 the sorted records, then truck membership. T2 records are (stable source-line ID,
+atom ID): slots are assigned after allocation, so the stable atom ID stands where the text names the slot
+ID; the last key, truck membership, keeps the order total. Within an urgency class the methods take goods
+in stable atom-ID order (shorter IDs first, so M4 item indices keep M4's numeric order), never input
+order. Fill, rear space, weight and truck count never enter. The report no longer lists OPEN-COMP. On the
+August data nothing changes (fingerprints and all 651 lane-dates equal PR-7's). Tests:
+`tests/m5/testM5TieRule.cpp` (X-RES-13 x14, X-META-06/synthetic).

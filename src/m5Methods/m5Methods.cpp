@@ -105,7 +105,16 @@ vector<size_t> rankedCandidates(const MethodContext& context, const GroupId& gro
         rankOf[index] = context.domain.atomRank(atom);
         ranked.push_back(index);
     }
-    stable_sort(ranked.begin(), ranked.end(), [&](size_t left, size_t right) { return rankOf[left] < rankOf[right]; });
+    // Within a class, the stable atom ID decides, never input order (ED-21). Shorter IDs first, so
+    // M4's item indices keep M4's own numeric order.
+    sort(ranked.begin(), ranked.end(), [&](size_t left, size_t right) {
+        if (rankOf[left] != rankOf[right]) return rankOf[left] < rankOf[right];
+        const string& leftId = atoms[left].id;
+        const string& rightId = atoms[right].id;
+        if (leftId.size() != rightId.size()) return leftId.size() < rightId.size();
+        if (leftId != rightId) return leftId < rightId;
+        return left < right;
+    });
     return ranked;
 }
 

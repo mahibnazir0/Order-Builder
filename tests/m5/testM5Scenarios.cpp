@@ -579,12 +579,6 @@ TEST_CASE("X-META-04 X-DATA-07 a line split across stacks plans the same and kee
     CHECK(reconcile(*buildSnapshot(input).snapshot, *outcome.selected).balanced);
 }
 
-TEST_CASE("X-META-06 a lane copied into a separate lane plans the same" * doctest::test_suite("m5")) {
-    M5LaneDateInput first = laneWith(fx30Units("u", 50), 2), second = first;
-    second.lane = {"9999", "8888", "TL"};
-    CHECK(shippedIds(plan(first, syntheticProfile()), first) == shippedIds(plan(second, syntheticProfile()), second));
-}
-
 TEST_CASE("X-META-10 seeded random inputs: either refused as invalid or planned within every invariant" * doctest::test_suite("m5")) {
     mt19937 generator(31337);
     const vector<double> odd{-1.0, 0.0, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity()};

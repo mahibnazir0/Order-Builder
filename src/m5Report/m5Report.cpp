@@ -141,8 +141,7 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
     if (data.loadedTrucks > 0) data.secondsPerLoadedTruck = data.elapsedSeconds / static_cast<double>(data.loadedTrucks);
     data.rearInchesByBucket = rearInchesByBucket(outcome.fullness);
     data.findings = outcome.findings;
-    data.openItems = {"OPEN-COMP: equal-service fill and truck-count tie operator not frozen; ties broken by canonical membership",
-                      "C9: per-truck trailer figures absent from the reservation feed; every slot uses the run's trailer"};
+    data.openItems = {"C9: per-truck trailer figures absent from the reservation feed; every slot uses the run's trailer"};
     return data;
 }
 
