@@ -94,8 +94,10 @@ ValidationReport validateFinal(const CandidatePlan& plan, const DemandSnapshot& 
             continue;
         }
         if (stop && stop()) return report;
+        // The truck as stored is what ships, so its own rows are the witness: never a fresh arrangement,
+        // which could pass while the stored rows are illegal.
         if (planned.slot < slots.size()) {
-            const PhysicalCheck check = checkTruck(snapshot.input, planned.atoms, slots[planned.slot], physical);
+            const PhysicalCheck check = checkStoredRows(snapshot.input, planned.atoms, planned.layout, slots[planned.slot], physical.floor);
             if (!check.fits) {
                 physicalFailed = true;
                 for (const string& finding : check.findings) fail(truck, "physical", finding);
@@ -171,8 +173,8 @@ vector<FullnessLabel> evaluateFullness(const CandidatePlan& plan, const DemandSn
         const long double weight = weightOf(snapshot, planned.atoms);
         label.weightPercent = static_cast<double>(100.0L * weight / capability.maxWeightLb);
         label.byWeight = 100.0L * weight >= static_cast<long double>(profile.fullness.weightFullPercent) * capability.maxWeightLb;
-        const PhysicalCheck finalCheck = checkTruck(snapshot.input, planned.atoms, capability, physical);
-        label.rearInches = rearInchesOf(finalCheck.layout, capability);
+        const PhysicalCheck finalCheck = checkStoredRows(snapshot.input, planned.atoms, planned.layout, capability, physical.floor);
+        label.rearInches = rearInchesOf(planned.layout, capability);
         label.byRearInches = finalCheck.fits && label.rearInches >= 0.0 && label.rearInches <= profile.fullness.rearInchLimit;
 
         const auto probes = probesOf.find(planned.group);

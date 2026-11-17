@@ -17473,7 +17473,7 @@
       "title": "Floor search uncertainty is distinct from a checked witness and a proof of refusal",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5FloorSearch.cpp",
+      "testFile": "tests/m5/testM5FloorSearch.cpp + tests/m5/testM5Physical.cpp",
       "fixture": "Eleven rigid 1-UL TLD atoms 52x100x50in/1000 lb each; standard slot cap 64; W11 extent 572 and W10 extent 520; injected bounded-search statuses.",
       "entryPoint": "DIRECT",
       "oracle": "ARITH + LAYOUT + LEDGER + STATE",

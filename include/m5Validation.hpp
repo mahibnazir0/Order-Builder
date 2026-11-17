@@ -4,8 +4,9 @@
 // under the current profile; and the advisory fullness labels of the plan
 // selected.
 //
-// validateFinal runs every mandatory section - physical (checkTruck on each
-// truck's own slot), conservation, eligibility per component, one group per
+// validateFinal runs every mandatory section - physical (each truck's stored
+// rows as its witness on its own slot, checkStoredRows; no fresh search),
+// conservation, eligibility per component, one group per
 // truck, the shared pool, the optional acceptance policy when enabled, and the
 // evidence's claims - and any failure makes the candidate non-dispatchable.
 // Acceptance OFF is NotApplicable: it neither passes nor withholds anything.
@@ -13,7 +14,8 @@
 //
 // evaluateFullness (ED-FULL, CL-03) labels each truck FULL by weight (100 x
 // weight >= 98 x the trailer's limit, exactly), by rear inches (trailer length
-// less the rows' extent, at most the limit), or floor-limited: only when the
+// less the stored rows' extent, at most the limit, and only when those rows
+// pass checkStoredRows), or floor-limited: only when the
 // group has eligible goods left and none of them fits the truck within M4's
 // supported layouts, each refusal decided, not cut short. A search cut short
 // is Unknown, and with no weight or rear reason the label is Undetermined, not

@@ -198,6 +198,7 @@ CandidatePlan candidateOf(const M5LaneDateInput& input, const vector<pair<size_t
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
         if (!used[atom]) plan.leftOver.push_back({atom, LeftOverCause::OverReservation});
     }
+    storeRows(plan, input);
     return plan;
 }
 
@@ -460,6 +461,8 @@ TEST_CASE("X-PAT-17/copiedPatternRepair: a two-atom pattern copied onto S-small 
     CHECK(copied.revision == before + 1);
     CHECK_FALSE(copied.validation);                         // stale validation dropped
     CHECK(copied.evidence.proof != ProofStatus::ProvenOptimal);  // stale proof dropped
+    CHECK_FALSE(validateFinal(copied, snapshot, profile, physicalSettings()).allPassed());  // stale stored rows
+    storeRows(copied, input);  // as runRepair re-stores the edited trucks' rows
     copied.validation = validateFinal(copied, snapshot, profile, physicalSettings());
     CHECK(copied.validation->allPassed());
     CHECK(snapshot.input.pool.slots[1].maxUnitLoads == 3);  // the slot's cap never changed

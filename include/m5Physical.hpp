@@ -31,9 +31,9 @@ namespace m5 {
 
 struct PhysicalSettings {
     FloorPatternSettings floor;
-    // Row groupings one packing check may search, at most floor's per-search limit. Final validation
-    // searches with floor's own limit; a packing refusal under this smaller one only costs fill, never a
-    // wrong truck.
+    // Row groupings one packing check may search, at most floor's per-search limit. A truck's stored rows
+    // come from a search with floor's own limit, and final validation judges those rows without searching;
+    // a packing refusal under this smaller limit only costs fill, never a wrong truck.
     long long searchStatesPerPackingCheck = 20000;
     BinPackerSettings binPacker;  // method B's careful packing of a block
     KnapsackSettings knapsack;    // the exact truck-by-truck plans of a small pool
@@ -99,6 +99,8 @@ struct WitnessMeasure {
     double rearInches = 0.0;
 };
 
+// Judged in whole hundredths of an inch (D3): each rectangle's front and left edges rounded down, its back
+// and right edges rounded up, against the floor's length and width rounded down; touching is not overlap.
 WitnessMeasure measureSuppliedWitness(const std::vector<PlacedRectangle>& placed, const TrailerCapability& capability);
 
 // Pure validation of a supplied layout witness for these atoms on one slot (R-PROOF, X-PAT-18): each atom
@@ -109,6 +111,22 @@ WitnessMeasure measureSuppliedWitness(const std::vector<PlacedRectangle>& placed
 WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms,
                                        const LayoutWitness& witness, const TrailerCapability& capability,
                                        const FloorPatternSettings& floor);
+
+// A truck's stored rows as the rectangles they put on the floor, in whole hundredths of an inch (D3):
+// rows front to back, each starting where the one before it ends; inside a row the members side by side
+// from the left wall; a pinwheel from its stored order (front-left, front-right, back-left, back-right),
+// as floorPattern builds it. Each footprint is the atom's own, rounded up to the hundredth, and the claim
+// is the extent these rectangles reach. A row whose stored depth is not its members' own (a pinwheel's
+// summed sides may round one hundredth deeper), or whose placements do not form its pattern, is named in
+// `findings`; an unreadable row is left out, so its atoms are missing from the witness.
+LayoutWitness witnessOfStoredRows(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms,
+                                  const FloorLayout& layout, std::vector<std::string>& findings);
+
+// The final physical verdict on a truck as stored: its rows (witnessOfStoredRows) judged by
+// validateSuppliedWitness, plus the site's pattern list and position cap. It never searches, so it fails
+// stored rows that are illegal even when another arrangement of the same atoms would fit.
+PhysicalCheck checkStoredRows(const M5LaneDateInput& input, const std::vector<std::size_t>& atoms, const FloorLayout& layout,
+                              const TrailerCapability& capability, const FloorPatternSettings& floor);
 
 // Atoms physically alike - footprint, height, levels, weight and unit loads to the bit - share a
 // class: one that does not fit a truck, its twin does not either. The class signature names the atom's

@@ -120,6 +120,16 @@ inline ob::m5::PhysicalSettings physicalSettings() {
     return settings;
 }
 
+// A hand-built plan's trucks given the rows M4 arranges for them on their slots, as assemble stores them:
+// final validation judges the stored rows, so a plan without them carries no witness.
+inline void storeRows(ob::m5::CandidatePlan& plan, const ob::m5::M5LaneDateInput& input) {
+    for (ob::m5::TruckPlan& truck : plan.trucks) {
+        if (truck.slot < input.pool.slots.size()) {
+            truck.layout = ob::m5::checkTruck(input, truck.atoms, input.pool.slots[truck.slot], physicalSettings()).layout;
+        }
+    }
+}
+
 class FakeClock final : public ob::m5::Clock {
 public:
     double nowSeconds() const override { return now_; }

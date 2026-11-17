@@ -2,13 +2,13 @@
 
 Status: architecture and developer-handover phase, Revision 9. No production code is written in this phase.
 Revision 9.2 (repository, 17 Nov 2026): the M5 base is the existing `feature/m5` code, closed to tests v12
-work package by work package; decisions D1-D7 are recorded in Section 22.1 and the per-PR implementation notes in Sections 22.2-22.9.
+work package by work package; decisions D1-D7 are recorded in Section 22.1 and the per-PR implementation notes in Sections 22.2-22.10.
 Date: 17 November 2026. Revision 3 applied Tom's follow-up answers (minimum-load check moved to export after
 M5; fullness by rear inches; Q6 escalation; can-go fill; goal order; per-lane past-due order; Q5) and moved
 the M4 baseline to commit e51d9c4 (Tom's 3da08ab review fixes). Revision 5 moves the baseline to commit f9d9945 (Saif's fixes for Tom's
 12 Nov review of e6dbb0f: row grouping and proof labelling), records the unit-load cap rule, and records that the per-lane past-due
 override is deferred (AgeFirst run-wide stays current until a change is agreed). Revision 6 makes the bounded floor-search, unit-load accounting and deferred-feature contracts explicit. Revision 7 applies Tom's 14 Nov answers: the equal-service tie rule ED-21 (OPEN-COMP resolved) and the C9 decision. Revision 8 applies Tom's 16 Nov email: R-1a/R-1b inputs received, ED-21 rotating by lane and date, and a single alternate trailer type (40 ft high-cube container). The current test specification is `M5_Edge_Cases_and_Tests_v12.md` (304 named tests, 557 variants, 24 invariants, 48 EC checklist items and 10 CL rules).
-Section 2.5 lists the reported baseline findings B1-B30; Section 15 preserves the Revision 3 history, Section 16 records the Revision 4 review, Section 17 the Revision 5 changes, Section 18 the Revision 6 review, Section 19 the Revision 7 changes, Section 20 the Revision 8 changes, Section 21 the Revision 9 update, and Section 22 the Revision 9.2 repository decisions (22.1) and implementation notes (22.2-22.9). Owner: lead architect. Audience: the M5 implementer and reviewer (Saif).
+Section 2.5 lists the reported baseline findings B1-B30; Section 15 preserves the Revision 3 history, Section 16 records the Revision 4 review, Section 17 the Revision 5 changes, Section 18 the Revision 6 review, Section 19 the Revision 7 changes, Section 20 the Revision 8 changes, Section 21 the Revision 9 update, and Section 22 the Revision 9.2 repository decisions (22.1) and implementation notes (22.2-22.10). Owner: lead architect. Audience: the M5 implementer and reviewer (Saif).
 Companion documents: `m5DeveloperHandover.md`, `m5TestTraceability.md`, `m5TestManifest.json`.
 
 ## 0. Evidence levels used in this document
@@ -1961,9 +1961,10 @@ check (each atom once in its own footprint, on the floor, no overlap, claimed ex
 one, ceiling, payload and cap in hundredths); it never searches. It did not apply the no-turning setting until PR-10a (Section 22.7;
 not PR-8). `claimMaximumService` states what a stop
 may claim. Each lane-date's report (3C, "floor search states") gives the states charged and the stops.
-Not yet (the PR-7 open item; not done in PR-8 or PR-9): final validation and the assembled trucks' layouts re-run M4's arrangement with floor's own
-per-search limit outside the route ledger instead of validating the stored rows as a witness. On the
-August data the one M5 lane-date (7 Aug 2028 -> 2574 TL) charges 0 states. Tests:
+The PR-7 open item (not done in PR-8 or PR-9): final validation re-ran M4's arrangement instead of validating
+the stored rows as a witness. PR-10d closes that half (Section 22.10). Still open: the assembled and repaired
+trucks' rows are arranged by a search with floor's own per-search limit outside the route ledger. On the
+August data the one M5 lane-date (7 Aug 2026, lane 2028 -> 2574 TL) charges 0 states. Tests:
 `tests/m5/testM5FloorSearch.cpp` (U-PF-09 x5, X-PAT-18 x5) and R-8/m5Path (states charged on the route).
 
 ### 22.5 ED-21 as implemented (PR-8)
@@ -2046,8 +2047,8 @@ IDs. In a real run the IDs the tie rule uses are positions, not business keys. `
 and the within-class order (Section 22.5) therefore sort by these positions.
 
 Same file, same result. Every repeat of the same input files that we ran gave the same plan: the M5-on day
-fingerprints (20987c14fb44c955 / bf77117a9c6ef6a4 / 58f63d4805cc6348, 651 lane-dates) and the 7 Aug 2028
-hand-over CSV (SHA-256 fa9372985fe1816af7dd55d9075f78213f95c689c7c97289584403181aa7380f) are the same in
+fingerprints (20987c14fb44c955 / bf77117a9c6ef6a4 / 58f63d4805cc6348, 651 lane-dates) and the 7 Aug 2026
+hand-over CSV (lane 2028 -> 2574 TL) (SHA-256 fa9372985fe1816af7dd55d9075f78213f95c689c7c97289584403181aa7380f) are the same in
 every run from PR-7 to PR-10b; the Aug5 file written back out unshuffled gives identical results with M5 off
 and on; X-RES-13/repeatRun and X-RES-13/threadCountReplay pass. INV-12 limits this to runs that complete or
 stop by a deterministic rule.
@@ -2072,7 +2073,7 @@ seeds, Aug6 one seed; unit loads summed over the day; trucks never changed):
 | Aug6 seed 101 | on | 557 | 19067.4593 | 117601 |
 
 The lane-dates that differ are M4 lane-dates (7 on Aug5, 13 on Aug6), the same with M5 off and on. The one M5
-lane-date, 7 Aug 2028 2028 -> 2574 TL (21 trucks, 697 unit loads), was identical in every shuffle. This is
+lane-date, 7 Aug 2026 on lane 2028 -> 2574 TL (21 trucks, 697 unit loads), was identical in every shuffle. This is
 an M4 item for the M4 owners (not fixed in M5). The 7 Aug hand-over CSV itself was not re-run per shuffle.
 
 What the tests show. M5's own tie logic is shown to ignore order only with synthetic, named IDs:
@@ -2084,10 +2085,44 @@ holds but the goods shipped do not.
 
 Business-key experiment (not adopted). A scratch build set `atom.id` to the stack's IDPR/BNFPO keys bottom to
 top plus an ordinal among identical stacks, and `component.source` to the line's IDPR/BNFPO. M5 on: Aug4 and
-Aug6 unchanged (0 of 144 and 0 of 268 lane-dates differ); Aug5 2 of 239 lane-dates differ: 7 Aug 2028
-2028 -> 2574 TL 697 -> 699 unit loads (21 trucks) and 8 Aug 2028 2028 -> 2574 TL 660 -> 658 (20 trucks); day
+Aug6 unchanged (0 of 144 and 0 of 268 lane-dates differ); Aug5 2 of 239 lane-dates differ, both on lane 2028 -> 2574 TL:
+7 Aug 2026 697 -> 699 unit loads (21 trucks) and 8 Aug 2026 660 -> 658 (20 trucks); day
 trucks unchanged (296 / 510 / 557). With business keys the 7 Aug M5
 lane-date was again identical across both Aug5 shuffles, and the day totals under shuffle still moved as
 before, because the differences come from M4 stacking, not from M5's IDs. It was not adopted because it would
 not make the pipeline order-free (M4 stacking still depends on row order), it nets +2 / -2 unit loads, and it
 would move the agreed 7 Aug baseline of 697 unit loads.
+
+### 22.10 Final validation by the stored rows (PR-10d)
+
+`validateFinal` no longer searches. Its physical verdict on each truck is `checkStoredRows`: the rows the
+truck carries (`TruckPlan::layout`, stored by `assemble` and re-stored by `runRepair` after every edit) are
+turned into rectangles by `witnessOfStoredRows` and judged by `validateSuppliedWitness`. So a truck whose
+stored rows are illegal fails even when another arrangement of the same stacks would fit; a truck with no
+rows, or with rows from before an edit, carries no witness and fails.
+
+The conversion follows floorPattern exactly: rows front to back, each starting where the one before ends;
+inside a row the members side by side from the left wall, each `turned` member short side across; a pinwheel
+from its stored order (front-left unturned, front-right turned beside it, back-left turned behind
+front-left, back-right unturned behind front-right). All of it is in whole hundredths of an inch (D3): each
+footprint is the stack's own sides rounded up, rectangle edges are compared exactly against the floor's
+length and width rounded down, and touching is not overlap (`measureSuppliedWitness` now works this way for
+every witness). Each row's stored depth must equal its members' own depth; a pinwheel's sums two sides, so
+rounding each side up may make it one hundredth deeper than the stored depth rounded up, and nothing more is
+allowed. The check also refuses a row whose placements do not form its pattern, a pattern the site does not
+allow, more stacks than `floor.maxPositions`, a turned footprint where pallets cannot turn
+(`allowRotation` false), and the height, payload and unit-load cap as `checkTruck` judges them (one shared
+cap finding). The FULL label's rear inches and its fit now come from the same stored rows.
+
+Shadow run before the switch (both verdicts on every truck, verdicts unchanged): on the August data every
+M5 truck on every date with M5 trucks - 7 Aug 2026 (21 trucks) and 8 Aug 2026 (20) on lane 2028 -> 2574 TL,
+9 Aug 2026 (7) and 10 Aug 2026 (16) on lane 2028 -> 2190 TL, through the August runs, the 7 Aug hand-over and
+both linked-date benchmarks - 486 validations and 190 fullness checks, all in agreement; none where the
+witness fails and the search passes, none the other way. In the synthetic suite the only disagreements were
+plans the tests built by hand without rows (and one edited without re-storing them); those test builders now
+store M4's rows as `assemble` does. One converter slip was found and fixed before the switch: a whole-truck
+claim of rounded stored depths disagreed by one hundredth with off-grid pinwheels (X-META-10's random sizes).
+M5-on August results are unchanged. `ReservationPool::slotEquipment` of another length than the slots is now
+refused by `slotIdentityErrors`. Tests: `tests/m5/testM5Physical.cpp` (stored rows: illegal rows with a legal
+alternative, two pinwheels by their hand-worked rectangles, a turned footprint without turning, edges in
+whole hundredths), `tests/m5/testM5Planning.cpp` (slot-equipment length).

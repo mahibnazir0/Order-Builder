@@ -38,6 +38,12 @@
   depends on file order (measured figures there); the IDPR + BNFPO experiment and why it was not adopted.
   Record correction: neither PR-7 follow-up was done in PR-8 or PR-9; the no-turning witness fix is PR-10a
   (4bfcae0) and the stored-rows witness is not done yet.
+- PR-10d (17 Nov 2026): final validation judges each truck's stored rows as its witness (architecture
+  Section 22.10): rows and pinwheels converted to rectangles in whole hundredths, judged by
+  validateSuppliedWitness with the site's turning rule, pattern list and position cap; no fresh search. A shadow
+  run on every M5 truck of the August data agreed on every truck before the switch. Slot-equipment lists of
+  another length than the slots are refused. Section 22.9 dates corrected: the ship dates are August 2026;
+  2028 is the lane's origin. Spec unchanged.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

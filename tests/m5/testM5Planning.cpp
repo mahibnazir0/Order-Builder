@@ -42,6 +42,7 @@ CandidatePlan oneTruck(const M5LaneDateInput& input, size_t carried) {
     for (size_t atom = 0; atom < carried; ++atom) truck.atoms.push_back(atom);
     plan.trucks.push_back(truck);
     for (size_t atom = carried; atom < input.atoms.size(); ++atom) plan.leftOver.push_back({atom, LeftOverCause::OverReservation});
+    storeRows(plan, input);
     return plan;
 }
 
@@ -669,4 +670,25 @@ TEST_CASE("X-DATA-13/inconsistentSlotCapabilities: payload 0, cap 0, NaN width o
     undeclared.trailerTypes = {{"53F", kDefaultTrailer}};
     refused(undeclared, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "names no equipment");
     m5Evidence::note("expected", {"payload 0 refused", "cap 0 refused", "NaN width refused", "catalogue mismatch refused"});
+}
+
+TEST_CASE("X-DATA-13 a slot-equipment list longer or shorter than the slots is refused by name before packing" * doctest::test_suite("m5")) {
+    M5LaneDateInput matched = laneWith(fx30Units("u", 30), 2);
+    matched.trailerTypes = {{"53F", kDefaultTrailer}};
+    matched.pool.slotEquipment = {"53F", "53F"};
+    CHECK(slotIdentityErrors(matched).empty());
+    REQUIRE(shippedCount(plan(matched, syntheticProfile())) == 30);
+    for (const vector<string>& codes : {vector<string>{"53F"}, vector<string>{"53F", "53F", "53F"}}) {
+        M5LaneDateInput uneven = matched;
+        uneven.pool.slotEquipment = codes;
+        const string expected = "names equipment for " + to_string(codes.size()) + " trucks but reserves 2 slots";
+        const vector<string> errors = slotIdentityErrors(uneven);
+        CHECK(any_of(errors.begin(), errors.end(), [&](const string& error) { return error.find(expected) != string::npos; }));
+        const M5LaneOutcome outcome = plan(uneven, syntheticProfile());
+        CHECK(outcome.kind == OutcomeKind::InvalidInput);
+        CHECK_FALSE(outcome.selected.has_value());
+        CHECK(outcome.floorSearch.statesCharged == 0);
+        REQUIRE(outcome.leftOver.size() == 30);
+        for (const LeftOver& left : outcome.leftOver) CHECK(left.cause == LeftOverCause::InvalidInput);
+    }
 }

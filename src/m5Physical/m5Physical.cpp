@@ -91,6 +91,19 @@ vector<string> exactLimitFindings(const M5LaneDateInput& input, const vector<siz
     return findings;
 }
 
+// The cap judged on the components' quantities in whole hundredths, summed with checked arithmetic and
+// compared exactly; the cached per-atom figure is never trusted for a final answer (ED-20, ED-ARITH).
+// Empty when the load is within the slot's cap.
+optional<string> unitLoadCapFinding(const M5LaneDateInput& input, const vector<size_t>& atoms, const TrailerCapability& capability) {
+    if (capability.maxUnitLoads < 1) return string("the slot has no unit-load cap: a whole number from 1 is required");
+    const optional<int64_t> unitLoads = unitLoadHundredthsOfAtoms(input, atoms);
+    if (!unitLoads) return string("the load's unit loads are not multiples of 0.01, or their sum overflows a 64-bit count");
+    if (*unitLoads > capInHundredths(capability.maxUnitLoads)) {
+        return "load holds " + unitLoadsText(*unitLoads) + " unit loads, over the cap of " + to_string(capability.maxUnitLoads);
+    }
+    return nullopt;
+}
+
 vector<size_t> withAtom(const vector<size_t>& truck, size_t atom) {
     vector<size_t> grown = truck;
     grown.insert(upper_bound(grown.begin(), grown.end(), atom), atom);
@@ -186,20 +199,8 @@ bool slotsDifferOnlyInCap(const ReservationPool& pool) {
 PhysicalCheck checkTruck(const M5LaneDateInput& input, const vector<size_t>& atoms, const TrailerCapability& capability,
                          const PhysicalSettings& settings, FloorSearchBudget* budget) {
     PhysicalCheck check;
-    // The cap is judged on the components' quantities in whole hundredths, summed with checked
-    // arithmetic and compared exactly; the cached per-atom figure is never trusted for a final answer
-    // (ED-20, ED-ARITH).
-    if (capability.maxUnitLoads < 1) {
-        check.findings.push_back("the slot has no unit-load cap: a whole number from 1 is required");
-        return check;
-    }
-    const optional<int64_t> unitLoads = unitLoadHundredthsOfAtoms(input, atoms);
-    if (!unitLoads) {
-        check.findings.push_back("the load's unit loads are not multiples of 0.01, or their sum overflows a 64-bit count");
-        return check;
-    }
-    if (*unitLoads > capInHundredths(capability.maxUnitLoads)) {
-        check.findings.push_back("load holds " + unitLoadsText(*unitLoads) + " unit loads, over the cap of " + to_string(capability.maxUnitLoads));
+    if (optional<string> capFinding = unitLoadCapFinding(input, atoms, capability)) {
+        check.findings.push_back(std::move(*capFinding));
         return check;
     }
     vector<FloorItem> floorItems;
@@ -245,7 +246,17 @@ double rearInchesOf(const FloorLayout& layout, const TrailerCapability& capabili
 }
 
 WitnessMeasure measureSuppliedWitness(const vector<PlacedRectangle>& placed, const TrailerCapability& capability) {
+    struct Edges {
+        int64_t front, back, left, right;
+    };
     WitnessMeasure measure;
+    const optional<int64_t> floorLength = hundredthsRoundedDown(capability.lengthIn), floorWidth = hundredthsRoundedDown(capability.widthIn);
+    if (!floorLength || !floorWidth) {
+        measure.findings.push_back("the slot's length or width is not a finite figure in hundredths");
+        return measure;
+    }
+    vector<pair<size_t, Edges>> judged;
+    judged.reserve(placed.size());
     for (size_t index = 0; index < placed.size(); ++index) {
         const PlacedRectangle& box = placed[index];
         const string name = "rectangle " + to_string(index);
@@ -254,15 +265,18 @@ WitnessMeasure measureSuppliedWitness(const vector<PlacedRectangle>& placed, con
             measure.findings.push_back(name + " has a coordinate or size that is not finite and positive");
             continue;
         }
-        if (box.xIn < 0.0 || box.yIn < 0.0 || box.xIn + box.lengthIn > capability.lengthIn || box.yIn + box.widthIn > capability.widthIn) {
-            measure.findings.push_back(name + " lies outside the trailer floor");
+        const optional<int64_t> front = hundredthsRoundedDown(box.xIn), left = hundredthsRoundedDown(box.yIn),
+                                back = hundredthsRoundedUp(box.xIn + box.lengthIn), right = hundredthsRoundedUp(box.yIn + box.widthIn);
+        if (!front || !left || !back || !right || *back > *floorLength || *right > *floorWidth) {
+            measure.findings.push_back(name + " lies outside the trailer floor in whole hundredths of an inch");
+            continue;
         }
-        for (size_t other = 0; other < index; ++other) {
-            const PlacedRectangle& next = placed[other];
-            const bool apart = box.xIn + box.lengthIn <= next.xIn || next.xIn + next.lengthIn <= box.xIn
-                               || box.yIn + box.widthIn <= next.yIn || next.yIn + next.widthIn <= box.yIn;
+        const Edges edges{*front, *back, *left, *right};
+        for (const auto& [other, next] : judged) {
+            const bool apart = edges.back <= next.front || next.back <= edges.front || edges.right <= next.left || next.right <= edges.left;
             if (!apart) measure.findings.push_back(name + " overlaps rectangle " + to_string(other));
         }
+        judged.emplace_back(index, edges);
         measure.occupiedExtentIn = max(measure.occupiedExtentIn, box.xIn + box.lengthIn);
     }
     measure.valid = measure.findings.empty();
@@ -314,12 +328,142 @@ WitnessMeasure validateSuppliedWitness(const M5LaneDateInput& input, const vecto
     FloorLayout extentOnly;
     vector<string> limits = exactLimitFindings(input, atoms, extentOnly, capability);
     measure.findings.insert(measure.findings.end(), limits.begin(), limits.end());
-    const optional<int64_t> unitLoads = unitLoadHundredthsOfAtoms(input, atoms);
-    if (!unitLoads || capability.maxUnitLoads < 1 || *unitLoads > capInHundredths(capability.maxUnitLoads)) {
-        measure.findings.push_back("the load's unit loads are over the slot's cap or not countable in whole hundredths");
-    }
+    if (optional<string> capFinding = unitLoadCapFinding(input, atoms, capability)) measure.findings.push_back(std::move(*capFinding));
     measure.valid = measure.findings.empty();
     return measure;
+}
+
+namespace {
+
+// A placed footprint in whole hundredths of an inch: across the trailer and along it.
+struct Footprint {
+    int64_t across = 0;
+    int64_t along = 0;
+};
+
+optional<Footprint> footprintOf(const Atom& atom, bool turned) {
+    const optional<int64_t> longSide = hundredthsRoundedUp(atom.floor.longSideIn), shortSide = hundredthsRoundedUp(atom.floor.shortSideIn);
+    if (!longSide || !shortSide) return nullopt;
+    return turned ? Footprint{*shortSide, *longSide} : Footprint{*longSide, *shortSide};
+}
+
+// Whether a stored row's placements form its pattern: the member count, and which members are turned
+// (short side across), as floorPattern's row builder makes them.
+bool formsPattern(const FloorRow& row) {
+    const vector<FloorPlacement>& placed = row.placements;
+    const auto turnedCount = count_if(placed.begin(), placed.end(), [](const FloorPlacement& placement) { return placement.turned; });
+    switch (row.pattern) {
+    case FloorPatternKind::Single: return placed.size() == 1;
+    case FloorPatternKind::WideWide: return placed.size() == 2 && turnedCount == 0;
+    case FloorPatternKind::WideNarrow: return placed.size() == 2 && turnedCount == 1;
+    case FloorPatternKind::NarrowNarrow: return placed.size() == 2 && turnedCount == 2;
+    case FloorPatternKind::ThreeAcross: return placed.size() == 3 && turnedCount == 3;
+    case FloorPatternKind::Pinwheel:
+        return placed.size() == 4 && !placed[0].turned && placed[1].turned && placed[2].turned && !placed[3].turned;
+    }
+    return false;
+}
+
+double inchesOf(int64_t hundredths) { return static_cast<double>(hundredths) / 100.0; }
+
+}  // namespace
+
+LayoutWitness witnessOfStoredRows(const M5LaneDateInput& input, const vector<size_t>& atoms, const FloorLayout& layout,
+                                  vector<string>& findings) {
+    LayoutWitness witness;
+    int64_t rowStart = 0;
+    for (size_t rowIndex = 0; rowIndex < layout.rows.size(); ++rowIndex) {
+        const FloorRow& row = layout.rows[rowIndex];
+        const string name = "stored row " + to_string(rowIndex) + " (" + floorPatternName(row.pattern) + ")";
+        const optional<int64_t> storedDepth = hundredthsRoundedUp(row.depthIn);
+        if (!storedDepth) {
+            findings.push_back(name + " has a depth that is not a finite figure in hundredths");
+            continue;
+        }
+        if (!formsPattern(row)) {
+            findings.push_back(name + "'s placements do not form that pattern");
+            continue;
+        }
+        vector<Footprint> sizes;
+        vector<size_t> carried;
+        for (const FloorPlacement& placement : row.placements) {
+            if (placement.itemIndex >= atoms.size()) {
+                findings.push_back(name + " places position " + to_string(placement.itemIndex) + ", which the truck does not carry");
+                break;
+            }
+            const size_t atom = atoms[placement.itemIndex];
+            const optional<Footprint> size = footprintOf(input.atoms[atom], placement.turned);
+            if (!size) {
+                findings.push_back(name + " places atom " + input.atoms[atom].id + ", whose footprint is not a finite figure in hundredths");
+                break;
+            }
+            sizes.push_back(*size);
+            carried.push_back(atom);
+        }
+        if (sizes.size() != row.placements.size()) continue;
+
+        // Positions inside the row, relative to its front-left corner: (along, across).
+        vector<pair<int64_t, int64_t>> corners;
+        int64_t depth = 0;
+        if (row.pattern == FloorPatternKind::Pinwheel) {
+            const Footprint &frontLeft = sizes[0], &frontRight = sizes[1], &backLeft = sizes[2];
+            corners = {{0, 0}, {0, frontLeft.across}, {frontLeft.along, 0}, {frontRight.along, backLeft.across}};
+        } else {
+            int64_t across = 0;
+            for (const Footprint& size : sizes) {
+                corners.emplace_back(0, across);
+                across += size.across;
+            }
+        }
+        for (size_t member = 0; member < sizes.size(); ++member) {
+            depth = max(depth, corners[member].first + sizes[member].along);
+            witness.placements.push_back({carried[member], inchesOf(rowStart + corners[member].first), inchesOf(corners[member].second),
+                                          inchesOf(sizes[member].along), inchesOf(sizes[member].across)});
+        }
+        // The stored depth must be its members' own. A pinwheel's depth sums two sides, so rounding each up
+        // may put it one hundredth past the stored depth rounded up; nothing else is allowed.
+        const int64_t roundingSlack = row.pattern == FloorPatternKind::Pinwheel ? 1 : 0;
+        if (*storedDepth > depth || depth - *storedDepth > roundingSlack) {
+            findings.push_back(name + " is stored " + to_string(*storedDepth) + " hundredths deep, but its members take "
+                               + to_string(depth));
+        }
+        const optional<int64_t> nextStart = addCounts(rowStart, depth);
+        if (!nextStart) {
+            findings.push_back(name + " ends past what a 64-bit count of hundredths holds");
+            break;
+        }
+        rowStart = *nextStart;
+    }
+    witness.claimedExtentIn = inchesOf(rowStart);
+    return witness;
+}
+
+PhysicalCheck checkStoredRows(const M5LaneDateInput& input, const vector<size_t>& atoms, const FloorLayout& layout,
+                              const TrailerCapability& capability, const FloorPatternSettings& floor) {
+    PhysicalCheck check;
+    check.layout = layout;
+    for (const size_t position : layout.unplaceableItems) {
+        check.findings.push_back("the stored rows leave position " + to_string(position) + " off the floor as fitting no orientation");
+    }
+    const auto& allowed = floor.allowedPatterns;
+    for (size_t rowIndex = 0; rowIndex < layout.rows.size(); ++rowIndex) {
+        const FloorPatternKind pattern = layout.rows[rowIndex].pattern;
+        if (find(allowed.begin(), allowed.end(), pattern) == allowed.end()) {
+            check.findings.push_back("stored row " + to_string(rowIndex) + " is a " + floorPatternName(pattern)
+                                     + " row, which this site's patterns do not allow");
+        }
+    }
+    if (floor.maxPositions && static_cast<long long>(atoms.size()) > *floor.maxPositions) {
+        check.findings.push_back("the truck holds " + to_string(atoms.size()) + " positions, over the site's cap of "
+                                 + to_string(*floor.maxPositions));
+    }
+    vector<string> unreadable;
+    const LayoutWitness witness = witnessOfStoredRows(input, atoms, layout, unreadable);
+    check.findings.insert(check.findings.end(), unreadable.begin(), unreadable.end());
+    const WitnessMeasure measure = validateSuppliedWitness(input, atoms, witness, capability, floor);
+    check.findings.insert(check.findings.end(), measure.findings.begin(), measure.findings.end());
+    check.fits = check.findings.empty();
+    return check;
 }
 
 vector<size_t> physicalClassOf(const M5LaneDateInput& input) {

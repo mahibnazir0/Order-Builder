@@ -90,6 +90,7 @@ struct ReservationPool {
     std::optional<long long> declaredTrucks;
     // Each slot's equipment code, parallel to slots, when the run has a trailer-type catalogue (U-DA-07);
     // empty when every slot is M4's own trailer. Not part of a slot's signature: equal facts pack alike.
+    // Any other length than the slots' is refused as invalid input (slotIdentityErrors).
     std::vector<std::string> slotEquipment;
 };
 

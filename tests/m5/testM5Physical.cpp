@@ -13,6 +13,7 @@
 #include "support/m5LayoutChecker.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -34,6 +35,7 @@ CandidatePlan truckOf(const M5LaneDateInput& input, const vector<size_t>& atoms,
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
         if (find(atoms.begin(), atoms.end(), atom) == atoms.end()) plan.leftOver.push_back({atom, LeftOverCause::OverReservation});
     }
+    storeRows(plan, input);
     return plan;
 }
 
@@ -599,4 +601,136 @@ TEST_CASE("X-PAT-19/threeAcrossM4Cutoff: M4 forms three-across while the three s
                                   {"sumHundredths", {9990, 9993, 10002}},
                                   {"threeAcrossFormed", {true, true, false}},
                                   {"floorFits", {true, true, true}}});
+}
+
+// ------------------------------------------------------------------------- stored rows as the witness
+
+namespace {
+
+ob::FloorRow storedRow(ob::FloorPatternKind pattern, const vector<pair<size_t, bool>>& placements, double depthIn, double widthIn) {
+    ob::FloorRow row;
+    row.pattern = pattern;
+    for (const auto& [position, turned] : placements) row.placements.push_back({position, turned});
+    row.depthIn = depthIn;
+    row.widthIn = widthIn;
+    return row;
+}
+
+bool physicalFindingHas(const ValidationReport& report, const string& text) {
+    return any_of(report.findings.begin(), report.findings.end(), [&](const ValidationFinding& finding) {
+        return finding.section == "physical" && finding.reason.find(text) != string::npos;
+    });
+}
+
+}  // namespace
+
+TEST_CASE("X-PAT-18 final validation judges the stored rows: illegal rows fail although a legal arrangement of the same stacks exists"
+          * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith({unitOf("a", "A", 48, 40, 50, 1000), unitOf("b", "A", 48, 40, 50, 1000),
+                                            unitOf("c", "A", 48, 40, 50, 1000)},
+                                           1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const CandidatePlan legal = truckOf(input, {0, 1, 2});
+    REQUIRE(validateFinal(legal, snapshot, syntheticProfile(), physicalSettings()).allPassed());
+    REQUIRE(checkTruck(input, {0, 1, 2}, kDefaultTrailer, physicalSettings()).fits);
+
+    // Three turned 48 x 40 stacks side by side take 120 in of a 100 in floor.
+    CandidatePlan tooWide = legal;
+    tooWide.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::ThreeAcross, {{0, true}, {1, true}, {2, true}}, 48, 120)};
+    const ValidationReport wide = validateFinal(tooWide, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(wide.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(wide, "outside the trailer floor"));
+
+    // A row stored shallower than its members claims rear space the floor does not have.
+    CandidatePlan shallow = legal;
+    shallow.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {1, false}}, 20, 96),
+                                     storedRow(ob::FloorPatternKind::Single, {{2, false}}, 40, 48)};
+    const ValidationReport depth = validateFinal(shallow, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(depth.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(depth, "stored 2000 hundredths deep, but its members take 4000"));
+
+    // Rows of a truck before an edit: a position it no longer carries.
+    CandidatePlan stale = truckOf(input, {0, 1});
+    stale.trucks[0].layout = legal.trucks[0].layout;
+    const ValidationReport staleReport = validateFinal(stale, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(staleReport.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(staleReport, "which the truck does not carry"));
+
+    // No rows at all is no witness, though the stacks would fit.
+    CandidatePlan noRows = legal;
+    noRows.trucks[0].layout = ob::FloorLayout();
+    CHECK(physicalFindingHas(validateFinal(noRows, snapshot, syntheticProfile(), physicalSettings()), "off the floor"));
+
+    // The site's position cap holds on the stored rows too.
+    PhysicalSettings twoPositions = physicalSettings();
+    twoPositions.floor.maxPositions = 2;
+    CHECK(physicalFindingHas(validateFinal(legal, snapshot, syntheticProfile(), twoPositions), "over the site's cap of 2"));
+    m5Evidence::note("expected", {"legal rows pass", "120 in row fails", "shallow row fails", "stale rows fail", "no rows fail",
+                                  "position cap fails"});
+}
+
+TEST_CASE("X-PAT-18 two legal pinwheels stored by M4 pass final validation as their own rectangles" * doctest::test_suite("m5")) {
+    vector<Atom> atoms;
+    for (int unit = 0; unit < 8; ++unit) atoms.push_back(unitOf("p" + to_string(unit), "A", 56, 40, 50, 1000));
+    const M5LaneDateInput input = laneWith(atoms, 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const CandidatePlan pinwheels = truckOf(input, {0, 1, 2, 3, 4, 5, 6, 7});
+    const ob::FloorLayout& layout = pinwheels.trucks[0].layout;
+    REQUIRE(layout.rows.size() == 2);
+    for (const ob::FloorRow& row : layout.rows) REQUIRE(row.pattern == ob::FloorPatternKind::Pinwheel);
+
+    vector<string> unreadable;
+    const LayoutWitness witness = witnessOfStoredRows(input, pinwheels.trucks[0].atoms, layout, unreadable);
+    CHECK(unreadable.empty());
+    REQUIRE(witness.placements.size() == 8);
+    CHECK(witness.claimedExtentIn == 192.0);
+    // By hand: each pinwheel is 96 in deep and 96 in wide; front-left 56 across, front-right turned beside
+    // it, back-left turned behind front-left, back-right behind front-right. (x along, y across, length, width)
+    const vector<array<double, 4>> expected{{0, 0, 40, 56},   {0, 56, 56, 40},  {40, 0, 56, 40},  {56, 40, 40, 56},
+                                            {96, 0, 40, 56},  {96, 56, 56, 40}, {136, 0, 56, 40}, {152, 40, 40, 56}};
+    for (size_t index = 0; index < expected.size(); ++index) {
+        const WitnessPlacement& placed = witness.placements[index];
+        INFO("rectangle " << index);
+        CHECK(placed.xIn == expected[index][0]);
+        CHECK(placed.yIn == expected[index][1]);
+        CHECK(placed.lengthIn == expected[index][2]);
+        CHECK(placed.widthIn == expected[index][3]);
+    }
+    const ValidationReport report = validateFinal(pinwheels, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(report.allPassed());
+    CHECK(report.physical == SectionStatus::Pass);
+
+    // The same four stacks with the turns swapped are no pinwheel: refused as stored, not rearranged.
+    CandidatePlan swapped = pinwheels;
+    for (ob::FloorPlacement& placement : swapped.trucks[0].layout.rows[0].placements) placement.turned = !placement.turned;
+    CHECK(physicalFindingHas(validateFinal(swapped, snapshot, syntheticProfile(), physicalSettings()), "do not form that pattern"));
+    m5Evidence::note("expected", {{"pinwheels", 2}, {"extentIn", 192}, {"verdict", "pass"}, {"swappedTurns", "fail"}});
+}
+
+TEST_CASE("X-PAT-18 with pallets that cannot turn, a stored turned footprint fails; the unturned rows pass" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith({unitOf("a", "A", 48, 40, 50, 1000), unitOf("b", "A", 48, 40, 50, 1000)}, 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    PhysicalSettings noTurning = physicalSettings();
+    noTurning.floor.allowRotation = false;
+    noTurning.floor.fixedOrientation = ob::FixedOrientation::LongSideAcross;
+
+    CandidatePlan unturned = truckOf(input, {0, 1});
+    unturned.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {1, false}}, 40, 96)};
+    CHECK(validateFinal(unturned, snapshot, syntheticProfile(), noTurning).allPassed());
+
+    CandidatePlan turned = unturned;
+    turned.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::NarrowNarrow, {{0, true}, {1, true}}, 48, 80)};
+    CHECK(validateFinal(turned, snapshot, syntheticProfile(), physicalSettings()).allPassed());  // a site that turns pallets
+    const ValidationReport refused = validateFinal(turned, snapshot, syntheticProfile(), noTurning);
+    CHECK(refused.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(refused, "cannot turn pallets"));
+    m5Evidence::note("expected", {{"unturnedNoTurning", "pass"}, {"turnedTurningSite", "pass"}, {"turnedNoTurning", "fail"}});
+}
+
+TEST_CASE("D3 a witness's edges are judged in whole hundredths: 629.995 in reaches 630.00, 630.001 in reaches 630.01"
+          * doctest::test_suite("m5")) {
+    CHECK(measureSuppliedWitness({{0, 0, 629.995, 100}}, kDefaultTrailer).valid);
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 630.001, 100}}, kDefaultTrailer).valid);
+    CHECK(measureSuppliedWitness({{0, 0, 300, 50}, {300, 0, 330, 50}}, kDefaultTrailer).valid);  // touching is not overlap
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 300.001, 50}, {300, 0, 330, 50}}, kDefaultTrailer).valid);
 }

@@ -158,6 +158,11 @@ vector<string> slotIdentityErrors(const M5LaneDateInput& input) {
         errors.push_back("the hand-over reserves " + to_string(*pool.declaredTrucks) + " trucks for " + to_string(pool.slots.size())
                          + " slots: a reserved count is a whole number from 0, and the lane-date is not planned on a guess");
     }
+    // The codes run parallel to the slots: a list of another length pairs codes with the wrong trucks.
+    if (!pool.slotEquipment.empty() && pool.slotEquipment.size() != pool.slots.size()) {
+        errors.push_back("the hand-over names equipment for " + to_string(pool.slotEquipment.size()) + " trucks but reserves "
+                         + to_string(pool.slots.size()) + " slots: each slot needs exactly one code");
+    }
     set<string> equipment;
     for (size_t slot = 0; slot < pool.slots.size(); ++slot) {
         const TrailerCapability& capability = pool.slots[slot];
