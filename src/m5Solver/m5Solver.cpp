@@ -221,13 +221,14 @@ GroupSolve solveGroup(const ScalarModel& model, const GroupItems& group, const S
                 if (lp.iterationCapHit) solve.termination = Termination::IterationCap;
                 break;
             }
-            const PricedPattern priced = pricePattern(sizes, group.capacity, lp.typeValues, residual, limits.pricingNodeLimit);
+            const PricedPattern priced = limits.pricing ? limits.pricing(sizes, group.capacity, lp.typeValues, residual)
+                                                        : pricePattern(sizes, group.capacity, lp.typeValues, residual, limits.pricingNodeLimit);
             exact = priced.exact;
             double demandValue = 0.0;
             for (size_t type = 0; type < residual.size(); ++type) demandValue += static_cast<double>(residual[type]) * lp.typeValues[type];
             if (priced.exact) farley = max(farley, demandValue / max(1.0, priced.value));
             const bool duplicate = find(columns.begin(), columns.end(), priced.counts) != columns.end();
-            if (priced.value <= 1.0 + kLpEpsilon || duplicate || !validColumn(priced.counts, sizes, group.capacity)) break;
+            if (priced.value <= 1.0 + limits.pricingTolerance || duplicate || !validColumn(priced.counts, sizes, group.capacity)) break;
             columns.push_back(priced.counts);
         }
         return lp;

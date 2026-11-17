@@ -16,6 +16,9 @@
 - PR-8 (17 Nov 2026): ED-21 implemented (architecture Section 22, "ED-21 as implemented"): lane-and-date
   rotated group order, then canonical records (source-line ID, then atom ID in place of the slot ID, which is
   assigned after allocation). Spec unchanged; X-RES-13 and X-META-06 testFile now tests/m5/testM5TieRule.cpp.
+- PR-9 (17 Nov 2026): recorded pricing tolerance and pricing seam (X-CG-22); bounded repair loop runRepair
+  (X-REB-10, R-1c/invalidDonorRestore); architecture Section 22 "Solver and repair as implemented". Spec
+  unchanged; X-CG-22 testFile tests/m5/testM5Solver.cpp, X-REB-10 tests/m5/testM5RepairLoop.cpp.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

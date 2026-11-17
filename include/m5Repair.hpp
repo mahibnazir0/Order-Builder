@@ -20,6 +20,10 @@
 #include "m5Policy.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace ob {
@@ -45,6 +49,25 @@ private:
 std::vector<std::size_t> rebalanceForAcceptance(GroupTrucks& trucks, const DemandSnapshot& snapshot,
                                                 const M5PolicyProfile& profile, const PhysicalSettings& physical,
                                                 const std::vector<TrailerCapability>& slots, const StopCheck& stop);
+
+// One proposed edit of a working copy, made through CandidateEditor; false when there is none.
+using RepairProposal = std::function<bool(CandidatePlan& work, std::size_t iteration)>;
+
+struct RepairRun {
+    std::optional<CandidatePlan> incumbent;      // only ever a copy that passed validateFinal
+    std::size_t iterations = 0;                  // proposals made
+    std::string stopReason;                      // iteration cap, repeated arrangement, no proposal, stopped
+    std::vector<std::uint64_t> checkedRevisions; // every revision validateFinal judged, in order
+};
+
+// Bounded repair (X-REB-10, R-1c): each round edits a copy of the incumbent (or of `start` while there
+// is none), validates it on its final contents and keeps it only when it passes and the comparator
+// ranks it strictly better. It stops at `maxIterations`, when a proposal repeats an arrangement already
+// seen, when the proposal has nothing, or when `stop` fires - a copy not yet validated is discarded.
+// `start` is the incumbent only when it carries a passing validation of its own revision.
+RepairRun runRepair(const CandidatePlan& start, const DemandSnapshot& snapshot, const M5PolicyProfile& profile,
+                    const PhysicalSettings& physical, const AllocationComparator& comparator, const UrgencyDomain& domain,
+                    const RepairProposal& propose, std::size_t maxIterations, const StopCheck& stop);
 
 } // namespace m5
 } // namespace ob

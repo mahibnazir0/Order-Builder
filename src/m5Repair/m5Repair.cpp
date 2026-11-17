@@ -1,7 +1,10 @@
 #include "m5Repair.hpp"
+#include "m5Validation.hpp"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 using namespace std;
 
@@ -41,6 +44,63 @@ void CandidateEditor::removeTruck(size_t truck, LeftOverCause cause) {
     plan_.trucks.erase(plan_.trucks.begin() + static_cast<ptrdiff_t>(truck));
     for (const size_t atom : removed.atoms) plan_.leftOver.push_back({atom, cause});
     touch();
+}
+
+namespace {
+
+// Trucks as (group, atoms), sorted: equal arrangements whatever their truck order or revision.
+vector<pair<GroupId, Truck>> arrangementOf(const CandidatePlan& plan) {
+    vector<pair<GroupId, Truck>> trucks;
+    trucks.reserve(plan.trucks.size());
+    for (const TruckPlan& truck : plan.trucks) trucks.emplace_back(truck.group, truck.atoms);
+    sort(trucks.begin(), trucks.end());
+    return trucks;
+}
+
+}  // namespace
+
+RepairRun runRepair(const CandidatePlan& start, const DemandSnapshot& snapshot, const M5PolicyProfile& profile,
+                    const PhysicalSettings& physical, const AllocationComparator& comparator, const UrgencyDomain& domain,
+                    const RepairProposal& propose, size_t maxIterations, const StopCheck& stop) {
+    RepairRun run;
+    const bool startChecked = start.validation && start.validation->revision == start.revision && start.validation->allPassed();
+    if (startChecked) run.incumbent = start;
+    set<vector<pair<GroupId, Truck>>> seen{arrangementOf(start)};
+    run.stopReason = "iteration cap";
+    for (size_t iteration = 0; iteration < maxIterations; ++iteration) {
+        if (stop && stop()) {
+            run.stopReason = "stopped";
+            return run;
+        }
+        CandidatePlan work = run.incumbent ? *run.incumbent : start;
+        if (!propose(work, iteration)) {
+            run.stopReason = "no proposal";
+            return run;
+        }
+        ++run.iterations;
+        if (!seen.insert(arrangementOf(work)).second) {
+            run.stopReason = "repeated arrangement";
+            return run;
+        }
+        // Stopped between the edit and its check: the unchecked copy never stands.
+        if (stop && stop()) {
+            run.stopReason = "stopped";
+            return run;
+        }
+        // A moved good makes the stored floor no witness of its truck any more.
+        for (TruckPlan& truck : work.trucks) {
+            if (truck.slot < snapshot.input.pool.slots.size()) {
+                truck.layout = checkTruck(snapshot.input, truck.atoms, snapshot.input.pool.slots[truck.slot], physical).layout;
+            }
+        }
+        work.validation = validateFinal(work, snapshot, profile, physical, stop);
+        run.checkedRevisions.push_back(work.revision);
+        if (!work.validation->allPassed()) continue;
+        if (!run.incumbent || comparator.better(keyOfPlan(snapshot, domain, work), keyOfPlan(snapshot, domain, *run.incumbent))) {
+            run.incumbent = std::move(work);
+        }
+    }
+    return run;
 }
 
 namespace {

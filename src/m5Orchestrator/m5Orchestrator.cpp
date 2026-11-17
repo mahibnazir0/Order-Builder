@@ -37,19 +37,6 @@ bool isRequired(const Atom& atom) {
                   [](const Component& component) { return component.offerKind == OfferKind::Required; });
 }
 
-AllocationKey planKey(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const CandidatePlan& plan) {
-    AllocationKey total;
-    total.shippedByClass.assign(domain.size(), 0);
-    for (const GroupId& group : snapshot.groups) {
-        GroupTrucks trucks;
-        for (const TruckPlan& truck : plan.trucks) {
-            if (truck.group == group) trucks.push_back(truck.atoms);
-        }
-        addTo(total, keyOf(snapshot, domain, trucks));
-    }
-    return total;
-}
-
 CandidatePlan assemble(const DemandSnapshot& snapshot, MethodId method, const AllocationResult& allocation,
                        const vector<char>& unfittable, const M5PolicyProfile& profile, const PhysicalSettings& physical) {
     CandidatePlan plan;
@@ -103,26 +90,26 @@ CandidatePlan assemble(const DemandSnapshot& snapshot, MethodId method, const Al
     return plan;
 }
 
-// The trucks a failed validation names, removed on a copy; the copy stands only if it then passes.
+// One repair round on the failed candidate: the trucks its validation names, removed on a copy; the
+// copy stands only if it then passes.
 optional<CandidatePlan> repairOnce(const CandidatePlan& failed, const DemandSnapshot& snapshot, const M5PolicyProfile& profile,
-                                   const PhysicalSettings& physical, const StopCheck& stop) {
+                                   const PhysicalSettings& physical, const AllocationComparator& comparator,
+                                   const UrgencyDomain& domain) {
     set<size_t> broken;
     for (const ValidationFinding& finding : failed.validation->findings) {
         if (!finding.truck) return nullopt;  // a plan-wide failure no truck removal repairs
         broken.insert(*finding.truck);
     }
-    CandidatePlan work = failed;
-    {
+    const RepairProposal dropBroken = [&](CandidatePlan& work, size_t) {
         CandidateEditor editor(work);
         for (auto truck = broken.rbegin(); truck != broken.rend(); ++truck) editor.removeTruck(*truck, LeftOverCause::OverReservation);
-    }
-    // A truck keeps its own slot where the caps differ: the cap belongs to the slot (ED-20).
-    if (slotsAreAlike(snapshot.input.pool)) {
-        for (size_t truck = 0; truck < work.trucks.size(); ++truck) work.trucks[truck].slot = truck;
-    }
-    work.validation = validateFinal(work, snapshot, profile, physical, stop);
-    if (!work.validation->allPassed()) return nullopt;
-    return work;
+        // A truck keeps its own slot where the caps differ: the cap belongs to the slot (ED-20).
+        if (slotsAreAlike(snapshot.input.pool)) {
+            for (size_t truck = 0; truck < work.trucks.size(); ++truck) work.trucks[truck].slot = truck;
+        }
+        return true;
+    };
+    return runRepair(failed, snapshot, profile, physical, comparator, domain, dropBroken, 1, StopCheck()).incumbent;
 }
 
 ServiceLevel serviceOf(size_t shipped, size_t wanted) {
@@ -277,7 +264,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
         candidate.validation = validateFinal(candidate, snapshot, profile, physical);
         if (!candidate.validation->allPassed()) {
             for (const ValidationFinding& finding : candidate.validation->findings) record.findings.push_back(finding.section + ": " + finding.reason);
-            if (optional<CandidatePlan> repaired = repairOnce(candidate, snapshot, profile, physical, StopCheck())) {
+            if (optional<CandidatePlan> repaired = repairOnce(candidate, snapshot, profile, physical, *comparator, domain)) {
                 candidate = std::move(*repaired);
             }
         }
@@ -333,7 +320,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
             record.findings.push_back("stopped by the allowance before it built a truck");
         }
         if (record.validated) {
-            const AllocationKey key = planKey(snapshot, domain, candidate);
+            const AllocationKey key = keyOfPlan(snapshot, domain, candidate);
             if (!incumbent || comparator->better(key, incumbentKey)) {
                 incumbent = std::move(candidate);
                 incumbentKey = key;

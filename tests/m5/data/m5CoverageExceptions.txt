@@ -2,7 +2,5 @@
 # ID|status|reason. NOT_RUN: planned, with the pull request that adds it. BLOCKED: a named prerequisite is
 # missing. EXTERNAL: covered by the ctest entry named. None of these is ever a pass; variant results come
 # only from evidence records.
-X-CG-22|NOT_RUN|PR-9: zero-reduced-cost duplicate columns
-X-REB-10|NOT_RUN|PR-9: repair oscillation stops
 U-DA-07|NOT_RUN|PR-10: single alternate trailer type (containerRun BLOCKED until Tom sends payload and cap)
 U-PF-04|EXTERNAL|ctest m4BenchmarkThreadsSuccess runs the M4 thread test under --success (PR-13)

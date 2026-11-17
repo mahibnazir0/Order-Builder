@@ -1969,3 +1969,17 @@ in stable atom-ID order (shorter IDs first, so M4 item indices keep M4's numeric
 order. Fill, rear space, weight and truck count never enter. The report no longer lists OPEN-COMP. On the
 August data nothing changes (fingerprints and all 651 lane-dates equal PR-7's). Tests:
 `tests/m5/testM5TieRule.cpp` (X-RES-13 x14, X-META-06/synthetic).
+
+Solver and repair as implemented (PR-9): `ScalarLimits` records the pricing tolerance
+(`pricingTolerance`, default 1e-9): a priced column enters only when its reduced cost 1 - value is below
+-tolerance, and a column already in the master never enters again, so zero-reduced-cost duplicates end
+pricing at once (X-CG-22). `ScalarLimits::pricing` is the injection seam for a test pricing callback;
+empty, M4's `PatternPricer` prices. A proof is still only an incumbent equal to a valid bound of the same
+model, never the tolerance rule. `runRepair` (m5Repair) is the one bounded repair loop: each round edits a
+copy through `CandidateEditor`, refreshes the edited trucks' floors, validates the final contents and keeps
+the copy only when it passes and the comparator ranks it strictly better. It stops at its iteration cap, on
+an arrangement already seen, when the proposal has nothing, or when the stop fires; a copy not yet
+validated is discarded, and with no checked incumbent there is no plan. The orchestrator's one-round
+repair of a failed method candidate runs through it with cap 1. Tests: `tests/m5/testM5RepairLoop.cpp`
+(X-REB-10/oscillatingRepairCycle, R-1c/invalidDonorRestore), `tests/m5/testM5Solver.cpp` (X-CG-22 x2,
+U-FF-01/ffdConcreteGap).

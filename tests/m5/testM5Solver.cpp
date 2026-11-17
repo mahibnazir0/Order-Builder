@@ -1,8 +1,11 @@
 #include "doctest.h"
 #include "m5Solver.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Oracles.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <random>
 #include <sstream>
@@ -254,4 +257,160 @@ TEST_CASE("ACC-1 U-CG-02 PUB-01 PUB-02 PUB-03 Falkenauer u120_00..02 reach their
         INFO(name);
         CHECK(static_cast<long long>(result.packing->bins.size()) == optimum);
     }
+}
+
+// ---- X-CG-22 and U-FF-01/ffdConcreteGap (tests v12 Section 42) -------------------------------------
+
+namespace {
+
+// Two size-5 and five size-2 items at capacity 10: total 20, two bins [5,5] and [2,2,2,2,2].
+ScalarModel duplicateZeroCostModel() { return modelOf({5, 5, 2, 2, 2, 2, 2}); }
+
+double dotOf(const vector<double>& duals, const vector<int>& counts) {
+    double value = 0.0;
+    for (size_t type = 0; type < counts.size(); ++type) value += duals[type] * counts[type];
+    return value;
+}
+
+// The sizes of each bin, sorted, the bins sorted: comparable whatever the item indices.
+vector<vector<long long>> binSizes(const ScalarModel& model, const ScalarPacking& packing) {
+    vector<vector<long long>> bins;
+    for (const vector<size_t>& bin : packing.bins) {
+        vector<long long> sizes;
+        for (const size_t item : bin) sizes.push_back(model.sizes[item]);
+        sort(sizes.begin(), sizes.end());
+        bins.push_back(sizes);
+    }
+    sort(bins.begin(), bins.end());
+    return bins;
+}
+
+// First-fit decreasing as the specification defines it: nonincreasing sizes, each into the first bin
+// with room, else a new bin.
+vector<vector<long long>> referenceFfd(vector<long long> sizes, long long capacity) {
+    sort(sizes.begin(), sizes.end(), greater<long long>());
+    vector<vector<long long>> bins;
+    vector<long long> used;
+    for (const long long size : sizes) {
+        size_t bin = 0;
+        while (bin < bins.size() && used[bin] + size > capacity) ++bin;
+        if (bin == bins.size()) {
+            bins.emplace_back();
+            used.push_back(0);
+        }
+        bins[bin].push_back(size);
+        used[bin] += size;
+    }
+    for (vector<long long>& bin : bins) sort(bin.begin(), bin.end());
+    sort(bins.begin(), bins.end());
+    return bins;
+}
+
+}  // namespace
+
+TEST_CASE("X-CG-22/duplicateZeroCostColumns: pricing that keeps returning the present columns stops at once; [5,5] and [2x5] proven"
+          * doctest::test_suite("m5")) {
+    const ScalarModel model = duplicateZeroCostModel();
+    for (const double claimedExtra : {0.0, 0.5}) {
+        INFO("claimed value above the duals' own: " << claimedExtra);
+        size_t pricingCalls = 0;
+        vector<vector<double>> dualsSeen;
+        ScalarLimits limits;
+        // Sizes come largest first, so the starting columns are (2,0) and (0,5); return them in turn.
+        limits.pricing = [&](const vector<long long>& sizes, long long, const vector<double>& duals, const vector<long long>&) {
+            REQUIRE(sizes == vector<long long>{5, 2});
+            dualsSeen.push_back(duals);
+            const vector<int> counts = pricingCalls++ % 2 == 0 ? vector<int>{2, 0} : vector<int>{0, 5};
+            return PricedPattern{counts, dotOf(duals, counts) + claimedExtra, true};
+        };
+        const ScalarResult result = solveCuttingStock(model, limits);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(binSizes(model, *result.packing) == vector<vector<long long>>{{2, 2, 2, 2, 2}, {5, 5}});
+        CHECK(result.evidence.columnsGenerated == 2);
+        CHECK(pricingCalls >= 1);
+        CHECK(pricingCalls <= 2);
+        REQUIRE_FALSE(dualsSeen.empty());
+        CHECK(dualsSeen.front()[0] == doctest::Approx(0.5));
+        CHECK(dualsSeen.front()[1] == doctest::Approx(0.2));
+        // Reduced cost of each present column at those duals: 1 - 2 x 0.5 = 0 and 1 - 5 x 0.2 = 0.
+        CHECK(1.0 - 2 * dualsSeen.front()[0] == doctest::Approx(0.0));
+        CHECK(1.0 - 5 * dualsSeen.front()[1] == doctest::Approx(0.0));
+        CHECK(m5Oracles::bruteForceBins(model.sizes, 10) == 2);
+        CHECK(result.evidence.lowerBound == 2);
+        CHECK(result.evidence.incumbent == 2);
+        CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+        CHECK(result.evidence.termination == Termination::Completed);
+        m5Evidence::note("actual", {{"pricingCalls", pricingCalls}, {"columns", result.evidence.columnsGenerated}, {"bins", 2}});
+    }
+    m5Evidence::note("expected", {{"bins", "[5,5] [2,2,2,2,2]"}, {"columns", 2}, {"bound", 2}, {"proof", "ProvenOptimal by bound 2"}});
+}
+
+TEST_CASE("X-CG-22/nearZeroReducedCost: reduced costs -1e-12, 0 and +1e-12 follow the recorded tolerance; no copied demand, no proof from the tolerance"
+          * doctest::test_suite("m5")) {
+    const ScalarModel model = duplicateZeroCostModel();
+    // A column absent from the master: one 5 and two 2s (size 9).
+    const vector<int> fresh{1, 2};
+    struct Case {
+        double reducedCost;
+        double tolerance;
+        bool enters;
+    };
+    const vector<Case> cases{{-1e-12, 1e-9, false}, {0.0, 1e-9, false}, {1e-12, 1e-9, false},
+                             {-1e-12, 0.0, true},   {0.0, 0.0, false},  {1e-12, 0.0, false}};
+    for (const Case& c : cases) {
+        INFO("reduced cost " << c.reducedCost << ", tolerance " << c.tolerance);
+        // Independent check of the decision in long double: a column enters when 1 - value < -tolerance.
+        const long double value = 1.0L - static_cast<long double>(c.reducedCost);
+        CHECK(((1.0L - value) < -static_cast<long double>(c.tolerance)) == c.enters);
+        size_t pricingCalls = 0;
+        ScalarLimits limits;
+        limits.pricingTolerance = c.tolerance;
+        limits.pricing = [&](const vector<long long>&, long long, const vector<double>&, const vector<long long>&) {
+            ++pricingCalls;
+            return PricedPattern{fresh, 1.0 - c.reducedCost, true};
+        };
+        const ScalarResult result = solveCuttingStock(model, limits);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        size_t packedItems = 0;
+        for (const vector<size_t>& bin : result.packing->bins) packedItems += bin.size();
+        CHECK(packedItems == model.sizes.size());
+        CHECK(result.evidence.columnsGenerated == (c.enters ? 3u : 2u));
+        // The column enters once; offered again it is a duplicate, so pricing stops within a few calls.
+        CHECK(pricingCalls <= static_cast<size_t>(limits.maxColumnRounds));
+        CHECK(pricingCalls <= 4);
+        // The proof is the incumbent meeting the L1 bound of the same model, not the tolerance rule.
+        CHECK(result.evidence.incumbent == 2);
+        CHECK(result.evidence.lowerBound == 2);
+        CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+        CHECK(result.evidence.proofModel == result.evidence.boundModel);
+    }
+    m5Evidence::note("expected", {{"enters", "only -1e-12 at tolerance 0"}, {"tolerance", 1e-9}, {"proofScope", "incumbent equals L1 bound 2"}});
+    m5Evidence::note("actual", "as expected");
+}
+
+TEST_CASE("U-FF-01/ffdConcreteGap: [6,5,3,2,2,2] at 10: FFD 3 bins, 2 exist and bound 2, F - B = 1 escalates under G = 1"
+          * doctest::test_suite("m5")) {
+    const ScalarModel model = modelOf({6, 5, 3, 2, 2, 2});
+    const vector<vector<long long>> ffd = referenceFfd(model.sizes, 10);
+    CHECK(ffd == vector<vector<long long>>{{2}, {2, 2, 5}, {3, 6}});
+    const ScalarPacking production = scalarFirstFitDecreasing(model);
+    CHECK(m5Oracles::packingValid(model, production, {}));
+    CHECK(binSizes(model, production) == ffd);
+    const long long bound = scalarLowerBound(model);
+    CHECK(bound == 2);
+    CHECK(m5Oracles::bruteForceBins(model.sizes, 10) == 2);
+    const ScalarResult solved = solveChecked(model);
+    CHECK(binSizes(model, *solved.packing) == vector<vector<long long>>{{2, 2, 6}, {2, 3, 5}});
+    CHECK(solved.ffdBins == 3);
+    // FX-GAP: G = 1 with allowance left; F - B = 1 escalates, without allowance it does not.
+    CHECK(shouldEscalate(static_cast<long long>(production.bins.size()), bound, 1, true));
+    CHECK_FALSE(shouldEscalate(static_cast<long long>(production.bins.size()), bound, 1, false));
+    // The proof is of the scalar capacity model only, never of a physical allocation.
+    CHECK(solved.evidence.proof == ProofStatus::ProvenOptimal);
+    CHECK(solved.evidence.proofModel.find("capacityOnly") == 0);
+    CHECK(solved.evidence.layoutScope.empty());
+    m5Evidence::note("expected", {{"ffd", 3}, {"optimum", 2}, {"bound", 2}, {"escalate", true}});
+    m5Evidence::note("actual", {{"ffd", production.bins.size()}, {"optimum", solved.packing->bins.size()}, {"bound", bound}});
 }

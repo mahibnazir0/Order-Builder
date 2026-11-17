@@ -457,7 +457,7 @@
         "M-OPT"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5RepairLoop.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + injected repair",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -17688,7 +17688,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/testM5Solver.cpp (planned, PR-9)",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-ZERO-PRICING (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "CORE",
@@ -17750,7 +17750,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/testM5Scenarios.cpp (planned, PR-9)",
+      "testFile": "tests/m5/testM5RepairLoop.cpp",
       "fixture": "FX-30 and injected repair toggles (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "DIRECT + VALID",

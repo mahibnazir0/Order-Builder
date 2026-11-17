@@ -38,6 +38,16 @@ struct ScalarPacking {
     std::vector<std::vector<std::size_t>> bins;  // item indices
 };
 
+// Pricing for one round (X-CG-05): the best pattern at these duals and its value.
+struct PricedPattern {
+    std::vector<int> counts;
+    double value = 0.0;
+    bool exact = true;
+};
+using PricingFunction = std::function<PricedPattern(const std::vector<long long>& sizes, long long capacity,
+                                                    const std::vector<double>& duals,
+                                                    const std::vector<long long>& available)>;
+
 struct ScalarLimits {
     std::size_t exactMaxItems = 30;
     long long exactNodeLimit = 2'000'000;
@@ -45,6 +55,10 @@ struct ScalarLimits {
     long long pricingNodeLimit = 200'000;
     long long simplexIterationLimit = 100'000;
     long long restrictedIntegerNodeLimit = 200'000;
+    // A priced column enters only when its reduced cost 1 - value is below -pricingTolerance; nearer
+    // zero it counts as zero (X-CG-22). A column already in the master never enters again.
+    double pricingTolerance = 1e-9;
+    PricingFunction pricing;  // empty: pricePattern with pricingNodeLimit; tests inject their own
 };
 
 struct ScalarResult {
@@ -69,12 +83,6 @@ bool shouldEscalate(long long quick, long long bound, long long gapTrucks, bool 
 // "2 trucks, 20.0% above bound (of 10)", or N/A with no positive bound (X-CG-17).
 std::string gapText(long long result, std::optional<long long> bound);
 
-// Pricing for one round (X-CG-05): the best pattern at these duals and its value.
-struct PricedPattern {
-    std::vector<int> counts;
-    double value = 0.0;
-    bool exact = true;
-};
 PricedPattern pricePattern(const std::vector<long long>& sizes, long long capacity, const std::vector<double>& duals,
                            const std::vector<long long>& available, long long nodeLimit);
 

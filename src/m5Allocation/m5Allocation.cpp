@@ -72,6 +72,19 @@ AllocationKey keyOf(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
     return key;
 }
 
+AllocationKey keyOfPlan(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const CandidatePlan& plan) {
+    AllocationKey total;
+    total.shippedByClass.assign(domain.size(), 0);
+    for (const GroupId& group : snapshot.groups) {
+        GroupTrucks trucks;
+        for (const TruckPlan& truck : plan.trucks) {
+            if (truck.group == group) trucks.push_back(truck.atoms);
+        }
+        addTo(total, keyOf(snapshot, domain, trucks));
+    }
+    return total;
+}
+
 void addTo(AllocationKey& total, const AllocationKey& part) {
     if (total.shippedByClass.empty()) total.shippedByClass.assign(part.shippedByClass.size(), 0);
     if (total.shippedByPriority.empty()) total.shippedByPriority.assign(part.shippedByPriority.size(), 0);

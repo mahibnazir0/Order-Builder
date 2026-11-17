@@ -82,6 +82,8 @@ struct AllocationKey {
 };
 
 AllocationKey keyOf(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const GroupTrucks& trucks);
+// A whole candidate's key, its groups in canonical order.
+AllocationKey keyOfPlan(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const CandidatePlan& plan);
 void addTo(AllocationKey& total, const AllocationKey& part);
 
 class AllocationComparator {
