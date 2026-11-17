@@ -159,6 +159,7 @@ add_executable(ob_tests
   tests/m5/testM5Scenarios.cpp
   tests/m5/testM5Routing.cpp
   tests/m5/testM5Coverage.cpp
+  tests/m5/testM5Fixtures.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.

@@ -1,0 +1,104 @@
+{
+  "trailer": {
+    "length": 630,
+    "width": 100,
+    "height": 108,
+    "payload_lb": 45000
+  },
+  "placements": [
+    {
+      "item": 0,
+      "x": 0,
+      "y": 0,
+      "length": 50.0,
+      "width": 100.0,
+      "height": 50.0
+    },
+    {
+      "item": 1,
+      "x": 50.0,
+      "y": 0,
+      "length": 60.0,
+      "width": 100.0,
+      "height": 50.0
+    },
+    {
+      "item": 2,
+      "x": 110.0,
+      "y": 0,
+      "length": 60.0,
+      "width": 60.0,
+      "height": 50.0
+    },
+    {
+      "item": 3,
+      "x": 110.0,
+      "y": 60.0,
+      "length": 96.0,
+      "width": 40.0,
+      "height": 50.0
+    },
+    {
+      "item": 4,
+      "x": 206.0,
+      "y": 0,
+      "length": 100.0,
+      "width": 50.0,
+      "height": 50.0
+    },
+    {
+      "item": 5,
+      "x": 206.0,
+      "y": 50.0,
+      "length": 120.0,
+      "width": 48.0,
+      "height": 50.0
+    },
+    {
+      "item": 6,
+      "x": 326.0,
+      "y": 0,
+      "length": 80.0,
+      "width": 48.0,
+      "height": 50.0
+    },
+    {
+      "item": 10,
+      "x": 326.0,
+      "y": 48.0,
+      "length": 80.0,
+      "width": 48.0,
+      "height": 50.0
+    },
+    {
+      "item": 7,
+      "x": 406.0,
+      "y": 0,
+      "length": 120.0,
+      "width": 48.0,
+      "height": 50.0
+    },
+    {
+      "item": 8,
+      "x": 406.0,
+      "y": 48.0,
+      "length": 120.0,
+      "width": 48.0,
+      "height": 50.0
+    },
+    {
+      "item": 9,
+      "x": 526.0,
+      "y": 0,
+      "length": 60.0,
+      "width": 100.0,
+      "height": 50.0
+    }
+  ],
+  "used_length": 586.0,
+  "unit_loads": 11,
+  "weight_lb": 11000,
+  "all_unique": true,
+  "no_overlap": true,
+  "note": "Synthetic reproduction; physical row witness independently checked as axis-aligned rectangles. All demand has priority 0 and ship date 2026-08-06."
+}

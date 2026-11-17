@@ -3,10 +3,13 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <limits>
+#include <random>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -33,8 +36,36 @@ bool isPrintableAscii(const string& text) {
     });
 }
 
+// A folder of this test run's own under the system temp folder, removed when the run ends. Two runs
+// at once used to collide on fixed names in tests/params; create_directory fails on a name already
+// taken, so each run keeps drawing until it owns a fresh one.
+class RunTempFolder {
+public:
+    RunTempFolder() {
+        random_device draw;
+        do {
+            path_ = filesystem::temp_directory_path() / ("obParamsTests_" + to_string(draw()) + "_" + to_string(draw()));
+        } while (!filesystem::create_directory(path_));
+    }
+    ~RunTempFolder() {
+        error_code ignored;
+        filesystem::remove_all(path_, ignored);
+    }
+    RunTempFolder(const RunTempFolder&) = delete;
+    RunTempFolder& operator=(const RunTempFolder&) = delete;
+    const filesystem::path& path() const { return path_; }
+
+private:
+    filesystem::path path_;
+};
+
+const filesystem::path& runTempFolder() {
+    static const RunTempFolder folder;
+    return folder.path();
+}
+
 string writeParamsFile(const string& fileName, const string& content) {
-    const string path = "tests/params/" + fileName;
+    const string path = (runTempFolder() / fileName).string();
     ofstream out(path, ios::binary);
     out << content;
     return path;
@@ -410,6 +441,15 @@ TEST_CASE("params missing file is rejected with the path in the message") {
 
 TEST_CASE("params directory path is rejected with the path in the message") {
     CHECK_THROWS_WITH_AS(loadParams("tests/params"), doctest::Contains("tests/params"), runtime_error);
+}
+
+TEST_CASE("params temp files go to this run's own folder under the system temp folder, never tests/params") {
+    const filesystem::path written = writeParamsFile("_tmp_location.json", "{}");
+    CHECK(written.parent_path() == runTempFolder());
+    CHECK(filesystem::equivalent(runTempFolder().parent_path(), filesystem::temp_directory_path()));
+    CHECK(filesystem::exists(written));
+    CHECK_FALSE(filesystem::exists("tests/params/_tmp_location.json"));
+    remove(written.string().c_str());
 }
 
 TEST_CASE("params empty file is rejected as invalid JSON") {

@@ -1,0 +1,7 @@
+#include "m4SyntheticDay.hpp"
+#include "shipDatePlanner.hpp"
+#include "json.hpp"
+#include <fstream>
+#include <iostream>
+using namespace ob;using namespace m4SyntheticDay;using J=nlohmann::json;
+int main(){J outputs=J::array();for(const auto*name:{"R-1a.json","R-1b.json","R-5a.json"}){J d;std::ifstream(name)>>d;std::vector<SelectionItem> goods;for(std::size_t i=0;i<d["items"].size();++i){auto a=d["items"][i];auto x=item(0,i,a["weight_lb"],a["priority"],a["length_in"],a["width_in"]);x.productNumber=a["product"];x.unitLoads=a["unit_loads_per_stack"].get<double>();x.heightIn=a["height_in"];x.lineIndices.assign(static_cast<std::size_t>(x.unitLoads),i);x.shipDate=a["ship_date"];x.copyIndex=i;goods.push_back(x);}auto day=dayOf({group("2027")},goods.size(),goods,{reserved("2027",1)});day.run.trailer.interiorLengthIn=d["trailer"]["length_in"];day.run.trailer.interiorWidthIn=d["trailer"]["width_in"];day.run.trailer.stackHeightCeilingIn=d["trailer"]["height_in"];day.run.trailer.weightLimitLb=d["trailer"]["payload_lb"];day.classification=classifyLanes(day.run,day.book,day.items,kRouting);auto s=selectorSettings();s.maxUnitLoadsPerTruck=d["trailer"]["max_unit_loads"];auto p=selectLoads(day.run,day.book,day.items,day.classification,s);double ul=0,length=0;for(const auto&t:p.trucks){ul+=t.unitLoads;length+=t.floor.usedLengthIn;}outputs.push_back({{"case",d["case"]},{"selected",ul},{"length",length},{"expected",d["expected_unit_loads"]},{"proven",p.routes[0].proven}});if(ul!=d["expected_unit_loads"].get<double>())return 1;}std::cout<<outputs.dump(2)<<std::endl;}

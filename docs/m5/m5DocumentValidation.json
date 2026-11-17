@@ -1,0 +1,1396 @@
+{
+  "kind": "M5_V12_PATCHED_DOCUMENT_VALIDATION",
+  "date": "2026-11-17",
+  "basis": "m5_docs_rev9_v12.zip (previous v12), m5_docs_rev8_1.zip (v11), current targeted 9.1 patch",
+  "sourceSha256": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+  "sourceRequirement": "M5_Edge_Cases_and_Tests_v12.md",
+  "namedTests": 304,
+  "variants": 557,
+  "baselineNamedTests": 301,
+  "baselineVariants": 522,
+  "newNamedTests": [
+    "X-PAT-19",
+    "X-CG-22",
+    "X-REB-10"
+  ],
+  "newUniqueVariants": 35,
+  "dispositionCounts": {
+    "OUT_OF_SCOPE": 22,
+    "ALREADY_COVERED": 104,
+    "ADD_NEW_TEST": 3,
+    "ADD_VARIANT": 33
+  },
+  "outOfScopeGroups": {
+    "IMPORTER": 15,
+    "FUTURE_FLEET": 2,
+    "RESTART": 3,
+    "EXTREME_SCALE": 1,
+    "DEFERRED": 1
+  },
+  "variantStatuses": {
+    "NOT_RUN": 550,
+    "BLOCKED": 7
+  },
+  "invariants": 24,
+  "edgeCases": 48,
+  "clarifications": 10,
+  "scopeLimitation": "The separate test-spec editing handover was not available to this review (a copy of the test-code prompt was supplied instead). Existing stable-ID/manifest/traceability conventions were followed.",
+  "applicationExecution": "NOT_RUN",
+  "newVariantExecution": "NOT_RUN",
+  "sourceRepoInspected": false,
+  "validationHistory": [
+    {
+      "label": "v11 validation (archived unchanged)",
+      "archive": "m5_docs_rev8_1.zip",
+      "validationFileSha256": "9d70bbb7b91388fa018032c891c430b894e9504603f06eeb27aa213cd3b72083",
+      "checkCount": 31,
+      "checks": [
+        {
+          "check": "unique source definitions except declared X-CG-18 explanatory heading",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all 293 supplied v8 IDs preserved",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "exactly six intended new IDs",
+          "status": "PASS",
+          "detail": [
+            "U-PF-09",
+            "X-CG-21",
+            "X-PAT-16",
+            "X-PAT-17",
+            "X-PAT-18",
+            "X-STATE-11"
+          ]
+        },
+        {
+          "check": "299 current named tests",
+          "status": "PASS",
+          "detail": 299
+        },
+        {
+          "check": "family counts",
+          "status": "PASS",
+          "detail": {
+            "ACC": 3,
+            "PUB": 3,
+            "R": 15,
+            "RD": 13,
+            "U": 108,
+            "X": 157
+          }
+        },
+        {
+          "check": "manifest IDs exactly cover source",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all 475 previous evidence keys retained",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "509 unique current evidence keys",
+          "status": "PASS",
+          "detail": 509
+        },
+        {
+          "check": "30 variants under six new IDs",
+          "status": "PASS",
+          "detail": {
+            "X-PAT-16": 6,
+            "X-PAT-17": 6,
+            "X-STATE-11": 3,
+            "X-CG-21": 5,
+            "X-PAT-18": 5,
+            "U-PF-09": 5
+          }
+        },
+        {
+          "check": "four added variants under existing IDs",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "no application PASS/FAIL claimed",
+          "status": "PASS",
+          "detail": {
+            "NOT_RUN": 499,
+            "BLOCKED": 10
+          }
+        },
+        {
+          "check": "every blocked variant explained",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "requirement source filename/revision/hash/count current",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all 299 source-line references current",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "all source expectations match actual v9 text",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "INV register IDs/text current",
+          "status": "PASS",
+          "detail": {
+            "count": 24
+          }
+        },
+        {
+          "check": "EC register IDs/text current",
+          "status": "PASS",
+          "detail": {
+            "count": 46
+          }
+        },
+        {
+          "check": "CL register IDs/text current",
+          "status": "PASS",
+          "detail": {
+            "count": 10
+          }
+        },
+        {
+          "check": "all module/WP/invariant/edge-case references resolve",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "traceability has exactly the 299 manifest rows",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "traceability current requirement hash",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "handover package lists cover all 299 exactly with correct owners",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "R-7 production integration deferred/unselected without fake PASS",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "R-7 direct isolation remains required",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "R-9 global/direct cap tests have no unrelated per-truck input dependency",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "two linked-date diagnostic variants need the repository Aug5 evidence (NOT_RUN since revision 6.1; were BLOCKED)",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "R-5b positive-corpus gate cannot pass by blanket Unproven",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "typed floor search, pure validation, cap-aware class and limit outcomes present",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "known M4 evidence limitations retained",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "Markdown fences and table widths",
+          "status": "PASS",
+          "detail": []
+        },
+        {
+          "check": "independent new and retained fixture calculations",
+          "status": "PASS",
+          "detail": {
+            "calculations": 53
+          }
+        }
+      ],
+      "otherFieldsRetained": {
+        "kind": "DOCUMENT_REVIEW_VALIDATION",
+        "date": "2026-11-14",
+        "applicationExecution": "NOT_RUN"
+      }
+    },
+    {
+      "label": "v12 before precision/header patch (archived unchanged)",
+      "archive": "m5_docs_rev9_v12.zip",
+      "validationFileSha256": "ade92f6f45f9352491671d1f3df38cb33d6c2ebdf8623690f61849e4bd60e22e",
+      "sourceSha256": "3434780907433200606c67b4f42a05df96f32155986f6ddecf86aa8516f9971d",
+      "checkCount": 92,
+      "checks": [
+        {
+          "check": "162 unique provisional cases",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "four dispositions and exact audited counts",
+          "status": "PASS",
+          "detail": {
+            "OUT_OF_SCOPE": 22,
+            "ALREADY_COVERED": 104,
+            "ADD_NEW_TEST": 3,
+            "ADD_VARIANT": 33
+          }
+        },
+        {
+          "check": "all original 301 named tests preserved",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "304 new test definitions and unique IDs",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "original 522 variant keys retained",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "exactly 557 unique variant keys",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "exact three new named test IDs",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "no original test title, owner, fixture, or source expectation altered",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all evidence NOT_RUN or BLOCKED, no invented PASS",
+          "status": "PASS",
+          "detail": {
+            "NOT_RUN": 550,
+            "BLOCKED": 7
+          }
+        },
+        {
+          "check": "24 invariants, 48 EC entries, 10 CL rules",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "test family counts",
+          "status": "PASS",
+          "detail": {
+            "ACC": 3,
+            "R": 15,
+            "U": 109,
+            "RD": 13,
+            "X": 161,
+            "PUB": 3
+          }
+        },
+        {
+          "check": "manifest source SHA/name/revision/count match",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "source v11 is unchanged before appended Section 42 except first and third lines",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new sourceSection exact X-REB-10",
+          "status": "PASS",
+          "detail": "v12 Section 42.1 (line 2560)"
+        },
+        {
+          "check": "new sourceSection exact X-PAT-19",
+          "status": "PASS",
+          "detail": "v12 Section 42.1 (line 2534)"
+        },
+        {
+          "check": "new sourceSection exact X-CG-22",
+          "status": "PASS",
+          "detail": "v12 Section 42.1 (line 2546)"
+        },
+        {
+          "check": "all 162 classifications valid against exact v11 variants",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all ALREADY references are actually in v11",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all importer cases distinct from current M5 acceptance",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "both crash/restart cases excluded",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "three-across correct threshold referenced",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "trace map exact all IDs once",
+          "status": "PASS",
+          "detail": [
+            [
+              "ACC-1",
+              1
+            ],
+            [
+              "ACC-2",
+              1
+            ]
+          ]
+        },
+        {
+          "check": "independent source definition IDs match manifest exactly 304",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "trace source hash identical",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "trace count 304/557",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all variants listed in trace map",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "trace contains no stale v11 active status",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5Phase1V11Reconciliation.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5TestManifest.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5ModularArchitecture.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences m5ModularArchitecture.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5ReviewAndChanges.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences m5ReviewAndChanges.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5Phase1V11Reconciliation.csv",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5TestTraceability.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences m5TestTraceability.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII M5_Edge_Cases_and_Tests_v12.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences M5_Edge_Cases_and_Tests_v12.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5DeveloperHandover.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences m5DeveloperHandover.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5DocumentValidation.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "plain ASCII m5Phase1V11Reconciliation.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "balanced fences m5Phase1V11Reconciliation.md",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "FFD 6 5 3 2 2 2 uses 3 while exact optimum is 2",
+          "status": "PASS",
+          "detail": [
+            [
+              9,
+              9,
+              2
+            ],
+            2
+          ]
+        },
+        {
+          "check": "X-CG-22 independent scalar exact optimum 2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "M4 33.3 literal threshold, both geometric width sums <100",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "FX-30 30+20 29+21 both legal with total 50",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "Method B 39 produces 19+19+1",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "101 reservations with one shipment leaves 100",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "ED-21 unsigned FNV and date oracle",
+          "status": "PASS",
+          "detail": [
+            3274617072,
+            21402
+          ]
+        },
+        {
+          "check": "Tom original ZIP SHA matches v11 Section 40",
+          "status": "PASS",
+          "detail": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01"
+        },
+        {
+          "check": "Tom original ZIP CRC passes",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "Tom member checksum R-1a.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "Tom member checksum R-1b.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "Tom member checksum R-5a.json",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 R-1c/invalidDonorRestore",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-RT-01/plannerAbsentFallback",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-PB-04/rotationOnly",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-PB-08/payloadExactAndEpsilon",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-PB-08/simultaneousBinding",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-RB-01/thirtyNineBlocks",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-FF-01/ffdConcreteGap",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-RS-01/hundredAndOneReserved",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-RS-09/zeroDayWindow",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-DA-05/mixedRunRejected",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-DA-07/unknownTypeNoFallback",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-ROUTE-05/malformedHandoffReservation",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-PAT-13/twoAcross100",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-PAT-13/microLengthBoundary",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RES-13/threadCountReplay",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RES-13/duplicateCandidates",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RES-13/specialGroupIds",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RES-13/fnvUnsignedOverflow",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RES-13/ineligibleGroupIgnored",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-DATE-07/reversedInputDates",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-DATA-13/inconsistentSlotCapabilities",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-STATE-02/unselectedMethodProof",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-STATE-04/thresholdSnapshotInFlight",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RUN-05/adverseBlockOrderingP2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RUN-09/crossCompilerGate",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-RUN-10/coldWarmCache",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-META-10/thousandStacksP2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-META-10/fiftyNineFootprintsP2",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 U-PF-07/wallClockShift",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-STATE-10/sameSlotTieConcurrent",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-PAT-16/singleAtomOverCap",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-PAT-19/threeAcrossM4Cutoff",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-CG-22/duplicateZeroCostColumns",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-CG-22/nearZeroReducedCost",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new variant defined in v12 X-REB-10/oscillatingRepairCycle",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "new manifest evidence not fabricated",
+          "status": "PASS",
+          "detail": null
+        },
+        {
+          "check": "all P2 additions conditional and unselected",
+          "status": "PASS",
+          "detail": null
+        }
+      ],
+      "reviewedOutputs": {
+        "m5Phase1V11Reconciliation.json": "59e7ee2c3ae1702c067e0842b9ec40649de2676dfb564297e758815cc2a1d158",
+        "m5TestManifest.json": "1be036da6e2fa66c39de89b1cf46477a148d8077ab6c412a05661eb409934384",
+        "m5ModularArchitecture.md": "db1d24b6c794149ced7a65bcaa61bc55a2dcdc69394d4e476381af8077429396",
+        "m5ReviewAndChanges.md": "82991c2231d777dd47de4dbfb61f0bf2f7828df80de704a1404b6423a20db790",
+        "m5Phase1V11Reconciliation.csv": "617ace16008f3fc6dec9cd08c17838b54f066ff5310619a73f97399b79e7c596",
+        "m5TestTraceability.md": "2282f1b7a65ab5e135c834415f210dd609cc6f74eb7b978f501f6ef7432c1744",
+        "M5_Edge_Cases_and_Tests_v12.md": "3434780907433200606c67b4f42a05df96f32155986f6ddecf86aa8516f9971d",
+        "m5DeveloperHandover.md": "d1729ff40dae0182555f7ad011c004729497874289a63e69a243b0b043faebfe",
+        "m5Phase1V11Reconciliation.md": "9ab6afd485cdf4089669f20694242d273b8e5651273493229e2fd00b1ecd55eb"
+      }
+    }
+  ],
+  "revision12PatchChecks": {
+    "status": "PASS",
+    "currentRequirementSha256": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+    "previousRequirementSha256": "3434780907433200606c67b4f42a05df96f32155986f6ddecf86aa8516f9971d",
+    "sourceLineShiftFromOriginalV12": 7,
+    "testsPreserved": 301,
+    "namedTests": 304,
+    "variants": 557,
+    "checksRerun": 104,
+    "details": [
+      {
+        "check": "v12 introduction current counts and Section 42 reading order",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "original v11 paragraph kept verbatim",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "supported length step and exact two-across witness",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "supported payload step and strict physical limit",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "supported 33.3 cutoff step without false no-fit proof",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "numeric normalization updates synchronized across specification manifest and reconciliation",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "every sourceSection line matches patched specification",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "reconciliation current revision SHA matches source",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "reconciliation CSV row count and identity",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "reconciliation CSV and JSON matching v12Fixture",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "reconciliation CSV and JSON matching v12Expected",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "review changes state no application build",
+        "status": "PASS",
+        "detail": null
+      }
+    ]
+  },
+  "documentCheckCount": 104,
+  "checks": [
+    {
+      "check": "162 unique provisional cases",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "four dispositions and exact audited counts",
+      "status": "PASS",
+      "detail": {
+        "OUT_OF_SCOPE": 22,
+        "ALREADY_COVERED": 104,
+        "ADD_NEW_TEST": 3,
+        "ADD_VARIANT": 33
+      }
+    },
+    {
+      "check": "all original 301 named tests preserved",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "304 new test definitions and unique IDs",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "original 522 variant keys retained",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "exactly 557 unique variant keys",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "exact three new named test IDs",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "no original test title, owner, fixture, or source expectation altered",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "all evidence NOT_RUN or BLOCKED, no invented PASS",
+      "status": "PASS",
+      "detail": {
+        "NOT_RUN": 550,
+        "BLOCKED": 7
+      }
+    },
+    {
+      "check": "24 invariants, 48 EC entries, 10 CL rules",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "test family counts",
+      "status": "PASS",
+      "detail": {
+        "ACC": 3,
+        "R": 15,
+        "U": 109,
+        "RD": 13,
+        "X": 161,
+        "PUB": 3
+      }
+    },
+    {
+      "check": "manifest source SHA/name/revision/count match",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "v11 test contracts preserved; v12 changes restricted to documented patch",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new sourceSection exact X-REB-10",
+      "status": "PASS",
+      "detail": "v12 Section 42.1 (line 2567)"
+    },
+    {
+      "check": "new sourceSection exact X-PAT-19",
+      "status": "PASS",
+      "detail": "v12 Section 42.1 (line 2541)"
+    },
+    {
+      "check": "new sourceSection exact X-CG-22",
+      "status": "PASS",
+      "detail": "v12 Section 42.1 (line 2553)"
+    },
+    {
+      "check": "all 162 classifications valid against exact v11 variants",
+      "status": "PASS",
+      "detail": []
+    },
+    {
+      "check": "all ALREADY references are actually in v11",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "all importer cases distinct from current M5 acceptance",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "both crash/restart cases excluded",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "three-across correct threshold referenced",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "trace map exact all IDs once",
+      "status": "PASS",
+      "detail": {
+        "missing": [],
+        "duplicates": {}
+      }
+    },
+    {
+      "check": "independent source definition IDs match manifest exactly 304",
+      "status": "PASS",
+      "detail": []
+    },
+    {
+      "check": "trace source hash identical",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "trace count 304/557",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "all variants listed in trace map",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "trace contains no stale v11 active status",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5Phase1V11Reconciliation.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5TestManifest.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5ModularArchitecture.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences m5ModularArchitecture.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5ReviewAndChanges.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences m5ReviewAndChanges.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5Phase1V11Reconciliation.csv",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5TestTraceability.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences m5TestTraceability.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII M5_Edge_Cases_and_Tests_v12.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences M5_Edge_Cases_and_Tests_v12.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5DeveloperHandover.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences m5DeveloperHandover.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5DocumentValidation.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "plain ASCII m5Phase1V11Reconciliation.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "balanced fences m5Phase1V11Reconciliation.md",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "FFD 6 5 3 2 2 2 uses 3 while exact optimum is 2",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "X-CG-22 independent scalar exact optimum 2",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "M4 33.3 literal threshold, both geometric width sums <100",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "FX-30 30+20 29+21 both legal with total 50",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "Method B 39 produces 19+19+1",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "101 reservations with one shipment leaves 100",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "ED-21 unsigned FNV and date oracle",
+      "status": "PASS",
+      "detail": [
+        3274617072,
+        21402
+      ]
+    },
+    {
+      "check": "Tom original ZIP SHA matches v11 Section 40",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "Tom original ZIP CRC passes",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "Tom member checksum R-1a.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "Tom member checksum R-1b.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "Tom member checksum R-5a.json",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 R-1c/invalidDonorRestore",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-DA-05/mixedRunRejected",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-DA-07/unknownTypeNoFallback",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-FF-01/ffdConcreteGap",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-PB-04/rotationOnly",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-PB-08/payloadExactAndEpsilon",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-PB-08/simultaneousBinding",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-PF-07/wallClockShift",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-RB-01/thirtyNineBlocks",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-RS-01/hundredAndOneReserved",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-RS-09/zeroDayWindow",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 U-RT-01/plannerAbsentFallback",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-CG-22/duplicateZeroCostColumns",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-CG-22/nearZeroReducedCost",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-DATA-13/inconsistentSlotCapabilities",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-DATE-07/reversedInputDates",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-META-10/fiftyNineFootprintsP2",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-META-10/thousandStacksP2",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-PAT-13/microLengthBoundary",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-PAT-13/twoAcross100",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-PAT-16/singleAtomOverCap",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-PAT-19/threeAcrossM4Cutoff",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-REB-10/oscillatingRepairCycle",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RES-13/duplicateCandidates",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RES-13/fnvUnsignedOverflow",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RES-13/ineligibleGroupIgnored",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RES-13/specialGroupIds",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RES-13/threadCountReplay",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-ROUTE-05/malformedHandoffReservation",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RUN-05/adverseBlockOrderingP2",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RUN-09/crossCompilerGate",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-RUN-10/coldWarmCache",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-STATE-02/unselectedMethodProof",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-STATE-04/thresholdSnapshotInFlight",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new variant defined in v12 X-STATE-10/sameSlotTieConcurrent",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "new manifest evidence not fabricated",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "all P2 additions conditional and unselected",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "v12 introduction current counts and Section 42 reading order",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "original v11 paragraph kept verbatim",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "supported length step and exact two-across witness",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "supported payload step and strict physical limit",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "supported 33.3 cutoff step without false no-fit proof",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "numeric normalization updates synchronized across specification manifest and reconciliation",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "every sourceSection line matches patched specification",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "reconciliation current revision SHA matches source",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "reconciliation CSV row count and identity",
+      "status": "PASS",
+      "detail": null
+    },
+    {
+      "check": "reconciliation CSV and JSON matching v12Fixture",
+      "status": "PASS",
+      "detail": []
+    },
+    {
+      "check": "reconciliation CSV and JSON matching v12Expected",
+      "status": "PASS",
+      "detail": []
+    },
+    {
+      "check": "review changes state no application build",
+      "status": "PASS",
+      "detail": null
+    }
+  ],
+  "failedChecks": [],
+  "allDocumentChecksPassed": true,
+  "reviewedOutputs": {
+    "M5_Edge_Cases_and_Tests_v12.md": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+    "m5DeveloperHandover.md": "541424880cdef95e319430c973dd051b112f75de4aa219f92fcca9d9da48583d",
+    "m5ModularArchitecture.md": "db1d24b6c794149ced7a65bcaa61bc55a2dcdc69394d4e476381af8077429396",
+    "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
+    "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
+    "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
+    "m5ReviewAndChanges.md": "59db58f7885faf213c2d8e6ae59bdc866e1fea6a39d61300fae213cd6d422f5c",
+    "m5TestManifest.json": "1ec0ced45c37743245047b66178e6e2ad0974732ac4520aa41cbbeb4d5483101",
+    "m5TestTraceability.md": "4a9f1e9b3eae181c322587783aaddd2e4687ccbfdeeee64a5e307335ab6f05ca"
+  },
+  "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
+  "revision91Fixes": {
+    "date": "2026-11-17",
+    "changes": [
+      "handover WP2/WP3/WP4 lists now include X-CG-22, X-PAT-19, X-REB-10 (all 304 tests covered once)",
+      "review log: tool name removed from a file reference",
+      "tool names removed from file references in the reconciliation note and validation record"
+    ],
+    "specUnchanged": true
+  }
+}

@@ -1,0 +1,14 @@
+# Files whose SHA-256 is checked or recorded keep their exact bytes on every platform: no
+# line-ending conversion on checkout or commit.
+tests/fixtures/tomReview/** -text
+tests/m5/data/orlib/binpack1.txt -text
+docs/m5/M5_Edge_Cases_and_Tests_v12.md -text
+docs/m5/m5DeveloperHandover.md -text
+docs/m5/m5DocumentValidation.json -text
+docs/m5/m5ModularArchitecture.md -text
+docs/m5/m5Phase1V11Reconciliation.csv -text
+docs/m5/m5Phase1V11Reconciliation.json -text
+docs/m5/m5Phase1V11Reconciliation.md -text
+docs/m5/m5ReviewAndChanges.md -text
+docs/m5/m5TestManifest.json -text
+docs/m5/m5TestTraceability.md -text

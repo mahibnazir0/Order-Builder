@@ -1,0 +1,187 @@
+{
+  "all_items": [
+    {
+      "index": 0,
+      "product": "DISTRACTOR",
+      "long_in": 100,
+      "short_in": 100,
+      "unit_loads": 1,
+      "height_in": 50,
+      "weight_lb": 1000
+    },
+    {
+      "index": 1,
+      "product": "P100",
+      "long_in": 72.0,
+      "short_in": 60.0,
+      "unit_loads": 1,
+      "height_in": 50,
+      "weight_lb": 1000
+    },
+    {
+      "index": 2,
+      "product": "P101",
+      "long_in": 80.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 3,
+      "product": "P102",
+      "long_in": 120.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 4,
+      "product": "P103",
+      "long_in": 120.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 5,
+      "product": "P104",
+      "long_in": 48.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 6,
+      "product": "P105",
+      "long_in": 80.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 7,
+      "product": "P106",
+      "long_in": 96.0,
+      "short_in": 40.0,
+      "unit_loads": 1,
+      "height_in": 50,
+      "weight_lb": 1000
+    },
+    {
+      "index": 8,
+      "product": "P107",
+      "long_in": 72.0,
+      "short_in": 60.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 9,
+      "product": "P108",
+      "long_in": 80.0,
+      "short_in": 48.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 10,
+      "product": "P109",
+      "long_in": 72.0,
+      "short_in": 60.0,
+      "unit_loads": 1,
+      "height_in": 50,
+      "weight_lb": 1000
+    },
+    {
+      "index": 11,
+      "product": "P110",
+      "long_in": 60.0,
+      "short_in": 60.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 12,
+      "product": "P111",
+      "long_in": 60.0,
+      "short_in": 60.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    },
+    {
+      "index": 13,
+      "product": "P112",
+      "long_in": 40.0,
+      "short_in": 33.0,
+      "unit_loads": 2,
+      "height_in": 100,
+      "weight_lb": 1000
+    }
+  ],
+  "trailer": {
+    "length_in": 630,
+    "width_in": 100,
+    "height_in": 108,
+    "payload_lb": 45000
+  },
+  "priority": 0,
+  "ship_date": "2026-08-06",
+  "reserved_trucks": 1,
+  "known_alternative_indices": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "known_alternative_unit_loads": 23,
+  "known_alternative_length_in": 617,
+  "actual": {
+    "distractor": [
+      100.0,
+      100.0
+    ],
+    "invariant_violations": 0,
+    "known_feasible": true,
+    "known_feasible_length": 617.0,
+    "known_feasible_unit_loads": 23.0,
+    "proven": true,
+    "selected_floor_length": 616.0,
+    "selected_indices": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      11,
+      12,
+      13
+    ],
+    "selected_unit_loads": 22.0,
+    "selected_weight_lb": 12000.0,
+    "trailer_length": 630.0,
+    "trailer_width": 100.0,
+    "unproven_because": ""
+  }
+}
