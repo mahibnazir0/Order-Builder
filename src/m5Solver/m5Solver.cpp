@@ -206,11 +206,14 @@ GroupSolve solveGroup(const ScalarModel& model, const GroupItems& group, const S
         columns.push_back(std::move(column));
     }
 
+    bool roundCapHit = false;
     // One LP to convergence over `residual` demand; returns the solution and whether pricing was exact.
+    // Reaching the round cap while pricing still improves the LP is a stop, not convergence (U-CG-06).
     auto converge = [&](const vector<long long>& residual, bool& exact, double& farley) {
         CoveringLpSolution lp;
         exact = true;
         farley = 0.0;
+        bool pricingDone = false;
         for (int round = 0; round < limits.maxColumnRounds; ++round) {
             if (stop && stop()) {
                 solve.termination = Termination::Budget;
@@ -228,8 +231,15 @@ GroupSolve solveGroup(const ScalarModel& model, const GroupItems& group, const S
             for (size_t type = 0; type < residual.size(); ++type) demandValue += static_cast<double>(residual[type]) * lp.typeValues[type];
             if (priced.exact) farley = max(farley, demandValue / max(1.0, priced.value));
             const bool duplicate = find(columns.begin(), columns.end(), priced.counts) != columns.end();
-            if (priced.value <= 1.0 + limits.pricingTolerance || duplicate || !validColumn(priced.counts, sizes, group.capacity)) break;
+            if (priced.value <= 1.0 + limits.pricingTolerance || duplicate || !validColumn(priced.counts, sizes, group.capacity)) {
+                pricingDone = true;
+                break;
+            }
             columns.push_back(priced.counts);
+        }
+        if (lp.solved && !pricingDone && solve.termination == Termination::Completed) {
+            solve.termination = Termination::IterationCap;
+            roundCapHit = true;
         }
         return lp;
     };
@@ -239,7 +249,7 @@ GroupSolve solveGroup(const ScalarModel& model, const GroupItems& group, const S
     const CoveringLpSolution root = converge(demand, exact, farley);
     if (root.solved) {
         solve.lpValue = root.value;
-        solve.lpStatus = exact ? "converged" : "pricingIncomplete";
+        solve.lpStatus = exact && !roundCapHit ? "converged" : "pricingIncomplete";
         if (exact) solve.bound = max(solve.bound, lpCeil(farley));
         solve.restrictedInteger = restrictedIntegerOptimum(columns, demand, limits.restrictedIntegerNodeLimit);
     }
