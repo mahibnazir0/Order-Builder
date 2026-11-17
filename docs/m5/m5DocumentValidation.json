@@ -1375,7 +1375,7 @@
   "reviewedOutputs": {
     "M5_Edge_Cases_and_Tests_v12.md": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
     "m5DeveloperHandover.md": "65329d0f2172319a1649022ca8ba081d6588494168e19578a4f077da0b19246f",
-    "m5ModularArchitecture.md": "09fb738b8b9a3e16c1bc2cd7b4707625c5cb900d18209ba4e1a0b4be2c12f829",
+    "m5ModularArchitecture.md": "9e4a6b8d080d2e3698c907dd19db39e4e20240c9d13f33a276823732a6eff46a",
     "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
@@ -1486,7 +1486,7 @@
       "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
       "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
       "m5ReviewAndChanges.md": "6787151006516fab77c664c9afcb7e612931b256de7f2b1c64553ecef61f78bd",
-      "m5TestManifest.json": "395f09fa8b4894f37cfe8ccd89bab38e8a7cf412ac8c4ea983bb00f716d55588",
+      "m5TestManifest.json": "4a2deadbc12725c756cf6f1e99fca2c99069a4a120544daafcb7a9ecb641bbf8",
       "m5TestTraceability.md": "5007030a979a8015405776bc023148f18159639618110fc8446700a1e53f5243"
     },
     "requirementSha256Before": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",

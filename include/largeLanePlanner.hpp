@@ -19,8 +19,10 @@
 #include "selector.hpp"
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace ob {
@@ -42,6 +44,23 @@ struct LargeLaneRequest {
     // How goods past due on the lane-date rank against its own (per lane, M5 handover P9).
     PastDueOrder pastDueOrder = PastDueOrder::AgeFirst;
 };
+
+// A lane-date: origin, destination, ship condition, ship date.
+using LaneDateKey = std::tuple<std::string, std::string, std::string, std::string>;
+
+// The classification's routes by lane-date, in key order: the bundles the selector solves, each
+// the groups that share one reservation.
+std::map<LaneDateKey, std::vector<std::size_t>> routesByLaneDate(const PipelineResult& run,
+                                                                 const LaneClassification& classification);
+
+// The request for the routes of one lane-date, as the selector hands them to M5. `routeIndices`
+// is not empty and names routes of one lane-date.
+LargeLaneRequest largeLaneRequestOf(const PipelineResult& run, const LaneClassification& classification,
+                                    const std::vector<std::size_t>& routeIndices);
+
+// Every lane-date the classifier escalated to M5, one request each in key order, gathered without a
+// planner and without solving anything (M5 handover P3).
+std::vector<LargeLaneRequest> collectEscalatedLaneDates(const PipelineResult& run, const LaneClassification& classification);
 
 // What the selector writes back for the lane-date. Every offered item is on exactly one truck or
 // in leftOver; trucks never number more than reservedTrucks.

@@ -34,6 +34,7 @@ struct Record {
     Identity identity;
     std::string testCase;
     std::string reason;
+    std::string notCovered;  // a clause of the requirement the test did not check; a PASS with one is partial
     std::string key() const { return testId + "/" + variant; }
 };
 
@@ -44,10 +45,12 @@ struct GateResult {
     std::vector<std::string> notRun;
     std::vector<std::string> blocked;
     std::vector<std::string> stale;
+    std::vector<std::string> partial;  // passed, but the record names a clause it did not cover
     std::vector<std::string> deferred;  // unselected conditional variants, with their reason
     std::size_t selected = 0;
     bool accepted() const {
         return problems.empty() && failed.empty() && notRun.empty() && blocked.empty() && stale.empty()
+               && partial.empty()
                && passed.size() == selected;
     }
 };
@@ -118,7 +121,11 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
         if (!stale.empty()) {
             result.stale.push_back(key + ": " + stale);
         } else if (record.executionStatus == "PASS" && record.assertions > 0 && record.failedAssertions == 0) {
-            result.passed.push_back(key);
+            if (record.notCovered.empty()) {
+                result.passed.push_back(key);
+            } else {
+                result.partial.push_back(key + ": " + record.notCovered);
+            }
         } else if (record.executionStatus == "PASS" || record.executionStatus == "NOT_RUN") {
             result.notRun.push_back(key + (record.assertions == 0 ? ": no assertion ran" : ""));
         } else if (record.executionStatus == "BLOCKED") {

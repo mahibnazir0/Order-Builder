@@ -61,7 +61,7 @@ M4-only commits merged into `feature/m5`: `2c59941`. With M5 off, every later PR
 | Urgency order | `shipsBefore` / `rankDateOf` / `shipsBeforeOn` | `selectionItem.cpp:282`, `:286`, `:290` | VERIFIED | READ |
 | dealByBestTruck | `selector.cpp:325` | `selector.cpp:396` (called `:195`) | VERIFIED (line moved) | READ |
 | Selector types | `selector.hpp:101-197` | `SelectorSettings :86` (+ `largeLanePlanner`), `RouteStatus :123`, `RouteOutcome :131`, `PlannedTruck :152`, `LeftOverReason :165` (+ `AcceptanceWithheld`, `M5NoResult`, `M5ConfigurationIncomplete`, `M5InvalidInput`), `SelectionPlan :223` (+ `largeLanes`), `PackingMethod :75` (+ `M5PatternRepeat`, `M5RollingBlocks`) | CHANGED (as proposed) | READ |
-| Row checks | `setRowChecks :566`, `truckLimits :421`, `arrange :687`, `floorFits :694`, `keepsMethodLoad :550`, private to `BundleSolver` | `truckLimits :492`, `keepsMethodLoad :623`, `setRowChecks :640`, `arrange :754`, `RowVerdicts :36` still private; `floorFits` and `floorVerdict` moved to `include/truckCheck.hpp:24/:28` with `checkTruckLoad :39`. Since `2c59941` the row checks and the relaxed-row cuts each get their own route budget of `routeSearchStateLimit` states (`selector.cpp:507-510`) | CHANGED (P2 partial) | READ |
+| Row checks | `setRowChecks :566`, `truckLimits :421`, `arrange :687`, `floorFits :694`, `keepsMethodLoad :550`, private to `BundleSolver` | moved to `include/truckCheck.hpp` in PR-4: `RouteRows` (`arrange`, `truckLimits`, private `setRowChecks`), `RowVerdicts`, `keepsMethodLoad`, beside `floorFits`, `floorVerdict` and `checkTruckLoad`; `BundleSolver` calls them. Since `2c59941` the row checks and the relaxed-row cuts each get their own route budget of `routeSearchStateLimit` states (`selector.cpp:507-510`) | CHANGED (P2 done in PR-4) | READ |
 | Parallel planning | `selectLoads :669`, workers `:700` | `selector.cpp:918`, workers `:949` | VERIFIED (lines moved) | READ |
 | Date planner | `planShipDates :287`, `carriesOver 21-32`, `offerPulledForward :164`, skip `:167` | `planShipDates :296`, `carriesOver :26` (+ `AcceptanceWithheld`), `planDate :110`, `offerPulledForward :170`; the skip at `:174` now applies only with no planner registered | CHANGED (P10, ED-15) | READ |
 | Pull-forward days | `daysPulledForwardAllowed()` | `include/selectionParams.hpp` (unchanged) | VERIFIED | READ |
@@ -88,8 +88,8 @@ M4-only commits merged into `feature/m5`: `2c59941`. With M5 off, every later PR
 | ID | At 11c498b |
 |---|---|
 | P1 | DONE: baseline re-run at 11c498b (Section 1). |
-| P2 | PARTIAL: `floorFits`, `floorVerdict`, `checkTruckLoad` in `truckCheck`; `setRowChecks`, `truckLimits`, `arrange`, `keepsMethodLoad` still in `BundleSolver` (PR-4). |
-| P3 | DONE IN ANOTHER FORM: `BundleSolver::solveLargeLane` builds a `LargeLaneRequest` and `m5::gatherLaneDate` the M5 input; no `collectEscalatedLaneDates()` listing function (PR-4). |
+| P2 | DONE (PR-4): `floorFits`, `floorVerdict`, `checkTruckLoad`, `RowVerdicts`, `keepsMethodLoad` and class `RouteRows` (`arrange`, `truckLimits`, `setRowChecks`) are in `truckCheck`; `BundleSolver` keeps none of them. No behaviour change: M5-off August fingerprints and the M5-on lane-date results are identical. |
+| P3 | DONE (PR-4): `collectEscalatedLaneDates(run, classification)` in `include/largeLanePlanner.hpp` (`src/largeLanePlanner/largeLanePlanner.cpp`) lists every lane-date routed to M5 without a planner; the selector, `forcedRequest` and the listing share `largeLaneRequestOf` and `routesByLaneDate`. `m5::gatherLaneDate` turns a request into the M5 input. |
 | P4 | DONE (95fe5f2): the params tests write into a unique per-run temp folder. |
 | P5-P7 | DONE (REPORTED at 7cef94e; unchanged). |
 | P8 | The "backwards asserts" do not exist at this head or in history; the threshold check is `CHECK(shipped.m5Threshold < *overBudget)` in `testM4Benchmark.cpp`; U-RT-08 is `testM5RealData.cpp`. |

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <exception>
 #include <iterator>
 #include <map>
@@ -25,18 +26,11 @@ namespace ob {
 
 namespace {
 
-using LaneDate = tuple<string, string, string, string>;  // origin, destination, condition, date
+using LaneDate = LaneDateKey;
 
 // A truck as positions in its route's item list. Positions follow selection order, so the
 // highest position is the least urgent item.
 using RouteTruck = vector<size_t>;
-
-// Row verdicts on a route's loads, by their sorted floor types: on every grouping of the rows, and
-// on the rows without searching groupings.
-struct RowVerdicts {
-    map<vector<size_t>, TruckFit> byGroupings;
-    map<vector<size_t>, bool> bySortedRows;
-};
 
 vector<PackingMethod> methodChain(SolveMethod method) {
     switch (method) {
@@ -279,22 +273,7 @@ private:
     // that loses an item, loads one twice or builds over the reservation fails the bundle instead
     // of passing a broken plan on.
     BundleResult solveLargeLane(const vector<size_t>& routeIndices) const {
-        const LaneRoute& first = classification_.routes[routeIndices.front()];
-        const GroupKey& lane = run_.segregation.groups[first.groupIndex].key;
-        LargeLaneRequest request;
-        request.origin = lane.locationFrom;
-        request.destination = lane.locationTo;
-        request.shipCondition = lane.shipCondition;
-        request.shipDate = first.shipDate;
-        request.reservedTrucks = first.reservedTrucks;
-        request.pastDueOrder = first.pastDueOrder;
-        for (const size_t routeIndex : routeIndices) {
-            const LaneRoute& route = classification_.routes[routeIndex];
-            request.routeIndices.push_back(routeIndex);
-            request.groupIndices.push_back(route.groupIndex);
-            request.itemIndicesByRoute.push_back(route.itemIndices);
-            request.methodBeforeEscalation.push_back(route.methodBeforeEscalation);
-        }
+        const LargeLaneRequest request = largeLaneRequestOf(run_, classification_, routeIndices);
         LargeLaneResult planned = settings_.largeLanePlanner->plan(request, run_, items_, settings_);
 
         map<size_t, int> seen;
@@ -414,9 +393,12 @@ private:
         // Sized once and never resized: each group's check holds references into its own entries.
         vector<vector<KnapsackItem>> itemsOf(groups);
         vector<RowVerdicts> rowsFitOf(groups);
+        deque<RouteRows> routeRowsOf;  // a deque never moves its entries, which the limits refer to
         vector<UrgencyClass> classes;
         for (size_t group = 0; group < groups; ++group) {
-            itemsOf[group] = knapsackItemsOf(classification_.routes[solveOrder[sharing[group]]]);
+            const LaneRoute& route = classification_.routes[solveOrder[sharing[group]]];
+            itemsOf[group] = knapsackItemsOf(route);
+            routeRowsOf.emplace_back(floorItemsOf(route), run_.trailer, settings_.floor, settings_.maxUnitLoadsPerTruck);
             for (const KnapsackItem& item : itemsOf[group]) classes.push_back(classOf(item));
         }
         sort(classes.begin(), classes.end());
@@ -446,8 +428,7 @@ private:
                                                                     settings_.knapsack, truckOf[group]);
             };
             for (size_t group = 0; group < groups; ++group) {
-                truckOf.push_back(truckLimits(classification_.routes[solveOrder[sharing[group]]], itemsOf[group],
-                                              rowsFitOf[group]));
+                truckOf.push_back(routeRowsOf[group].truckLimits(itemsOf[group], rowsFitOf[group]));
                 remainingOf[group].resize(itemsOf[group].size());
                 iota(remainingOf[group].begin(), remainingOf[group].end(), size_t{0});
                 searchNext(group);
@@ -476,6 +457,17 @@ private:
         for (size_t group = 0; group < groups; ++group) shareOf[sharing[group]] = dealt[group];
     }
 
+    vector<FloorItem> floorItemsOf(const LaneRoute& route) const {
+        vector<FloorItem> floorItems;
+        floorItems.reserve(route.itemIndices.size());
+        for (const size_t index : route.itemIndices) floorItems.push_back(floorItemFrom(items_.items[index]));
+        return floorItems;
+    }
+
+    RouteRows rowsOf(const LaneRoute& route) const {
+        return RouteRows(floorItemsOf(route), run_.trailer, settings_.floor, settings_.maxUnitLoadsPerTruck);
+    }
+
     vector<KnapsackItem> knapsackItemsOf(const LaneRoute& route) const {
         vector<KnapsackItem> items;
         items.reserve(route.itemIndices.size());
@@ -486,39 +478,12 @@ private:
         return items;
     }
 
-    // One truck of the route as the knapsack judges it: rows and the unit-load cap on a whole load,
-    // and the limits it may cut on - the cap, each stack's least share of the trailer length, the
-    // positions cap when the customer has one, and the rows relaxed so they only grow with goods.
-    TruckLimits truckLimits(const LaneRoute& route, const vector<KnapsackItem>& items, RowVerdicts& verdicts) const {
-        TruckLimits truck;
-        ItemLimit unitLoads{{}, settings_.maxUnitLoadsPerTruck};
-        unitLoads.perItem.reserve(items.size());
-        vector<FloorItem> floorItems;
-        floorItems.reserve(items.size());
-        for (size_t position = 0; position < items.size(); ++position) {
-            unitLoads.perItem.push_back(items[position].unitLoads);
-            floorItems.push_back(floorItemFrom(items_.items[route.itemIndices[position]]));
-        }
-        truck.limits.push_back(std::move(unitLoads));
-        truck.limits.push_back({rowLengthShares(floorItems, run_.trailer, settings_.floor), run_.trailer.interiorLengthIn});
-        // The route's floor searches are bounded however many loads its knapsack judges: the
-        // relaxed rows and the rows themselves each by a budget of their own, so the cuts the
-        // search makes on the way never use up the states a proof's last refusal needs.
-        truck.mayStillFit = loadGrowthCheck(std::move(floorItems), run_.trailer, settings_.floor,
-                                            make_shared<FloorSearchBudget>(FloorSearchBudget{settings_.floor.routeSearchStateLimit}));
-        setRowChecks(route, items, verdicts, make_shared<FloorSearchBudget>(FloorSearchBudget{settings_.floor.routeSearchStateLimit}),
-                     truck.mayStillFit, truck);
-        if (settings_.floor.maxPositions) {
-            truck.limits.push_back({vector<double>(items.size(), 1.0), static_cast<double>(*settings_.floor.maxPositions)});
-        }
-        return truck;
-    }
-
     void solveGroup(const LaneRoute& route, const vector<PackingMethod>& chain, RouteSolution& solution) const {
         RouteOutcome& outcome = solution.outcome;
         const vector<KnapsackItem> items = knapsackItemsOf(route);
         const int allowed = static_cast<int>(max(0LL, outcome.trucksAllowed));
 
+        const RouteRows rows = rowsOf(route);
         RowVerdicts rowsFitByFloorTypes;
         optional<TruckLimits> knapsackLimits;
         optional<MethodResult> kept;
@@ -527,7 +492,7 @@ private:
             try {
                 if (settings_.beforeMethod) settings_.beforeMethod(outcome.routeIndex, chain[step]);
                 const bool usesRows = chain[step] == PackingMethod::Knapsack || chain[step] == PackingMethod::GreedyKnapsack;
-                if (usesRows && !knapsackLimits) knapsackLimits = truckLimits(route, items, rowsFitByFloorTypes);
+                if (usesRows && !knapsackLimits) knapsackLimits = rows.truckLimits(items, rowsFitByFloorTypes);
                 MethodResult result = runMethod(chain[step], items, capacity_, settings_, allowed,
                                                 usesRows ? *knapsackLimits : TruckLimits());
                 const double seconds = clock_() - start;
@@ -563,11 +528,11 @@ private:
             if (kept->unfittable[position]) reasonFor[position] = LeftOverReason::Unfittable;
         }
         for (RouteTruck& truck : trucks) {
-            fitFloor(route, truck, placed, reasonFor);
+            fitFloor(rows, truck, placed, reasonFor);
             fitUnitLoadCap(items, truck, placed, reasonFor);
         }
-        for (RouteTruck& truck : trucks) fillTruck(route, items, truck, placed, kept->unfittable);
-        openTrucks(route, items, trucks, placed, kept->unfittable, static_cast<size_t>(allowed));
+        for (RouteTruck& truck : trucks) fillTruck(rows, items, truck, placed, kept->unfittable);
+        openTrucks(rows, items, trucks, placed, kept->unfittable, static_cast<size_t>(allowed));
         trucks.erase(remove_if(trucks.begin(), trucks.end(), [](const RouteTruck& truck) { return truck.empty(); }),
                      trucks.end());
         // The packers prove their trucks on floor area and payload alone. The proof still covers
@@ -580,7 +545,7 @@ private:
         }
         // Rev 8 section 4: a weight-bound lane packs to payload and watches the space, so its
         // weight is left where the method put it.
-        if (outcome.binding == BindingLimit::FloorArea) spreadWeight(route, items, trucks);
+        if (outcome.binding == BindingLimit::FloorArea) spreadWeight(rows, items, trucks);
 
         auto fill = [&](const RouteTruck& truck) {
             double share = 0.0;
@@ -605,7 +570,7 @@ private:
                 planned.unitLoads += items[position].unitLoads;
             }
             planned.weightFull = planned.weightLb >= capacity_.weightLb - kQuantityEpsilon;
-            planned.floor = arrange(route, truck);
+            planned.floor = rows.arrange(truck);
             areaShare += planned.areaSqIn / capacity_.floorAreaSqIn;
             weightShare += planned.weightLb / capacity_.weightLb;
             solution.trucks.push_back(std::move(planned));
@@ -620,79 +585,12 @@ private:
         }
     }
 
-    static bool keepsMethodLoad(const vector<RouteTruck>& methodTrucks, const vector<RouteTruck>& trucks,
-                                const vector<char>& placed) {
-        if (trucks.size() > methodTrucks.size()) return false;
-        for (const RouteTruck& truck : methodTrucks) {
-            for (const size_t position : truck) {
-                if (!placed[position]) return false;
-            }
-        }
-        return true;
-    }
-
-    // The knapsack's row checks of one route's truck loads, both refusing a load over the unit-load
-    // cap or one mayStillFit cuts, which no grouping of its rows fits. `fits` judges every grouping
-    // of the rows, drawing on `budget`; quickFits judges the rows without searching groupings -
-    // exact up to kExactFloorItems stacks, in sorted order above - so it accepts only what `fits`
-    // accepts. Rows depend only on each item's footprint and levels, so loads alike in those share
-    // a verdict, remembered by their sorted floor types.
-    void setRowChecks(const LaneRoute& route, const vector<KnapsackItem>& items, RowVerdicts& verdicts,
-                      shared_ptr<FloorSearchBudget> budget, const LoadCheck& mayStillFit, TruckLimits& truck) const {
-        map<tuple<double, double, int>, size_t> floorTypes;
-        vector<size_t> floorTypeOf;
-        floorTypeOf.reserve(items.size());
-        for (const KnapsackItem& item : items) {
-            floorTypeOf.push_back(
-                floorTypes.try_emplace({item.longSideIn, item.shortSideIn, item.levels}, floorTypes.size()).first->second);
-        }
-        // The load's sorted floor types in `key`, and whether it is within the unit-load cap.
-        auto keyOf = [this, &items, floorTypeOf](const vector<size_t>& chosen, vector<size_t>& key) {
-            double unitLoads = 0.0;
-            key.clear();
-            for (const size_t position : chosen) {
-                unitLoads += items[position].unitLoads;
-                key.push_back(floorTypeOf[position]);
-            }
-            sort(key.begin(), key.end());
-            return unitLoads <= settings_.maxUnitLoadsPerTruck + kQuantityEpsilon;
-        };
-        auto sortedTruck = [](const vector<size_t>& chosen) {
-            RouteTruck sorted = chosen;
-            sort(sorted.begin(), sorted.end());
-            return sorted;
-        };
-        truck.fits = [this, &route, &verdicts, routeBudget = std::move(budget), keyOf, sortedTruck, mayStillFit,
-                      key = vector<size_t>()](const vector<size_t>& chosen) mutable {
-            if (!keyOf(chosen, key) || !mayStillFit(chosen)) return TruckFit::DoesNotFit;
-            const auto known = verdicts.byGroupings.find(key);
-            if (known != verdicts.byGroupings.end()) return known->second;
-            const auto quick = verdicts.bySortedRows.find(key);
-            const TruckFit verdict = quick != verdicts.bySortedRows.end() && quick->second
-                                         ? TruckFit::Fits
-                                         : floorVerdict(arrange(route, sortedTruck(chosen), routeBudget.get()));
-            verdicts.byGroupings.emplace(key, verdict);
-            return verdict;
-        };
-        truck.quickFits = [this, &route, &verdicts, keyOf, sortedTruck, mayStillFit,
-                           key = vector<size_t>()](const vector<size_t>& chosen) mutable {
-            if (!keyOf(chosen, key) || !mayStillFit(chosen)) return false;
-            const auto known = verdicts.bySortedRows.find(key);
-            if (known != verdicts.bySortedRows.end()) return known->second;
-            // An empty budget arranges the rows without searching groupings.
-            FloorSearchBudget noSearch;
-            const bool fits = floorFits(arrange(route, sortedTruck(chosen), &noSearch));
-            verdicts.bySortedRows.emplace(key, fits);
-            return fits;
-        };
-    }
-
     // Goods left over, by the method, the floor or the unit-load cap, go most urgent first into
     // the truck while it has room on its floor, payload, rows and unit-load cap. The methods judge
     // the floor by area, which rows waste some of, so this takes back what the floor check had to
     // trim. The truck stops being tried after fillMissesPerTruck refusals in a row, which bounds
     // the floor arrangements tried.
-    void fillTruck(const LaneRoute& route, const vector<KnapsackItem>& items, RouteTruck& truck,
+    void fillTruck(const RouteRows& rows, const vector<KnapsackItem>& items, RouteTruck& truck,
                    vector<char>& placed, const vector<char>& unfittable) const {
         double area = 0.0, weight = 0.0, unitLoads = 0.0;
         for (const size_t position : truck) {
@@ -711,7 +609,7 @@ private:
             }
             RouteTruck withItem = truck;
             withItem.insert(upper_bound(withItem.begin(), withItem.end(), position), position);
-            if (!floorFits(arrange(route, withItem))) {
+            if (!floorFits(rows.arrange(withItem))) {
                 ++misses;
                 continue;
             }
@@ -727,11 +625,11 @@ private:
     // Goods still left over open the reserved trucks the method did not build, one at a time,
     // each filled as fillTruck fills. Without this a truck trimmed to the unit-load cap or the
     // floor would leave goods behind while the reservation still had trucks.
-    void openTrucks(const LaneRoute& route, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks,
+    void openTrucks(const RouteRows& rows, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks,
                     vector<char>& placed, const vector<char>& unfittable, size_t allowed) const {
         while (trucks.size() < allowed) {
             RouteTruck opened;
-            fillTruck(route, items, opened, placed, unfittable);
+            fillTruck(rows, items, opened, placed, unfittable);
             if (opened.empty()) return;
             trucks.push_back(std::move(opened));
         }
@@ -751,19 +649,12 @@ private:
         }
     }
 
-    FloorLayout arrange(const LaneRoute& route, const RouteTruck& truck, FloorSearchBudget* budget = nullptr) const {
-        vector<FloorItem> floorItems;
-        floorItems.reserve(truck.size());
-        for (const size_t position : truck) floorItems.push_back(floorItemFrom(items_.items[route.itemIndices[position]]));
-        return arrangeFloor(floorItems, run_.trailer, settings_.floor, budget);
-    }
-
     // Drops goods until the truck's rows fit: an item that fits no orientation first, then the
     // least urgent.
-    void fitFloor(const LaneRoute& route, RouteTruck& truck, vector<char>& placed,
+    void fitFloor(const RouteRows& rows, RouteTruck& truck, vector<char>& placed,
                   vector<LeftOverReason>& reasonFor) const {
-        for (FloorLayout layout = arrange(route, truck); !truck.empty() && !floorFits(layout);
-             layout = arrange(route, truck)) {
+        for (FloorLayout layout = rows.arrange(truck); !truck.empty() && !floorFits(layout);
+             layout = rows.arrange(truck)) {
             const size_t drop = layout.unplaceableItems.empty() ? truck.size() - 1 : layout.unplaceableItems.front();
             placed[truck[drop]] = 0;
             reasonFor[truck[drop]] = LeftOverReason::FloorEviction;
@@ -773,7 +664,7 @@ private:
 
     // Moves or swaps goods from the heaviest truck to the lightest while that lowers the
     // heavier of the two and both stay within floor, payload and their rows.
-    void spreadWeight(const LaneRoute& route, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks) const {
+    void spreadWeight(const RouteRows& rows, const vector<KnapsackItem>& items, vector<RouteTruck>& trucks) const {
         if (trucks.size() < 2) return;
         auto totals = [&](const RouteTruck& truck) {
             double area = 0.0, weight = 0.0;
@@ -837,7 +728,7 @@ private:
                 || unitLoadsOf(heavyAfter) > settings_.maxUnitLoadsPerTruck + kQuantityEpsilon) {
                 return;
             }
-            if (!floorFits(arrange(route, heavyAfter)) || !floorFits(arrange(route, lightAfter))) return;
+            if (!floorFits(rows.arrange(heavyAfter)) || !floorFits(rows.arrange(lightAfter))) return;
             trucks[heavy] = std::move(heavyAfter);
             trucks[light] = std::move(lightAfter);
         }
@@ -921,13 +812,8 @@ SelectionPlan selectLoads(const PipelineResult& run, const ReservationBook& book
     const function<double()> clock = clockOf(settings);
 
     // Routes by lane and ship date: groups sharing a reservation are solved together, in order.
-    map<LaneDate, vector<size_t>> routesByLaneDate;
-    for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
-        const LaneRoute& route = classification.routes[routeIndex];
-        const GroupKey& key = run.segregation.groups[route.groupIndex].key;
-        routesByLaneDate[{key.locationFrom, key.locationTo, key.shipCondition, route.shipDate}].push_back(routeIndex);
-    }
-    vector<pair<LaneDate, vector<size_t>>> bundles(routesByLaneDate.begin(), routesByLaneDate.end());
+    const map<LaneDate, vector<size_t>> laneDateRoutes = routesByLaneDate(run, classification);
+    vector<pair<LaneDate, vector<size_t>>> bundles(laneDateRoutes.begin(), laneDateRoutes.end());
 
     const BundleSolver solver(run, items, classification, settings, clock);
     vector<BundleResult> results(bundles.size());

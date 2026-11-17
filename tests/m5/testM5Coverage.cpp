@@ -148,11 +148,11 @@ string statusText(const BuildStatus& status) {
          << ", " << status.build.compiler << " " << status.build.config << "\n"
          << "Manifest variants " << status.manifest.variants.size() << ", selected " << result.selected << ": PASS "
          << result.passed.size() << ", FAIL " << result.failed.size() << ", NOT_RUN " << result.notRun.size()
-         << ", BLOCKED " << result.blocked.size() << ", stale " << result.stale.size() << "; deferred "
+         << ", BLOCKED " << result.blocked.size() << ", PARTIAL " << result.partial.size() << ", stale " << result.stale.size() << "; deferred "
          << result.deferred.size() << "; problems " << result.problems.size() << "\n"
          << "Accepted: " << (result.accepted() ? "yes" : "no") << "\n";
     const vector<pair<string, const vector<string>*>> lists{{"PROBLEM", &result.problems}, {"PASS", &result.passed},
-                                                           {"FAIL", &result.failed},       {"STALE", &result.stale},
+                                                           {"FAIL", &result.failed},       {"PARTIAL", &result.partial}, {"STALE", &result.stale},
                                                            {"BLOCKED", &result.blocked},   {"DEFERRED", &result.deferred},
                                                            {"NOT_RUN", &result.notRun}};
     for (const auto& [label, entries] : lists) {
@@ -330,6 +330,14 @@ TEST_CASE("X-RUN-09/noAssertion: a registered case that asserted nothing is NOT_
     CHECK_FALSE(result.accepted());
     CHECK(result.passed.empty());
     CHECK(result.notRun == vector<string>{"X-SYN-01/one: no assertion ran"});
+
+    // A PASS whose record names a clause it did not cover is partial: listed, not counted, blocks acceptance.
+    Record partial = resultFor("X-SYN-01", "one");
+    partial.notCovered = "invalid cap fails before planning";
+    const GateResult partialResult = m5Gate::evaluate(manifest, {partial}, currentBuild());
+    CHECK_FALSE(partialResult.accepted());
+    CHECK(partialResult.passed.empty());
+    CHECK(partialResult.partial == vector<string>{"X-SYN-01/one: invalid cap fails before planning"});
 }
 
 TEST_CASE("X-RUN-09/missingVariant: a PASS for one variant does not hide a missing variant of the same test" * doctest::test_suite("m5")) {

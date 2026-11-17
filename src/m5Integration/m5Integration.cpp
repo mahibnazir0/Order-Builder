@@ -178,27 +178,23 @@ PhysicalSettings physicalSettingsOf(const SelectorSettings& settings) {
 
 optional<LargeLaneRequest> forcedRequest(const PipelineResult& run, const LaneClassification& classification,
                                          const LaneKey& lane, const string& shipDate) {
-    LargeLaneRequest request;
-    request.origin = lane.origin;
-    request.destination = lane.destination;
-    request.shipCondition = lane.shipCondition;
-    request.shipDate = shipDate;
+    vector<size_t> routeIndices;
     for (size_t routeIndex = 0; routeIndex < classification.routes.size(); ++routeIndex) {
         const LaneRoute& route = classification.routes[routeIndex];
         const GroupKey& key = run.segregation.groups[route.groupIndex].key;
-        if (route.shipDate != shipDate || key.locationFrom != lane.origin || key.locationTo != lane.destination
-            || key.shipCondition != lane.shipCondition) {
-            continue;
+        if (route.shipDate == shipDate && key.locationFrom == lane.origin && key.locationTo == lane.destination
+            && key.shipCondition == lane.shipCondition) {
+            routeIndices.push_back(routeIndex);
         }
-        request.reservedTrucks = route.reservedTrucks;
-        request.pastDueOrder = route.pastDueOrder;
-        request.routeIndices.push_back(routeIndex);
-        request.groupIndices.push_back(route.groupIndex);
-        request.itemIndicesByRoute.push_back(route.itemIndices);
-        request.methodBeforeEscalation.push_back(route.methodBeforeEscalation ? route.methodBeforeEscalation
-                                                                                : optional<SolveMethod>(route.method));
     }
-    if (request.routeIndices.empty()) return nullopt;
+    if (routeIndices.empty()) return nullopt;
+    LargeLaneRequest request = largeLaneRequestOf(run, classification, routeIndices);
+    // A route not escalated reports the method it has.
+    for (size_t position = 0; position < routeIndices.size(); ++position) {
+        if (!request.methodBeforeEscalation[position]) {
+            request.methodBeforeEscalation[position] = classification.routes[routeIndices[position]].method;
+        }
+    }
     return request;
 }
 

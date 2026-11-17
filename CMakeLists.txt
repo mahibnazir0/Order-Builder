@@ -59,6 +59,7 @@ add_library(ob_core STATIC
   src/columnGeneration/columnGeneration.cpp
   src/binPacker/binPacker.cpp
   src/selector/selector.cpp
+  src/largeLanePlanner/largeLanePlanner.cpp
   src/shipDatePlanner/shipDatePlanner.cpp
   src/selectionReporter/selectionReporter.cpp
   src/benchmarkHarness/benchmarkHarness.cpp

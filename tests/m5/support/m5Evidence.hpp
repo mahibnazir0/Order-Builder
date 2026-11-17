@@ -142,6 +142,7 @@ inline m5Gate::Record gateRecordOf(const nlohmann::json& record) {
     gate.executionStatus = record.value("executionStatus", "");
     gate.testCase = record.value("testCase", "");
     gate.reason = record.value("reason", "");
+    if (record.contains("notCovered") && record.at("notCovered").is_string()) gate.notCovered = record.at("notCovered").get<std::string>();
     if (record.contains("assertions")) {
         gate.assertions = record.at("assertions").value("total", 0);
         gate.failedAssertions = record.at("assertions").value("failed", 0);

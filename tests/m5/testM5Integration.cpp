@@ -6,6 +6,7 @@
 #include "paramsFields.hpp"
 #include "selectionParams.hpp"
 #include "shipDatePlanner.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 
 #include <algorithm>
@@ -42,7 +43,76 @@ bool accountedOnce(const SelectionPlan& selection, size_t items) {
     return all_of(uses.begin(), uses.end(), [](int count) { return count == 1; });
 }
 
+// What a LargeLanePlanner is handed, kept as it arrives.
+class RecordingPlanner : public LargeLanePlanner {
+public:
+    LargeLaneResult plan(const LargeLaneRequest& request, const PipelineResult&, const SelectionItems&,
+                         const SelectorSettings&) const override {
+        requests.push_back(request);
+        LargeLaneResult result;
+        result.report.planned = false;
+        for (size_t route = 0; route < request.routeIndices.size(); ++route) {
+            RouteOutcome outcome;
+            outcome.routeIndex = request.routeIndices[route];
+            outcome.status = RouteStatus::Escalated;
+            result.routes.push_back(outcome);
+            for (const size_t index : request.itemIndicesByRoute[route]) {
+                result.leftOver.push_back({index, LeftOverReason::M5ConfigurationIncomplete});
+            }
+        }
+        return result;
+    }
+    mutable vector<LargeLaneRequest> requests;
+};
+
 }  // namespace
+
+TEST_CASE("U-RT-01/plannerAbsentFallback: 21 reserved with no planner installed leave every good escalated, no truck, no plan" * doctest::test_suite("m5")) {
+    const Day day = dayWithReserved(21, 100);
+    REQUIRE(day.classification.routes[0].method == SolveMethod::M5);
+    const SelectionPlan selection = plan(day, selectorSettings());
+    REQUIRE(selection.routes.size() == 1);
+    CHECK(selection.routes[0].status == RouteStatus::Escalated);
+    CHECK_FALSE(selection.routes[0].methodUsed.has_value());
+    CHECK(selection.routes[0].trucksBuilt == 0);
+    CHECK(selection.trucks.empty());
+    CHECK(selection.largeLanes.empty());
+    REQUIRE(selection.leftOver.size() == 100);
+    for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::EscalatedToM5);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    REQUIRE(selection.reservations.size() == 1);
+    CHECK(selection.reservations[0].escalated);
+    CHECK(selection.reservations[0].built == 0);
+    m5Evidence::note("expected", "escalated, no truck, 100 goods left over as EscalatedToM5, no large-lane report");
+}
+
+TEST_CASE("collectEscalatedLaneDates lists the lane-dates M4 hands to M5 without a planner, as the selector hands them" * doctest::test_suite("m5")) {
+    const Day day = dayWithReserved(21, 100, 2);
+    const vector<LargeLaneRequest> collected = collectEscalatedLaneDates(day.run, day.classification);
+    REQUIRE(collected.size() == 1);
+
+    SelectorSettings settings = selectorSettings();
+    const auto recorder = make_shared<RecordingPlanner>();
+    settings.largeLanePlanner = recorder;
+    plan(day, settings);
+    REQUIRE(recorder->requests.size() == 1);
+    const LargeLaneRequest& handed = recorder->requests[0];
+    const LargeLaneRequest& listed = collected[0];
+    CHECK(listed.origin == handed.origin);
+    CHECK(listed.destination == handed.destination);
+    CHECK(listed.shipCondition == handed.shipCondition);
+    CHECK(listed.shipDate == handed.shipDate);
+    CHECK(listed.reservedTrucks == 21);
+    CHECK(listed.reservedTrucks == handed.reservedTrucks);
+    CHECK(listed.routeIndices == handed.routeIndices);
+    CHECK(listed.groupIndices == handed.groupIndices);
+    CHECK(listed.itemIndicesByRoute == handed.itemIndicesByRoute);
+    CHECK(listed.methodBeforeEscalation == handed.methodBeforeEscalation);
+    CHECK(listed.routeIndices.size() == 2);
+
+    const Day twenty = dayWithReserved(20, 40);
+    CHECK(collectEscalatedLaneDates(twenty.run, twenty.classification).empty());
+}
 
 TEST_CASE("U-RT-01 twenty reserved stays in M4, planner or not" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(20, 40);

@@ -113,8 +113,8 @@ Conflicts and resolutions (no test is weakened; nothing is presented as customer
 | ID | Prerequisite | Why | Regression tests |
 |---|---|---|---|
 | P1 | DONE at 7cef94e, again at e51d9c4 (m4FixVerification.txt) and again at f9d9945 (m4Fix2Verification.txt, NEW BASELINE FOR M5: yes); repeat at the commit Tom accepts for M4 | RD-02, X-REPORT-03, INV-16 baseline | Existing `m4Benchmark`, RD-02 |
-| P2 | Extract the row checks (`setRowChecks`, `truckLimits`, `arrange`, `floorFits`, `keepsMethodLoad`; selector.cpp:421-694 at f9d9945) from `BundleSolver` (anonymous namespace) into a shared unit without behaviour change | One physical check for M4 and M5 | Full `ob_tests` unchanged; fingerprints unchanged |
-| P3 | Add gathering function `collectEscalatedLaneDates(plan, book, items)` returning per lane-date routes, items, groups, reserved count, `methodBeforeEscalation` | Today the hand-over is spread over four fields (REPORTED) | RD-02 |
+| P2 | DONE in PR-4. Extract the row checks (`setRowChecks`, `truckLimits`, `arrange`, `floorFits`, `keepsMethodLoad`; selector.cpp:421-694 at f9d9945) from `BundleSolver` (anonymous namespace) into a shared unit without behaviour change | One physical check for M4 and M5 | Full `ob_tests` unchanged; fingerprints unchanged |
+| P3 | DONE in PR-4 (`collectEscalatedLaneDates(run, classification)`, shared `largeLaneRequestOf`). Add gathering function `collectEscalatedLaneDates(plan, book, items)` returning per lane-date routes, items, groups, reserved count, `methodBeforeEscalation` | Today the hand-over is spread over four fields (REPORTED) | RD-02 |
 | P4 | Make `tests/params` temp files unique (or document serial-only) | Parallel test runs collide | `ob_tests` params cases |
 | P5 | DONE: float32 values, 9-18 decimals; M4 uses 0.001 grains (B9) | ED-ARITH revised | X-PAT-13 |
 | P6 | DONE: witness supported (B10); no per-truck capability in input (B4) | PC-3 closed, PC-4/C9 open | X-E2E-09, X-RES-12, U-DA-05 |
