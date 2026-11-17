@@ -326,7 +326,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
+      "testFile": "tests/m5/testM5TomRegressions.cpp",
       "fixture": "Tom's exact inputs (16 Nov): tests/fixtures/tomReview/m5ExactInputs/R-1a.json (SHA-256 fc58a9a4c1912b2d88b9a7cf28ee1bdaf5f0a1b1bcea3be2b72e65b47effd052)",
       "localOverrides": "Use Tom's exact file and the independently checked 25-unit witness; do not run the <=14-stack exhaustive oracle on the 40-item case or infer global optimality from the witness alone.",
       "entryPoint": "M4 + DIRECT",
@@ -392,7 +392,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
+      "testFile": "tests/m5/testM5TomRegressions.cpp",
       "fixture": "Tom's exact inputs (16 Nov): tests/fixtures/tomReview/m5ExactInputs/R-1b.json (SHA-256 40958f86d06dc40ca6d2e3b792b20c12b8bad2ac00ef551d70cc2f01470c0b8e)",
       "localOverrides": "Trailer floor 100 x 100 in for this run (from the file)",
       "entryPoint": "M4 + DIRECT",
@@ -839,7 +839,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
+      "testFile": "tests/m5/testM5TomRegressions.cpp",
       "fixture": "Tom's exact 14-stack inputs (e6dbb0f): exactness-counterexample.json, monotonicity-standard-results.json, proof-standard-results.jsonl (nine distractor variants); also tests/fixtures/tomReview/m5ExactInputs/R-5a.json (SHA-256 2534cf00edaa5980e71f93806f0971ce1d3d4aebed8ac1ceab53579bbe6a2d32)",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1204,7 +1204,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
+      "testFile": "tests/m5/testM5TomRegressions.cpp",
       "fixture": "Tom's eleven items (e6dbb0f): floor-proof-results.json, verified-layout.json; floor_proof_probe.cpp search seed 120112, 15,000 trials",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1295,7 +1295,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
+      "testFile": "tests/m5/testM5TomRegressions.cpp",
       "fixture": "Tom's 34 two-high 48 x 36 stacks (e6dbb0f): capacity_probe.cpp, capacity-results.json; cap 64 and cap 68",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",

@@ -2,11 +2,6 @@
 # ID|status|reason. NOT_RUN: planned, with the pull request that adds it. BLOCKED: a named prerequisite is
 # missing. EXTERNAL: covered by the ctest entry named. None of these is ever a pass; variant results come
 # only from evidence records.
-R-1a|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-1a.json)
-R-1b|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-1b.json)
-R-5a|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-5a.json)
-R-8|NOT_RUN|PR-3: Tom's eleven stacks (tests/fixtures/tomReview/e6dbb0f/)
-R-9|NOT_RUN|PR-3: unit-load cap 64 and 68
 X-PAT-16|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
 X-PAT-17|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
 X-STATE-11|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)

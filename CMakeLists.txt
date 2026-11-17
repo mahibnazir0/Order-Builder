@@ -161,6 +161,7 @@ add_executable(ob_tests
   tests/m5/testM5Coverage.cpp
   tests/m5/testM5Fixtures.cpp
   tests/m5/testM5Checkers.cpp
+  tests/m5/testM5TomRegressions.cpp
   tests/m5/m5EvidenceListener.cpp
 )
 
