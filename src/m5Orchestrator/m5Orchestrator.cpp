@@ -200,10 +200,17 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     const size_t bestSlot = slotCount > 0 ? slotsBestFirst(input.pool).front() : 0;
     for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
         if (!snapshot.eligibility[atom].eligible) continue;
-        // Fits a slot alone: the roomiest, since slots differ only in cap.
-        if (slotCount > 0 && !checkTruckInRoute(input, {atom}, input.pool.slots[bestSlot], physical, physical.floor.searchStateLimit).fits) {
-            unfittable[atom] = 1;
-            continue;
+        // Fits a slot alone: the roomiest, since slots differ only in cap. Only a decided refusal makes a
+        // good unfittable; an Undecided one stays offered and counted, never reported as fitting no trailer
+        // (ED-19, U-CF-08).
+        if (slotCount > 0) {
+            const PhysicalCheck alone = services.singleUnitCheck
+                                            ? services.singleUnitCheck(atom)
+                                            : checkTruckInRoute(input, {atom}, input.pool.slots[bestSlot], physical, physical.floor.searchStateLimit);
+            if (!alone.fits && !alone.undecided) {
+                unfittable[atom] = 1;
+                continue;
+            }
         }
         ++eligibleFitting;
         if (isRequired(input.atoms[atom])) ++requiredFitting;

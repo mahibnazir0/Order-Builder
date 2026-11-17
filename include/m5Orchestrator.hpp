@@ -98,6 +98,9 @@ struct M5RunServices {
     std::vector<std::shared_ptr<const MethodPlanner>> methods;  // empty: the profile's method policy
     std::function<void(MethodId)> beforeMethod;
     std::function<void(std::size_t)> afterBlock;  // test seam, see MethodContext
+    // Test seam only: replaces the check of one eligible atom alone on the roomiest slot, so a test can
+    // force an Undecided verdict that a one-unit check never gives today (U-CF-08, ED-19).
+    std::function<PhysicalCheck(std::size_t atom)> singleUnitCheck;
     // FX-COMMIT test seam only: a run the allowance stopped returns no plan at all instead of its
     // best checked one. Production keeps the checked plan (ED-10).
     bool wholeLaneRollback = false;

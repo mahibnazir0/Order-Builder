@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -1526,6 +1527,73 @@ TEST_CASE("U-CF-08/unprovenRequiredControl: a required unit whose fit was never 
     const set<string> shipped = shippedIds(outcome, input);
     if (shipped.count("H") == 0) CHECK(shippedWithPrefix(shipped, "f") == 0);
     m5Evidence::note("expected", {"H never labelled 'fits no reserved trailer' while undecided", "no future good ships in its place"});
+}
+
+namespace {
+
+// The one-unit check a test forces: Undecided for the atoms named, the real check for the rest.
+PhysicalCheck undecidedCheck() {
+    PhysicalCheck check;
+    check.undecided = true;
+    check.stop = SearchStop::RouteLimit;
+    return check;
+}
+
+M5LaneOutcome planWithAloneCheck(const M5LaneDateInput& input, function<PhysicalCheck(size_t)> aloneCheck) {
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.singleUnitCheck = std::move(aloneCheck);
+    return planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+}
+
+}  // namespace
+
+TEST_CASE("U-CF-08 undecided alone: a required unit whose one-unit check is Undecided is offered and ships, never 'fits no trailer'" * doctest::test_suite("m5")) {
+    // ED-19: only a decided refusal makes a good unfittable. The stub forces H's alone check Undecided.
+    const M5LaneDateInput input = cf08Lane(fx30("H"));
+    size_t stubCalls = 0;
+    const M5LaneOutcome outcome = planWithAloneCheck(input, [&](size_t atom) {
+        ++stubCalls;
+        return atom == 0 ? undecidedCheck() : checkTruck(input, {atom}, kDefaultTrailer, physicalSettings());
+    });
+    requireInvariants(outcome, input);
+    CHECK(stubCalls == 31);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.count("H") == 1);
+    CHECK(shippedWithPrefix(shipped, "f") == 29);
+    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 1);
+    CHECK(outcome.leftOver.size() == 1);
+    CHECK(shipped.size() + outcome.leftOver.size() == 31);
+    CHECK(outcome.requiredService == ServiceLevel::Full);
+}
+
+TEST_CASE("U-CF-08 undecided alone: every one-unit check Undecided leaves every good offered, none labelled unfittable" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = cf08Lane(fx30("H"));
+    const M5LaneOutcome outcome = planWithAloneCheck(input, [](size_t) { return undecidedCheck(); });
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.size() == 30);
+    CHECK(shipped.count("H") == 1);
+    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 0);
+    CHECK(shipped.size() + outcome.leftOver.size() == 31);
+    // The undecided goods stay in the service count: 30 of 31 offered is Partial, not Full of 0.
+    CHECK(outcome.offeredService == ServiceLevel::Partial);
+    CHECK(outcome.requiredService == ServiceLevel::Full);
+}
+
+TEST_CASE("U-CF-08 undecided alone: through the seam a decided refusal still marks the good unfittable" * doctest::test_suite("m5")) {
+    // Control for the stub: a decided DoesNotFit for H keeps H out exactly as the real overweight case does.
+    const M5LaneDateInput input = cf08Lane(fx30("H"));
+    const M5LaneOutcome outcome = planWithAloneCheck(input, [&](size_t atom) {
+        return atom == 0 ? PhysicalCheck{} : checkTruck(input, {atom}, kDefaultTrailer, physicalSettings());
+    });
+    requireInvariants(outcome, input);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.count("H") == 0);
+    CHECK(shippedWithPrefix(shipped, "f") == 30);
+    CHECK(causeOf(outcome, input, "H") == LeftOverCause::Unfittable);
+    CHECK(outcome.leftOver.size() == 1);
 }
 
 TEST_CASE("X-DATE-06 every component's date is checked, inside a mixed stack too" * doctest::test_suite("m5")) {
