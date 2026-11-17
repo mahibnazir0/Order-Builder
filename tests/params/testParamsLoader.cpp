@@ -1,15 +1,14 @@
 #include "doctest.h"
 #include "paramsLoader.hpp"
+#include "../runTempFolder.hpp"
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <random>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -36,33 +35,7 @@ bool isPrintableAscii(const string& text) {
     });
 }
 
-// A folder of this test run's own under the system temp folder, removed when the run ends. Two runs
-// at once used to collide on fixed names in tests/params; create_directory fails on a name already
-// taken, so each run keeps drawing until it owns a fresh one.
-class RunTempFolder {
-public:
-    RunTempFolder() {
-        random_device draw;
-        do {
-            path_ = filesystem::temp_directory_path() / ("obParamsTests_" + to_string(draw()) + "_" + to_string(draw()));
-        } while (!filesystem::create_directory(path_));
-    }
-    ~RunTempFolder() {
-        error_code ignored;
-        filesystem::remove_all(path_, ignored);
-    }
-    RunTempFolder(const RunTempFolder&) = delete;
-    RunTempFolder& operator=(const RunTempFolder&) = delete;
-    const filesystem::path& path() const { return path_; }
-
-private:
-    filesystem::path path_;
-};
-
-const filesystem::path& runTempFolder() {
-    static const RunTempFolder folder;
-    return folder.path();
-}
+using testTemp::runTempFolder;
 
 string writeParamsFile(const string& fileName, const string& content) {
     const string path = (runTempFolder() / fileName).string();

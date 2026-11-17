@@ -3,6 +3,7 @@
 // own validation, ledger or solver, so a defect there cannot pass its own test.
 
 #include "floorPattern.hpp"
+#include "m5LayoutChecker.hpp"
 #include "m5Orchestrator.hpp"
 #include "m5Solver.hpp"
 #include "m5Types.hpp"
@@ -63,9 +64,24 @@ inline bool packingValid(const ob::m5::ScalarModel& model, const ob::m5::ScalarP
     return std::all_of(seen.begin(), seen.end(), [](int count) { return count == 1; });
 }
 
-// INV-01..07 on a planned lane-date, recounted: every atom once on a truck or left over, trucks
-// within the pool, one group per truck, within payload and ceiling, rows that fit, and every
-// line available and due within the pull-forward window on the departure.
+// Days since 1970-01-01 of an ISO date (YYYY-MM-DD), by the civil-calendar formula, so day counts
+// cross month and year ends correctly.
+inline long long daysSinceEpoch(const std::string& isoDate) {
+    long long year = std::stoll(isoDate.substr(0, 4));
+    const long long month = std::stoll(isoDate.substr(5, 2));
+    const long long day = std::stoll(isoDate.substr(8, 2));
+    year -= month <= 2 ? 1 : 0;
+    const long long era = (year >= 0 ? year : year - 399) / 400;
+    const long long yearOfEra = year - era * 400;
+    const long long dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    const long long dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return era * 146097 + dayOfEra - 719468;
+}
+
+// INV-01..08 on a planned lane-date, recounted: every atom once on a truck or left over, trucks
+// within the pool, one group per truck, within payload and ceiling, a floor witness that the
+// independent layout checker accepts, and every line available and due within the pull-forward
+// window on the departure.
 inline std::vector<std::string> invariantViolations(const ob::m5::M5LaneOutcome& outcome, const ob::m5::M5LaneDateInput& input,
                                                     const ob::FloorPatternSettings& floor) {
     std::vector<std::string> violations;
@@ -88,20 +104,16 @@ inline std::vector<std::string> invariantViolations(const ob::m5::M5LaneOutcome&
                 if (component.availableDate > input.departure) violations.push_back("INV-07 " + component.source + " not available");
                 if (component.dueDate > input.departure) {
                     const long long allowed = input.dates.pullForward ? input.dates.maxDaysPulledForward : 0;
-                    // Within August fixtures the day of month is the date arithmetic.
-                    const long long ahead = std::stoll(component.dueDate.substr(8)) - std::stoll(input.departure.substr(8));
+                    const long long ahead = daysSinceEpoch(component.dueDate) - daysSinceEpoch(input.departure);
                     if (ahead > allowed) violations.push_back("INV-08 " + component.source + " outside the window");
                 }
             }
         }
         if (weight > slot.maxWeightLb) violations.push_back("INV-02 over the weight limit");
-        ob::TrailerSpec trailer;
-        trailer.interiorLengthIn = slot.lengthIn;
-        trailer.interiorWidthIn = slot.widthIn;
-        trailer.stackHeightCeilingIn = slot.heightIn;
-        trailer.weightLimitLb = slot.maxWeightLb;
-        const ob::FloorLayout layout = ob::arrangeFloor(items, trailer, floor);
-        if (!layout.fitsLength || !layout.unplaceableItems.empty()) violations.push_back("INV-03 rows do not fit");
+        for (const std::string& problem :
+             m5LayoutChecker::witnessProblems(truck.layout, items, slot.lengthIn, slot.widthIn, slot.heightIn, floor)) {
+            violations.push_back("INV-03 " + problem);
+        }
     }
     for (const ob::m5::LeftOver& left : outcome.leftOver) ++uses.at(left.atom);
     for (std::size_t atom = 0; atom < uses.size(); ++atom) {

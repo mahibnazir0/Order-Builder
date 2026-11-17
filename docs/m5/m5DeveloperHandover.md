@@ -606,3 +606,19 @@ WP8: add typed M5 handoff refusal variants for malformed/unsupported reservation
 WP9/WP10: build a fresh cross-compiler evidence gate; optional P2 stress variants are NOT_RUN and unselected until separately approved. No original v11 required case is deferred by this revision.
 
 The complete 162-case disposition table is in `m5Phase1V11Reconciliation.md`; its JSON/CSV forms identify all exact v11 IDs and variants. All newly added tests are NOT_RUN. The repository was not attached for C++ test-code execution in this document-only revision.
+
+## Revision 9.2 repository update (17 November 2026)
+
+- Base: the existing `feature/m5` code (Revision 4, tests v7) is kept; WP1-WP10 are carried out as gap closure
+  to tests v12, one pull request at a time (architecture Section 22). M4 commit `2c59941` is merged; the WP0
+  baseline and inventory are in `m5RepoInventory.md`.
+- Decisions D1-D7 are in architecture Section 22. D1 selects R-7 m4Path/m5Path (552 NOT_RUN, 5 BLOCKED).
+  D3 fixes the supported input step at 0.01 in / 0.01 lb (v12 Section 43).
+- Test layout (D4): tests stay flat in `tests/m5/`; the manifest's `testFile` is authoritative. The "Files:"
+  lines of the work packages above name the planned layout and are superseded for test paths. A test case
+  declares its variants as `testId/variant` tokens in its name.
+- Evidence (D5): records are written by every run to `<build>/m5Evidence/<commit>/` and travel with a
+  delivery; they are not committed. `ctest -R m5EvidenceStatus` writes the per-variant status; the acceptance
+  gate is `ob_tests "-tc=m5Acceptance*" --no-skip` (traceability Section 11.2).
+- Tom's 16 Nov inputs are committed under `tests/fixtures/tomReview/m5ExactInputs/` and his e6dbb0f review files
+  under `tests/fixtures/tomReview/e6dbb0f/`, checked by SHA-256 before use.

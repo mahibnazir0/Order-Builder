@@ -120,7 +120,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Published.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "FX-COUNT + PUB binpack1.txt",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -167,7 +167,7 @@
         "M-VAL"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real August fixtures (Aug5) + REAL_CUSTOMER profile",
       "localOverrides": "",
       "entryPoint": "REAL + BENCH",
@@ -265,7 +265,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP (G=1, >=)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -326,7 +326,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/selector/testSelector.cpp (REPORTED, existing) + tests/m5/regression/testM5TomRegressions.cpp",
+      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
       "fixture": "Tom's exact inputs (16 Nov): tests/fixtures/tomReview/m5ExactInputs/R-1a.json (SHA-256 fc58a9a4c1912b2d88b9a7cf28ee1bdaf5f0a1b1bcea3be2b72e65b47effd052)",
       "localOverrides": "Use Tom's exact file and the independently checked 25-unit witness; do not run the <=14-stack exhaustive oracle on the 40-item case or infer global optimality from the witness alone.",
       "entryPoint": "M4 + DIRECT",
@@ -392,7 +392,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/selector/testSelector.cpp (REPORTED, existing) + tests/m5/regression/testM5TomRegressions.cpp",
+      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
       "fixture": "Tom's exact inputs (16 Nov): tests/fixtures/tomReview/m5ExactInputs/R-1b.json (SHA-256 40958f86d06dc40ca6d2e3b792b20c12b8bad2ac00ef551d70cc2f01470c0b8e)",
       "localOverrides": "Trailer floor 100 x 100 in for this run (from the file)",
       "entryPoint": "M4 + DIRECT",
@@ -457,7 +457,7 @@
         "M-OPT"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + injected repair",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -525,7 +525,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "local y = 2,400 cu ft (x = 40,000); no carry/pull",
       "entryPoint": "DIRECT",
@@ -593,7 +593,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + local two-date stack",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -641,7 +641,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + local two-date stack",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -687,7 +687,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 (R-4 explicit comparison)",
       "localOverrides": "30 P11 due D-1 vs 30 P0 due D; carry on",
       "entryPoint": "DIRECT",
@@ -737,7 +737,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 (R-4 explicit comparison)",
       "localOverrides": "30 P11 due D-1 vs 30 P0 due D; carry on",
       "entryPoint": "DIRECT",
@@ -787,7 +787,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 (R-4 explicit comparison)",
       "localOverrides": "30 P11 due D-1 vs 30 P0 due D; carry on",
       "entryPoint": "DIRECT",
@@ -839,7 +839,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/selector/testSelector.cpp (REPORTED, existing) + tests/m5/regression/testM5TomRegressions.cpp",
+      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
       "fixture": "Tom's exact 14-stack inputs (e6dbb0f): exactness-counterexample.json, monotonicity-standard-results.json, proof-standard-results.jsonl (nine distractor variants); also tests/fixtures/tomReview/m5ExactInputs/R-5a.json (SHA-256 2534cf00edaa5980e71f93806f0971ce1d3d4aebed8ac1ceab53579bbe6a2d32)",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -934,7 +934,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Random single-truck stacks, fixed seeds; exact row-grouping oracle; failures_old (7cef94e) and failures_e51d9c4 regressions",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1039,7 +1039,7 @@
         "M-M4"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local: group A 12 x 60x60 (10 fit), group B 11 x 48x40, one truck, all P0",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1101,7 +1101,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "Two lanes, FX-30, one lane switched to PriorityFirst",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1122,37 +1122,35 @@
         {
           "variant": "m4Path",
           "requirement": "conditional",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
           "note": "Normative variant assertions below; historical measurements remain reported evidence.",
           "evidenceScope": "SYNTHETIC",
-          "blocker": "Deferred production per-lane input adapter is not implemented at the reported f9d9945 baseline; this conditional variant is explicitly unselected for current M5 acceptance.",
-          "expectedBehavior": "If explicitly selected by a later recorded decision, execute the complete R-7 A/B/A integration, lane isolation, override-removal and unchanged-no-override fingerprint assertions. The current milestone retains this unselected variant and its reason without counting it as PASS.",
+          "expectedBehavior": "Execute the complete R-7 A/B/A integration, lane isolation, override-removal and unchanged-no-override fingerprint assertions. Selected by decision D1 (17 Nov 2026): required for the current milestone; NOT_RUN until executed.",
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
-          "selectedForCurrentMilestone": false,
-          "selectionReason": "Tom's recorded deferral: AgeFirst remains run-wide until a per-lane override and its milestone are explicitly agreed.",
-          "selectionDecisionRef": "R-7 / P9 / B27 current deferral",
-          "activationCondition": "A recorded agreement selects the per-lane production override and its milestone; the target input adapter and current evidence must then satisfy the integration assertions.",
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Decision D1 (17 Nov 2026): the per-lane past-due setting is implemented on the M5 branch (selection.pastDueOrderByLane, off by default) and awaits Tom's confirmation; the integration variants are selected for the current milestone.",
+          "selectionDecisionRef": "D1, architecture Section 22; v12 Section 43",
+          "activationCondition": "Selected 17 Nov 2026 by decision D1.",
           "dependencies": [
-            "PENDING:M4 per-lane pastDueOrder setting (not in f9d9945; override and milestone not yet agreed)"
+            "IMPLEMENTED:selection.pastDueOrderByLane on the M5 branch, off by default; awaiting Tom's confirmation"
           ]
         },
         {
           "variant": "m5Path",
           "requirement": "conditional",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
           "note": "Normative variant assertions below; historical measurements remain reported evidence.",
           "evidenceScope": "SYNTHETIC",
-          "blocker": "Deferred production per-lane input adapter is not implemented at the reported f9d9945 baseline; this conditional variant is explicitly unselected for current M5 acceptance.",
-          "expectedBehavior": "If explicitly selected by a later recorded decision, execute the complete R-7 A/B/A integration, lane isolation, override-removal and unchanged-no-override fingerprint assertions. The current milestone retains this unselected variant and its reason without counting it as PASS.",
+          "expectedBehavior": "Execute the complete R-7 A/B/A integration, lane isolation, override-removal and unchanged-no-override fingerprint assertions. Selected by decision D1 (17 Nov 2026): required for the current milestone; NOT_RUN until executed.",
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
-          "selectedForCurrentMilestone": false,
-          "selectionReason": "Tom's recorded deferral: AgeFirst remains run-wide until a per-lane override and its milestone are explicitly agreed.",
-          "selectionDecisionRef": "R-7 / P9 / B27 current deferral",
-          "activationCondition": "A recorded agreement selects the per-lane production override and its milestone; the target input adapter and current evidence must then satisfy the integration assertions.",
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Decision D1 (17 Nov 2026): the per-lane past-due setting is implemented on the M5 branch (selection.pastDueOrderByLane, off by default) and awaits Tom's confirmation; the integration variants are selected for the current milestone.",
+          "selectionDecisionRef": "D1, architecture Section 22; v12 Section 43",
+          "activationCondition": "Selected 17 Nov 2026 by decision D1.",
           "dependencies": [
-            "PENDING:M4 per-lane pastDueOrder setting (not in f9d9945; override and milestone not yet agreed)"
+            "IMPLEMENTED:selection.pastDueOrderByLane on the M5 branch, off by default; awaiting Tom's confirmation"
           ]
         },
         {
@@ -1206,7 +1204,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/regression/testM5TomRegressions.cpp",
+      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
       "fixture": "Tom's eleven items (e6dbb0f): floor-proof-results.json, verified-layout.json; floor_proof_probe.cpp search seed 120112, 15,000 trials",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1297,7 +1295,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/regression/testM5TomRegressions.cpp",
+      "testFile": "tests/m5/testM5TomRegressions.cpp (planned, PR-3)",
       "fixture": "Tom's 34 two-high 48 x 36 stacks (e6dbb0f): capacity_probe.cpp, capacity-results.json; cap 64 and cap 68",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1371,7 +1369,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1437,7 +1435,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1486,7 +1484,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "T = 50",
       "entryPoint": "ROUTE",
@@ -1531,7 +1529,7 @@
         "M-INT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "unsupported mode in config",
       "entryPoint": "POLICY",
@@ -1577,7 +1575,7 @@
         "M-INT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "unsupported mode in config",
       "entryPoint": "POLICY",
@@ -1624,7 +1622,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1672,7 +1670,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE + raw-material rows",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1719,7 +1717,7 @@
         "TEST"
       ],
       "workPackage": "WP0",
-      "testFile": "tests/benchmarkHarness/testM4Benchmark.cpp (REPORTED, existing)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -1762,7 +1760,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5Handover.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1810,7 +1808,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5Handover.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -1856,7 +1854,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5Handover.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1902,7 +1900,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5Handover.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1950,7 +1948,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5Handover.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -1996,7 +1994,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2047,7 +2045,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2096,7 +2094,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2146,7 +2144,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures (M4 pallet types)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -2211,7 +2209,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures (M4 pallet types)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -2259,7 +2257,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures (M4 pallet types)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -2307,7 +2305,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures (M4 pallet types)",
       "localOverrides": "stacking asserted through the M2 stack builder (canStack); M5 never stacks items (B5)",
       "entryPoint": "CORE",
@@ -2356,7 +2354,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2442,7 +2440,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2494,7 +2492,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2546,7 +2544,7 @@
         "M-OPT"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30 + injected trim",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2591,7 +2589,7 @@
         "M-RPT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 7 Aug lane-date",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -2657,7 +2655,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2701,7 +2699,7 @@
         "M-M4"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2745,7 +2743,7 @@
         "M-POL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -2815,7 +2813,7 @@
         "M-POL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30",
       "localOverrides": "Distinct belowFullAccepted and fullButWithheld fixtures; no equivalence between fullness labels and optional acceptance.",
       "entryPoint": "DIRECT",
@@ -2900,7 +2898,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "explicit penalty rate or penalty excluded",
       "entryPoint": "DIRECT",
@@ -2956,7 +2954,7 @@
         "TEST"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-30 thresholds",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -3014,7 +3012,7 @@
         "M-POL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3078,7 +3076,7 @@
         "M-POL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30, two groups",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3138,7 +3136,7 @@
         "M-RPT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-30 + malformed profiles",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -3210,7 +3208,7 @@
         "M-RPT"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "X-E2E-09 nonstackable display witness (48x40x50in, 800 lb); optional x40000/y3000; production uses 31 source/30 selected U-FL-04 fixture",
       "localOverrides": "",
       "entryPoint": "DIRECT + VALID",
@@ -3277,7 +3275,7 @@
         "M-POL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "six single-violation variants + control",
       "entryPoint": "VALID",
@@ -3407,7 +3405,7 @@
         "M-COM"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "25 units, injected removal to 24; interrupt variant",
       "entryPoint": "VALID + DIRECT",
@@ -3487,7 +3485,7 @@
         "M-PHY"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Policy.cpp",
       "fixture": "FX-30",
       "localOverrides": "profiles A(y=2,400) / B(y=3,000); same-id revision variant",
       "entryPoint": "DIRECT",
@@ -3572,7 +3570,7 @@
         "M-LED"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3633,7 +3631,7 @@
         "M-LED"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3677,7 +3675,7 @@
         "M-MB"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "block size 0, negative, fractional",
       "entryPoint": "POLICY",
@@ -3723,7 +3721,7 @@
         "M-ALC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-CLOCK + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3774,7 +3772,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -3820,7 +3818,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -3865,7 +3863,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Published.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "PUB binpack1.txt",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -3912,7 +3910,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -3959,7 +3957,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -4006,7 +4004,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -4053,7 +4051,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -4103,7 +4101,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -4153,7 +4151,7 @@
         "M-M4"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "n/a",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -4195,7 +4193,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4270,7 +4268,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4328,7 +4326,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4382,7 +4380,7 @@
       "ownerModule": "M-POL",
       "collaborators": [],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-GAP",
       "localOverrides": "invalid gaps",
       "entryPoint": "POLICY",
@@ -4431,7 +4429,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4487,7 +4485,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4547,7 +4545,7 @@
         "M-POL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "explicit rates and missing rate",
       "entryPoint": "DIRECT + REPORT",
@@ -4606,7 +4604,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4655,7 +4653,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4704,7 +4702,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Input-validation fixture",
       "localOverrides": "-1, 12, 99, empty, text, 1.5",
       "entryPoint": "DIRECT",
@@ -4752,7 +4750,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 (R-4 setup)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4798,7 +4796,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 (R-4 setup)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4845,7 +4843,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4891,7 +4889,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4954,7 +4952,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -5000,7 +4998,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -5048,7 +5046,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5097,7 +5095,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5146,7 +5144,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5195,7 +5193,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5242,7 +5240,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Unit-conversion fixtures (M4 converter)",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -5318,7 +5316,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Parked-feature rows",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -5365,7 +5363,7 @@
         "M-VAL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp (planned, PR-10)",
       "fixture": "Container profile 473.700787 x 92.519685 x 106.220472 in (12,032 x 2,350 x 2,698 mm); 48 x 40 in stacks; FX-30 goods",
       "localOverrides": "One trailer type for the whole run",
       "entryPoint": "ROUTE + DIRECT",
@@ -5467,7 +5465,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-30 profile + missing-profile variant",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -5526,7 +5524,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 structured outcome",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -5570,7 +5568,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 structured outcome",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -5615,7 +5613,7 @@
         "M-ORC"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -5660,7 +5658,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 structured outcome",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -5703,7 +5701,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "any",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -5743,7 +5741,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -5787,7 +5785,7 @@
         "M-RPT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-CLOCK + real lanes",
       "localOverrides": "",
       "entryPoint": "DIRECT + REAL",
@@ -5844,7 +5842,7 @@
         "M-RPT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -5890,7 +5888,7 @@
         "M-ALC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30 + work-count stop",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -5947,7 +5945,7 @@
         "TEST"
       ],
       "workPackage": "WP0",
-      "testFile": "tests/benchmarkHarness/testM4Benchmark.cpp (REPORTED, existing)",
+      "testFile": "tests/benchmarkHarness/testM4Benchmark.cpp (ctest entry m4BenchmarkThreadsSuccess)",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -5987,7 +5985,7 @@
         "M-ORC"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-CLOCK arithmetic",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -6035,7 +6033,7 @@
         "M-PHY"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 / local light stacks + FX-FULL",
       "localOverrides": "",
       "entryPoint": "VALID",
@@ -6084,7 +6082,7 @@
         "M-PHY"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 / local light stacks + FX-FULL",
       "localOverrides": "",
       "entryPoint": "VALID",
@@ -6133,7 +6131,7 @@
         "M-VAL"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-FULL config variants",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -6191,7 +6189,7 @@
         "M-PHY"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "X-E2E-09 display fixture + FX-FULL",
       "localOverrides": "",
       "entryPoint": "VALID",
@@ -6243,7 +6241,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30 three-truck bucket fixture",
       "localOverrides": "",
       "entryPoint": "DIRECT + REPORT",
@@ -6292,7 +6290,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-CANGO",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -6342,7 +6340,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-CANGO",
       "localOverrides": "",
       "entryPoint": "ROUTE + DIRECT",
@@ -6391,7 +6389,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "FX-30 + FX-CANGO, two dates",
       "localOverrides": "Normal routing: 21 reservations on D and 20 on D+1; preserve separate date pools and exactly-once source reconciliation.",
       "entryPoint": "ROUTE + DIRECT",
@@ -6440,7 +6438,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug4/5/6",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6485,7 +6483,7 @@
         "M-M4"
       ],
       "workPackage": "WP0",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6530,7 +6528,7 @@
         "M-RPT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 7 Aug",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6593,7 +6591,7 @@
         "M-LED"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6640,7 +6638,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug4/5/6",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6686,7 +6684,7 @@
         "M-INT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5/Aug6 joined dates",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -6748,7 +6746,7 @@
         "M-INT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5/Aug6 joined dates",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -6809,7 +6807,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Real Aug4",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6855,7 +6853,7 @@
         "M-LED"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6898,7 +6896,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug4/5/6",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6940,7 +6938,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug4/5/6 + client figures",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -6984,7 +6982,7 @@
         "M-LED"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Historical client trucks and final M4/M5 plans with actual M4 layout witnesses, final leftovers and current fullness profile",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -7032,7 +7030,7 @@
         "M-M4"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Exact linked-date August fixtures and normalized lane-date baseline evidence: original Aug6 2028->2574TL control plus reported Aug5 2023->2508TF and 2299->2292TF regressions from B30",
       "localOverrides": "",
       "entryPoint": "REAL",
@@ -7125,7 +7123,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7175,7 +7173,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp + tests/m5/testM5Planning.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7224,7 +7222,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7273,7 +7271,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7320,7 +7318,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7383,7 +7381,7 @@
         "M-INT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -7429,7 +7427,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE + POLICY",
@@ -7474,7 +7472,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE + raw + parked rows",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7520,7 +7518,7 @@
         "M-INT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "forced benchmark then normal run, same process",
       "entryPoint": "FORCED + ROUTE",
@@ -7565,7 +7563,7 @@
         "M-LED"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -7611,7 +7609,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7659,7 +7657,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7707,7 +7705,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7755,7 +7753,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7803,7 +7801,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7851,7 +7849,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7899,7 +7897,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7947,7 +7945,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -7995,7 +7993,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8043,7 +8041,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8087,7 +8085,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8137,7 +8135,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-COUNT + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8187,7 +8185,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8235,7 +8233,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8283,7 +8281,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT random, fixed seeds",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8328,7 +8326,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8377,7 +8375,7 @@
         "M-POL"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP",
       "localOverrides": "",
       "entryPoint": "CORE + REPORT",
@@ -8423,7 +8421,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8471,7 +8469,7 @@
         "M-POL"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5SolverCore.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT + acceptance adapter",
       "localOverrides": "x = 10, y = 6, strict",
       "entryPoint": "CORE",
@@ -8529,7 +8527,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8577,7 +8575,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8623,7 +8621,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8669,7 +8667,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8715,7 +8713,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5PatternPlanner.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8763,7 +8761,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8812,7 +8810,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8860,7 +8858,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures + master V1/V2",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8909,7 +8907,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures + master V1/V2",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -8959,7 +8957,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9003,7 +9001,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9052,7 +9050,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9101,7 +9099,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9186,7 +9184,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9236,7 +9234,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "stacking asserted through the M2 stack builder (canStack); M5 never stacks items (B5)",
       "entryPoint": "CORE",
@@ -9285,7 +9283,7 @@
         "M-REP"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT model-level rebalance; explicit source group/date predicates; physical fullness NOT_APPLICABLE",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9332,7 +9330,7 @@
         "M-REP"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT model-level rebalance; explicit source group/date predicates; physical fullness NOT_APPLICABLE",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9379,7 +9377,7 @@
         "M-REP"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT model-level rebalance; explicit source group/date predicates; physical fullness NOT_APPLICABLE",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9426,7 +9424,7 @@
         "M-POL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT acceptance adapter",
       "localOverrides": "x = 10, y = 8.4",
       "entryPoint": "CORE",
@@ -9489,7 +9487,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9543,7 +9541,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9598,7 +9596,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT acceptance adapter",
       "localOverrides": "variant A y = 7.9, variant B y = 8; priority-first",
       "entryPoint": "CORE",
@@ -9669,7 +9667,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9722,7 +9720,7 @@
         "M-VAL"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Rebalance.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "50 units / 49 units, two reservations",
       "entryPoint": "DIRECT",
@@ -9798,7 +9796,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9844,7 +9842,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9890,7 +9888,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9936,7 +9934,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9984,7 +9982,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10029,7 +10027,7 @@
         "M-MB"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Local 63 x 100 TLD (X-BLK-06) + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10076,7 +10074,7 @@
         "M-MB"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "FX-CLOCK",
       "localOverrides": "allowance 100 units",
       "entryPoint": "DIRECT",
@@ -10124,7 +10122,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Commit.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK + FX-COMMIT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10185,7 +10183,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10237,7 +10235,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10289,7 +10287,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10339,7 +10337,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10387,7 +10385,7 @@
         "M-POL"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Reservation input validation",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10432,7 +10430,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10484,7 +10482,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10534,7 +10532,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "case 1 unavailable P0; case 2 oversized P0",
       "entryPoint": "DIRECT",
@@ -10594,7 +10592,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10642,7 +10640,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "rates 5, 7, missing, 0",
       "entryPoint": "DIRECT + REPORT",
@@ -10689,7 +10687,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Commit.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10738,7 +10736,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30 with heterogeneous reserved trailers",
       "localOverrides": "45,000 / 30,000 lb; variant A y = 2,400; variant B y = 3,000",
       "entryPoint": "DIRECT",
@@ -10816,7 +10814,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp (planned, PR-8)",
       "fixture": "FX-TIE: FX-CAP-ATOM T2 atoms; groups G1/G2(/G3), three atoms (six unit loads) each, all P0; one slot cap 6 per lane-date; lanes LA 9001|9004|TL, LB 9001|9003|TL, LC 9001|9002|TL; ship dates 6/7/8 Aug 2028",
       "localOverrides": "Acceptance OFF, carry/pull OFF, fresh snapshots per run, direct M5 invocation",
       "entryPoint": "DIRECT",
@@ -11036,7 +11034,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11083,7 +11081,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11132,7 +11130,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11179,7 +11177,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11226,7 +11224,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11273,7 +11271,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Local 20 x 100 x 50 in stackable TLD",
       "localOverrides": "pull off / pull on 10",
       "entryPoint": "VALID",
@@ -11329,7 +11327,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11392,7 +11390,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "age-first and priority-first",
       "entryPoint": "DIRECT",
@@ -11448,7 +11446,7 @@
         "M-ORC"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "fresh snapshots for D and D+7",
       "entryPoint": "VALID",
@@ -11502,7 +11500,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Date arithmetic",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -11543,7 +11541,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11590,7 +11588,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Dates.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11637,7 +11635,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11681,7 +11679,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11725,7 +11723,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11772,7 +11770,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11819,7 +11817,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11865,7 +11863,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30 V1 / V2 (1,600 lb)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11915,7 +11913,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -11961,7 +11959,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12007,7 +12005,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12051,7 +12049,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12098,7 +12096,7 @@
         "M-M4"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 / conversion fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12142,7 +12140,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12189,7 +12187,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12253,7 +12251,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/integration/testM5HandoverData.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Input-validation fixtures",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12301,7 +12299,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12349,7 +12347,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12416,7 +12414,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12464,7 +12462,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12529,7 +12527,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12577,7 +12575,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12625,7 +12623,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12673,7 +12671,7 @@
         "M-ORC"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/allocation/testM5Allocation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -12719,7 +12717,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12771,7 +12769,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12823,7 +12821,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12877,7 +12875,7 @@
         "M-RPT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Policy.cpp",
       "fixture": "Synthetic x = 40,000 / y = 3,300",
       "localOverrides": "",
       "entryPoint": "POLICY + REPORT",
@@ -12938,7 +12936,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -12980,7 +12978,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -13022,7 +13020,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -13064,7 +13062,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -13106,7 +13104,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -13148,7 +13146,7 @@
         "M-ALC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "FX-30 + work-count stop",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13206,7 +13204,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13257,7 +13255,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13308,7 +13306,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13360,7 +13358,7 @@
         "M-ALC"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-BLOCK + FX-PRIORITY",
       "localOverrides": "21 reserved; A 20 x P11 listed first; B 2 x P0; priority-first",
       "entryPoint": "DIRECT",
@@ -13424,7 +13422,7 @@
         "M-ORC"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/methodB/testM5BlockPlanner.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13469,7 +13467,7 @@
         "M-LED"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Commit.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COMMIT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13541,7 +13539,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/routing/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp",
       "fixture": "Parked-feature row mid-run",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -13587,7 +13585,7 @@
         "M-RPT"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/realData/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5Coverage.cpp",
       "fixture": "Evidence-gate fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -13717,7 +13715,7 @@
         "M-RPT"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/realData/testM5Performance.cpp (ctest entry m5Benchmark)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real lanes",
       "localOverrides": "",
       "entryPoint": "BENCH",
@@ -13780,7 +13778,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13834,7 +13832,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13906,7 +13904,7 @@
         "M-VAL"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "FX-CLOCK + FX-BLOCK / FX-30",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -13960,7 +13958,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT generated",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -14015,7 +14013,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT generated",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -14061,7 +14059,7 @@
         "M-LED"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / FX-COUNT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14109,7 +14107,7 @@
         "M-LED"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / FX-COUNT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14157,7 +14155,7 @@
         "M-LED"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / FX-COUNT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14205,7 +14203,7 @@
         "M-LED"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 / FX-COUNT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14253,7 +14251,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT generated",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -14298,7 +14296,7 @@
         "M-OPT"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT small exact",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14342,7 +14340,7 @@
         "M-OPT"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-COUNT small exact",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14387,7 +14385,7 @@
         "M-VAL"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/generated/testM5Generated.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Random physical inputs, fixed seeds",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14472,7 +14470,7 @@
         "M-COM"
       ],
       "workPackage": "WP10",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
       "fixture": "Real Aug5 frozen input",
       "localOverrides": "",
       "entryPoint": "REAL + FORCED",
@@ -14537,7 +14535,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 (R-2 local y = 2,400)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14603,7 +14601,7 @@
         "M-ALC"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Local 63 x 100 TLD, eight reservations",
       "localOverrides": "pull off / pull on 10",
       "entryPoint": "DIRECT",
@@ -14665,7 +14663,7 @@
         "M-ALC"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Local 378 x 100 units, two groups",
       "localOverrides": "y = 2,000 and y = 2,800",
       "entryPoint": "DIRECT",
@@ -14738,7 +14736,7 @@
         "M-ORC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK + FX-CLOCK + FX-COMMIT",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14799,7 +14797,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Big/small trailers + master V1/V2",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14848,7 +14846,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -14903,7 +14901,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP8",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "Reported figures 1,440 / 1,308 / 154",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -14946,7 +14944,7 @@
         "M-RPT"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/e2e/testM5EndToEnd.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Planning.cpp",
       "fixture": "Synthetic display TLD 48 x 40 x 50",
       "localOverrides": "30-position witness (15 rows x 2); y = 3,000 and y = 1,000",
       "entryPoint": "DIRECT",
@@ -15023,7 +15021,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Published.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "binpack1.txt (OR-Library)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -15070,7 +15068,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Published.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "binpack1.txt (OR-Library)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -15117,7 +15115,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Published.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "binpack1.txt (OR-Library)",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -15254,7 +15252,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-POL",
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Acceptance.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "Optional ON x40000/y3000; exact cube +/-1/4096 and weight +/-1/256; OFF control",
       "entryPoint": "POLICY",
       "oracle": "ARITH + STATE",
@@ -15376,7 +15374,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-VAL",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Exact weight 98% and rear 14 boundaries; actual 30000/45000 lb slot; independently fitting leftovers",
       "entryPoint": "VALID",
       "oracle": "ARITH + LAYOUT",
@@ -15459,7 +15457,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Three TLD210x100x36/1000 lb components plus 20in fitting leftover; upstream legal stacking 3/2/1 high",
       "entryPoint": "M4 + VALID",
       "oracle": "LAYOUT + ARITH + LEDGER + STATE",
@@ -15583,7 +15581,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-VAL",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Planning.cpp",
       "fixture": "Controlled600x100in candidate; exact fitting/nonfitting/empty/excluded/other-group residual snapshots",
       "entryPoint": "VALID",
       "oracle": "LAYOUT + LEDGER + STATE",
@@ -15678,7 +15676,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-VAL",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "U-FL-08 geometry; stop before fitting 20in residual class is tested; weight-full independent control",
       "entryPoint": "VALID",
       "oracle": "CLOCK + STATE + LAYOUT",
@@ -15778,7 +15776,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Fullness.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "Supplied 500x50 and 600x50 side-by-side rectangles; translations, invalid extents and coordinates",
       "entryPoint": "VALID",
       "oracle": "LAYOUT + ARITH + STATE",
@@ -15885,7 +15883,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-INT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "A31 requiredP11 versus B30 futureP0 FX30; groups separate; two/three slots; exact homogeneous capacity 30",
       "entryPoint": "DIRECT",
       "oracle": "CLASSCOUNT + LAYOUT + LEDGER",
@@ -15979,7 +15977,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-INT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "21 reserved >T20; no required cargo; one indivisible future FX-BLOCK atom; ON/OFF/date/availability controls",
       "entryPoint": "ROUTE",
       "oracle": "ARITH + LEDGER + STATE",
@@ -16085,7 +16083,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-INT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "D21/D+1 20 slots; R10/F20 FX30; controlled selectedA vs selectedB and exactly-once future draw",
       "entryPoint": "ROUTE + DIRECT",
       "oracle": "LEDGER + STATE",
@@ -16180,7 +16178,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-INT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "One slot; 25 requiredP11+10 eligible futureP0+two ineligible FX30; required-first capacity 30",
       "entryPoint": "DIRECT",
       "oracle": "ENUM-ALLOC + ARITH + LAYOUT + LEDGER",
@@ -16254,7 +16252,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-INT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/integration/testM5CanGo.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "One impossible required 45001 lb TLD vs 30 eligible future FX30; valid/unproven required controls",
       "entryPoint": "DIRECT",
       "oracle": "ARITH + ENUM-ALLOC + LEDGER",
@@ -16353,7 +16351,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-POL",
       "workPackage": "WP1",
-      "testFile": "tests/m5/policy/testM5Config.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp",
       "fixture": "Checked secondsPerLoad*reserved arithmetic and injected integer-clock representation bounds",
       "entryPoint": "POLICY + DIRECT",
       "oracle": "ARITH + CONFIGERR + CLOCK + STATE",
@@ -16471,7 +16469,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp",
       "fixture": "21-second fake wall deadline; optional parallel A/B8seconds; sequential control and boundary checks",
       "entryPoint": "DIRECT",
       "oracle": "CLOCK + STATE",
@@ -16562,7 +16560,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "Separate lane/date 21/20-second allowances; no pooling, reservation-version reset only by new context",
       "entryPoint": "DIRECT + FORCED",
       "oracle": "CLOCK + ARITH + STATE",
@@ -16645,7 +16643,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "Two slots/five FX-BLOCK atoms (2P0/3P11); subset/full-objective bound mismatch; scalar[6,6,4,4] control",
       "entryPoint": "DIRECT + CORE",
       "oracle": "CLASSCOUNT + ARITH + STATE + LEDGER",
@@ -16784,7 +16782,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp",
       "fixture": "TwentyFX30 units, one slot; ON(x40000/y3000)/OFF(absentsection)/ON with fresh and same-ID revised contexts",
       "entryPoint": "DIRECT + REPORT",
       "oracle": "ARITH + STATE + LEDGER + REPORTPARSE",
@@ -16914,7 +16912,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-COM",
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Commit.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp",
       "fixture": "V7 = 20 identified FX-30/two slots; atomic O1 ten-unit commit, conflicts/staleversion/replay/continuation",
       "entryPoint": "DIRECT",
       "oracle": "STATE + LEDGER",
@@ -17013,7 +17011,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-RPT",
       "workPackage": "WP8",
-      "testFile": "tests/m5/report/testM5Report.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured rear values 10/30/100/20 with three residual buckets and overlapping weight/rear reasons",
       "entryPoint": "REPORT",
       "oracle": "ARITH + REPORTPARSE",
@@ -17057,7 +17055,7 @@
       "title": "Unit-load coefficients survive physical class compression",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-5)",
       "fixture": "FX-CAP-ATOM: T2/T3 completed atoms both 48x36x90in/600 lb, but 2/3 unit loads; three T2 plus two T3; cap 5 one slot.",
       "entryPoint": "DIRECT",
       "oracle": "BRUTE + ARITH + LAYOUT + LEDGER",
@@ -17189,7 +17187,7 @@
       "title": "Caps follow actual slots through methods, pattern copies and repair",
       "ownerModule": "M-VAL",
       "workPackage": "WP4",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-5)",
       "fixture": "FX-CAP-ATOM eight T2 = 16 unit loads; two directly injected same-geometry slots S-big cap 5 / S-small cap 3; exact max 6 units.",
       "entryPoint": "DIRECT",
       "oracle": "BRUTE + ARITH + LAYOUT + LEDGER + STATE",
@@ -17297,7 +17295,7 @@
       "title": "Cap changes invalidate feasibility and proof while preserving legal geometry reuse",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/orchestration/testM5StateIsolation.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp (planned, PR-5)",
       "fixture": "FX-CAP-ATOM six T2 = 12 unit loads; one slot; same profile/equipment/master/dimensions, caps 7/5/7, new effective revisions.",
       "entryPoint": "DIRECT",
       "oracle": "ARITH + LAYOUT + STATE + LEDGER",
@@ -17375,7 +17373,7 @@
       "title": "A unit-load relaxation is a bound, not an all-goods packing certificate",
       "ownerModule": "M-OPT",
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5Escalation.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (planned, PR-5)",
       "fixture": "FX-CAP-ATOM seven T2 = 14 unit loads; four cap 5 slots; whole-atom minimum-truck model; exact optimum 4.",
       "entryPoint": "CORE + DIRECT",
       "oracle": "BRUTE + ARITH + LAYOUT + LEDGER + STATE",
@@ -17469,7 +17467,7 @@
       "title": "Floor search uncertainty is distinct from a checked witness and a proof of refusal",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Validation.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-6)",
       "fixture": "Eleven rigid 1-UL TLD atoms 52x100x50in/1000 lb each; standard slot cap 64; W11 extent 572 and W10 extent 520; injected bounded-search statuses.",
       "entryPoint": "DIRECT",
       "oracle": "ARITH + LAYOUT + LEDGER + STATE",
@@ -17565,7 +17563,7 @@
       "title": "Shared floor-state limits, exact exhaustion and retryable Unknown",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/orchestration/testM5Budget.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp (planned, PR-7)",
       "fixture": "Instrumented search for eleven-atom candidates P/Q/R of 52/53/54x100x50in and 1000 lb each; backend costs 4/2/1 states; per-call 3/shared-route 5.",
       "entryPoint": "DIRECT",
       "oracle": "CLOCK + ARITH + STATE + LAYOUT",
@@ -17639,7 +17637,7 @@
         "TEST"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/validation/testM5Physical.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-6)",
       "fixture": "FX-ROW-33-3 (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "CORE + VALID",
@@ -17690,7 +17688,7 @@
         "M-ORC"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/solver/testM5ColumnGeneration.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp (planned, PR-9)",
       "fixture": "FX-ZERO-PRICING (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "CORE",
@@ -17752,7 +17750,7 @@
         "M-LED"
       ],
       "workPackage": "WP4",
-      "testFile": "tests/m5/methodA/testM5Repair.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp (planned, PR-9)",
       "fixture": "FX-30 and injected repair toggles (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "DIRECT + VALID",
@@ -18307,7 +18305,7 @@
   "requirementSource": {
     "fileName": "M5_Edge_Cases_and_Tests_v12.md",
     "revision": "v12",
-    "sha256": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+    "sha256": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
     "namedTestCount": 304
   },
   "schemaNotes": "Schema 2 retains source identity, scoped variant expectations/dependencies and evidence scope. Optional selection metadata explicitly records deferred conditional R-7 integration; reportedBaseline is attributed historical evidence only. No application results are implied. v12 retains all v11 IDs and variants; 162 P12 mapping in m5Phase1V11Reconciliation.json.",

@@ -1,3 +1,18 @@
+## Revision 9.2 (17 November 2026): repository decisions and evidence gate
+
+- The M5 base is the existing `feature/m5` code; WP1-WP10 are closed to tests v12 one pull request at a time.
+  Decisions D1-D7 recorded in architecture Section 22; handover and traceability (Section 11.2) updated.
+- D1: R-7 m4Path/m5Path selected (conditional, NOT_RUN). Variant statuses 552 NOT_RUN, 5 BLOCKED. No test ID or
+  variant was added, removed or renumbered.
+- D3: v12 Section 43 appended (supported input step 0.01 in / 0.01 lb, plus the D1, D4 and D5 notes); no earlier
+  line moved, so every `sourceSection` line reference stands. Requirement SHA-256 is now
+  `bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea` in the manifest and traceability.
+- D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
+- D5: evidence records live in the build folder and are not committed.
+- Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).
+- Traceability test map: RD-13 baselineAug5_2023_2508 and baselineAug5_2299_2292 corrected from BLOCKED to
+  NOT_RUN to match the manifest (a Revision 9.1 mismatch; the manifest counts already had them NOT_RUN).
+
 ## Revision 9.1 (17 November 2026): v12 precision and history patch
 
 - Rewrote the v12 introduction with the 304/557/24/48/10 counts, kept the v11 record intact and added Section 42 to the reading order.

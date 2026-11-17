@@ -5,6 +5,7 @@
 #include "doctest.h"
 #include "../importer/crossDayFixtures.hpp"
 #include "../m4AugustFixtures.hpp"
+#include "../runTempFolder.hpp"
 #include "m5Integration.hpp"
 #include "m5Report.hpp"
 #include "paramsFields.hpp"
@@ -51,7 +52,7 @@ const PipelineResult& aug5WithoutM5() {
     static const PipelineResult run = [] {
         nlohmann::json root = readParamsFile(crossDayTests::kStrictParamsPath);
         root.erase("m5");
-        const filesystem::path path = filesystem::temp_directory_path() / "obM5RealData_paramsWithoutM5.json";
+        const filesystem::path path = testTemp::runTempFolder() / "obM5RealData_paramsWithoutM5.json";
         ofstream(path) << root.dump(2);
         return Pipeline::run(augustInputs(1, path.string()));
     }();

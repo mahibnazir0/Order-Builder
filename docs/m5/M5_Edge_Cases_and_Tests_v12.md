@@ -2775,3 +2775,21 @@ The two P2 stress variants (`X-META-10 / thousandStacksP2`, `X-META-10 / fiftyNi
 ### 42.4 Revision 11 to revision 12 and execution status
 
 All 301 v11 IDs and 522 variant keys remain. Exactly 3 new named tests and 35 new unique variant keys were added (two on X-CG-22, one on each other new test, and 31 variants on existing IDs). The 33 ADD_VARIANT proposals map to 32 unique keys because P12-E10 and P12-K08 share U-DA-07/unknownTypeNoFallback. Every added variant is NOT_RUN. The full program test suite has not been compiled or run by this document review.
+
+## 43. Repository notes (17 November 2026)
+
+Recorded in the repository after v12. They change no test ID, variant or expected result; they fix the
+terms the tests use where this specification leaves them to the repository.
+
+- Supported input step (decision D3). "One supported input step" is 0.01 in for lengths and 0.01 lb for
+  weights. Searches may use doubles. Every final legality check (length, width, height, weight, unit-load
+  cap, and the rear inches of the FULL label) converts to whole units of 0.01 in and 0.01 lb with checked
+  64-bit arithmetic and compares exactly. Architecture ED-ARITH and Section 22.
+- R-7 selection (decision D1). The per-lane past-due setting is implemented on the M5 branch
+  (`selection.pastDueOrderByLane`, off by default) and awaits Tom's confirmation. The recorded decision
+  selects R-7 m4Path and m5Path for the current milestone; they stay NOT_RUN until executed.
+- Test names (decision D4). A test case declares the variants it executes as testId/variant tokens in its
+  name, for example `X-RUN-09/duplicateID: ...`. The manifest's testFile paths follow the repository's
+  flat `tests/m5/` layout.
+- Evidence records (decision D5) are written by every test run into `<build>/m5Evidence/<commit>/` and
+  attached to deliveries. They are not committed.

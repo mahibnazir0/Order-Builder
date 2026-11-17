@@ -160,6 +160,8 @@ add_executable(ob_tests
   tests/m5/testM5Routing.cpp
   tests/m5/testM5Coverage.cpp
   tests/m5/testM5Fixtures.cpp
+  tests/m5/testM5Checkers.cpp
+  tests/m5/m5EvidenceListener.cpp
 )
 
 # The bin packer's termination test runs the packer on its own thread against a deadline.
@@ -181,6 +183,18 @@ target_compile_definitions(ob_tests PRIVATE OB_CLI_PATH="$<TARGET_FILE:order_bui
 target_compile_definitions(ob_tests PRIVATE OB_M4_BENCHMARK_REPORT="${CMAKE_BINARY_DIR}/m4BenchmarkReport.txt"
                                             OB_M4_FILL_DIAGNOSIS="${CMAKE_BINARY_DIR}/m4FillDiagnosis.txt"
                                             OB_M4_PROOF_COVERAGE="${CMAKE_BINARY_DIR}/m4ProofCoverage.txt")
+# M5 evidence records (traceability Section 11) go beside the build, under the commit the build came
+# from; the identity is rewritten at every build so a record never names a stale commit.
+add_custom_target(m5BuildIdentity ALL
+                  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                          -DOUTPUT=${CMAKE_BINARY_DIR}/m5BuildIdentity.txt
+                          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/m5BuildIdentity.cmake
+                  VERBATIM)
+add_dependencies(ob_tests m5BuildIdentity)
+target_compile_definitions(ob_tests PRIVATE OB_M5_EVIDENCE_DIR="${CMAKE_BINARY_DIR}/m5Evidence"
+                                            OB_M5_BUILD_IDENTITY="${CMAKE_BINARY_DIR}/m5BuildIdentity.txt"
+                                            OB_M5_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+                                            OB_M5_BUILD_CONFIG="$<CONFIG>")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
@@ -206,3 +220,9 @@ add_test(NAME m4BenchmarkThreadsSuccess
 # PUB-01..03 (ACC-1) on OR-Library's binpack1.txt (tests/m5/data/orlib/, SHA-256 in README.txt there).
 add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# The state of every manifest variant at this build, from the evidence records the entries above
+# wrote: <build>/m5Evidence/<commit>/m5EvidenceStatus.txt. It reports; it does not accept. The
+# acceptance gate itself is ob_tests "-tc=m5Acceptance*" --no-skip (X-RUN-09).
+add_test(NAME m5EvidenceStatus COMMAND ob_tests "-tc=m5EvidenceStatus*" --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(m5EvidenceStatus PROPERTIES DEPENDS "ob_tests;augustAcceptance;m5Core;m5RealData;m5Published")

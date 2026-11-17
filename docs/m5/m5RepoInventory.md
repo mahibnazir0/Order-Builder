@@ -43,11 +43,11 @@ M4-only commits merged into `feature/m5`: `2c59941`. With M5 off, every later PR
 | Language | C++17 (`CMakeLists.txt:4-5`) | VERIFIED | READ |
 | Targets | `ob_core`, `order_builder`, `ob_tests`; ctest entries `ob_tests`, `augustAcceptance`, `m4Benchmark`, `m5Core`, `m5RealData`, `m4BenchmarkThreadsSuccess`, `m5Published` | CHANGED (4 entries added on feature/m5; no `m5Benchmark`) | READ, `ctest -N` |
 | Warning flags | MSVC `/W4 /WX /utf-8` (`CMakeLists.txt:21`); GCC/Clang `-Wall -Wextra -Wpedantic -Werror` (`:23`) | VERIFIED | READ |
-| GCC 16.1 exceptions | Strict build fails in `tests/testPipelineMilestone4.cpp` (`-Werror=array-bounds` inside libstdc++ regex and json code) and in `tests/m5/testM5Scenarios.cpp` (`-Werror=nonnull`, new on feature/m5, fixed in PR-2). Before `2c59941` it also failed in `src/floorPattern/floorPattern.cpp` | VERIFIED (array-bounds, RK-6) + CHANGED (nonnull) | MEASURED |
+| GCC 16.1 exceptions | Strict build fails in `tests/testPipelineMilestone4.cpp` (`-Werror=array-bounds` inside libstdc++ regex and json code) and in `tests/m5/testM5Scenarios.cpp` (`-Werror=nonnull`, new on feature/m5; fixed in Revision 9.2: the file now compiles alone under the strict flags). Before `2c59941` it also failed in `src/floorPattern/floorPattern.cpp` | VERIFIED (array-bounds, RK-6) + CHANGED (nonnull fixed) | MEASURED |
 | Vendored | `third_party/doctest.h`, `third_party/json.hpp` | VERIFIED | READ |
 | Config | `config/orderBuilderParams.json`: `maxUnitLoadsPerTruck` 64 (`:19`), `pastDueOrder` AgeFirst (`:24`), `m5Threshold` 20 (`:25`), knapsack `nodeLimit` 200000 (`:27`), floor `searchStateLimit` 200000 / `routeSearchStateLimit` 1000000 (`:35-36`), `secondsPerLane` 10, `threads` 4; `m5` block with `enabled: true` (`:43-58`) | CHANGED (m5 block added) | READ |
 | Fixtures | Client extracts under `tests/importer/` (ignored by `.gitignore`); committed synthetic files under `tests/fixtures/tomReview/` and `tests/m5/data/orlib/` (Section 6) | CHANGED | READ |
-| Temp files | `tests/params` tests write into a unique per-run folder under the system temp folder (P4, this PR) | CHANGED | READ, TEST |
+| Temp files | `tests/params` tests (P4) and the M5 real-data test write into one per-run folder under the system temp folder (`tests/runTempFolder.hpp`). Five M4 tests still use fixed names in the temp folder (repository owner's call) | CHANGED | READ, TEST |
 | CLI | Exit 7 SelectionIncomplete, 8 SelectionProvisional (`include/pipeline.hpp:151, :154`); M5 failure reasons count toward 7 (`src/pipeline.cpp:480-487`) | VERIFIED + extended | READ |
 
 ## 3. Architecture Section 2.2 reuse table
@@ -90,10 +90,10 @@ M4-only commits merged into `feature/m5`: `2c59941`. With M5 off, every later PR
 | P1 | DONE: baseline re-run at 11c498b (Section 1). |
 | P2 | PARTIAL: `floorFits`, `floorVerdict`, `checkTruckLoad` in `truckCheck`; `setRowChecks`, `truckLimits`, `arrange`, `keepsMethodLoad` still in `BundleSolver` (PR-4). |
 | P3 | DONE IN ANOTHER FORM: `BundleSolver::solveLargeLane` builds a `LargeLaneRequest` and `m5::gatherLaneDate` the M5 input; no `collectEscalatedLaneDates()` listing function (PR-4). |
-| P4 | DONE in this PR: the params tests write into a unique per-run temp folder. |
+| P4 | DONE (95fe5f2): the params tests write into a unique per-run temp folder. |
 | P5-P7 | DONE (REPORTED at 7cef94e; unchanged). |
 | P8 | The "backwards asserts" do not exist at this head or in history; the threshold check is `CHECK(shipped.m5Threshold < *overBudget)` in `testM4Benchmark.cpp`; U-RT-08 is `testM5RealData.cpp`. |
-| P9 | IMPLEMENTED on feature/m5 (`selection.pastDueOrderByLane`, off by default); awaiting Tom's confirmation (decision 1). |
+| P9 | IMPLEMENTED on feature/m5 (`selection.pastDueOrderByLane`, off by default); awaiting Tom's confirmation (D1, architecture Section 22); R-7 m4Path/m5Path selected. |
 | P10 | DONE: `shipDatePlanner.cpp:174`. |
 
 ## 5. Names in the design documents that differ in the code

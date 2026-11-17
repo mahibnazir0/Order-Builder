@@ -31,13 +31,13 @@ No application test has been executed for M5. Every variant starts NOT_RUN, or B
 
 Unique named IDs: 304. Unique `(testId, variant)` keys: 557; duplicates: none. Repeated explanatory headings do not add named tests.
 
-Variants: 557 (550 NOT_RUN, 7 BLOCKED). The 1,716 X-META-01 multisets remain generated instances of one named test.
+Variants: 557 (552 NOT_RUN, 5 BLOCKED since Revision 9.2; v12 as issued: 550 NOT_RUN, 7 BLOCKED). The 1,716 X-META-01 multisets remain generated instances of one named test.
 
 Invariants: 24. EC checklist rows: 48. CL definitions: 10.
 
-Requirement SHA-256: `5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340`. This identifies the exact reviewed Markdown specification, not application execution evidence.
+Requirement SHA-256: `bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea` (v12 with the Section 43 repository notes, Revision 9.2; v12 as issued: `5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340`). This identifies the exact Markdown specification, not application execution evidence.
 
-R-7 m4Path/m5Path are the two explicitly unselected conditional integration variants. They remain visible as BLOCKED and never count as PASS; their absence does not block the current selected M5 gate. Other conditional variants require their own recorded controlling decision.
+R-7 m4Path/m5Path are conditional integration variants. Revision 9.2 decision D1 (17 Nov 2026) selects them: the per-lane setting is implemented on the M5 branch, off by default, awaiting Tom's confirmation. They are NOT_RUN and their missing evidence blocks the gate like any selected variant. Other conditional variants require their own recorded controlling decision.
 
 Revision 9: v12 reconciles all 162 proposals, adds three named tests and 35 unique variants. See `m5Phase1V11Reconciliation.md` for every case's exact v11 match or accepted addition. Three P2 stress variants remain conditional and unselected.
 
@@ -220,7 +220,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 | R-5a | unstated | Tom's 14-stack single-truck case on the standard 630 x 100 floor (3da08ab review): 22 unit loads in 616 in were repor... | M-MA / M-PHY M-OPT M-M4 | WP4 | Tom's exact 14-stack inputs (e6dbb0f): exactness-counterexample.json, monotonicity-standard-results.json, proof-standard-results.jsonl (nine distractor variants); also tests/fixtures/tomReview/m5ExactInputs/R-5a.json (SHA-256 2534cf00edaa5980e71f93806f0971ce1d3d4aebed8ac1ceab53579bbe6a2d32) | M4 + DIRECT | LAYOUT-ENUM + LAYOUT + LEDGER | 01 02 03 04 09 10 18 19 20 | 42 | DATA:Tom e6dbb0f review files committed under tests/fixtures/tomReview/e6dbb0f/ (Saif; synthetic) | m4Path (required, NOT_RUN); m5Path (required, NOT_RUN); distractorVariants (required, NOT_RUN) |
 | R-5b | unstated | Randomized single-truck cases, fixed seeds, through final selection: 6-10 stacks; 11-16 stacks (the region where M4 j... | M-PHY / M-MA M-OPT M-M4 TEST | WP9 | Random single-truck stacks, fixed seeds; exact row-grouping oracle; failures_old (7cef94e) and failures_e51d9c4 regressions | M4 + DIRECT | LAYOUT-ENUM + LAYOUT + LEDGER | 02 03 04 09 10 19 20 | 42 | - | m4Path (required, NOT_RUN); m5Path (required, NOT_RUN); groupingRegion11to16 (required, NOT_RUN); fewFootprints14to20 (required, NOT_RUN) |
 | R-6 | unstated | One truck, two do-not-mix groups, all priority 0. Group A: twelve 60 x 60 stacks, only ten fit. Group B: eleven 48 x ... | M-ALC / M-PHY M-M4 | WP5 | Local: group A 12 x 60x60 (10 fit), group B 11 x 48x40, one truck, all P0 | M4 + DIRECT | ENUM-ALLOC + LAYOUT-ENUM + LAYOUT | 02 03 04 05 06 09 11 20 | - | CL-02 | m4Path (required, NOT_RUN); m5Path (required, NOT_RUN) |
-| R-7 | unstated | Two independent FX-30 lanes, each one direct-seam slot, 30 P11 due D-1 and 30 P0 due D, all available D, carry ON; Ag... | M-INT / M-POL M-M4 | WP8 | Two lanes, FX-30, one lane switched to PriorityFirst | M4 + DIRECT | STATE | 11 12 13 | - | - | m4Path (conditional, BLOCKED, not selected); m5Path (conditional, BLOCKED, not selected); overrideABA (required, NOT_RUN); cacheReplay (required, NOT_RUN); removeOverride (required, NOT_RUN) |
+| R-7 | unstated | Two independent FX-30 lanes, each one direct-seam slot, 30 P11 due D-1 and 30 P0 due D, all available D, carry ON; Ag... | M-INT / M-POL M-M4 | WP8 | Two lanes, FX-30, one lane switched to PriorityFirst | M4 + DIRECT | STATE | 11 12 13 | - | - | m4Path (conditional, NOT_RUN, selected by D1); m5Path (conditional, NOT_RUN, selected by D1); overrideABA (required, NOT_RUN); cacheReplay (required, NOT_RUN); removeOverride (required, NOT_RUN) |
 | R-8 | unstated | Tom's eleven-item single-truck case (e6dbb0f review): eleven single-unit-load stacks, equal priority and ship date, 1... | M-PHY / M-MA M-OPT M-M4 | WP3 | Tom's eleven items (e6dbb0f): floor-proof-results.json, verified-layout.json; floor_proof_probe.cpp search seed 120112, 15,000 trials | M4 + DIRECT | LAYOUT-ENUM + LAYOUT + LEDGER | 02 03 04 09 10 19 20 | 42 | DATA:Tom e6dbb0f review files committed under tests/fixtures/tomReview/e6dbb0f/ (Saif; synthetic) | m4Path (required, NOT_RUN); m5Path (required, NOT_RUN); probeSearch (required, NOT_RUN) |
 | R-9 | unstated | Unit-load cap from configuration (Tom's `capacity_probe.cpp`, e6dbb0f review): 34 two-high stacks of 48 x 36 in (heig... | M-PHY / M-POL M-M4 | WP3 | Tom's 34 two-high 48 x 36 stacks (e6dbb0f): capacity_probe.cpp, capacity-results.json; cap 64 and cap 68 | M4 + DIRECT | ARITH + LAYOUT + LEDGER | 02 03 04 09 20 23 | 43 | DATA:Tom e6dbb0f review files committed under tests/fixtures/tomReview/e6dbb0f/ (Saif; synthetic) | m4Path (required, NOT_RUN); m5Path (required, NOT_RUN) |
 ### Current requirements Section 4.1
@@ -384,7 +384,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 | RD-10 | unstated | Fill comparison | M-RPT | WP10 | Real Aug4/5/6 | REAL | BASELINE | 22 | - | CL-03 | realData (required, NOT_RUN) |
 | RD-11 | unstated | Reservation totals add up | M-RPT | WP10 | Real Aug4/5/6 + client figures | REAL | ARITH + BASELINE | 22 | - | - | reconciliation (required, NOT_RUN) |
 | RD-12 | unstated | Fullness of historical and planned trucks | M-RPT / M-VAL M-PHY M-LED | WP10 | Historical client trucks and final M4/M5 plans with actual M4 layout witnesses, final leftovers and current fullness profile | REAL | BASELINE + LAYOUT + ARITH + REPORTPARSE | 14 | - | CL-03 | productionProfile (required, NOT_RUN) |
-| RD-13 | unstated | Linked dates of one lane: Aug6 run, 2028 -> 2574 TL, both dates, 21 trucks | M-RPT / M-LED M-M4 | WP10 | Exact linked-date August fixtures and normalized lane-date baseline evidence: original Aug6 2028->2574TL control plus reported Aug5 2023->2508TF and 2299->2292TF regressions from B30 | REAL | BASELINE + LEDGER | 01 11 18 | - | CL-02 | linkedDates (required, NOT_RUN); baselineAug5_2023_2508 (required, BLOCKED); baselineAug5_2299_2292 (required, BLOCKED) |
+| RD-13 | unstated | Linked dates of one lane: Aug6 run, 2028 -> 2574 TL, both dates, 21 trucks | M-RPT / M-LED M-M4 | WP10 | Exact linked-date August fixtures and normalized lane-date baseline evidence: original Aug6 2028->2574TL control plus reported Aug5 2023->2508TF and 2299->2292TF regressions from B30 | REAL | BASELINE + LEDGER | 01 11 18 | - | CL-02 | linkedDates (required, NOT_RUN); baselineAug5_2023_2508 (required, NOT_RUN); baselineAug5_2299_2292 (required, NOT_RUN) |
 ### Current requirements Section 11
 
 | ID | P | Title | Own / collab | WP | Fixture | Entry | Oracle | INV | EC | Deps | Variants |
@@ -792,7 +792,7 @@ Reusing corrected M4 validation inside M5 is allowed and expected. Every P0 allo
 | DATA:binpack1.txt committed with SHA-256 | U-CG-02 |  |
 | DATA:binpack1.txt committed with recorded SHA-256 | PUB-01, PUB-02, PUB-03 | Required bytes/hash must be verified in the target repository before execution. The supplied documents report an earlier downloaded copy but do not supply it. If unavailable at execution, mark the affected variant BLOCKED; never substitute a shortened list or invent the hash |
 | DATA:exact August linked-date inputs, master/config and compared baseline lane-date evidence (RD-13/B30) | RD-13 | Verify the exact dependency and its declared scope before execution; unavailable required inputs produce BLOCKED, never invented PASS. |
-| PENDING:M4 per-lane pastDueOrder setting (not in f9d9945; override and milestone not yet agreed) | R-7 | R-7 m4Path/m5Path only: conditional, explicitly unselected for current M5, retained BLOCKED. Activating them needs a recorded decision and current adapter/evidence. Direct-context isolation remains required and has no dependency on that input adapter. |
+| IMPLEMENTED:M4 per-lane pastDueOrder setting on the M5 branch (`selection.pastDueOrderByLane`, off by default), awaiting Tom's confirmation | R-7 | R-7 m4Path/m5Path: conditional, selected by decision D1 (Revision 9.2), NOT_RUN until executed with current evidence. Direct-context isolation remains required and has no dependency on that input adapter. |
 | SOURCE:Tom exact R-1 inputs (received 16 Nov 2026; v11 Section 40) | R-1a, R-1b | Received; commit unchanged under tests/fixtures/tomReview/m5ExactInputs/ and check SHA-256 before running; never substitute Saif's reconstruction |
 | SOURCE:container payload and unit-load limit (containerRun only) | U-DA-07 | containerRun BLOCKED until Tom sends them; mmConversion, rowPatterns and missingLimitsRejected run now |
 
@@ -875,11 +875,33 @@ Never write invented hashes, timings, datasets or certificates. Fields not produ
 
 Before acceptance, validate unique named IDs and `(testId, variant)` keys, the complete selected required set, current requirement/profile identity, and the dependencies scoped to each selected variant. A no-assertion registration or process exit zero cannot turn NOT_RUN/BLOCKED into PASS. Reject duplicate instance identities, absent variants, stale source/config/build/probe identities and incomplete parameterized-case/path coverage.
 
-`requirement: conditional` means selected only by its recorded controlling decision. R-7 m4Path/m5Path explicitly set `selectedForCurrentMilestone: false`, `selectionReason`, `selectionDecisionRef` and `activationCondition`. Keep them in the catalog, report their deferred status and exclude them from the current required result set without counting them as passed. A later selecting decision requires fresh compatible evidence and all its dependencies. Do not infer the selection of other conditional variants; record each controlling decision before the final gate. Required direct isolation variants remain selected.
+`requirement: conditional` means selected only by its recorded controlling decision. (Revision 9.2: decision D1 selects R-7 m4Path/m5Path, `selectedForCurrentMilestone: true`; the text below describes the v12 deferral it replaced.) R-7 m4Path/m5Path explicitly set `selectedForCurrentMilestone: false`, `selectionReason`, `selectionDecisionRef` and `activationCondition`. Keep them in the catalog, report their deferred status and exclude them from the current required result set without counting them as passed. A later selecting decision requires fresh compatible evidence and all its dependencies. Do not infer the selection of other conditional variants; record each controlling decision before the final gate. Required direct isolation variants remain selected.
 
 Variant `expectedBehavior`, `fixtureOverrides`, `entryPointOverride` and `oracleOverride` specialize their parent. `dependencies` on a variant apply only there; parent dependencies apply to every variant. `reportedBaseline` is historical attribution, never an assertion that execution occurred here and never a stricter substitute for the current expected behavior. A supplied feasible witness length does not force every valid result to use the same layout.
 
 The final gate must distinguish a recorded intentional deferral from a required missing prerequisite. All selected required variants need current PASS evidence; an unselected conditional variant may remain visibly BLOCKED. Fixture hashes in inherited records must be checked against actual bytes when executing. Source-to-manifest equality demonstrates consistency, not correctness of the solver or fulfillment of the source assertions.
+
+### 11.2 Repository implementation (Revision 9.2, 17 November 2026)
+
+- Test files follow the repository's flat `tests/m5/` layout; the manifest's `testFile` names them (decision D4).
+  Files of tests not yet written carry "(planned, PR-n)". The planned subfolders named elsewhere in this package
+  (`tests/m5/solver/`, `tests/m5/validation/`, ...) are not used.
+- A test case declares the variants it executes as `testId/variant` tokens in its name, for example
+  `TEST_CASE("X-RUN-09/duplicateID: ...")`. A name carrying a test ID alone declares no variant and produces no
+  record; such tests are confirmed variant by variant in a later pull request.
+- A doctest listener (`tests/m5/m5EvidenceListener.cpp`) writes one record per declared variant of every
+  executed case into `<build>/m5Evidence/<commit>/<testId>.<variant>.json` (`<commit>-dirty` when the build had
+  changes not committed), in the shape above, plus `history.jsonl`. A second case declaring the same key in one
+  run writes `<testId>.<variant>.duplicate-<n>.json`, so neither result is overwritten. Records are never
+  committed (decision D5).
+- The build writes its commit and dirty flag at every build (`cmake/m5BuildIdentity.cmake`). A record names the
+  build, the SHA-256 of the specification, manifest and `config/orderBuilderParams.json`, and its assertion
+  counts: PASS needs at least one assertion and none failed; a case that asserted nothing is NOT_RUN.
+- The gate (`tests/m5/support/m5EvidenceGate.hpp`, X-RUN-09) accepts only when every selected variant has
+  exactly one current PASS record from a clean build of the current commit. The ctest entry `m5EvidenceStatus`
+  writes `m5EvidenceStatus.txt` beside the records; `ob_tests "-tc=m5Acceptance*" --no-skip` fails until the
+  bundle is complete. An unselected conditional variant must name its decision or blocker, or it is rejected.
+- Layout witnesses are checked by `tests/m5/support/m5LayoutChecker.hpp`, which never calls floor-pattern code.
 
 ## 12. Clarifications raised against v5 (PC-1..PC-9) and their v6 status (PC-10)
 

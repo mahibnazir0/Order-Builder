@@ -2,7 +2,7 @@
   "kind": "M5_V12_PATCHED_DOCUMENT_VALIDATION",
   "date": "2026-11-17",
   "basis": "m5_docs_rev9_v12.zip (previous v12), m5_docs_rev8_1.zip (v11), current targeted 9.1 patch",
-  "sourceSha256": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+  "sourceSha256": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
   "sourceRequirement": "M5_Edge_Cases_and_Tests_v12.md",
   "namedTests": 304,
   "variants": 557,
@@ -28,8 +28,8 @@
     "DEFERRED": 1
   },
   "variantStatuses": {
-    "NOT_RUN": 550,
-    "BLOCKED": 7
+    "NOT_RUN": 552,
+    "BLOCKED": 5
   },
   "invariants": 24,
   "edgeCases": 48,
@@ -1373,15 +1373,15 @@
   "failedChecks": [],
   "allDocumentChecksPassed": true,
   "reviewedOutputs": {
-    "M5_Edge_Cases_and_Tests_v12.md": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
-    "m5DeveloperHandover.md": "541424880cdef95e319430c973dd051b112f75de4aa219f92fcca9d9da48583d",
-    "m5ModularArchitecture.md": "db1d24b6c794149ced7a65bcaa61bc55a2dcdc69394d4e476381af8077429396",
+    "M5_Edge_Cases_and_Tests_v12.md": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
+    "m5DeveloperHandover.md": "65329d0f2172319a1649022ca8ba081d6588494168e19578a4f077da0b19246f",
+    "m5ModularArchitecture.md": "09fb738b8b9a3e16c1bc2cd7b4707625c5cb900d18209ba4e1a0b4be2c12f829",
     "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
-    "m5ReviewAndChanges.md": "59db58f7885faf213c2d8e6ae59bdc866e1fea6a39d61300fae213cd6d422f5c",
-    "m5TestManifest.json": "1ec0ced45c37743245047b66178e6e2ad0974732ac4520aa41cbbeb4d5483101",
-    "m5TestTraceability.md": "4a9f1e9b3eae181c322587783aaddd2e4687ccbfdeeee64a5e307335ab6f05ca"
+    "m5ReviewAndChanges.md": "6787151006516fab77c664c9afcb7e612931b256de7f2b1c64553ecef61f78bd",
+    "m5TestManifest.json": "395f09fa8b4894f37cfe8ccd89bab38e8a7cf412ac8c4ea983bb00f716d55588",
+    "m5TestTraceability.md": "5007030a979a8015405776bc023148f18159639618110fc8446700a1e53f5243"
   },
   "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
   "revision91Fixes": {
@@ -1392,5 +1392,104 @@
       "tool names removed from file references in the reconciliation note and validation record"
     ],
     "specUnchanged": true
+  },
+  "revision92Checks": {
+    "date": "2026-11-17",
+    "basis": "Revision 9.2 repository update on feature/m5: decisions D1-D7 (architecture Section 22), v12 Section 43 notes appended, manifest testFile paths and R-7 selection, traceability 11.2",
+    "status": "PASS",
+    "checkCount": 15,
+    "checks": [
+      {
+        "check": "requirement SHA-256 in the manifest equals the specification bytes",
+        "status": "PASS",
+        "detail": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea"
+      },
+      {
+        "check": "304 unique named tests",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "557 unique (testId, variant) keys",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "variant statuses 552 NOT_RUN, 5 BLOCKED",
+        "status": "PASS",
+        "detail": {
+          "NOT_RUN": 552,
+          "BLOCKED": 5
+        }
+      },
+      {
+        "check": "R-7 m4Path/m5Path selected by D1 with reason, reference and activation condition",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "every unselected conditional variant names a decision or a blocker",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "every sourceSection line reference still points at its test in the specification",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "every manifest test ID appears in the specification",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "every manifest test ID has a row in the traceability test map",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "traceability test map variants match the manifest requirement and status",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "every manifest test ID appears in the developer handover",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "every testFile not marked planned exists in the repository",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "specification Section 43 is the last section and earlier sections are unchanged in order",
+        "status": "PASS",
+        "detail": null
+      },
+      {
+        "check": "every docs/m5 file is plain ASCII",
+        "status": "PASS",
+        "detail": []
+      },
+      {
+        "check": "requirement SHA-256 in the traceability equals the specification bytes",
+        "status": "PASS",
+        "detail": null
+      }
+    ],
+    "reviewedOutputsBefore": {
+      "M5_Edge_Cases_and_Tests_v12.md": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+      "m5DeveloperHandover.md": "541424880cdef95e319430c973dd051b112f75de4aa219f92fcca9d9da48583d",
+      "m5ModularArchitecture.md": "db1d24b6c794149ced7a65bcaa61bc55a2dcdc69394d4e476381af8077429396",
+      "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
+      "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
+      "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
+      "m5ReviewAndChanges.md": "59db58f7885faf213c2d8e6ae59bdc866e1fea6a39d61300fae213cd6d422f5c",
+      "m5TestManifest.json": "1ec0ced45c37743245047b66178e6e2ad0974732ac4520aa41cbbeb4d5483101",
+      "m5TestTraceability.md": "4a9f1e9b3eae181c322587783aaddd2e4687ccbfdeeee64a5e307335ab6f05ca"
+    },
+    "requirementSha256Before": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",
+    "applicationExecution": "Test results are evidence records in the build folder, not this file"
   }
 }

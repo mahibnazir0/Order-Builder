@@ -32,6 +32,15 @@ vector<Atom> concat(vector<Atom> left, const vector<Atom>& right) {
     return left;
 }
 
+// A scalar model built in one step. Assigning a brace list to a new model's empty `sizes` makes
+// GCC 16.1 at -O3 report a false -Wnonnull inside vector::assign.
+ScalarModel scalarModel(vector<long long> sizes, long long capacity) {
+    ScalarModel model;
+    model.sizes = std::move(sizes);
+    model.capacity = capacity;
+    return model;
+}
+
 size_t countCause(const M5LaneOutcome& outcome, LeftOverCause cause) {
     return static_cast<size_t>(count_if(outcome.leftOver.begin(), outcome.leftOver.end(),
                                         [&](const LeftOver& left) { return left.cause == cause; }));
@@ -228,9 +237,7 @@ TEST_CASE("U-RM-05 usable reservations serve eligible goods; unused slots only w
 }
 
 TEST_CASE("X-REB-01 single-product patterns must not lock in 3 bins where 2 mixed bins serve" * doctest::test_suite("m5")) {
-    ScalarModel model;
-    model.sizes = {6, 6, 4, 4};
-    model.capacity = 10;
+    const ScalarModel model = scalarModel({6, 6, 4, 4}, 10);
     CHECK(solveCuttingStock(model, ScalarLimits()).packing->bins.size() == 2);
     const M5LaneDateInput input = laneWith({unitOf("a1", "A", 378, 100, 108, 1000), unitOf("a2", "A", 378, 100, 108, 1000),
                                             unitOf("b1", "A", 252, 100, 108, 1000), unitOf("b2", "A", 252, 100, 108, 1000)},
@@ -492,18 +499,14 @@ TEST_CASE("U-CG-01 U-CG-03 U-CG-04 U-CG-05 one type, exact fits and one unit too
     size_t packed = 0;
     for (const auto& bin : result.packing->bins) packed += bin.size();
     CHECK(packed == 17);
-    ScalarModel exact;
-    exact.sizes = {10, 11};
-    exact.capacity = 10;
+    const ScalarModel exact = scalarModel({10, 11}, 10);
     const ScalarResult edge = solveCuttingStock(exact, ScalarLimits());
     CHECK(edge.packing->bins.size() == 1);
     CHECK(edge.impossible == vector<size_t>{1});
 }
 
 TEST_CASE("U-CG-06 X-CG-08 at its round cap pricing stops with a checked result and no runaway columns" * doctest::test_suite("m5")) {
-    ScalarModel model;
-    model.sizes = {6, 5, 3, 2, 2, 2, 4, 4, 7, 1};
-    model.capacity = 10;
+    const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2, 4, 4, 7, 1}, 10);
     ScalarLimits capped;
     capped.maxColumnRounds = 1;
     const ScalarResult result = solveCuttingStock(model, capped);
@@ -514,9 +517,7 @@ TEST_CASE("U-CG-06 X-CG-08 at its round cap pricing stops with a checked result 
 }
 
 TEST_CASE("U-CG-07 X-CG-11 stopped before or after a first result: none, or the checked FFD" * doctest::test_suite("m5")) {
-    ScalarModel model;
-    model.sizes = {6, 5, 3, 2, 2, 2};
-    model.capacity = 10;
+    const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2}, 10);
     const ScalarResult before = solveCuttingStock(model, ScalarLimits(), [] { return true; });
     CHECK_FALSE(before.packing.has_value());
     CHECK(before.evidence.termination == Termination::Budget);
@@ -530,17 +531,13 @@ TEST_CASE("U-CG-07 X-CG-11 stopped before or after a first result: none, or the 
 }
 
 TEST_CASE("X-CG-07 near-degenerate duals: the solve ends at the best answer" * doctest::test_suite("m5")) {
-    ScalarModel model;
-    model.sizes = {5, 5, 5, 5, 3, 3, 3, 3, 2, 2};
-    model.capacity = 10;
+    const ScalarModel model = scalarModel({5, 5, 5, 5, 3, 3, 3, 3, 2, 2}, 10);
     const ScalarResult result = solveCuttingStock(model, ScalarLimits());
     CHECK(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(model.sizes, 10));
 }
 
 TEST_CASE("X-META-07 X-META-09 more capacity or one more reservation is never worse" * doctest::test_suite("m5")) {
-    ScalarModel model;
-    model.sizes = {6, 5, 4, 3, 3, 2};
-    model.capacity = 10;
+    ScalarModel model = scalarModel({6, 5, 4, 3, 3, 2}, 10);
     const size_t tight = solveCuttingStock(model, ScalarLimits()).packing->bins.size();
     model.capacity = 11;
     CHECK(solveCuttingStock(model, ScalarLimits()).packing->bins.size() <= tight);

@@ -90,24 +90,23 @@ have no lane-date above 20.
 `binpack1.txt` was downloaded from OR-Library on 13 Nov 2026 and is committed under
 `tests/m5/data/orlib/` with its SHA-256 (`891fe4b3...b172`) in `README.txt` there.
 
-**Coverage gate (X-RUN-09).** `tests/m5/data/m5TestIds.txt` lists the 291 v7 IDs. The gate test
-fails if any ID has no `TEST_CASE` naming it and no line in `m5CoverageExceptions.txt` with a
-reason. It also fails on a duplicate ID or test name, or a stale or reasonless exception. A
-BLOCKED ID is never counted as a pass. Today:
-
-- 287 IDs are covered by M5 tests.
-- U-PF-04 is covered by the `m4BenchmarkThreadsSuccess` ctest entry.
-- R-1a, R-1b and R-5a are BLOCKED.
+**Coverage and evidence gate (X-RUN-09).** Since Revision 9.2 the gate works per variant against the
+v12 manifest (`docs/m5/m5TestManifest.json`, 304 tests, 557 variants); the v7 ID list was removed.
+Each run writes an evidence record per declared `testId/variant` into the build folder, and M5 is
+accepted only when every selected variant has one current PASS record from a clean build
+(`docs/m5/m5TestTraceability.md` Section 11.2). An ID-level check still requires every manifest ID
+to have a test or a line in `m5CoverageExceptions.txt` with its status and reason.
 
 Independent oracles do not reuse the code under test: brute-force bin packing, partition
-enumeration, subset enumeration over M4's floor for R-5b, an invariant recount, and per-source
+enumeration, subset enumeration over M4's floor for R-5b, an invariant recount with its own floor
+witness check (`tests/m5/support/m5LayoutChecker.hpp`, since Revision 9.2), and per-source
 conservation.
 
 ### Still open
 
-- **R-1a, R-1b, R-5a:** BLOCKED on Tom's exact inputs. The M5 path runs an exact knapsack for
-  pools of up to 4 slots (ED-12), and R-5b (seeded single trucks against brute force) passes, so
-  these need only the data.
+- **R-1a, R-1b, R-5a:** Tom's exact inputs are committed (`tests/fixtures/tomReview/m5ExactInputs/`);
+  the tests are planned for the next pull request. The M5 path runs an exact knapsack for pools of up
+  to 4 slots (ED-12), and R-5b (seeded single trucks against brute force) passes.
 - **C9:** reservations carry no per-truck trailer, so a pool of different trailers is refused
   (X-RES-12 / X-E2E-06). The adapter seam itself is tested (U-DA-05).
 - **OPEN-COMP:** the tie operator for equal service needs your sign-off.

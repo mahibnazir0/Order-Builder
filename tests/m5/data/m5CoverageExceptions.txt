@@ -1,6 +1,21 @@
-# Required v7 test IDs not covered by a TEST_CASE under tests/m5, one per line: ID|status|reason.
-# BLOCKED: a named prerequisite is missing; the ID is not a pass. EXTERNAL: covered by the ctest entry named.
-R-1a|BLOCKED|Tom's exact R-1 inputs (20 large and 20 small stacks) are not in the repository
-R-1b|BLOCKED|Tom's exact four-item R-1 case is not in the repository
-R-5a|BLOCKED|Tom's exact 14-stack inputs from the 3da08ab review are not in the repository
-U-PF-04|EXTERNAL|ctest m4BenchmarkThreadsSuccess runs the M4 thread test under --success
+# v12 manifest test IDs (docs/m5/m5TestManifest.json) with no M5 TEST_CASE naming them yet, one per line:
+# ID|status|reason. NOT_RUN: planned, with the pull request that adds it. BLOCKED: a named prerequisite is
+# missing. EXTERNAL: covered by the ctest entry named. None of these is ever a pass; variant results come
+# only from evidence records.
+R-1a|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-1a.json)
+R-1b|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-1b.json)
+R-5a|NOT_RUN|PR-3: Tom's exact inputs are committed (tests/fixtures/tomReview/m5ExactInputs/R-5a.json)
+R-8|NOT_RUN|PR-3: Tom's eleven stacks (tests/fixtures/tomReview/e6dbb0f/)
+R-9|NOT_RUN|PR-3: unit-load cap 64 and 68
+X-PAT-16|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
+X-PAT-17|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
+X-STATE-11|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
+X-CG-21|NOT_RUN|PR-5: per-slot unit-load cap counted from components (ED-20)
+X-PAT-18|NOT_RUN|PR-6: Fits/DoesNotFit/Undecided and supplied witnesses
+X-PAT-19|NOT_RUN|PR-6: three-across uses side <= 33.3 in
+U-PF-09|NOT_RUN|PR-7: shared floor-search state budget (ED-19)
+X-RES-13|NOT_RUN|PR-8: equal-service tie rule (ED-21)
+X-CG-22|NOT_RUN|PR-9: zero-reduced-cost duplicate columns
+X-REB-10|NOT_RUN|PR-9: repair oscillation stops
+U-DA-07|NOT_RUN|PR-10: single alternate trailer type (containerRun BLOCKED until Tom sends payload and cap)
+U-PF-04|EXTERNAL|ctest m4BenchmarkThreadsSuccess runs the M4 thread test under --success (PR-13)
