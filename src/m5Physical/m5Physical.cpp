@@ -54,6 +54,43 @@ bool mayFit(const Atom& atom, const LoadTotals& totals, const TrailerCapability&
     return totals.areaSqIn + atom.floor.longSideIn * atom.floor.shortSideIn <= capability.lengthIn * capability.widthIn;
 }
 
+// The final legality of a load M4's rows accepted, judged again in whole hundredths of an inch and a
+// pound and compared exactly: each stack's height under the ceiling, the load's weight within the
+// payload, each row's width within the trailer's and the rows' extent within its length. A measure is
+// rounded up when off the 0.01 step (never understated), a limit down. Doubles stay inside the search;
+// this is the answer's check, so no search grain or report rounding can pass an excess (U-PB-08,
+// X-PAT-13). Returns the findings; empty when the load is legal.
+vector<string> exactLimitFindings(const M5LaneDateInput& input, const vector<size_t>& atoms, const FloorLayout& layout,
+                                  const TrailerCapability& capability) {
+    vector<string> findings;
+    const optional<int64_t> length = hundredthsRoundedDown(capability.lengthIn), width = hundredthsRoundedDown(capability.widthIn),
+                            ceiling = hundredthsRoundedDown(capability.heightIn), payload = hundredthsRoundedDown(capability.maxWeightLb);
+    if (!length || !width || !ceiling || !payload) {
+        findings.push_back("the slot's length, width, height or payload is not a finite figure in hundredths");
+        return findings;
+    }
+    long double weight = 0.0L;
+    for (const size_t index : atoms) {
+        const Atom& atom = input.atoms[index];
+        const optional<int64_t> height = hundredthsRoundedUp(atom.floor.heightIn);
+        if (!height || *height > *ceiling) {
+            findings.push_back("stack " + atom.id + " stands above the slot's ceiling in whole hundredths of an inch");
+        }
+        weight += atom.weightLb;
+    }
+    const optional<int64_t> load = hundredthsRoundedUp(static_cast<double>(weight));
+    if (!load || *load > *payload) findings.push_back("load weight is over the slot's payload in whole hundredths of a pound");
+    long double extent = 0.0L;
+    for (const FloorRow& row : layout.rows) {
+        const optional<int64_t> across = hundredthsRoundedUp(row.widthIn);
+        if (!across || *across > *width) findings.push_back("a row is wider than the slot in whole hundredths of an inch");
+        extent += row.depthIn;
+    }
+    const optional<int64_t> used = hundredthsRoundedUp(static_cast<double>(extent));
+    if (!used || *used > *length) findings.push_back("rows are longer than the slot in whole hundredths of an inch");
+    return findings;
+}
+
 vector<size_t> withAtom(const vector<size_t>& truck, size_t atom) {
     vector<size_t> grown = truck;
     grown.insert(upper_bound(grown.begin(), grown.end(), atom), atom);
@@ -131,6 +168,13 @@ PhysicalCheck checkTruck(const M5LaneDateInput& input, const vector<size_t>& ato
     check.undecided = load.verdict == TruckFit::Undecided;
     check.findings = std::move(load.findings);
     check.layout = std::move(load.layout);
+    if (check.fits) {
+        vector<string> exact = exactLimitFindings(input, atoms, check.layout, capability);
+        if (!exact.empty()) {
+            check.fits = false;
+            check.findings = std::move(exact);
+        }
+    }
     return check;
 }
 

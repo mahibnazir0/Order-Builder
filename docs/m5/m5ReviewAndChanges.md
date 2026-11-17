@@ -7,6 +7,9 @@
 - D3: v12 Section 43 appended (supported input step 0.01 in / 0.01 lb, plus the D1, D4 and D5 notes); no earlier
   line moved, so every `sourceSection` line reference stands. Requirement SHA-256 is now
   `bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea` in the manifest and traceability.
+- PR-6 (17 Nov 2026): Section 43 gains the X-PAT-19 note (M4's three-across rule as implemented: the
+  three short sides sum to the trailer width, no separate 33.3-in test; decided by Mahib, not confirmed by
+  Tom). Requirement SHA-256 is now `4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d`.
 - D4: manifest `testFile` paths follow the flat `tests/m5/` layout, from the test names in the repository.
 - D5: evidence records live in the build folder and are not committed.
 - Validation re-run and recorded in `m5DocumentValidation.json` (`revision92Checks`).

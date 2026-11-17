@@ -64,14 +64,24 @@ UnitLoadCap unitLoadCapFromJson(const nlohmann::json& block, const string& field
     return refused("'" + field + "' is not a number");
 }
 
-optional<int64_t> hundredthsOfUnitLoads(double quantity) {
-    if (!isfinite(quantity) || quantity < 0.0) return nullopt;
-    const double scaled = quantity * 100.0;
+namespace {
+
+optional<int64_t> hundredthsOf(double value, bool roundUp) {
+    if (!isfinite(value) || value < 0.0) return nullopt;
+    const double scaled = value * 100.0;
     if (scaled > kTwoToThe53) return nullopt;
     const double nearest = nearbyint(scaled);
     if (fabs(scaled - nearest) <= kStepTolerance * max(1.0, scaled)) return static_cast<int64_t>(nearest);
-    return static_cast<int64_t>(ceil(scaled));
+    return static_cast<int64_t>(roundUp ? ceil(scaled) : floor(scaled));
 }
+
+}  // namespace
+
+optional<int64_t> hundredthsRoundedUp(double measure) { return hundredthsOf(measure, true); }
+
+optional<int64_t> hundredthsRoundedDown(double limit) { return hundredthsOf(limit, false); }
+
+optional<int64_t> hundredthsOfUnitLoads(double quantity) { return hundredthsRoundedUp(quantity); }
 
 int64_t capInHundredths(int64_t cap) {
     const optional<int64_t> scaled = multiplyCounts(cap, 100);

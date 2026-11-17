@@ -35,7 +35,7 @@ Variants: 557 (552 NOT_RUN, 5 BLOCKED since Revision 9.2; v12 as issued: 550 NOT
 
 Invariants: 24. EC checklist rows: 48. CL definitions: 10.
 
-Requirement SHA-256: `bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea` (v12 with the Section 43 repository notes, Revision 9.2; v12 as issued: `5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340`). This identifies the exact Markdown specification, not application execution evidence.
+Requirement SHA-256: `4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d` (v12 with the Section 43 repository notes, Revision 9.2; v12 as issued: `5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340`). This identifies the exact Markdown specification, not application execution evidence.
 
 R-7 m4Path/m5Path are conditional integration variants. Revision 9.2 decision D1 (17 Nov 2026) selects them: the per-lane setting is implemented on the M5 branch, off by default, awaiting Tom's confirmation. They are NOT_RUN and their missing evidence blocks the gate like any selected variant. Other conditional variants require their own recorded controlling decision.
 

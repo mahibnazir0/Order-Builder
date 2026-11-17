@@ -9099,7 +9099,7 @@
         "M-VAL"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Planning.cpp",
       "fixture": "Local physical fixtures",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -17467,7 +17467,7 @@
       "title": "Floor search uncertainty is distinct from a checked witness and a proof of refusal",
       "ownerModule": "M-PHY",
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-6)",
+      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-7)",
       "fixture": "Eleven rigid 1-UL TLD atoms 52x100x50in/1000 lb each; standard slot cap 64; W11 extent 572 and W10 extent 520; injected bounded-search statuses.",
       "entryPoint": "DIRECT",
       "oracle": "ARITH + LAYOUT + LEDGER + STATE",
@@ -17637,7 +17637,7 @@
         "TEST"
       ],
       "workPackage": "WP3",
-      "testFile": "tests/m5/testM5Physical.cpp (planned, PR-6)",
+      "testFile": "tests/m5/testM5Physical.cpp",
       "fixture": "FX-ROW-33-3 (Section 42)",
       "localOverrides": "Section 42.1 declares an isolated synthetic test profile",
       "entryPoint": "CORE + VALID",
@@ -18305,7 +18305,7 @@
   "requirementSource": {
     "fileName": "M5_Edge_Cases_and_Tests_v12.md",
     "revision": "v12",
-    "sha256": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
+    "sha256": "4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d",
     "namedTestCount": 304
   },
   "schemaNotes": "Schema 2 retains source identity, scoped variant expectations/dependencies and evidence scope. Optional selection metadata explicitly records deferred conditional R-7 integration; reportedBaseline is attributed historical evidence only. No application results are implied. v12 retains all v11 IDs and variants; 162 P12 mapping in m5Phase1V11Reconciliation.json.",

@@ -593,7 +593,7 @@ rules. No production source was changed and no application test was run for this
 
 ## Revision 9: work package updates for v12
 
-WP1/WP3: implement new synthetic direct-seam row generator controls X-PAT-19 and new X-PAT-13/U-PB-04 boundary variants. The M4 three-across candidate rule is `side <= 33.3 in`; the existence or absence of a candidate does not prove global physical geometry without the supported-model evidence.
+WP1/WP3: implement new synthetic direct-seam row generator controls X-PAT-19 and new X-PAT-13/U-PB-04 boundary variants. The M4 three-across candidate rule is `side <= 33.3 in` (as implemented: the three short sides sum to no more than the trailer width; spec Section 43); the existence or absence of a candidate does not prove global physical geometry without the supported-model evidence.
 
 WP2: add X-CG-22 and its nearZeroReducedCost pricing variant with a separately enumerated small integer packing; zero reduced-cost duplicates cannot create an infinite loop or a false global optimum.
 

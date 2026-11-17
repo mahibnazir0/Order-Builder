@@ -1925,3 +1925,13 @@ ConfigurationIncomplete before planning; integration replicates the validated M4
 (any other difference stays refused, C9): methods plan truck t for the t-th slot, largest cap first,
 and assembly gives the truck with the most unit loads the roomiest slot. The truck-count bound also
 counts whole atoms, ceil(atoms / floor(cap / smallest atom)). Tests: `tests/m5/testM5UnitLoadCap.cpp`.
+
+D3 as implemented (PR-6): after M4's own check accepts a load, `m5::checkTruck` judges it again in whole
+hundredths (`hundredthsRoundedUp` for a measure, `hundredthsRoundedDown` for a limit, both in
+`m5UnitLoads`): each stack's height against the ceiling, the load's weight against the payload, each
+row's width against the trailer width and the rows' extent against its length, compared exactly. A
+measure off the 0.01 step is rounded up and a limit down, so neither is stated in the load's favour.
+The FULL label's rear inches are not yet converted (U-FL tests, later PR). X-PAT-19 follows M4's actual
+three-across rule (three short sides sum to the width; v12 Section 43). Tests: `tests/m5/testM5Physical.cpp`
+(X-PAT-13 twoAcross100 and microLengthBoundary, X-PAT-19, U-PB-04 rotationOnly, U-PB-08
+payloadExactAndEpsilon and simultaneousBinding).

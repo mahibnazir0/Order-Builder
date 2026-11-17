@@ -43,6 +43,12 @@ UnitLoadCap unitLoadCapFromJson(const nlohmann::json& block, const std::string& 
 // loads). Empty otherwise.
 std::optional<std::int64_t> hundredthsOfUnitLoads(double quantity);
 
+// Any measure or limit in whole hundredths (D3, ED-ARITH), by the same rule: the nearest hundredth when
+// within 1e-9 (relative) of one, otherwise a measure rounded up and a limit rounded down, so neither is
+// ever stated in the load's favour. Empty for a negative, non-finite or too large value.
+std::optional<std::int64_t> hundredthsRoundedUp(double measure);
+std::optional<std::int64_t> hundredthsRoundedDown(double limit);
+
 // The cap in hundredths, saturating at the largest 64-bit value: no total can exceed that, so a cap
 // above it never binds, and nothing wraps.
 std::int64_t capInHundredths(std::int64_t cap);

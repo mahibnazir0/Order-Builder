@@ -2,7 +2,7 @@
   "kind": "M5_V12_PATCHED_DOCUMENT_VALIDATION",
   "date": "2026-11-17",
   "basis": "m5_docs_rev9_v12.zip (previous v12), m5_docs_rev8_1.zip (v11), current targeted 9.1 patch",
-  "sourceSha256": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
+  "sourceSha256": "4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d",
   "sourceRequirement": "M5_Edge_Cases_and_Tests_v12.md",
   "namedTests": 304,
   "variants": 557,
@@ -1373,15 +1373,15 @@
   "failedChecks": [],
   "allDocumentChecksPassed": true,
   "reviewedOutputs": {
-    "M5_Edge_Cases_and_Tests_v12.md": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
-    "m5DeveloperHandover.md": "65329d0f2172319a1649022ca8ba081d6588494168e19578a4f077da0b19246f",
-    "m5ModularArchitecture.md": "1b754be38c21b76bfddb5be0e99b50a454f409d72ceb73889bf6f0a3f40d6cba",
+    "M5_Edge_Cases_and_Tests_v12.md": "4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d",
+    "m5DeveloperHandover.md": "7700623f40702d7871110a9148fd909dedbfcfb7e1f23216cc4076f7670f585e",
+    "m5ModularArchitecture.md": "845e0899bf68b8c9c597690e5c57bdc891a2a6eb9c4689bd76f25b50f5f0cbca",
     "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
-    "m5ReviewAndChanges.md": "6787151006516fab77c664c9afcb7e612931b256de7f2b1c64553ecef61f78bd",
-    "m5TestManifest.json": "4afd8d9ba55805c807c66076e7e48732dc1af955924aa3a126a34c5dce5afaae",
-    "m5TestTraceability.md": "5007030a979a8015405776bc023148f18159639618110fc8446700a1e53f5243"
+    "m5ReviewAndChanges.md": "57ef2fac8e45c1a08b077671538860cd181cc9ddef41c9e130b5872ed662b04f",
+    "m5TestManifest.json": "dbd116109c104f9163f7f467b12fea5ba98a795fde30a1ffd6953bec08d11182",
+    "m5TestTraceability.md": "aaa7eb6a35934ecbe388cd42e2f09c54cb4bd18b7a206a8f09051682f2d37a33"
   },
   "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
   "revision91Fixes": {
@@ -1402,7 +1402,7 @@
       {
         "check": "requirement SHA-256 in the manifest equals the specification bytes",
         "status": "PASS",
-        "detail": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea"
+        "detail": "4176d265ff74cd2662bed7bb18da707aabf07bc0d1ae25a0af31a7cfe84b6c2d"
       },
       {
         "check": "304 unique named tests",
@@ -1481,12 +1481,12 @@
     "reviewedOutputsBefore": {
       "M5_Edge_Cases_and_Tests_v12.md": "bf12a0f81fcffe9aaa089d47d02c265bf0b5658088c7d5894d5c378fb31a03ea",
       "m5DeveloperHandover.md": "65329d0f2172319a1649022ca8ba081d6588494168e19578a4f077da0b19246f",
-      "m5ModularArchitecture.md": "9e4a6b8d080d2e3698c907dd19db39e4e20240c9d13f33a276823732a6eff46a",
+      "m5ModularArchitecture.md": "1b754be38c21b76bfddb5be0e99b50a454f409d72ceb73889bf6f0a3f40d6cba",
       "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
       "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
       "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
       "m5ReviewAndChanges.md": "6787151006516fab77c664c9afcb7e612931b256de7f2b1c64553ecef61f78bd",
-      "m5TestManifest.json": "4a2deadbc12725c756cf6f1e99fca2c99069a4a120544daafcb7a9ecb641bbf8",
+      "m5TestManifest.json": "4afd8d9ba55805c807c66076e7e48732dc1af955924aa3a126a34c5dce5afaae",
       "m5TestTraceability.md": "5007030a979a8015405776bc023148f18159639618110fc8446700a1e53f5243"
     },
     "requirementSha256Before": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",

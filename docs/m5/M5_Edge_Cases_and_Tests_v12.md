@@ -2778,8 +2778,9 @@ All 301 v11 IDs and 522 variant keys remain. Exactly 3 new named tests and 35 ne
 
 ## 43. Repository notes (17 November 2026)
 
-Recorded in the repository after v12. They change no test ID, variant or expected result; they fix the
-terms the tests use where this specification leaves them to the repository.
+Recorded in the repository after v12. They change no test ID or variant. They fix the terms the tests
+use where this specification leaves them to the repository; the last note also corrects one expected
+result to the merged M4 code.
 
 - Supported input step (decision D3). "One supported input step" is 0.01 in for lengths and 0.01 lb for
   weights. Searches may use doubles. Every final legality check (length, width, height, weight, unit-load
@@ -2793,3 +2794,13 @@ terms the tests use where this specification leaves them to the repository.
   flat `tests/m5/` layout.
 - Evidence records (decision D5) are written by every test run into `<build>/m5Evidence/<commit>/` and
   attached to deliveries. They are not committed.
+- M4's three-across rule (X-PAT-19, decision 17 November 2026 by Mahib, not confirmed by Tom). The
+  merged M4 `floorPattern` has no `side <= 33.3 in` test: a three-across row turns each footprint's short
+  side across and is formed whenever the three short sides sum to no more than the trailer width (with
+  the floor tolerance 1e-9 in). The literal 33.3-in rule in Section 42's scope corrections, in Section 42.1
+  and in the handover is read as this rule. X-PAT-19/threeAcrossM4Cutoff therefore expects, for three unturned 40 x s in
+  footprints in a 100-in trailer: s = 33.30 and s = 33.31 form three-across (99.90 and 99.93 in);
+  s = 33.34 does not (100.02 in). In every case the floor still holds all three, so a missing
+  three-across row is never a proof that the load cannot fit, and a supplied witness is judged on its own
+  rectangles. The v12 fixture's 33.30 x 20 in footprint is replaced by 40 x 33.30 in because M4's
+  three-across turns the shorter side across.

@@ -4,13 +4,17 @@
 #include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
+#include "m5UnitLoads.hpp"
 #include "m5Validation.hpp"
 #include "paramsTypes.hpp"
 #include "stackRules.hpp"
+#include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
+#include "support/m5LayoutChecker.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 using namespace std;
@@ -386,4 +390,213 @@ TEST_CASE("X-RES-12 X-E2E-06 the physical adapter sizes each trailer; a mixed po
     const M5LaneOutcome outcome = plan(mixed, syntheticProfile());
     CHECK(outcome.kind == OutcomeKind::InvalidInput);
     CHECK(outcome.findings.front().find("C9") != string::npos);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Physical boundaries at one supported input step (tests v12 Section 42.2; D3: the step is 0.01 in and
+// 0.01 lb). Oracles work in whole hundredths written out by hand and in rectangles of their own; they
+// never call the floor-pattern code or the exact check under test.
+// ---------------------------------------------------------------------------------------------------
+
+namespace {
+
+ob::m5::PhysicalSettings fixedOrientation(ob::FixedOrientation side) {
+    ob::m5::PhysicalSettings settings = physicalSettings();
+    settings.floor.allowRotation = false;
+    settings.floor.fixedOrientation = side;
+    return settings;
+}
+
+const ob::FloorRow* rowOfKind(const vector<ob::FloorRow>& rows, ob::FloorPatternKind kind) {
+    const auto found = find_if(rows.begin(), rows.end(), [&](const ob::FloorRow& row) { return row.pattern == kind; });
+    return found == rows.end() ? nullptr : &*found;
+}
+
+vector<ob::FloorItem> floorsOf(const M5LaneDateInput& input) {
+    vector<ob::FloorItem> floors;
+    for (const Atom& atom : input.atoms) floors.push_back(atom.floor);
+    return floors;
+}
+
+bool physicalSectionPasses(const M5LaneDateInput& input, const vector<size_t>& atoms) {
+    const ValidationReport report = validateFinal(truckOf(input, atoms), *buildSnapshot(input).snapshot, syntheticProfile(), physicalSettings());
+    return report.physical == SectionStatus::Pass && report.allPassed();
+}
+
+}  // namespace
+
+TEST_CASE("X-PAT-13 U-PB-08 hundredths: a measure rounds up and a limit down off the 0.01 step; bad values are refused" * doctest::test_suite("m5")) {
+    CHECK(hundredthsRoundedUp(630.0) == 63000);
+    CHECK(hundredthsRoundedUp(630.01) == 63001);
+    CHECK(hundredthsRoundedUp(33.3) == 3330);
+    CHECK(hundredthsRoundedUp(45000.01) == 4500001);
+    CHECK(hundredthsRoundedUp(629.999) == 63000);
+    CHECK(hundredthsRoundedDown(629.999) == 62999);
+    CHECK(hundredthsRoundedDown(100.0 + 1e-12) == 10000);
+    for (const double bad : {-0.01, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity(), 1e300}) {
+        CHECK_FALSE(hundredthsRoundedUp(bad));
+        CHECK_FALSE(hundredthsRoundedDown(bad));
+    }
+}
+
+TEST_CASE("X-PAT-13/twoAcross100: two fixed 50.00 in widths make a 100.00 in row; 50.01 makes that row too wide, not the floor" * doctest::test_suite("m5")) {
+    const ob::m5::PhysicalSettings fixed = fixedOrientation(ob::FixedOrientation::LongSideAcross);
+    const ob::TrailerSpec trailer = trailerOf(kDefaultTrailer);
+    // Oracle in hundredths of an inch: 5000 + 5000 = 10000 <= 10000; 5001 + 5000 = 10001 > 10000.
+    constexpr int64_t kWidth = 10000;
+    CHECK(5000 + 5000 <= kWidth);
+    CHECK(5001 + 5000 > kWidth);
+
+    const M5LaneDateInput exact = laneWith({unitOf("w0", "A", 50.00, 40, 80, 100), unitOf("w1", "A", 50.00, 40, 80, 100)}, 1);
+    const ob::FloorRow* pair = rowOfKind(ob::candidateRows(floorsOf(exact), {0, 1}, trailer, fixed.floor), ob::FloorPatternKind::WideWide);
+    REQUIRE(pair != nullptr);
+    CHECK(hundredthsRoundedUp(pair->widthIn) == 10000);
+    const PhysicalCheck together = checkTruck(exact, {0, 1}, kDefaultTrailer, fixed);
+    CHECK(together.fits);
+    REQUIRE(together.layout.rows.size() == 1);
+    CHECK(together.layout.rows[0].pattern == ob::FloorPatternKind::WideWide);
+    CHECK(m5LayoutChecker::witnessProblems(together.layout, floorsOf(exact), 630, 100, 108, fixed.floor).empty());
+
+    const M5LaneDateInput wider = laneWith({unitOf("w0", "A", 50.01, 40, 80, 100), unitOf("w1", "A", 50.00, 40, 80, 100)}, 1);
+    const ob::FloorRow* widened = rowOfKind(ob::candidateRows(floorsOf(wider), {0, 1}, trailer, fixed.floor), ob::FloorPatternKind::WideWide);
+    REQUIRE(widened != nullptr);
+    CHECK(hundredthsRoundedUp(widened->widthIn) == 10001);
+    // The declared row fails, but the floor does not: each stack takes a row of its own.
+    const PhysicalCheck apart = checkTruck(wider, {0, 1}, kDefaultTrailer, fixed);
+    CHECK(apart.fits);
+    CHECK_FALSE(hasPattern(apart.layout, ob::FloorPatternKind::WideWide));
+    CHECK(apart.layout.rows.size() == 2);
+    for (const ob::FloorRow& row : apart.layout.rows) CHECK(hundredthsRoundedUp(row.widthIn) <= kWidth);
+    CHECK(m5LayoutChecker::witnessProblems(apart.layout, floorsOf(wider), 630, 100, 108, fixed.floor).empty());
+    m5Evidence::note("expected", {{"rowWidthHundredths", {10000, 10001}}, {"floorFitsAfterStep", true}});
+}
+
+TEST_CASE("X-PAT-13/microLengthBoundary: 630.00 in fits the 630 in floor exactly; 630.01 in does not, whatever the rounding" * doctest::test_suite("m5")) {
+    // Oracle: 63000 <= 63000; 63001 > 63000; turned, 63001 > 10000 across.
+    CHECK(63000 <= 63000);
+    CHECK(63001 > 63000);
+    const M5LaneDateInput exact = laneWith({unitOf("long", "A", 630.00, 100, 80, 100)}, 1);
+    const PhysicalCheck fits = checkTruck(exact, {0}, kDefaultTrailer, physicalSettings());
+    CHECK(fits.fits);
+    CHECK(rearInchesOf(fits.layout, kDefaultTrailer) == 0.0);
+    CHECK(m5LayoutChecker::witnessProblems(fits.layout, floorsOf(exact), 630, 100, 108, physicalSettings().floor).empty());
+    CHECK(physicalSectionPasses(exact, {0}));
+
+    const M5LaneDateInput over = laneWith({unitOf("long", "A", 630.01, 100, 80, 100)}, 1);
+    const PhysicalCheck refused = checkTruck(over, {0}, kDefaultTrailer, physicalSettings());
+    CHECK_FALSE(refused.fits);
+    CHECK_FALSE(refused.undecided);
+    CHECK_FALSE(refused.findings.empty());
+    CHECK_FALSE(physicalSectionPasses(over, {0}));
+    CHECK(bestSingleClassLoad(over, 0, kDefaultTrailer, physicalSettings(), 1) == 0);
+
+    // Supplied witnesses are measured as given.
+    CHECK(measureSuppliedWitness({{0, 0, 630.00, 100}}, kDefaultTrailer).valid);
+    CHECK(measureSuppliedWitness({{0, 0, 630.00, 100}}, kDefaultTrailer).rearInches == 0.0);
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 630.01, 100}}, kDefaultTrailer).valid);
+    m5Evidence::note("expected", {{"lengthHundredths", {63000, 63001}}, {"fits", {true, false}}});
+}
+
+TEST_CASE("U-PB-04/rotationOnly: an 80 x 55 in stack fits a 60 in floor only turned, 55 in along and 80 in across" * doctest::test_suite("m5")) {
+    const TrailerCapability shortFloor{60.0, 100.0, 108.0, 45000.0, kFixtureUnitLoadCap};
+    const M5LaneDateInput input = laneWith({unitOf("turn", "A", 80, 55, 80, 100)}, 1, shortFloor);
+    // Oracle: both orientations in hundredths. 80 along: 8000 > 6000. 55 along: 5500 <= 6000 and 8000 <= 10000.
+    CHECK(8000 > 6000);
+    CHECK((5500 <= 6000 && 8000 <= 10000));
+
+    const PhysicalCheck turned = checkTruck(input, {0}, shortFloor, physicalSettings());
+    CHECK(turned.fits);
+    REQUIRE(turned.layout.rows.size() == 1);
+    CHECK(turned.layout.rows[0].depthIn == 55.0);
+    CHECK(turned.layout.rows[0].widthIn == 80.0);
+    CHECK(rearInchesOf(turned.layout, shortFloor) == 5.0);
+    CHECK(m5LayoutChecker::witnessProblems(turned.layout, floorsOf(input), 60, 100, 108, physicalSettings().floor).empty());
+    CHECK(measureSuppliedWitness({{0, 0, 55, 80}}, shortFloor).valid);
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 80, 55}}, shortFloor).valid);
+
+    // A packer that never turns the stack (80 in along) cannot load it.
+    const PhysicalCheck unturned = checkTruck(input, {0}, shortFloor, fixedOrientation(ob::FixedOrientation::ShortSideAcross));
+    CHECK_FALSE(unturned.fits);
+    CHECK_FALSE(unturned.undecided);
+    m5Evidence::note("expected", {{"fitsTurned", true}, {"fitsUnturned", false}, {"rearInches", 5}});
+}
+
+TEST_CASE("U-PB-08/payloadExactAndEpsilon: 45,000.00 lb is legal on a 45,000 lb truck; 45,000.01 lb is not, FULL or not" * doctest::test_suite("m5")) {
+    // Oracle in hundredths of a pound: 4500000 <= 4500000; 4500001 > 4500000.
+    CHECK(4500000 <= 4500000);
+    CHECK(4500001 > 4500000);
+    const M5LaneDateInput exact = laneWith({unitOf("heavy", "A", 100, 20, 90, 45000.00)}, 1);
+    CHECK(checkTruck(exact, {0}, kDefaultTrailer, physicalSettings()).fits);
+    CHECK(physicalSectionPasses(exact, {0}));
+    CHECK(labelOf(exact, {0}).byWeight);
+
+    const M5LaneDateInput over = laneWith({unitOf("heavy", "A", 100, 20, 90, 45000.01)}, 1);
+    const PhysicalCheck refused = checkTruck(over, {0}, kDefaultTrailer, physicalSettings());
+    CHECK_FALSE(refused.fits);
+    CHECK_FALSE(refused.undecided);
+    CHECK_FALSE(refused.findings.empty());
+    // Full by weight is a label; it never makes an over-payload truck legal.
+    CHECK(labelOf(over, {0}).byWeight);
+    CHECK_FALSE(physicalSectionPasses(over, {0}));
+    CHECK(bestSingleClassLoad(over, 0, kDefaultTrailer, physicalSettings(), 1) == 0);
+    m5Evidence::note("expected", {{"payloadHundredths", {4500000, 4500001}}, {"legal", {true, false}}});
+}
+
+TEST_CASE("U-PB-08/simultaneousBinding: a 630 x 100 in, 45,000 lb stack binds floor and payload at once; a 1 lb extra is refused" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith({unitOf("block", "A", 630, 100, 80, 45000), unitOf("extra", "A", 1, 1, 80, 1)}, 1);
+    // Oracle: floor 63000 + 1 = 63001 sq in > 63000; payload 4500000 + 100 = 4500100 hundredths > 4500000.
+    CHECK(630 * 100 + 1 * 1 > 630 * 100);
+    CHECK(4500000 + 100 > 4500000);
+
+    CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
+    CHECK(physicalSectionPasses(input, {0}));
+    CHECK(checkTruck(input, {1}, kDefaultTrailer, physicalSettings()).fits);
+    const PhysicalCheck both = checkTruck(input, {0, 1}, kDefaultTrailer, physicalSettings());
+    CHECK_FALSE(both.fits);
+    CHECK_FALSE(both.undecided);
+    CHECK_FALSE(physicalSectionPasses(input, {0, 1}));
+
+    // Witnesses claiming both: past the floor's end, or on top of the block.
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 630, 100}, {630, 0, 1, 1}}, kDefaultTrailer).valid);
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 630, 100}, {0, 0, 1, 1}}, kDefaultTrailer).valid);
+    m5Evidence::note("expected", {{"aloneFits", true}, {"bothFit", false}});
+}
+
+TEST_CASE("X-PAT-19/threeAcrossM4Cutoff: M4 forms three-across while the three sides sum to the width; a missing row is no no-fit proof" * doctest::test_suite("m5")) {
+    // Spec Section 43: M4's three-across turns the short side across and is formed whenever the three
+    // short sides sum to no more than the trailer width; there is no separate side <= 33.3 in test.
+    // Footprints 40 x s in, never turned, 80 in tall, 100 lb.
+    const ob::m5::PhysicalSettings fixed = fixedOrientation(ob::FixedOrientation::ShortSideAcross);
+    const ob::TrailerSpec trailer = trailerOf(kDefaultTrailer);
+    struct Step {
+        double sideIn;
+        int64_t sumHundredths;  // oracle: 3 x the side, written out
+        bool rowFormed;
+    };
+    for (const Step& step : {Step{33.30, 9990, true}, Step{33.31, 9993, true}, Step{33.34, 10002, false}}) {
+        CAPTURE(step.sideIn);
+        CHECK((step.sumHundredths <= 10000) == step.rowFormed);
+        const M5LaneDateInput input = laneWith({unitOf("t0", "A", 40, step.sideIn, 80, 100), unitOf("t1", "A", 40, step.sideIn, 80, 100),
+                                                unitOf("t2", "A", 40, step.sideIn, 80, 100)},
+                                               1);
+        const ob::FloorRow* three =
+            rowOfKind(ob::candidateRows(floorsOf(input), {0, 1, 2}, trailer, fixed.floor), ob::FloorPatternKind::ThreeAcross);
+        REQUIRE(three != nullptr);
+        CHECK(hundredthsRoundedUp(three->widthIn) == step.sumHundredths);
+
+        // Whatever rows M4 offers, the floor holds all three: a missing three-across is not a no-fit proof.
+        const PhysicalCheck truck = checkTruck(input, {0, 1, 2}, kDefaultTrailer, fixed);
+        CHECK(truck.fits);
+        CHECK_FALSE(truck.undecided);
+        CHECK(hasPattern(truck.layout, ob::FloorPatternKind::ThreeAcross) == step.rowFormed);
+        CHECK(m5LayoutChecker::witnessProblems(truck.layout, floorsOf(input), 630, 100, 108, fixed.floor).empty());
+
+        // A supplied three-across witness is judged on its own rectangles.
+        const vector<PlacedRectangle> acrossWitness{{0, 0, 40, step.sideIn}, {0, step.sideIn, 40, step.sideIn}, {0, 2 * step.sideIn, 40, step.sideIn}};
+        CHECK(measureSuppliedWitness(acrossWitness, kDefaultTrailer).valid == step.rowFormed);
+    }
+    m5Evidence::note("expected", {{"rule", "three short sides sum <= trailer width (Section 43)"},
+                                  {"sumHundredths", {9990, 9993, 10002}},
+                                  {"threeAcrossFormed", {true, true, false}},
+                                  {"floorFits", {true, true, true}}});
 }
