@@ -10,6 +10,7 @@
 #include "m5Report.hpp"
 #include "paramsFields.hpp"
 #include "selectionParams.hpp"
+#include "support/m5Evidence.hpp"
 #include "pipeline.hpp"
 
 #include <array>
@@ -109,6 +110,14 @@ double unitLoadsShipped(const m5::M5LaneOutcome& outcome, const m5::M5LaneDateIn
     return shipped;
 }
 
+const char* kTomReferencePath = "tests/m5/data/tomReference.local.json";
+
+nlohmann::json tomReference() {
+    ifstream file(kTomReferencePath);
+    REQUIRE_MESSAGE(file.good(), "missing " << kTomReferencePath << ": the local reference file of Tom's figures (git-ignored) is needed");
+    return nlohmann::json::parse(file);
+}
+
 }  // namespace
 
 TEST_SUITE("m5RealData") {
@@ -117,7 +126,7 @@ TEST_CASE("m5RealData: every August extract M5 reads is present" * doctest::skip
     REQUIRE(m4AugustTests::augustPresent());
 }
 
-TEST_CASE("RD-01 RD-02 X-E2E-01 Aug5: only 2028 -> 2574 on 7 Aug goes to M5, with the 747-stack hand-over"
+TEST_CASE("RD-01/realData RD-02/realData ACC-2/production7Aug ACC-2/productionProfile Aug5: only 2028 -> 2574 on 7 Aug goes to M5, 21 reserved, with the 747-stack hand-over"
           * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const PipelineResult& run = withM5(1);
@@ -146,6 +155,7 @@ TEST_CASE("RD-01 RD-02 X-E2E-01 Aug5: only 2028 -> 2574 on 7 Aug goes to M5, wit
     CHECK(requiredStacks == 747);
     CHECK(requiredUnitLoads == doctest::Approx(763.0));
     CHECK(built == 21);
+    m5Evidence::note("notCovered", "RD-02: the split of the 763 unit loads by stack class and the can-go count are not asserted; only the 747 stacks and 763 unit loads"); 
     CHECK(run.selectionViolations.empty());
     for (const LeftOverItem& left : run.selectionPlan.leftOver) {
         CHECK(left.reason != LeftOverReason::EscalatedToM5);
@@ -153,7 +163,7 @@ TEST_CASE("RD-01 RD-02 X-E2E-01 Aug5: only 2028 -> 2574 on 7 Aug goes to M5, wit
     }
 }
 
-TEST_CASE("RD-10 Aug5: every dispatched M5 truck carries a fullness label and bucket" * doctest::skip()) {
+TEST_CASE("RD-10/realData Aug5: every dispatched M5 truck carries a fullness label and bucket" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("minimum-load check: at export, after M5") != string::npos);
@@ -162,6 +172,7 @@ TEST_CASE("RD-10 Aug5: every dispatched M5 truck carries a fullness label and bu
     for (size_t found = text.find(" goods remain\n"); found != string::npos; found = text.find(" goods remain\n", found + 1)) ++labelled;
     for (size_t found = text.find(" rule-limited\n"); found != string::npos; found = text.find(" rule-limited\n", found + 1)) ++labelled;
     CHECK(labelled == 21);
+    m5Evidence::note("notCovered", "M4's own average rear inches per bucket (f9d9945) beside M5's are not produced: M4 does not label buckets; the chart comparison is U-RP-07");
 }
 
 TEST_CASE("U-PB-12 Aug5: products 105666801 and 105446303 each fill trucks of their own" * doctest::skip()) {
@@ -178,15 +189,39 @@ TEST_CASE("U-PB-12 Aug5: products 105666801 and 105446303 each fill trucks of th
     CHECK(singleProductTrucks["105446303"] >= 1);
 }
 
-TEST_CASE("RD-09 INV-16 Aug5: every lane M5 does not touch plans exactly as without M5" * doctest::skip()) {
+TEST_CASE("RD-09/realData INV-16 Aug5: every lane M5 does not touch plans exactly as without M5" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     CHECK(trucksAwayFromLargeLane(withM5(1)) == trucksAwayFromLargeLane(aug5WithoutM5()));
 }
 
-TEST_CASE("RD-05 Aug4 and Aug6 have no lane-date above the threshold, so M5 plans nothing" * doctest::skip()) {
+TEST_CASE("RD-05/realData Aug4 and Aug6 have no lane-date above the threshold, so M5 plans nothing" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     CHECK(withM5(0).selectionPlan.largeLanes.empty());
     CHECK(withM5(2).selectionPlan.largeLanes.empty());
+}
+
+TEST_CASE("RD-08/realData Aug4 raw-material lanes (TL_N102) are never planned by M5" * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    const PipelineResult& run = withM5(0);
+    size_t rawMaterialRoutes = 0;
+    for (const LaneRoute& route : run.laneClassification.routes) {
+        const GroupKey& key = run.segregation.groups[route.groupIndex].key;
+        if (key.shipCondition != "TL_N102") continue;
+        ++rawMaterialRoutes;
+        CHECK(route.method != SolveMethod::M5);
+    }
+    // Raw-material lines (ship condition TL_N102) exist in the extract and are held on no M5 route: no route carries that
+    // condition, so none can be escalated to M5.
+    size_t rawMaterialLines = 0;
+    for (const STRRecord& line : run.demand.str) rawMaterialLines += line.ship_cond == "TL_N102" ? 1 : 0;
+    INFO("raw-material demand lines on Aug4: " << rawMaterialLines);
+    CHECK(rawMaterialRoutes == 0);
+    if (rawMaterialLines == 0) m5Evidence::note("notCovered", "the Aug4 extract held here has no TL_N102 raw-material lines, so there is no raw-material lane to show is left alone");
+    CHECK(run.selectionPlan.largeLanes.empty());
+    for (const PlannedTruck& truck : run.selectionPlan.trucks) {
+        const GroupKey& key = run.segregation.groups[run.laneClassification.routes[truck.routeIndex].groupIndex].key;
+        if (key.shipCondition == "TL_N102") CHECK(run.laneClassification.routes[truck.routeIndex].method != SolveMethod::M5);
+    }
 }
 
 TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the shipped 20 routes exactly the lane-dates above it" * doctest::skip()) {
@@ -209,8 +244,9 @@ TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the
     }
 }
 
-TEST_CASE("RD-03 X-REPORT-01 Aug5 7 Aug: at most 21 trucks, shipped and left shown, reserved never 38" * doctest::skip()) {
+TEST_CASE("RD-03/productionProfile X-REPORT-01/realRun Aug5 7 Aug: at most 21 trucks, shipped and left shown, reserved never 38, compared with the client's historical count" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
+    const nlohmann::json reference = tomReference();
     const PipelineResult& run = withM5(1);
     const string& text = run.selectionPlan.largeLanes.front().text;
     CHECK(text.find("reserved: 21\n") != string::npos);
@@ -218,7 +254,14 @@ TEST_CASE("RD-03 X-REPORT-01 Aug5 7 Aug: at most 21 trucks, shipped and left sho
     CHECK(text.find("unit loads in / shipped / of them can-go") != string::npos);
     CHECK(text.find("left: over the reservation") != string::npos);
     CHECK(text.find("FULL trucks:") != string::npos);
-    MESSAGE("7 Aug, 2028 -> 2574: M5 built 21 against the client's historical 18");
+    const int historical = reference.at("clientHistoricalTrucks").at("aug5SevenAug").get<int>();
+    size_t builtTrucks = 0;
+    for (const PlannedTruck& truck : run.selectionPlan.trucks) {
+        if (onLargeLane(run, run.laneClassification.routes[truck.routeIndex]) && truck.shipDate == kLargeLaneDate) ++builtTrucks;
+    }
+    CHECK(builtTrucks <= 21);
+    CHECK(text.find("reserved: " + to_string(reference.at("clientHistoricalTrucks").at("aug5BothDates").get<int>())) == string::npos);
+    MESSAGE("7 Aug, 2028 -> 2574: M5 built " << builtTrucks << " against the client's historical " << historical << " (shipped and left are in the report above)");
 }
 
 TEST_CASE("RD-04 RD-13 7 and 8 Aug of 2028 -> 2574 reconcile item by item across both dates" * doctest::skip()) {
@@ -240,7 +283,7 @@ TEST_CASE("RD-04 RD-13 7 and 8 Aug of 2028 -> 2574 reconcile item by item across
     }
 }
 
-TEST_CASE("RD-11 reservations reconcile: reserved = built + unused, M5's lane within its 21" * doctest::skip()) {
+TEST_CASE("RD-11/reconciliation reservations reconcile: reserved = built + unused, M5's lane within its 21" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     for (size_t runIndex = 0; runIndex < 3; ++runIndex) {
         const PipelineResult& run = withM5(runIndex);
@@ -255,20 +298,23 @@ TEST_CASE("RD-11 reservations reconcile: reserved = built + unused, M5's lane wi
         CHECK(reserved == run.reservationBook.reservedTrucks);
         MESSAGE("run " << runIndex << ": " << reserved << " reserved, " << built << " built, " << unused << " unused");
     }
+    m5Evidence::note("notCovered", "the client-basis figures (client trucks on reserved lane-dates, placeholder trucks less client loads) are not computed: only M4/M5's own reserved = built + unused is reconciled");
 }
 
-TEST_CASE("RD-12 RD-10 M5's trucks report fullness reasons and rear-inch averages per bucket" * doctest::skip()) {
+TEST_CASE("RD-12/productionProfile M5's trucks report fullness reasons and rear-inch averages per bucket" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("by weight") != string::npos);
     CHECK(text.find("by rear inches") != string::npos);
     CHECK(text.find("floor-limited") != string::npos);
     CHECK(text.find("average rear inches, goods remain") != string::npos);
+    m5Evidence::note("notCovered", "the client's historical trucks (M4 layout of their goods) and M4's own trucks are not counted by FULL reason; only M5's trucks are");
 }
 
-TEST_CASE("ACC-2 RD-06 X-E2E-01 X-REPORT-02 the labelled both-dates benchmark keeps 21 and 20 and commits nothing"
+TEST_CASE("ACC-2/bothDatesBenchmark RD-06/benchmark RD-06/productionProfile X-E2E-01/productionProfile X-REPORT-02/realRun the labelled both-dates benchmark keeps 21 and 20 and commits nothing"
           * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
+    const nlohmann::json reference = tomReference();
     const PipelineResult& production = withM5(1);
     const size_t trucksBefore = production.selectionPlan.trucks.size();
     // Fresh hand-overs: the run without M5 leaves both dates as M4 gave them.
@@ -292,10 +338,35 @@ TEST_CASE("ACC-2 RD-06 X-E2E-01 X-REPORT-02 the labelled both-dates benchmark ke
     CHECK(benchmark.text.find("BENCHMARK") != string::npos);
     CHECK(production.selectionPlan.largeLanes.front().text.find("scope: PRODUCTION") != string::npos);
     CHECK(production.selectionPlan.trucks.size() == trucksBefore);
-    MESSAGE("both-dates benchmark: " << trucks << " trucks against the client's historical 38");
+    MESSAGE("both-dates benchmark: " << trucks << " trucks against the client's historical " << reference.at("clientHistoricalTrucks").at("aug5BothDates").get<int>());
+    for (size_t date = 0; date < 2; ++date) {
+        const m5::M5LaneOutcome& outcome = benchmark.outcomes[date];
+        MESSAGE("date " << date << ": allowance " << outcome.allowanceSeconds << " s (CL-05), elapsed " << outcome.timing.elapsedSeconds << " s");
+    }
 }
 
-TEST_CASE("U-PF-02 X-RUN-10 M4, A and B on the same goods, in either order" * doctest::skip()) {
+TEST_CASE("ACC-2/syntheticDiagnostic RD-03/syntheticPolicyDiagnostic X-E2E-01/syntheticPolicyDiagnostic Aug5 7 Aug with the optional acceptance policy ON: a labelled diagnostic, committed nowhere"
+          * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    const vector<m5::M5LaneDateInput> sevenAug = laneDates(aug5WithoutM5(), {"2028", "2574", "TL"}, {"2026-08-07"});
+    REQUIRE(sevenAug.size() == 1);
+    m5::M5PolicyProfile diagnostic = shippedProfile();
+    diagnostic.acceptance = m5::NumericAcceptance{40000.0, 3300.0};
+    const m5::FunctionClock clock(nullptr);
+    const m5::M5RunServices services(clock);
+    const m5::M5LaneOutcome outcome = m5::planLaneDate(sevenAug[0], diagnostic, m5::physicalSettingsOf(aug5WithoutM5().selectionParams.selector), services);
+    REQUIRE(outcome.selected.has_value());
+    const string text = m5::renderAscii(m5::buildReportData(outcome, sevenAug[0], &diagnostic, {"SYNTHETIC", 20, "diagnostic: optional policy ON, not production"}));
+    CHECK(text.find("scope: SYNTHETIC") != string::npos);
+    CHECK(text.find("optional policy ON") != string::npos);
+    CHECK(outcome.selected->trucks.size() <= 21);
+    for (const m5::TruckPlan& truck : outcome.selected->trucks) {
+        REQUIRE(truck.layout.rows.size() > 0);
+    }
+    MESSAGE("diagnostic, policy ON: " << outcome.selected->trucks.size() << " trucks; the production run is untouched (it never reads this profile)");
+}
+
+TEST_CASE("U-PF-02/benchmark X-RUN-10/benchmark M4, A and B on the same goods, in either order" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const PipelineResult& baseline = aug5WithoutM5();
     const vector<m5::M5LaneDateInput> sevenAug = laneDates(baseline, {"2028", "2574", "TL"}, {"2026-08-07"});
@@ -317,9 +388,10 @@ TEST_CASE("U-PF-02 X-RUN-10 M4, A and B on the same goods, in either order" * do
     MESSAGE("7 Aug, 21 reserved: A " << unitLoadsShipped(firstA, sevenAug[0]) << " unit loads in " << firstA.timing.elapsedSeconds
                                      << " s; B " << unitLoadsShipped(firstB, sevenAug[0]) << " in " << firstB.timing.elapsedSeconds
                                      << " s; M4 does not plan it (escalated)");
+    m5Evidence::note("notCovered", "M4's own time on this lane-date is not measured because M4 escalates it; cold and warm cache runs are not compared (X-RUN-10/coldWarmCache)");
 }
 
-TEST_CASE("RD-07 Aug6 2028 -> 2190, both dates joined, completes and is reported" * doctest::skip()) {
+TEST_CASE("RD-07/benchmark RD-07/productionProfile Aug6 2028 -> 2190, both dates joined, completes and is reported" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const PipelineResult& run = withM5(2);
     vector<string> dates;
@@ -344,7 +416,7 @@ TEST_CASE("RD-07 Aug6 2028 -> 2190, both dates joined, completes and is reported
     MESSAGE("Aug6 2028 -> 2190 over " << inputs.size() << " dates: " << trucks << " trucks against the historical 23");
 }
 
-TEST_CASE("X-REPORT-03 the report never calls the lane infeasible without a certificate" * doctest::skip()) {
+TEST_CASE("X-REPORT-03/realRun the report never calls the lane infeasible without a certificate" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("infeasible") == string::npos);
@@ -354,18 +426,6 @@ TEST_CASE("X-REPORT-03 the report never calls the lane infeasible without a cert
 // ---------------------------------------------------------------------------------------- reference file
 // Tom's figures (chart ranges, client cube, the most-ever-seen cube line, the client's historical loads and truck
 // counts) are never written into a test: they are read from a local, git-ignored file, and a missing file fails by name.
-
-namespace {
-
-const char* kTomReferencePath = "tests/m5/data/tomReference.local.json";
-
-nlohmann::json tomReference() {
-    ifstream file(kTomReferencePath);
-    REQUIRE_MESSAGE(file.good(), "missing " << kTomReferencePath << ": the local reference file of Tom's figures (git-ignored) is needed");
-    return nlohmann::json::parse(file);
-}
-
-}  // namespace
 
 TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's chart ranges and the client's cube, as context and not pass or fail"
           * doctest::skip()) {

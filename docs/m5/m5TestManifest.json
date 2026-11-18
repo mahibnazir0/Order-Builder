@@ -6813,7 +6813,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData) + tests/m5/testM5Routing.cpp",
       "fixture": "Real Aug4",
       "localOverrides": "",
       "entryPoint": "REAL",
