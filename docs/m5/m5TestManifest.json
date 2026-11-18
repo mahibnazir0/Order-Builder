@@ -265,7 +265,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP (G=1, >=)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -1039,7 +1039,7 @@
         "M-M4"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "Local: group A 12 x 60x60 (10 fit), group B 11 x 48x40, one truck, all P0",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -1101,7 +1101,7 @@
         "M-M4"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Integration.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Two lanes, FX-30, one lane switched to PriorityFirst",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
@@ -8427,7 +8427,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Solver.cpp + tests/m5/testM5Solver.cpp (ctest entry m5Published)",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",

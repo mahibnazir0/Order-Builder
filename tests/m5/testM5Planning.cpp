@@ -397,7 +397,7 @@ TEST_CASE("U-PB-10/synthetic: a single unit load heavier than the trailer limit 
     m5Evidence::note("expected", {"46,000 lb and 45,000.01 lb: Unfittable, on no truck, reported", "45,000 lb ships"});
 }
 
-TEST_CASE("R-2 one reserved truck: group B's 20 P0 beat A's 1 P0 + 29 P11" * doctest::test_suite("m5")) {
+TEST_CASE("R-2/synthetic R-2/productionProfile one reserved truck: group B's 20 P0 beat A's 1 P0 + 29 P11, with y = 2,400 cu ft and with the production profile" * doctest::test_suite("m5")) {
     vector<Atom> atoms{fx30("a-p0", "A", 0)};
     atoms = concat(atoms, fx30Units("a-p11-", 29, "A", 11));
     atoms = concat(atoms, fx30Units("b-p0-", 20, "B", 0));
@@ -410,9 +410,20 @@ TEST_CASE("R-2 one reserved truck: group B's 20 P0 beat A's 1 P0 + 29 P11" * doc
         CHECK(shippedOfGroup(outcome, input, "B") == 20);
         CHECK(shippedOfGroup(outcome, input, "A") == 0);
     }
+    // Both candidates are feasible and accepted: B is 30,000 lb and 2,500 cu ft, over y = 2,400; A is 45,000 lb.
+    double bWeight = 0.0, bCube = 0.0;
+    for (const Atom& atom : input.atoms) {
+        if (atom.group != "B") continue;
+        bWeight += atom.weightLb;
+        bCube += atom.floor.cubeCubicIn;
+    }
+    CHECK(bWeight == 30000.0);
+    CHECK(bCube / 1728.0 == doctest::Approx(2500.0));
+    CHECK(evaluateAcceptance(bWeight, bCube, NumericAcceptance{40000.0, 2400.0}).accepted);
+    m5Evidence::note("expected", {"B ships 20 P0 with y = 2,400 and with acceptance OFF", "A (1 P0 + 29 P11) loses: complete priority, not the most urgent item then fill"});
 }
 
-TEST_CASE("R-4a R-4b R-4c U-RS-06 U-RS-07 X-DATE-08 overdue P11 against current P0, by past-due order" * doctest::test_suite("m5")) {
+TEST_CASE("R-4a/synthetic R-4b/synthetic R-4c/synthetic U-RS-06 U-RS-07 X-DATE-08 overdue P11 against current P0, by past-due order" * doctest::test_suite("m5")) {
     const vector<Atom> atoms = concat(fx30Units("old-", 30, "A", 11, kDayBefore, kDayBefore), fx30Units("now-", 30, "A", 0));
     M5LaneDateInput input = laneWith(atoms, 1);
     auto shippedPrefix = [&](const M5LaneOutcome& outcome) {
@@ -420,11 +431,23 @@ TEST_CASE("R-4a R-4b R-4c U-RS-06 U-RS-07 X-DATE-08 overdue P11 against current 
         for (const string& id : shippedIds(outcome, input)) prefixes.insert(id.substr(0, id.find('-')));
         return prefixes;
     };
+    // Both 30-unit alternatives are valid and accepted, so the order setting alone decides.
+    for (const M5PolicyProfile& profile : {syntheticProfile(), withAcceptance(syntheticProfile(), 40000.0, 2400.0)}) {
+        input.pastDueOrder = ob::PastDueOrder::AgeFirst;
+        const M5LaneOutcome ageFirst = plan(input, profile);
+        requireInvariants(ageFirst, input);
+        CHECK(shippedPrefix(ageFirst) == set<string>{"old"});
+        input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
+        const M5LaneOutcome priorityFirst = plan(input, profile);
+        requireInvariants(priorityFirst, input);
+        CHECK(shippedPrefix(priorityFirst) == set<string>{"now"});
+    }
     input.pastDueOrder = ob::PastDueOrder::AgeFirst;
     CHECK(shippedPrefix(plan(input, syntheticProfile())) == set<string>{"old"});
     input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
     CHECK(shippedPrefix(plan(input, syntheticProfile())) == set<string>{"now"});
     const M5LaneDateInput defaulted = laneWith(atoms, 1);
+    CHECK(defaulted.pastDueOrder == ob::PastDueOrder::AgeFirst);
     const M5LaneOutcome outcome = plan(defaulted, syntheticProfile());
     set<string> prefixes;
     for (const string& id : shippedIds(outcome, defaulted)) prefixes.insert(id.substr(0, id.find('-')));
@@ -2609,7 +2632,7 @@ TEST_CASE("U-RB-02 X-BLK-02 X-BLK-03 rolling blocks never pad and never exceed t
     CHECK(spare.selected->trucks.size() == 30);
 }
 
-TEST_CASE("R-6 one truck, two groups: eleven 48 x 40 beat twelve 60 x 60 of which ten fit" * doctest::test_suite("m5")) {
+TEST_CASE("R-6/m5Path one truck, two groups: eleven 48 x 40 beat twelve 60 x 60 of which ten fit" * doctest::test_suite("m5")) {
     vector<Atom> atoms;
     for (int unit = 0; unit < 12; ++unit) atoms.push_back(unitOf("big" + to_string(100 + unit), "A", 60, 60, 50, 1000));
     for (int unit = 0; unit < 11; ++unit) atoms.push_back(unitOf("small" + to_string(100 + unit), "B", 48, 40, 50, 1000));

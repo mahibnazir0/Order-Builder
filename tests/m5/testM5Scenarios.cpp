@@ -952,7 +952,7 @@ TEST_CASE("U-PF-01/fakeClockMetrics: a fake-clock lane-date records the allowanc
 
 // ------------------------------------------------------------------- repair and final contents
 
-TEST_CASE("R-1c X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired on a copy; goods return once" * doctest::test_suite("m5")) {
+TEST_CASE("R-1c/synthetic X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired on a copy; goods return once" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 31, "A"), fx30Units("b", 20, "B")), 2);
     Truck overfull;
     for (size_t atom = 0; atom < 31; ++atom) overfull.push_back(atom);
@@ -971,6 +971,33 @@ TEST_CASE("R-1c X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired o
     // Decided again on final contents: M5's own methods find B's 20 and 30 of A's in two trucks.
     const M5LaneOutcome replanned = plan(input, syntheticProfile());
     CHECK(shippedCount(replanned) == 50);
+    // Removed goods return exactly once: every atom is on a truck or left over, none twice.
+    set<size_t> accounted;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        for (const size_t atom : truck.atoms) CHECK(accounted.insert(atom).second);
+    }
+    for (const LeftOver& left : outcome.leftOver) CHECK(accounted.insert(left.atom).second);
+    CHECK(accounted.size() == input.atoms.size());
+    CHECK(outcome.selected->evidence.proof == ProofStatus::Unproven);
+    CHECK(outcome.proof != ProofStatus::ProvenOptimal);
+    // Stopped mid-way: a checked unproven result, or no result, never the old proof.
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.methods = {make_shared<FixedMethod>(MethodId::PatternRepeat, GroupTrucks{overfull, groupB})};
+    services.afterMethod = [&](MethodId) { clock.advance(100.0); };
+    const M5LaneOutcome stopped = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(stopped, input);
+    CHECK(stopped.stop == StopReason::BudgetExhausted);
+    CHECK(stopped.proof != ProofStatus::ProvenOptimal);
+    if (stopped.selected) {
+        CHECK(stopped.selected->evidence.proof != ProofStatus::ProvenOptimal);
+        REQUIRE(stopped.selected->validation.has_value());
+        CHECK(stopped.selected->validation->allPassed());
+    } else {
+        CHECK(stopped.kind == OutcomeKind::TimeoutNoIncumbent);
+    }
+    m5Evidence::note("expected", {"the overfull truck is removed on a copy, its 31 goods come back once", "the old proof is cleared", "a stop mid-way: a checked unproven plan or none"});
 }
 
 namespace {
@@ -1292,7 +1319,7 @@ TEST_CASE("X-REB-03 a remainder ineligible by date takes no truck and is reporte
     CHECK(countCause(outcome, LeftOverCause::NotEligible) == 5);
 }
 
-TEST_CASE("X-REB-06 R-3a a later line cannot ride a mixed stack when pull-forward is off" * doctest::test_suite("m5")) {
+TEST_CASE("X-REB-06 R-3a/synthetic a later line cannot ride a mixed stack when pull-forward is off" * doctest::test_suite("m5")) {
     Atom stack = unitOf("mixed", "A", 100, 20, 100, 3000);
     stack.unitLoads = 2.0;
     Component later = stack.components[0];
@@ -1305,11 +1332,61 @@ TEST_CASE("X-REB-06 R-3a a later line cannot ride a mixed stack when pull-forwar
     CHECK(shippedCount(outcome) == 0);
     CHECK(countCause(outcome, LeftOverCause::NotEligible) == 1);
     CHECK(shippedCount(plan(laneWith({stack}, 1, kDefaultTrailer, true), syntheticProfile())) == 1);
+    // The later line stays accounted for: it is left over, never lost, and not shipped on either date of the window.
+    requireInvariants(outcome, off);
+    CHECK(outcome.leftOver.size() == 1);
+    // A separate Aug 8 line beside an Aug 6 line: only the Aug 6 line ships with pull-forward off.
+    const M5LaneDateInput apart = laneWith({fx30("aug6", "A", 0, kD, kD), fx30("aug8", "A", 0, dayAfter(2), kD)}, 1);
+    const M5LaneOutcome apartOutcome = plan(apart, syntheticProfile());
+    requireInvariants(apartOutcome, apart);
+    CHECK(shippedIds(apartOutcome, apart) == set<string>{"aug6"});
+    CHECK(causeOf(apartOutcome, apart, "aug8") == LeftOverCause::NotEligible);
+    m5Evidence::note("expected", {"both date rules off: the Aug 8 line does not ship on Aug 6 or 7, in a mixed stack or alone", "it stays accounted for as not eligible"});
 }
 
-TEST_CASE("R-3b with pull-forward on, a line due within the window may ship early" * doctest::test_suite("m5")) {
+TEST_CASE("R-3b/synthetic with pull-forward on, a line due within the window may ship early" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith({fx30("aug8", "A", 0, dayAfter(1), kD)}, 1, kDefaultTrailer, true);
-    CHECK(shippedCount(plan(input, syntheticProfile())) == 1);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedCount(outcome) == 1);
+    // It may ship only if availability, group and reservation allow it: beyond the limit, unavailable or without a truck it does not.
+    const M5LaneDateInput beyond = laneWith({fx30("aug8", "A", 0, dayAfter(11), kD)}, 1, kDefaultTrailer, true);
+    CHECK(shippedCount(plan(beyond, syntheticProfile())) == 0);
+    const M5LaneDateInput notAvailable = laneWith({fx30("aug8", "A", 0, dayAfter(1), dayAfter(2))}, 1, kDefaultTrailer, true);
+    CHECK(shippedCount(plan(notAvailable, syntheticProfile())) == 0);
+    const M5LaneDateInput noTruck = laneWith({fx30("aug8", "A", 0, dayAfter(1), kD)}, 0, kDefaultTrailer, true);
+    CHECK(shippedCount(plan(noTruck, syntheticProfile())) == 0);
+    m5Evidence::note("expected", {"limit 10: due D+1 ships early", "D+11, not yet available, or no truck: it does not"});
+}
+
+TEST_CASE("R-7/overrideABA R-7/cacheReplay R-7/removeOverride two lanes plan their own past-due order: A AgeFirst, then PriorityFirst for A only, then removed; same-process repeats equal the first runs" * doctest::test_suite("m5")) {
+    const vector<Atom> atoms = concat(fx30Units("old-", 30, "A", 11, kDayBefore, kDayBefore), fx30Units("now-", 30, "A", 0));
+    const auto laneOf = [&](const string& origin, ob::PastDueOrder order) {
+        M5LaneDateInput input = laneWith(atoms, 1);
+        input.lane = {origin, "2528", "TL"};
+        input.pastDueOrder = order;
+        return input;
+    };
+    const auto shippedOf = [&](const M5LaneDateInput& input) {
+        set<string> prefixes;
+        for (const string& id : shippedIds(plan(input, syntheticProfile()), input)) prefixes.insert(id.substr(0, id.find('-')));
+        return prefixes;
+    };
+    const set<string> overdue{"old"}, current{"now"};
+    // Configuration sequence A / B / A, each step planned in the same process.
+    CHECK(shippedOf(laneOf("2027", ob::PastDueOrder::AgeFirst)) == overdue);
+    CHECK(shippedOf(laneOf("2028", ob::PastDueOrder::AgeFirst)) == overdue);
+    CHECK(shippedOf(laneOf("2027", ob::PastDueOrder::PriorityFirst)) == current);
+    CHECK(shippedOf(laneOf("2028", ob::PastDueOrder::AgeFirst)) == overdue);
+    CHECK(shippedOf(laneOf("2027", ob::PastDueOrder::AgeFirst)) == overdue);
+    CHECK(shippedOf(laneOf("2028", ob::PastDueOrder::AgeFirst)) == overdue);
+    // Replay: every step again gives the first result, and lane B never inherited lane A's setting.
+    for (int round = 0; round < 3; ++round) {
+        CHECK(shippedOf(laneOf("2027", ob::PastDueOrder::PriorityFirst)) == current);
+        CHECK(shippedOf(laneOf("2028", ob::PastDueOrder::AgeFirst)) == overdue);
+        CHECK(shippedOf(laneOf("2027", ob::PastDueOrder::AgeFirst)) == overdue);
+    }
+    m5Evidence::note("expected", {"A and B ship the overdue P11", "after the override only A ships the current P0", "after removal both ship the overdue again", "repeats in one process equal the first runs"});
 }
 
 TEST_CASE("X-REB-07 priority never authorises an unaccepted shipment" * doctest::test_suite("m5")) {
@@ -3860,6 +3937,36 @@ TEST_CASE("X-REPORT-09/synthetic: ids with non-ASCII, quotes, commas, newlines a
     CHECK(rowLines == data.trucks.size());
     CHECK(text.find("3E Summary\n") != string::npos);
     m5Evidence::note("expected", {"every byte 0x20..0x7e or newline", "one table row per truck", "sections 3A to 3E present"});
+}
+
+TEST_CASE("ACC-3/approvedPolicy: the careful method runs whenever the quick count is above a valid same-model bound and time remains; equal to the bound never triggers; the gap is reported in trucks and percent" * doctest::test_suite("m5")) {
+    // 30 units: quick 3, bound 2, one truck above (50.0 percent of the bound): B runs.
+    const M5LaneDateInput above = gapLane(30);
+    const M5LaneOutcome escalated = plan(above, syntheticProfile());
+    requireInvariants(escalated, above);
+    requireEscalation(escalated, 30, 3, 2, true);
+    CHECK(escalated.escalation.gap == "1 truck, 50.0% above the bound of 2");
+    REQUIRE(escalated.methods.size() == 2);
+    CHECK(escalated.methods[1].ran);
+    // 20 units: quick 2 equals the bound 2: B is never started.
+    const M5LaneDateInput equal = gapLane(20);
+    const M5LaneOutcome notEscalated = plan(equal, syntheticProfile());
+    requireInvariants(notEscalated, equal);
+    requireEscalation(notEscalated, 20, 2, 2, false);
+    REQUIRE(notEscalated.methods.size() == 2);
+    CHECK_FALSE(notEscalated.methods[1].ran);
+    // Above the bound but no allowance left: B is not started either.
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    services.afterMethod = [&](MethodId) { clock.advance(100.0); };
+    const M5LaneOutcome late = planLaneDate(above, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(late, above);
+    CHECK_FALSE(late.methods[1].ran);
+    const string text = renderAscii(buildReportData(escalated, above, nullptr, {}));
+    CHECK(text.find("quick count vs bound: 1 truck, 50.0% above the bound of 2") != string::npos);
+    m5Evidence::note("expected", {"quick 3 against bound 2 with time left: B runs, gap 1 truck and 50.0%", "quick 2 equal to the bound: B never runs", "above the bound without time: B not started"});
 }
 
 TEST_CASE("U-FF-01/approvedPolicy: A is exactly G = 1 above a valid bound with allowance left: B runs" * doctest::test_suite("m5")) {

@@ -515,6 +515,22 @@ TEST_CASE("X-DATE-12/synthetic: data beyond M4's period cannot create a new M5 d
     m5Evidence::note("expected", {"M4 period ends 7 Aug", "8 Aug reservation skipped", "no M5 truck or lane-date on 8 Aug"});
 }
 
+TEST_CASE("R-6/m4Path one truck, two do-not-mix groups on one lane: M4's selector gives it to eleven 48 x 40, not to twelve 60 x 60 of which ten fit" * doctest::test_suite("m5")) {
+    // Group A: twelve 60 x 60 stacks; group B: eleven 48 x 40 stacks; all P0, one reserved truck on the lane.
+    vector<SelectionItem> goods;
+    for (size_t unit = 0; unit < 12; ++unit) goods.push_back(item(0, unit, 1000.0, 0, 60.0, 60.0));
+    for (size_t unit = 0; unit < 11; ++unit) goods.push_back(item(1, 12 + unit, 1000.0, 0, 48.0, 40.0));
+    const Day day = dayOf({group("2027", SplitReason::None, "A"), group("2027", SplitReason::None, "B")}, 23, goods, {reserved("2027", 1)});
+    const SelectionPlan selected = plan(day, selectorSettings());
+    const auto byGroup = trucksByGroup(selected);
+    REQUIRE(byGroup.count(1) == 1);
+    REQUIRE(byGroup.at(1).size() == 1);
+    CHECK(byGroup.at(1).front().size() == 11);
+    CHECK(byGroup.count(0) == 0);
+    CHECK(accountedOnce(selected, day.items.items.size()));
+    m5Evidence::note("expected", {"M4 selector, no planner: group B's eleven ship on the one truck", "group A's twelve stay left over (only ten fit)"});
+}
+
 TEST_CASE("X-STATE-03/synthetic: an M4 lane plans the same with an unrelated M5 lane beside it" * doctest::test_suite("m5")) {
     const Day day = dayOf({group("2027"), group("2028")}, 60, join(itemsOf(0, 30, 0), itemsOf(1, 30, 30)),
                           {reserved("2027", 20), reserved("2028", 21)});

@@ -452,11 +452,22 @@ TEST_CASE("U-FF-05/fxGap: the gap is reported in trucks and percent of the bound
     m5Evidence::note("expected", {"1 truck 50.0%", "2 trucks 20.0%", "0 trucks", "N/A without a bound or with bound 0"});
 }
 
-TEST_CASE("ACC-3 U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with allowance left" * doctest::test_suite("m5")) {
+TEST_CASE("ACC-3/fxGap U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with allowance left" * doctest::test_suite("m5")) {
     CHECK(shouldEscalate(11, 10, 1, true));
     CHECK(shouldEscalate(12, 10, 1, true));
     CHECK_FALSE(shouldEscalate(12, 10, 1, false));
     CHECK_FALSE(shouldEscalate(10, 10, 1, true));
+    // The G = 1 boundary on both sides, and a larger recorded gap: the trigger is F - B >= G, with time left.
+    for (const long long bound : {1LL, 2LL, 10LL, 38LL}) {
+        INFO("bound " << bound);
+        CHECK_FALSE(shouldEscalate(bound, bound, 1, true));
+        CHECK(shouldEscalate(bound + 1, bound, 1, true));
+        CHECK(shouldEscalate(bound + 2, bound, 1, true));
+        CHECK_FALSE(shouldEscalate(bound + 1, bound, 1, false));
+        CHECK_FALSE(shouldEscalate(bound + 1, bound, 2, true));
+        CHECK(shouldEscalate(bound + 2, bound, 2, true));
+    }
+    m5Evidence::note("expected", {"F = B: no escalation", "F = B + 1 with G = 1: escalates only while allowance is left", "G = 2 moves the boundary to F = B + 2"});
 }
 
 TEST_CASE("X-META-01 every multiset of up to 7 sizes 1-6 at capacity 6 matches brute force" * doctest::test_suite("m5")) {
@@ -547,6 +558,67 @@ TEST_CASE("U-CG-02/published PUB-01/published PUB-02/published PUB-03/published:
     }
     m5Evidence::input("binpack1", path);
     m5Evidence::note("expected", {"u120_00 48", "u120_01 49", "u120_02 46", "packings checked independently"});
+}
+
+// ACC-1: the acceptance gate for the scalar solver. It is the published cases above and the small
+// capacity-only exact cases of v12 Section 12, each reaching its known best with a complete packing that an
+// independent checker accepts. No x/y, no trailer, no dates: capacity 10 unless a case says otherwise.
+TEST_CASE("ACC-1/scalarSuite: PUB-01..03 and the Section 12 capacity-only exact cases (X-CG-18 included) reach their known best with independently checked packings" * doctest::test_suite("m5Published")
+          * doctest::skip()) {
+    struct Exact {
+        string name;
+        vector<long long> sizes;
+        long long best;
+    };
+    vector<long long> fifteenTwos(15, 2), seventeenTwos(17, 2), fiveThrees(5, 3);
+    const vector<Exact> small{
+        {"FFD trap", {6, 5, 3, 2, 2, 2}, 2},
+        {"weak volume bound", {6, 6, 6}, 3},
+        {"fractional relaxation", fiveThrees, 2},
+        {"mixed patterns", {6, 6, 4, 4}, 2},
+        {"missing mixed pattern", {6, 4}, 1},
+        {"exact multiple", fifteenTwos, 3},
+        {"with a remainder", seventeenTwos, 4},
+        {"converged but not best (X-CG-18)", {5, 5, 5, 2, 2, 2, 2, 2, 2}, 3},
+    };
+    for (const Exact& instance : small) {
+        INFO(instance.name);
+        const ScalarModel model = modelOf(instance.sizes);
+        const ScalarResult result = solveChecked(model);
+        REQUIRE(result.packing.has_value());
+        CHECK(result.impossible.empty());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(static_cast<long long>(result.packing->bins.size()) == instance.best);
+        size_t itemsPacked = 0;
+        for (const auto& bin : result.packing->bins) itemsPacked += bin.size();
+        CHECK(itemsPacked == instance.sizes.size());
+    }
+
+    const string path = "tests/m5/data/orlib/binpack1.txt";
+    ifstream file(path);
+    REQUIRE_MESSAGE(file.good(), "missing " << path << ": PUB-01..03 are BLOCKED until it is added");
+    int problems = 0;
+    file >> problems;
+    for (const pair<string, long long>& published : vector<pair<string, long long>>{{"u120_00", 48}, {"u120_01", 49}, {"u120_02", 46}}) {
+        string id;
+        long long capacity = 0, count = 0, best = 0;
+        file >> id >> capacity >> count >> best;
+        REQUIRE(id == published.first);
+        REQUIRE(best == published.second);
+        ScalarModel model = modelOf({}, capacity);
+        for (long long item = 0; item < count; ++item) {
+            long long size = 0;
+            file >> size;
+            model.sizes.push_back(size);
+        }
+        const ScalarResult result = solveChecked(model);
+        INFO(published.first);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(static_cast<long long>(result.packing->bins.size()) == published.second);
+    }
+    m5Evidence::input("binpack1", path);
+    m5Evidence::note("expected", {"eight Section 12 cases at their known best", "u120_00 48, u120_01 49, u120_02 46", "every packing checked independently"});
 }
 
 // ---- X-CG-22 and U-FF-01/ffdConcreteGap (tests v12 Section 42) -------------------------------------
