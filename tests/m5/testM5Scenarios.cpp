@@ -2949,7 +2949,7 @@ TEST_CASE("X-REPORT-01/structuredInput: a 21-truck 7 Aug lane reports 21 reserve
     CHECK(benchmark.text.find("reserved: 38") == string::npos);
     CHECK(benchmark.text.find("reserved: 41") == string::npos);
     m5Evidence::note("expected", {"7 Aug: reserved 21, loaded 21", "8 Aug: reserved 20", "never reserved 38; the two dates are reported apart (21 + 20 = 41)"});
-    m5Evidence::note("notCovered", {"the comparison with the client's 18 on 7 Aug needs the local reference file (PR-13)"});
+    m5Evidence::note("notCovered", "the comparison with the client's 18 on 7 Aug needs the local reference file (PR-13)");
 }
 
 TEST_CASE("X-REPORT-02/structuredInput: a both-dates benchmark is labelled and kept apart from the production report; its numbers are results, not targets" * doctest::test_suite("m5")) {
@@ -2987,7 +2987,7 @@ TEST_CASE("X-REPORT-03/structuredInput: a plan without a certificate is never ca
     CHECK(text.find("quick count vs bound: ") != string::npos);
     CHECK(text.find("count evidence: ") != string::npos);
     m5Evidence::note("expected", {"no certificate: no infeasible wording", "estimate and bound shown as such", "no historical 635 or old means in a current report"});
-    m5Evidence::note("notCovered", {"747 stacks / 763 units and the means 3,171/3,209/3,192 are reproduced only in the real-data run (PR-13)"});
+    m5Evidence::note("notCovered", "747 stacks / 763 units and the means 3,171/3,209/3,192 are reproduced only in the real-data run (PR-13)");
 }
 
 TEST_CASE("X-REPORT-04/productionProfile: x = 40,000 lb and y = 3,300 cu ft decide by weight OR cube, strictly, from full precision; the report states the rule" * doctest::test_suite("m5")) {
@@ -3053,7 +3053,7 @@ TEST_CASE("X-REPORT-06/synthetic: no eligible input, a completed zero dispatch a
         CHECK(text->find("trucks loaded: 0\n") != string::npos);
     }
     m5Evidence::note("expected", {"three different outcome lines", "zero dispatch names the 20 withheld", "averages and seconds per loaded truck N/A, no nan or inf"});
-    m5Evidence::note("notCovered", {"a run with no M5 lane-date at all has no M5 report to print; only the lane-date outcomes are covered"});
+    m5Evidence::note("notCovered", "a run with no M5 lane-date at all has no M5 report to print; only the lane-date outcomes are covered");
 }
 
 TEST_CASE("X-REPORT-07/synthetic: 90 units, 60 shipped, 30 carried: 90 = 60 + 30, the 30 not counted twice" * doctest::test_suite("m5")) {
