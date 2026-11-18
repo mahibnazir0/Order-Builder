@@ -2725,6 +2725,185 @@ TEST_CASE("X-REPORT-07 U-RP-02 U-RP-05 90 units: 60 shipped, 30 left, counted on
     CHECK(text.find("seconds per loaded truck") != string::npos);
 }
 
+namespace {
+
+// X-REPORT-10: four selected trucks with supplied structured labels. The trucks carry 1, 3, 2 and 5 stacks, so
+// a cargo-weighted mean differs from the truck-weighted one. The report reads the labels; it judges nothing new.
+struct StructuredReport {
+    M5LaneDateInput input;
+    M5LaneOutcome outcome;
+};
+
+const vector<double> kRearInches{10.0, 30.0, 100.0, 20.0};
+const vector<size_t> kStacksOnTruck{1, 3, 2, 5};
+
+StructuredReport structuredReport(const vector<size_t>& order, const function<void(vector<FullnessLabel>&)>& adjust = {}) {
+    StructuredReport report;
+    report.input = laneWith(fx30Units("u", 11), 4);
+    vector<size_t> firstStack(4, 0);
+    for (size_t truck = 1; truck < 4; ++truck) firstStack[truck] = firstStack[truck - 1] + kStacksOnTruck[truck - 1];
+    CandidatePlan selected;
+    vector<FullnessLabel> labels;
+    const vector<FullnessBucket> buckets{FullnessBucket::GoodsRemain, FullnessBucket::GoodsRemain, FullnessBucket::NoGoodsRemain,
+                                         FullnessBucket::RuleLimited};
+    for (const size_t original : order) {
+        TruckPlan truck;
+        truck.slot = original;
+        truck.group = "A";
+        for (size_t stack = 0; stack < kStacksOnTruck[original]; ++stack) truck.atoms.push_back(firstStack[original] + stack);
+        selected.trucks.push_back(truck);
+        FullnessLabel label;
+        label.truck = selected.trucks.size() - 1;
+        label.rearInches = kRearInches[original];
+        label.bucket = buckets[original];
+        label.state = FullnessState::NotFull;
+        labels.push_back(label);
+    }
+    if (adjust) adjust(labels);
+    report.outcome.kind = OutcomeKind::CompletedWithDispatch;
+    report.outcome.selected = selected;
+    report.outcome.fullness = labels;
+    report.outcome.reservedTrucks = 4;
+    return report;
+}
+
+M5ReportData readReport(const StructuredReport& report) {
+    const M5PolicyProfile profile = syntheticProfile();
+    return buildReportData(report.outcome, report.input, &profile, {});
+}
+
+}  // namespace
+
+TEST_CASE("X-REPORT-10/bucketMeans: rear spaces 10, 30, 100, 20 give bucket means 20, 100, 20 and an overall truck-weighted mean of 40" * doctest::test_suite("m5")) {
+    const M5ReportData data = readReport(structuredReport({0, 1, 2, 3}));
+    CHECK(*data.rearInchesByBucket.at("goods remain").averageRearInches == 20.0);
+    CHECK(*data.rearInchesByBucket.at("no goods remain").averageRearInches == 100.0);
+    CHECK(*data.rearInchesByBucket.at("rule-limited").averageRearInches == 20.0);
+    REQUIRE(data.rearInchesAllTrucks.averageRearInches.has_value());
+    CHECK(data.rearInchesAllTrucks.trucks == 4);
+    CHECK(*data.rearInchesAllTrucks.averageRearInches == 40.0);
+    CHECK(*data.rearInchesAllTrucks.averageRearInches != doctest::Approx(140.0 / 3.0));
+    double cargoWeighted = 0.0;
+    for (size_t truck = 0; truck < 4; ++truck) cargoWeighted += kRearInches[truck] * static_cast<double>(kStacksOnTruck[truck]);
+    cargoWeighted /= 11.0;
+    CHECK(*data.rearInchesAllTrucks.averageRearInches != doctest::Approx(cargoWeighted));
+    const string text = renderAscii(data);
+    CHECK(text.find("average rear inches, goods remain: 20.0 over 2 trucks") != string::npos);
+    CHECK(text.find("average rear inches, no goods remain: 100.0 over 1 trucks") != string::npos);
+    CHECK(text.find("average rear inches, rule-limited: 20.0 over 1 trucks") != string::npos);
+    CHECK(text.find("average rear inches, all trucks: 40.0 over 4 trucks") != string::npos);
+    m5Evidence::note("expected", {"buckets 20, 100, 20 in", "overall truck-weighted 40 in", "not 140/3 and not the cargo-weighted 36.4"});
+}
+
+TEST_CASE("X-REPORT-10/emptyBucket: a bucket with no truck prints N/A over 0 trucks, never 0" * doctest::test_suite("m5")) {
+    const M5ReportData data = readReport(structuredReport({0, 1}));
+    CHECK(data.rearInchesByBucket.at("goods remain").trucks == 2);
+    CHECK(*data.rearInchesByBucket.at("goods remain").averageRearInches == 20.0);
+    for (const char* empty : {"no goods remain", "rule-limited"}) {
+        CHECK(data.rearInchesByBucket.at(empty).trucks == 0);
+        CHECK_FALSE(data.rearInchesByBucket.at(empty).averageRearInches.has_value());
+    }
+    const string text = renderAscii(data);
+    CHECK(text.find("average rear inches, no goods remain: N/A over 0 trucks") != string::npos);
+    CHECK(text.find("average rear inches, rule-limited: N/A over 0 trucks") != string::npos);
+    CHECK(text.find("no goods remain: 0") == string::npos);
+    CHECK(text.find("rule-limited: 0") == string::npos);
+    const M5ReportData none = readReport(structuredReport({}));
+    CHECK_FALSE(none.rearInchesAllTrucks.averageRearInches.has_value());
+    CHECK(renderAscii(none).find("average rear inches, all trucks: N/A over 0 trucks") != string::npos);
+    m5Evidence::note("expected", {"two GoodsRemain trucks: 20", "the two other buckets: N/A over 0 trucks", "no trucks at all: overall N/A"});
+}
+
+TEST_CASE("X-REPORT-10/reordered: reordering the trucks does not change any total" * doctest::test_suite("m5")) {
+    vector<size_t> order{0, 1, 2, 3};
+    const M5ReportData reference = readReport(structuredReport(order));
+    int permutations = 0;
+    do {
+        const M5ReportData data = readReport(structuredReport(order));
+        ++permutations;
+        for (const char* bucket : {"goods remain", "no goods remain", "rule-limited"}) {
+            CHECK(data.rearInchesByBucket.at(bucket).trucks == reference.rearInchesByBucket.at(bucket).trucks);
+            CHECK(*data.rearInchesByBucket.at(bucket).averageRearInches == *reference.rearInchesByBucket.at(bucket).averageRearInches);
+        }
+        CHECK(*data.rearInchesAllTrucks.averageRearInches == 40.0);
+        CHECK(data.unitLoadsShipped == reference.unitLoadsShipped);
+        CHECK(data.loadedTrucks == reference.loadedTrucks);
+        CHECK(data.fullTrucks == reference.fullTrucks);
+    } while (next_permutation(order.begin(), order.end()));
+    CHECK(permutations == 24);
+    m5Evidence::note("expected", {"all 24 truck orders give buckets 20, 100, 20 and overall 40", "unit loads and truck count equal"});
+}
+
+TEST_CASE("X-REPORT-10/overlappingReasons: one FULL truck with a weight and a rear reason is one FULL, one weight, one rear; reasons are never summed" * doctest::test_suite("m5")) {
+    const StructuredReport report = structuredReport({0, 1, 2, 3}, [](vector<FullnessLabel>& labels) {
+        labels[0].state = FullnessState::Full;
+        labels[0].byWeight = labels[0].byRearInches = true;
+    });
+    const M5ReportData data = readReport(report);
+    CHECK(data.fullTrucks == 1);
+    CHECK(data.fullByWeight == 1);
+    CHECK(data.fullByRear == 1);
+    CHECK(data.fullByFloor == 0);
+    CHECK(data.fullByWeight + data.fullByRear != data.fullTrucks);
+    REQUIRE(data.trucks.size() == 4);
+    CHECK(data.trucks[0].reasons == "weight, rear inches");
+    CHECK(data.trucks[1].fullness == "NOT FULL");
+    CHECK(renderAscii(data).find("FULL trucks: 1 of 4 (by weight 1, by rear inches 1, floor-limited 0)") != string::npos);
+    m5Evidence::note("expected", {"unique FULL count 1", "weight-reason count 1, rear-reason count 1", "the counters overlap and are never added as disjoint shipments"});
+}
+
+TEST_CASE("X-REPORT-10/unknownFit: an unknown remaining fit is reported apart and never counted as floor-limited" * doctest::test_suite("m5")) {
+    const StructuredReport report = structuredReport({0, 1, 2, 3}, [](vector<FullnessLabel>& labels) {
+        labels[1].fitStatus = RemainingFitStatus::Unknown;
+        labels[1].state = FullnessState::Undetermined;
+        labels[2].fitStatus = RemainingFitStatus::Unknown;
+        labels[2].state = FullnessState::Undetermined;
+        labels[3].fitStatus = RemainingFitStatus::ProvenNoFit;
+        labels[3].byFloorLimit = true;
+        labels[3].state = FullnessState::Full;
+    });
+    const M5ReportData data = readReport(report);
+    CHECK(data.unknownFitTrucks == 2);
+    CHECK(data.fullByFloor == 1);
+    CHECK(data.fullTrucks == 1);
+    REQUIRE(data.trucks.size() == 4);
+    for (const size_t unknown : {size_t{1}, size_t{2}}) {
+        CHECK(data.trucks[unknown].reasons.find("floor-limited") == string::npos);
+        CHECK(data.trucks[unknown].fit == string(remainingFitName(RemainingFitStatus::Unknown)));
+    }
+    CHECK(data.trucks[3].reasons.find("floor-limited") != string::npos);
+    const string text = renderAscii(data);
+    CHECK(text.find("trucks with remaining fit unknown: 2") != string::npos);
+    CHECK(text.find("floor-limited 1)") != string::npos);
+    m5Evidence::note("expected", {"two Unknown trucks counted separately", "only the proven no-fit truck is floor-limited"});
+}
+
+TEST_CASE("X-REPORT-10/unselectedAndBenchmarkExcluded: unselected A/B candidates and benchmark-only results never enter the selected production totals" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 75), 3);
+    const M5LaneOutcome outcome = planWithServices(input, syntheticProfile(), [](M5RunServices& services) {
+        services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    });
+    REQUIRE(outcome.methods.size() == 2);
+    M5LaneOutcome padded = outcome;
+    padded.methods[0].unitLoads = padded.methods[1].unitLoads = 900.0;
+    padded.methods[0].trucks = padded.methods[1].trucks = 40;
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5ReportData data = buildReportData(padded, input, &profile, {"PRODUCTION", 20, "fixture"});
+    CHECK(data.unitLoadsShipped == 75.0);
+    CHECK(data.loadedTrucks == 3);
+    CHECK(data.unitLoadsShipped == buildReportData(outcome, input, &profile, {"PRODUCTION", 20, "fixture"}).unitLoadsShipped);
+
+    // The labelled benchmark commits nothing and its text is its own: the production report holds no benchmark rows.
+    FakeClock clock;
+    const LinkedDateBenchmark benchmark = benchmarkLinkedDates({input, laneWith(fx30Units("later-", 30), 1, kDefaultTrailer, true)}, profile, physicalSettings(), clock);
+    CHECK(benchmark.text.find("BENCHMARK") != string::npos);
+    const string production = renderAscii(data);
+    CHECK(production.find("BENCHMARK") == string::npos);
+    CHECK(production.find("none in a production run") != string::npos);
+    CHECK(data.unitLoadsShipped == 75.0);
+    m5Evidence::note("expected", {"production totals count the selected plan only: 75 unit loads, 3 trucks", "unselected methods' own figures never added", "benchmark text labelled and kept apart"});
+}
+
 // FX-GAP on a lane: `count` units of 60 x 60 in on ten slots. Two never stand across the 100 in floor
 // and ten rows of 60 in fill 630 in, so a truck holds at most 10: ceil(count / 10) trucks are needed,
 // and the floor-area bound B = ceil(count x 3,600 / 63,000) never exceeds that (a valid bound).

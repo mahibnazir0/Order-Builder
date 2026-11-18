@@ -25,6 +25,17 @@ string reasonsOf(const FullnessLabel& label) {
 
 }  // namespace
 
+BucketAverage rearInchesAllTrucks(const vector<FullnessLabel>& labels) {
+    BucketAverage all;
+    double total = 0.0;
+    for (const FullnessLabel& label : labels) {
+        ++all.trucks;
+        total += label.rearInches;
+    }
+    if (all.trucks > 0) all.averageRearInches = total / static_cast<double>(all.trucks);
+    return all;
+}
+
 map<string, BucketAverage> rearInchesByBucket(const vector<FullnessLabel>& labels) {
     map<string, BucketAverage> buckets;
     map<string, double> totals;
@@ -140,6 +151,10 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
     data.secondsByPhase = outcome.timing.secondsByPhase;
     if (data.loadedTrucks > 0) data.secondsPerLoadedTruck = data.elapsedSeconds / static_cast<double>(data.loadedTrucks);
     data.rearInchesByBucket = rearInchesByBucket(outcome.fullness);
+    data.rearInchesAllTrucks = rearInchesAllTrucks(outcome.fullness);
+    for (const FullnessLabel& label : outcome.fullness) {
+        if (label.fitStatus == RemainingFitStatus::Unknown) ++data.unknownFitTrucks;
+    }
     data.findings = outcome.findings;
     data.openItems = {"C9: per-truck trailer figures absent from the reservation feed; every slot uses the run's trailer"};
     return data;
@@ -222,6 +237,9 @@ string renderAscii(const M5ReportData& data) {
     for (const auto& [bucket, average] : data.rearInchesByBucket) {
         line("average rear inches, " + bucket, orNotAvailable(average.averageRearInches, 1) + " over " + to_string(average.trucks) + " trucks");
     }
+    line("average rear inches, all trucks", orNotAvailable(data.rearInchesAllTrucks.averageRearInches, 1) + " over "
+                                               + to_string(data.rearInchesAllTrucks.trucks) + " trucks");
+    line("trucks with remaining fit unknown", to_string(data.unknownFitTrucks) + " (reported apart, never counted as floor-limited)");
     line("time", fixed(data.elapsedSeconds, 3) + " s of " + fixed(data.allowanceSeconds, 2) + " s allowed");
     for (const auto& [phase, seconds] : data.secondsByPhase) line("  " + phase, fixed(seconds, 3) + " s");
     line("seconds per loaded truck", orNotAvailable(data.secondsPerLoadedTruck, 3));

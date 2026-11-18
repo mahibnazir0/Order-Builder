@@ -88,6 +88,8 @@ struct M5ReportData {
     double unitLoadsShipped = 0.0;
     double canGoUnitLoadsShipped = 0.0;
     std::map<std::string, BucketAverage> rearInchesByBucket;
+    BucketAverage rearInchesAllTrucks;     // truck-weighted over every labelled truck, not a mean of the bucket means
+    std::size_t unknownFitTrucks = 0;      // trucks whose remaining-goods fit is Unknown: never counted as floor-limited
     std::size_t fullTrucks = 0;
     std::size_t fullByWeight = 0;
     std::size_t fullByRear = 0;
@@ -102,6 +104,9 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
 
 // Truck-weighted average rear inches per bucket; every bucket listed, N/A when empty.
 std::map<std::string, BucketAverage> rearInchesByBucket(const std::vector<FullnessLabel>& labels);
+
+// Truck-weighted average rear inches over every labelled truck, whatever its bucket; N/A when there is none.
+BucketAverage rearInchesAllTrucks(const std::vector<FullnessLabel>& labels);
 
 std::string renderAscii(const M5ReportData& data);
 
