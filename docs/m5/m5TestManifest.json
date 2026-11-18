@@ -5744,7 +5744,7 @@
       "ownerModule": "M-RPT",
       "collaborators": [],
       "workPackage": "WP10",
-      "testFile": "tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData) + tests/m5/testM5Scenarios.cpp",
       "fixture": "Real August fixtures",
       "localOverrides": "",
       "entryPoint": "REAL",

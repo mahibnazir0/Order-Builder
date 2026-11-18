@@ -351,4 +351,94 @@ TEST_CASE("X-REPORT-03 the report never calls the lane infeasible without a cert
     CHECK(text.find("635") == string::npos);
 }
 
+// ---------------------------------------------------------------------------------------- reference file
+// Tom's figures (chart ranges, client cube, the most-ever-seen cube line, the client's historical loads and truck
+// counts) are never written into a test: they are read from a local, git-ignored file, and a missing file fails by name.
+
+namespace {
+
+const char* kTomReferencePath = "tests/m5/data/tomReference.local.json";
+
+nlohmann::json tomReference() {
+    ifstream file(kTomReferencePath);
+    REQUIRE_MESSAGE(file.good(), "missing " << kTomReferencePath << ": the local reference file of Tom's figures (git-ignored) is needed");
+    return nlohmann::json::parse(file);
+}
+
+}  // namespace
+
+TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's chart ranges and the client's cube, as context and not pass or fail"
+          * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    const nlohmann::json reference = tomReference();
+    const string& text = withM5(1).selectionPlan.largeLanes.front().text;
+    // The report's own figures: M5's average rear inches per bucket.
+    for (const char* bucket : {"goods remain", "no goods remain", "rule-limited"}) {
+        CHECK(text.find(string("average rear inches, ") + bucket) != string::npos);
+    }
+    // The comparison block this test composes from the report and the file; it states what each figure is.
+    const auto range = [&](const char* key) {
+        const nlohmann::json& pair = reference.at("weeklyChartRangesInches").at(key);
+        return to_string(pair.at(0).get<int>()) + "-" + to_string(pair.at(1).get<int>()) + " in";
+    };
+    string comparison = "fill comparison (context, not pass or fail)\n";
+    comparison += "  Tom's chart, weeks " + reference.at("weeklyChartRangesInches").at("weeks").get<string>() + ": goods remain " + range("goodsRemain")
+                  + ", no goods remain " + range("noGoodsRemain") + ", priority " + range("priority") + "\n";
+    comparison += "  client average cube " + to_string(reference.at("clientAverageCubeCuFt").at(0).get<int>()) + " / "
+                  + to_string(reference.at("clientAverageCubeCuFt").at(1).get<int>()) + " / " + to_string(reference.at("clientAverageCubeCuFt").at(2).get<int>())
+                  + " cu ft (same master, average with average)\n";
+    comparison += "  " + to_string(reference.at("mostEverSeenCuFt").at(0).get<int>()) + "-" + to_string(reference.at("mostEverSeenCuFt").at(1).get<int>())
+                  + " cu ft: the most ever seen, not a target\n";
+    CHECK(comparison.find("context, not pass or fail") != string::npos);
+    CHECK(comparison.find("most ever seen, not a target") != string::npos);
+    CHECK(comparison.find("goods remain " + range("goodsRemain")) != string::npos);
+    CHECK(comparison.find("cu ft (same master, average with average)") != string::npos);
+    MESSAGE(comparison);
+}
+
+TEST_CASE("U-PB-12/productionProfile U-PB-12/configIndependentPatterns Aug5 7 Aug: each product fills trucks of its own, the difference from the client's historical loads is reported, and the patterns do not depend on the fullness or time settings"
+          * doctest::skip()) {
+    REQUIRE(m4AugustTests::augustPresent());
+    const nlohmann::json reference = tomReference();
+    const PipelineResult& run = withM5(1);
+    map<string, vector<size_t>> loadsOfProduct;
+    for (const PlannedTruck& truck : run.selectionPlan.trucks) {
+        if (!onLargeLane(run, run.laneClassification.routes[truck.routeIndex]) || truck.shipDate != kLargeLaneDate) continue;
+        set<string> products;
+        for (const size_t index : truck.items) products.insert(run.selectionItems.items[index].productNumber);
+        if (products.size() == 1) loadsOfProduct[*products.begin()].push_back(truck.items.size());
+    }
+    for (const string product : {"105666801", "105446303"}) {
+        REQUIRE(!loadsOfProduct[product].empty());
+        MESSAGE("product " << product << ": " << loadsOfProduct[product].size() << " single-product trucks, stacks per truck " << loadsOfProduct[product].front());
+    }
+    // The comparison with the client's historical loads: stated, not copied.
+    string difference;
+    for (const nlohmann::json& historical : reference.at("clientHistoricalLoads")) {
+        difference += to_string(historical.at("trucks").get<int>()) + " trucks of " + to_string(historical.at("unitLoadsEach").get<int>()) + "; ";
+    }
+    CHECK_FALSE(difference.empty());
+    MESSAGE("client's historical loads (older master): " << difference << "M5 reports its own loads above; it need not copy them");
+
+    // Configuration independence: the fullness limits and the seconds per load do not change a product's truck loads.
+    const vector<m5::M5LaneDateInput> sevenAug = laneDates(aug5WithoutM5(), {"2028", "2574", "TL"}, {"2026-08-07"});
+    REQUIRE(sevenAug.size() == 1);
+    const m5::PhysicalSettings physical = m5::physicalSettingsOf(aug5WithoutM5().selectionParams.selector);
+    const m5::FunctionClock clock(nullptr);
+    const auto loadsFor = [&](m5::M5PolicyProfile profile) {
+        const m5::M5RunServices services(clock);
+        const m5::M5LaneOutcome outcome = m5::planLaneDate(sevenAug[0], profile, physical, services);
+        multiset<size_t> sizes;
+        if (outcome.selected) {
+            for (const m5::TruckPlan& truck : outcome.selected->trucks) sizes.insert(truck.atoms.size());
+        }
+        return sizes;
+    };
+    m5::M5PolicyProfile shipped = shippedProfile(), changed = shippedProfile();
+    changed.fullness.rearInchLimit = 30.0;
+    changed.fullness.weightFullPercent = 90.0;
+    changed.secondsPerLoad = shipped.secondsPerLoad * 2.0;
+    CHECK(loadsFor(shipped) == loadsFor(changed));
+}
+
 }  // TEST_SUITE

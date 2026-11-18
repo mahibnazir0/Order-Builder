@@ -64,3 +64,6 @@ tests/params/_tmp_*.json
 *.exe
 *.pdb
 *.ilk
+
+# Tom's reference figures for the real-data comparison: local only, read by tests/m5/testM5RealData.cpp.
+tests/m5/data/*.local.json
