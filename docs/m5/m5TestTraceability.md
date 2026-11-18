@@ -907,6 +907,15 @@ The final gate must distinguish a recorded intentional deferral from a required 
   blocker, or it is rejected. A test that compares with Tom's local, git-ignored reference file is skipped by
   name and recorded BLOCKED with that reason when the file is missing.
 - Layout witnesses are checked by `tests/m5/support/m5LayoutChecker.hpp`, which never calls floor-pattern code.
+- An existing M4 test that is the test of an M5 variant is named in `tests/m5/data/m5ExistingTestKeys.txt`
+  (M4 test files are not edited); the listener writes the variant's record when that case runs. U-PF-04 is
+  the M4 thread test, recorded only when the run uses `--success` (ctest entry `m4BenchmarkThreadsSuccess`):
+  the case plans each held extract at one thread, again, and at four.
+- X-RUN-09/crossCompilerGate (`tests/m5/testM5CrossCompiler.cpp`, ctest entry `m5CrossCompiler`): each
+  compiler's build of the M5 core suite writes a record into `build-msvc-m5matrix/` (commit, warning flags,
+  evidence folder). The gate needs MSVC and GCC records for this clean commit built with the strict flags
+  (only `-Wno-error=array-bounds` may stay non-fatal) and the same result for every synthetic variant on each;
+  a compiler with no record (Clang is not installed here) makes the variant BLOCKED with its name, never PASS.
 
 ## 12. Clarifications raised against v5 (PC-1..PC-9) and their v6 status (PC-10)
 

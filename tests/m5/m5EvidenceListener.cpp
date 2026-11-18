@@ -1,9 +1,14 @@
 // Writes an evidence record for every testId/variant a test case name declares, whatever suite or
 // filter the run uses (support/m5Evidence.hpp). It reads the manifest when the run starts; without the
 // manifest, or outside a CMake build that names the evidence folder, it writes nothing.
+//
+// An existing M4 test case that is the test of an M5 variant cannot declare it in its name (M4 test files
+// are not edited). tests/m5/data/m5ExistingTestKeys.txt names it: "test case name|testId/variant|options",
+// where the option "success" means the record is written only when the run uses --success.
 #include "doctest.h"
 #include "support/m5Evidence.hpp"
 
+#include <cstddef>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -35,7 +40,7 @@ const char* const kBuildConfig = "unknown";
 
 class EvidenceListener final : public doctest::IReporter {
 public:
-    explicit EvidenceListener(const doctest::ContextOptions&) {}
+    explicit EvidenceListener(const doctest::ContextOptions& options) : underSuccess_(options.success) {}
 
     void report_query(const doctest::QueryData&) override {}
 
@@ -51,6 +56,7 @@ public:
         error_code failed;
         filesystem::create_directories(folder_, failed);
         enabled_ = !failed;
+        loadExistingTestKeys();
         runStarted_ = static_cast<long long>(time(nullptr));
     }
 
@@ -63,6 +69,11 @@ public:
         current_.line = static_cast<int>(data.m_line);
         keys_ = m5Manifest::declaredKeys(current_.testCase);
         m5Evidence::currentNotes() = nlohmann::json::object();
+        for (const ExistingTest& existing : existingTests_) {
+            if (existing.name != current_.testCase || (existing.needsSuccess && !underSuccess_)) continue;
+            keys_.emplace_back(existing.testId, existing.variant);
+            m5Evidence::note("existingTest", {{"name", existing.name}, {"runWithSuccess", underSuccess_}});
+        }
     }
 
     void test_case_reenter(const doctest::TestCaseData&) override {}
@@ -106,6 +117,30 @@ public:
     void test_case_skipped(const doctest::TestCaseData&) override {}
 
 private:
+    struct ExistingTest {
+        string name, testId, variant;
+        bool needsSuccess = false;
+    };
+
+    void loadExistingTestKeys() {
+        ifstream file("tests/m5/data/m5ExistingTestKeys.txt");
+        for (string line; getline(file, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#') continue;
+            const size_t first = line.find('|'), second = line.find('|', first + 1);
+            const size_t slash = line.find('/', first + 1);
+            if (first == string::npos || second == string::npos || slash == string::npos || slash > second) continue;
+            ExistingTest existing;
+            existing.name = line.substr(0, first);
+            existing.testId = line.substr(first + 1, slash - first - 1);
+            existing.variant = line.substr(slash + 1, second - slash - 1);
+            existing.needsSuccess = line.substr(second + 1).find("success") != string::npos;
+            existingTests_.push_back(existing);
+        }
+    }
+
+    bool underSuccess_ = false;
+    vector<ExistingTest> existingTests_;
     bool enabled_ = false;
     optional<m5Manifest::Manifest> manifest_;
     map<string, m5Manifest::Variant> variantOf_;

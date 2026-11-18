@@ -1,0 +1,4 @@
+# An existing M4 test case that is the test of an M5 variant (M4 test files are not edited, so the case cannot name the
+# variant itself): "test case name|testId/variant|options". The evidence listener writes the variant's record when the
+# case runs. Option "success": only when the run uses --success (the ctest entry m4BenchmarkThreadsSuccess).
+m4Benchmark: every held extract plans the same at one thread, again, and at four|U-PF-04/existingTest|success

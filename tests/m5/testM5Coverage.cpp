@@ -495,6 +495,35 @@ TEST_CASE("m5AcceptanceRule: PASS, PARTIAL, BLOCKED and NOT_RUN with a recorded 
                  "the recorded reason for X-SYN-01/notRun is empty"));
 }
 
+TEST_CASE("m5Registry: every existing M4 test case named for an M5 variant exists in its file, names a manifest key, and no M5 test declares that key too" * doctest::test_suite("m5")) {
+    const Manifest manifest = committedManifest();
+    set<string> known;
+    for (const Variant& variant : manifest.variants) known.insert(variant.key());
+    set<string> declaredInTestNames;
+    for (const string& name : registeredTestNames()) {
+        for (const auto& [testId, variant] : m5Manifest::declaredKeys(name)) declaredInTestNames.insert(testId + "/" + variant);
+    }
+    const vector<string> lines = linesOf("tests/m5/data/m5ExistingTestKeys.txt");
+    CHECK_FALSE(lines.empty());
+    for (const string& line : lines) {
+        const size_t first = line.find('|'), second = line.find('|', first + 1);
+        REQUIRE_MESSAGE(second != string::npos, "needs name|key|options: " << line);
+        const string name = line.substr(0, first), key = line.substr(first + 1, second - first - 1);
+        INFO(line);
+        CHECK(known.count(key) == 1);
+        CHECK(declaredInTestNames.count(key) == 0);
+        bool inM4Tests = false;
+        for (const filesystem::directory_entry& entry : filesystem::recursive_directory_iterator("tests")) {
+            if (entry.path().extension() != ".cpp") continue;
+            ifstream file(entry.path());
+            stringstream text;
+            text << file.rdbuf();
+            if (text.str().find("TEST_CASE(\"" + name + "\"") != string::npos) inM4Tests = true;
+        }
+        CHECK_MESSAGE(inM4Tests, "no TEST_CASE named '" << name << "' in tests/");
+    }
+}
+
 TEST_CASE("m5AcceptanceRule: every line of the recorded-reasons file names a selected manifest variant and gives a reason" * doctest::test_suite("m5")) {
     const Manifest manifest = committedManifest();
     const m5Gate::ReasonMap reasons = variantReasonsOf(kVariantReasonsPath);

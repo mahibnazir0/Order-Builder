@@ -13591,7 +13591,7 @@
         "M-RPT"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Coverage.cpp",
+      "testFile": "tests/m5/testM5Coverage.cpp + tests/m5/testM5CrossCompiler.cpp",
       "fixture": "Evidence-gate fixtures",
       "localOverrides": "",
       "entryPoint": "BENCH",

@@ -6,12 +6,10 @@ RD-13/baselineAug5_2023_2508|The Aug5 linked-date baseline needs per-source evid
 RD-13/baselineAug5_2299_2292|The Aug5 linked-date baseline needs per-source evidence from earlier M4 commits that this tree does not hold.
 RD-13/linkedDates|The linked-date comparison needs per-source baselines from earlier M4 commits that this tree does not hold.
 U-PF-01/realPerformance|No real-performance record per truck and group is written; only the lane-date total and phases are timed.
-U-PF-04/existingTest|The M4 thread test runs under ctest m4BenchmarkThreadsSuccess; M4's test file writes no M5 evidence record.
 U-RP-01/synthetic|The product-master identity reaches the M5 run header only after the feature/m4 merge, which is not done by decision.
 U-RP-04/benchmarkReport|No M4 column, historical labels or cache state are printed by any code, so the report cannot be compared.
 X-REPORT-05/synthetic|The report holds no cross-lane average or median per truck, so there is nothing to test; question for Tom.
 X-ROUTE-01/synthetic|M4's lane classifier refuses a routing threshold below 2; v12 needs threshold 1. Shared M4 code, question for Tom.
 X-ROUTE-07/synthetic|The historical client built-count variation is benchmark evidence needing the local reference; not built.
 X-ROUTE-08/synthetic|M4 stops for the parked TF/TL row before the raw-row count exists, so one run cannot show both. Shared M4 code.
-X-RUN-09/crossCompilerGate|MSVC and GCC both pass the routine set but no gate record is written yet.
 X-RUN-10/coldWarmCache|No cold and warm cache comparison is recorded.

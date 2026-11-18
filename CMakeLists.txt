@@ -169,6 +169,7 @@ add_executable(ob_tests
   tests/m5/testM5FloorSearch.cpp
   tests/m5/testM5TieRule.cpp
   tests/m5/testM5RepairLoop.cpp
+  tests/m5/testM5CrossCompiler.cpp
   tests/m5/m5EvidenceListener.cpp
 )
 
@@ -205,6 +206,17 @@ target_compile_definitions(ob_tests PRIVATE OB_M5_EVIDENCE_DIR="${CMAKE_BINARY_D
                                             OB_M5_BUILD_IDENTITY="${CMAKE_BINARY_DIR}/m5BuildIdentity.txt"
                                             OB_M5_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
                                             OB_M5_BUILD_CONFIG="$<CONFIG>")
+# X-RUN-09/crossCompilerGate: each compiler's build writes a record beside the others', under
+# OB_M5_MATRIX_DIR, naming the warning flags it was built with; the gate compares the compilers.
+if(MSVC)
+  set(OB_M5_STRICT_FLAGS "/W4 /WX /utf-8")
+else()
+  set(OB_M5_STRICT_FLAGS "-Wall -Wextra -Wpedantic -Werror")
+endif()
+set(OB_M5_MATRIX_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build-msvc-m5matrix" CACHE PATH "Where each compiler's build records itself for the cross-compiler gate")
+target_compile_definitions(ob_tests PRIVATE OB_M5_STRICT_FLAGS="${OB_M5_STRICT_FLAGS}"
+                                            OB_M5_EXTRA_FLAGS="${CMAKE_CXX_FLAGS}"
+                                            OB_M5_MATRIX_DIR="${OB_M5_MATRIX_DIR}")
 
 # The data-dependent tests open their fixtures by paths relative to the repo
 # root (tests/importer/...), so run the binary from there rather than build/.
@@ -236,8 +248,13 @@ add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
 add_test(NAME m5EvidenceStatus COMMAND ob_tests "-tc=m5EvidenceStatus*" --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(m5EvidenceStatus PROPERTIES DEPENDS "ob_tests;augustAcceptance;m5Core;m5RealData;m5Published")
-# The acceptance gate (X-RUN-09): fails, naming each variant, until every selected required variant has one
-# current PASS record at this build. Needs the whole evidence set of the entries above.
+# The cross-compiler gate (X-RUN-09/crossCompilerGate): compares the compilers' builds of this commit and
+# their evidence; needs each compiler's routine set to have been run. It writes its own evidence record.
+add_test(NAME m5CrossCompiler COMMAND ob_tests "-tc=X-RUN-09/crossCompilerGate*" --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(m5CrossCompiler PROPERTIES DEPENDS "m5EvidenceStatus")
+# The acceptance gate (X-RUN-09): fails, naming each variant, until every selected variant has a PASS,
+# a PARTIAL, or a BLOCKED / NOT_RUN with a recorded reason. Needs the whole evidence set of the entries above.
 add_test(NAME m5Acceptance COMMAND ob_tests "-tc=m5Acceptance*" --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-set_tests_properties(m5Acceptance PROPERTIES DEPENDS "m5EvidenceStatus")
+set_tests_properties(m5Acceptance PROPERTIES DEPENDS "m5CrossCompiler")
