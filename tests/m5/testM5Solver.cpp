@@ -167,6 +167,74 @@ TEST_CASE("X-REB-04 no scalar truck passes the policy: zero dispatched, all good
     CHECK(result.partialCube == 0.0);
 }
 
+namespace {
+
+// FX-GAP on a scalar model: F from first-fit decreasing, B from the scalar bound, which the brute-force
+// optimum must not undercut (a valid bound of the same model and goods).
+struct GapCase {
+    long long ffd = 0, bound = 0, optimum = 0;
+};
+
+GapCase gapCaseOf(const vector<long long>& sizes) {
+    const ScalarModel model = modelOf(sizes);
+    const ScalarPacking ffd = scalarFirstFitDecreasing(model);
+    CHECK(m5Oracles::packingValid(model, ffd, {}));
+    GapCase gap{static_cast<long long>(ffd.bins.size()), scalarLowerBound(model), m5Oracles::bruteForceBins(sizes, 10)};
+    CHECK(gap.bound <= gap.optimum);
+    CHECK(gap.optimum <= gap.ffd);
+    return gap;
+}
+
+}  // namespace
+
+TEST_CASE("U-FF-01/fxGap: F - B exactly G = 1 with allowance left escalates; the bound is valid and recorded" * doctest::test_suite("m5")) {
+    const GapCase gap = gapCaseOf({6, 5, 3, 2, 2, 2});
+    CHECK(gap.ffd == 3);
+    CHECK(gap.bound == 2);
+    CHECK(gap.optimum == 2);
+    CHECK(shouldEscalate(gap.ffd, gap.bound, 1, true));
+    CHECK(gapText(gap.ffd, gap.bound) == "1 truck, 50.0% above the bound of 2");
+    m5Evidence::note("expected", {{"F", 3}, {"B", 2}, {"G", 1}, {"escalate", true}});
+}
+
+TEST_CASE("U-FF-02/fxGap: F - B = G + 1 escalates with allowance left and not without" * doctest::test_suite("m5")) {
+    const GapCase gap = gapCaseOf({7, 5, 7, 4, 2, 1, 7, 7, 4, 7, 8});
+    CHECK(gap.ffd == 8);
+    CHECK(gap.bound == 6);
+    CHECK(gap.optimum == 8);
+    CHECK(shouldEscalate(gap.ffd, gap.bound, 1, true));
+    CHECK_FALSE(shouldEscalate(gap.ffd, gap.bound, 1, false));
+    CHECK(shouldEscalate(12, 10, 1, true));
+    CHECK_FALSE(shouldEscalate(12, 10, 1, false));
+    CHECK(gapText(gap.ffd, gap.bound) == "2 trucks, 33.3% above the bound of 6");
+    m5Evidence::note("expected", {{"F", 8}, {"B", 6}, {"escalate with allowance", true}, {"escalate without", false}});
+}
+
+TEST_CASE("U-FF-03/fxGap: F equal to a valid bound never escalates; a rounded figure is not a bound" * doctest::test_suite("m5")) {
+    const GapCase gap = gapCaseOf({5, 5, 5, 5});
+    CHECK(gap.ffd == 2);
+    CHECK(gap.bound == 2);
+    CHECK_FALSE(shouldEscalate(gap.ffd, gap.bound, 1, true));
+    CHECK(gapText(gap.ffd, gap.bound) == "0 trucks, 0.0% above the bound of 2");
+    // {6,6,6}: the area figure 1.8 rounds to 2, yet 3 bins are needed. F = 3 against the valid bound is
+    // a positive gap; equality would need a bound of 3 the model does not give.
+    const GapCase rounded = gapCaseOf({6, 6, 6});
+    CHECK(rounded.ffd == 3);
+    CHECK(rounded.optimum == 3);
+    CHECK(rounded.bound <= 3);
+    CHECK(shouldEscalate(rounded.ffd, rounded.bound, 1, true) == (rounded.bound < rounded.ffd));
+    m5Evidence::note("expected", {"F 2 = B 2: no escalation", "bound never above the brute-force optimum"});
+}
+
+TEST_CASE("U-FF-05/fxGap: the gap is reported in trucks and percent of the bound, N/A without a valid bound" * doctest::test_suite("m5")) {
+    CHECK(gapText(3, 2) == "1 truck, 50.0% above the bound of 2");
+    CHECK(gapText(12, 10) == "2 trucks, 20.0% above the bound of 10");
+    CHECK(gapText(2, 2) == "0 trucks, 0.0% above the bound of 2");
+    CHECK(gapText(3, nullopt) == "N/A (no valid bound)");
+    CHECK(gapText(3, 0) == "N/A (no valid bound)");
+    m5Evidence::note("expected", {"1 truck 50.0%", "2 trucks 20.0%", "0 trucks", "N/A without a bound or with bound 0"});
+}
+
 TEST_CASE("ACC-3 U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with allowance left" * doctest::test_suite("m5")) {
     CHECK(shouldEscalate(11, 10, 1, true));
     CHECK(shouldEscalate(12, 10, 1, true));

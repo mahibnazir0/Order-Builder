@@ -1622,7 +1622,7 @@
         "M-POL"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "ROUTE",
@@ -3634,7 +3634,7 @@
         "M-LED"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4196,7 +4196,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4271,7 +4271,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4329,7 +4329,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4432,7 +4432,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5Scenarios.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-GAP + FX-CLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",

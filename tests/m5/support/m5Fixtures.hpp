@@ -153,6 +153,15 @@ inline std::size_t shippedCount(const ob::m5::M5LaneOutcome& outcome) {
     return shipped;
 }
 
+// The cause the good `id` is left over with; none when it shipped.
+inline std::optional<ob::m5::LeftOverCause> causeOf(const ob::m5::M5LaneOutcome& outcome, const ob::m5::M5LaneDateInput& input,
+                                                    const std::string& id) {
+    for (const ob::m5::LeftOver& left : outcome.leftOver) {
+        if (input.atoms[left.atom].id == id) return left.cause;
+    }
+    return std::nullopt;
+}
+
 inline std::set<std::string> shippedIds(const ob::m5::M5LaneOutcome& outcome, const ob::m5::M5LaneDateInput& input) {
     std::set<std::string> ids;
     if (!outcome.selected) return ids;

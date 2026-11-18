@@ -426,11 +426,25 @@ TEST_CASE("U-RM-04 fullness and the optional acceptance are independent" * docte
     CHECK_FALSE(evaluateAcceptance(45000.0, 30 * 216000.0, {50000.0, 4000.0}).accepted);
 }
 
-TEST_CASE("U-DA-05 a reserved trailer of its own size overrides the run's default" * doctest::test_suite("m5")) {
+TEST_CASE("U-DA-05/adapterSeam: the physical adapter sizes a slot by its own capability, overriding the run's default trailer" * doctest::test_suite("m5")) {
+    // FX-30 units are 1,500 lb: the default 45,000 lb trailer takes 30; a slot of its own 40,000 lb takes
+    // floor(40,000 / 1,500) = 26, and 600 in still holds the rows (30 x 20 in).
     const TrailerCapability own{600.0, 100.0, 108.0, 40000.0, kFixtureUnitLoadCap};
+    const M5LaneDateInput defaulted = laneWith(fx30Units("u", 30), 1);
+    CHECK(bestSingleClassLoad(defaulted, 0, kDefaultTrailer, physicalSettings(), 100) == 30);
     const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1, own);
     CHECK(bestSingleClassLoad(input, 0, own, physicalSettings(), 100) == 26);
-    CHECK(shippedCount(plan(input, syntheticProfile())) == 26);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    CHECK(outcome.finalValidationPassed);
+    CHECK(shippedCount(outcome) == 26);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 1);
+    double weight = 0.0;
+    for (const size_t atom : outcome.selected->trucks[0].atoms) weight += input.atoms[atom].weightLb;
+    CHECK(weight == 39000.0);
+    CHECK(outcome.leftOver.size() == 4);
+    for (const LeftOver& left : outcome.leftOver) CHECK(left.cause == LeftOverCause::OverReservation);
+    m5Evidence::note("expected", {"default 53F slot: 30", "own 600 in / 40,000 lb slot: 26 (39,000 lb)", "4 left over the reservation"});
 }
 
 TEST_CASE("X-RES-12 X-E2E-06 the physical adapter sizes each trailer; a mixed pool is refused (C9)" * doctest::test_suite("m5")) {

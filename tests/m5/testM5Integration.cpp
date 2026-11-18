@@ -36,16 +36,6 @@ Day dayWithReserved(int reservedTrucks, size_t items, size_t groups = 1) {
     return dayOf(built, items, goods, {reserved("2027", reservedTrucks)});
 }
 
-// Every item on exactly one truck or left over.
-bool accountedOnce(const SelectionPlan& selection, size_t items) {
-    vector<int> uses(items, 0);
-    for (const PlannedTruck& truck : selection.trucks) {
-        for (const size_t index : truck.items) ++uses[index];
-    }
-    for (const LeftOverItem& left : selection.leftOver) ++uses[left.itemIndex];
-    return all_of(uses.begin(), uses.end(), [](int count) { return count == 1; });
-}
-
 // What a LargeLanePlanner is handed, kept as it arrives.
 class RecordingPlanner : public LargeLanePlanner {
 public:
@@ -117,18 +107,35 @@ TEST_CASE("collectEscalatedLaneDates lists the lane-dates M4 hands to M5 without
     CHECK(collectEscalatedLaneDates(twenty.run, twenty.classification).empty());
 }
 
-TEST_CASE("U-RT-01 twenty reserved stays in M4, planner or not" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-01/synthetic: twenty reserved stays in M4, planner or not" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(20, 40);
+    REQUIRE(day.classification.routes.size() == 1);
+    CHECK(day.classification.routes[0].reservedTrucks == 20);
+    CHECK(day.classification.routes[0].method != SolveMethod::M5);
     SelectorSettings settings = selectorSettings();
     settings.largeLanePlanner = plannerOf();
-    const SelectionPlan selection = plan(day, settings);
-    CHECK(selection.largeLanes.empty());
-    CHECK(day.classification.routes[0].method != SolveMethod::M5);
+    const SelectionPlan withM5 = plan(day, settings);
+    const SelectionPlan withoutM5 = plan(day, selectorSettings());
+    CHECK(withM5.largeLanes.empty());
+    REQUIRE(withM5.routes.size() == 1);
+    CHECK(withM5.routes[0].status != RouteStatus::Escalated);
+    CHECK(withM5.routes[0].methodUsed.has_value());
+    CHECK(withM5.trucks.size() == 2);
+    CHECK(withM5.trucks.size() <= 20);
+    CHECK(accountedOnce(withM5, day.items.items.size()));
+    for (const LeftOverItem& left : withM5.leftOver) CHECK(left.reason != LeftOverReason::EscalatedToM5);
+    REQUIRE(withM5.reservations.size() == 1);
+    CHECK_FALSE(withM5.reservations[0].escalated);
+    // The planner's presence changes nothing on an M4 lane-date.
+    REQUIRE(withoutM5.trucks.size() == withM5.trucks.size());
+    for (size_t truck = 0; truck < withM5.trucks.size(); ++truck) CHECK(withoutM5.trucks[truck].items == withM5.trucks[truck].items);
+    m5Evidence::note("expected", {"20 reserved: M4 plans it (2 trucks of 40 goods)", "no M5 lane", "same plan with or without the planner"});
 }
 
-TEST_CASE("U-RT-02 twenty-one reserved goes to M5, which plans the shared pool" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-02/synthetic: twenty-one reserved goes to M5, which plans the shared pool" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(21, 100);
     REQUIRE(day.classification.routes[0].method == SolveMethod::M5);
+    CHECK(day.classification.routes[0].reservedTrucks == 21);
     SelectorSettings settings = selectorSettings();
     settings.largeLanePlanner = plannerOf();
     const SelectionPlan selection = plan(day, settings);
@@ -142,6 +149,9 @@ TEST_CASE("U-RT-02 twenty-one reserved goes to M5, which plans the shared pool" 
     CHECK_FALSE(selection.reservations[0].escalated);
     CHECK(selection.reservations[0].built == 4);
     CHECK(selection.largeLanes[0].text.find("3B Lane") != string::npos);
+    CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+    CHECK(selection.trucks.size() <= 21);
+    m5Evidence::note("expected", {"21 reserved: sent to M5", "pool of 21 reported once for the lane-date", "4 trucks, every good once"});
 }
 
 TEST_CASE("U-RT-02 without a planner the lane-date is escalated, as before M5" * doctest::test_suite("m5")) {
@@ -153,16 +163,26 @@ TEST_CASE("U-RT-02 without a planner the lane-date is escalated, as before M5" *
     CHECK(selection.reservations[0].escalated);
 }
 
-TEST_CASE("X-ROUTE-02 U-SP-02 two groups share one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
+TEST_CASE("U-SP-02/synthetic X-ROUTE-02: two do-not-mix groups are two cargo plans sharing one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(21, 2000, 2);
     SelectorSettings settings = selectorSettings();
     settings.largeLanePlanner = plannerOf();
     const SelectionPlan selection = plan(day, settings);
     CHECK(selection.trucks.size() == 21);
     CHECK(accountedOnce(selection, day.items.items.size()));
+    map<size_t, size_t> trucksOfGroup;
     for (const PlannedTruck& truck : selection.trucks) {
+        ++trucksOfGroup[truck.groupIndex];
         for (const size_t index : truck.items) CHECK(day.items.items[index].groupIndex == truck.groupIndex);
     }
+    // Two cargo plans drawing on one pool: their trucks together are the 21, never 21 each. Which group
+    // gets the trucks is ED-21's business (equal classes here), not this test's.
+    CHECK(trucksOfGroup[0] + trucksOfGroup[1] == 21);
+    REQUIRE(selection.largeLanes.size() == 1);
+    CHECK(selection.largeLanes[0].text.find("groups sharing the reservation: group 0, group 1 (S01)\n") != string::npos);
+    for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::OverReservation);
+    CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+    m5Evidence::note("expected", {"one lane report, pool 21 shared by groups 0 and 1", "21 trucks in all", "no good on a truck of the other group"});
 }
 
 TEST_CASE("M5 settings that do not read leave every good with the configuration reason" * doctest::test_suite("m5")) {

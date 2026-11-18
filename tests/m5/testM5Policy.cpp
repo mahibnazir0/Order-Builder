@@ -10,6 +10,7 @@
 
 using namespace std;
 using namespace ob::m5;
+using namespace m5Fixtures;
 using json = nlohmann::json;
 
 namespace {
@@ -36,6 +37,16 @@ json productionBlock() {
 void requireRejected(json block, const string& why) {
     INFO(why);
     CHECK_THROWS_AS(loadProfile(block), runtime_error);
+}
+
+// The message a refused block gives, or "" when it loads.
+string refusalOf(const json& block) {
+    try {
+        loadProfile(block);
+    } catch (const runtime_error& error) {
+        return error.what();
+    }
+    return "";
 }
 
 }  // namespace
@@ -254,29 +265,92 @@ TEST_CASE("U-FL-03 rear-inch limit: default, overrides and invalid values" * doc
     }
 }
 
-TEST_CASE("U-RT-04 U-RT-05 routing other than reserved trucks per lane-date is refused" * doctest::test_suite("m5")) {
-    json block = productionBlock();
-    block["routing"]["countMode"] = "demandTrucks";
-    requireRejected(block, "demand-count routing");
-    block = productionBlock();
-    block["routing"]["scope"] = "perLane";
-    requireRejected(block, "per-lane scope");
+TEST_CASE("U-RT-04/synthetic: only the reserved-truck count is built; a demand-based count is refused with a clear message" * doctest::test_suite("m5")) {
+    CHECK(loadProfile(productionBlock()).profileId == "customer2-production");
+    for (const string mode : {"demandTrucks", "demandUnitLoads", "", "ReservedTrucks"}) {
+        json block = productionBlock();
+        block["routing"]["countMode"] = mode;
+        const string message = refusalOf(block);
+        INFO(mode << ": " << message);
+        CHECK(message.find("m5.routing.countMode '" + mode + "' is not supported") != string::npos);
+        CHECK(message.find("reservedTrucks") != string::npos);
+    }
+    json missing = productionBlock();
+    missing["routing"].erase("countMode");
+    CHECK(refusalOf(missing).find("countMode") != string::npos);
+    json wrongType = productionBlock();
+    wrongType["routing"]["countMode"] = 21;
+    CHECK(refusalOf(wrongType).find("countMode") != string::npos);
+    m5Evidence::note("expected", {"reservedTrucks accepted", "demand counts, empty, wrong case, missing and non-text refused by name"});
 }
 
-TEST_CASE("U-RB-03 X-ROUTE-06 U-FF-04 block size and gap must be whole counts of at least 1" * doctest::test_suite("m5")) {
-    for (const json& bad : {json(0), json(-19), json(1.5), json("19")}) {
+TEST_CASE("U-RT-05/synthetic: only per lane and ship date is built; a per-lane count is refused with a clear message" * doctest::test_suite("m5")) {
+    for (const string scope : {"perLane", "perShipDate", "", "PerLaneShipDate"}) {
+        json block = productionBlock();
+        block["routing"]["scope"] = scope;
+        const string message = refusalOf(block);
+        INFO(scope << ": " << message);
+        CHECK(message.find("m5.routing.scope '" + scope + "' is not supported") != string::npos);
+        CHECK(message.find("per lane and ship date") != string::npos);
+    }
+    json missing = productionBlock();
+    missing["routing"].erase("scope");
+    CHECK(refusalOf(missing).find("scope") != string::npos);
+    m5Evidence::note("expected", {"perLaneShipDate accepted", "per lane, per date, empty, wrong case and missing refused by name"});
+}
+
+TEST_CASE("U-RB-03/synthetic X-ROUTE-06: the block size is read from the settings and changes the blocks; 0, negative and non-whole refused" * doctest::test_suite("m5")) {
+    for (const json& bad : {json(0), json(-19), json(1.5), json("19"), json(nullptr)}) {
         json block = productionBlock();
         block["blockSize"] = bad;
-        requireRejected(block, "block size " + bad.dump());
-        block = productionBlock();
-        block["gapTrucks"] = bad;
-        requireRejected(block, "gap " + bad.dump());
+        const string message = refusalOf(block);
+        INFO("block size " << bad.dump() << ": " << message);
+        CHECK(message.find("blockSize") != string::npos);
     }
-    json block = productionBlock();
-    block["blockSize"] = 7;
-    CHECK(loadProfile(block).blockSize == 7);
-    block.erase("blockSize");
-    requireRejected(block, "block size missing");
+    json missing = productionBlock();
+    missing.erase("blockSize");
+    CHECK(refusalOf(missing).find("blockSize") != string::npos);
+    CHECK(loadProfile(productionBlock()).blockSize == 19);
+
+    // The loaded size is the one the blocks method uses: 15 whole-truck items in blocks of 19 and of 7.
+    const auto blocksUnder = [](const json& block) {
+        M5PolicyProfile profile = loadProfile(block);
+        profile.method = MethodPolicy::BlocksOnly;
+        vector<Atom> atoms;
+        for (int unit = 0; unit < 15; ++unit) atoms.push_back(fxBlock("b" + to_string(100 + unit)));
+        vector<size_t> after;
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.afterBlock = [&](size_t trucks) { after.push_back(trucks); };
+        const M5LaneOutcome outcome = planLaneDate(laneWith(atoms, 39), profile, physicalSettings(), services);
+        CHECK(shippedCount(outcome) == 15);
+        return after;
+    };
+    CHECK(blocksUnder(productionBlock()) == vector<size_t>{15});
+    json seven = productionBlock();
+    seven["blockSize"] = 7;
+    CHECK(blocksUnder(seven) == vector<size_t>{7, 14, 15});
+    m5Evidence::note("expected", {"blockSize 19: one block of 15", "blockSize 7: 7 + 7 + 1", "0, -19, 1.5, text, null, missing refused"});
+}
+
+TEST_CASE("U-FF-04/synthetic: the gap is a positive whole number of trucks, G = 1 as shipped; 0, negative, fractional, NaN and overflow refused" * doctest::test_suite("m5")) {
+    CHECK(loadProfile(productionBlock()).gapTrucks == 1);
+    json two = productionBlock();
+    two["gapTrucks"] = 2;
+    CHECK(loadProfile(two).gapTrucks == 2);
+    const vector<json> bad{json(0), json(-1), json(1.5), json(numeric_limits<double>::quiet_NaN()), json(numeric_limits<double>::infinity()),
+                           json(1.0e300), json(9223372036854775807LL), json("1"), json(nullptr)};
+    for (const json& value : bad) {
+        json block = productionBlock();
+        block["gapTrucks"] = value;
+        const string message = refusalOf(block);
+        INFO("gap " << value.dump() << ": " << message);
+        CHECK(message.find("gapTrucks") != string::npos);
+    }
+    json missing = productionBlock();
+    missing.erase("gapTrucks");
+    CHECK(refusalOf(missing).find("gapTrucks") != string::npos);
+    m5Evidence::note("expected", {"G = 1 shipped; 2 accepted as a synthetic setting", "0, -1, 1.5, NaN, inf, 1e300, 2^63-1, text, null, missing refused"});
 }
 
 TEST_CASE("U-PF-05 lane-date allowance is seconds per load times reserved trucks" * doctest::test_suite("m5")) {

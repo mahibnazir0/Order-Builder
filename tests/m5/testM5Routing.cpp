@@ -12,9 +12,13 @@
 #include "pipeline.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
+#include "../runTempFolder.hpp"
+#include "json.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -93,7 +97,36 @@ ProductRecord product(const string& id, int casesUnitLoad, const string& pallet 
 
 }  // namespace
 
-TEST_CASE("U-RT-03 X-ROUTE-01 X-ROUTE-10 only reserved > T goes to M5, T from the settings" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-03/synthetic: the threshold comes from the params file; at T = 50, 21 reserved stays in M4 and 51 goes to M5" * doctest::test_suite("m5")) {
+    // The shipped params file, with only selection.m5Threshold changed, read by the real loader.
+    nlohmann::json params;
+    {
+        ifstream shipped("config/orderBuilderParams.json");
+        REQUIRE(shipped);
+        shipped >> params;
+    }
+    REQUIRE(loadSelectionParams("config/orderBuilderParams.json").routing.m5Threshold == 20);
+    params["selection"]["m5Threshold"] = 50;
+    const filesystem::path path = testTemp::runTempFolder() / "uRt03Threshold50.json";
+    {
+        ofstream out(path);
+        out << params.dump(2);
+    }
+    const LaneClassifierSettings fifty = loadSelectionParams(path.string()).routing;
+    CHECK(fifty.m5Threshold == 50);
+    const auto methodAt = [](const LaneClassifierSettings& routing, int reservedTrucks) {
+        const Day day = dayOf({group("2027")}, 5, itemsOf(0, 5, 0), {reserved("2027", reservedTrucks)});
+        return classifyLanes(day.run, day.book, day.items, routing).routes.front().method;
+    };
+    CHECK(methodAt(fifty, 21) != SolveMethod::M5);
+    CHECK(methodAt(fifty, 50) != SolveMethod::M5);
+    CHECK(methodAt(fifty, 51) == SolveMethod::M5);
+    const LaneClassifierSettings twenty = loadSelectionParams("config/orderBuilderParams.json").routing;
+    CHECK(methodAt(twenty, 21) == SolveMethod::M5);
+    m5Evidence::note("expected", {"shipped T = 20: 21 -> M5", "file T = 50: 21 and 50 stay in M4, 51 -> M5"});
+}
+
+TEST_CASE("X-ROUTE-01 X-ROUTE-10 only reserved > T goes to M5, T from the settings" * doctest::test_suite("m5")) {
     for (const int threshold : {20, 50}) {
         for (const int reservedTrucks : {threshold - 1, threshold, threshold + 1}) {
             const Day day = dayOf({group("2027")}, 5, itemsOf(0, 5, 0), {reserved("2027", reservedTrucks)});
@@ -104,6 +137,32 @@ TEST_CASE("U-RT-03 X-ROUTE-01 X-ROUTE-10 only reserved > T goes to M5, T from th
     }
     const Day day = dayOf({group("2027")}, 5, itemsOf(0, 5, 0), {reserved("2027", 21)});
     CHECK_THROWS_AS(classifyLanes(day.run, day.book, day.items, LaneClassifierSettings{1, 5.0}), invalid_argument);
+}
+
+TEST_CASE("U-SP-01/synthetic: one lane with two ship dates is two pieces, each with its own reservation and date rules" * doctest::test_suite("m5")) {
+    const vector<SelectionItem> goods = join(itemsOf(0, 40, 0, "2026-08-06"), itemsOf(0, 40, 40, "2026-08-07"));
+    const Day day = dayOf({group("2027")}, 80, goods, {reserved("2027", 21, "2026-08-06"), reserved("2027", 25, "2026-08-07")});
+    CHECK(routedToM5(day, "2027", "2026-08-06"));
+    CHECK(routedToM5(day, "2027", "2026-08-07"));
+    const SelectionPlan selection = plan(day, withPlanner());
+    REQUIRE(selection.largeLanes.size() == 2);
+    CHECK(selection.largeLanes[0].shipDate != selection.largeLanes[1].shipDate);
+    map<string, string> textOf;
+    for (const LargeLaneReport& lane : selection.largeLanes) textOf[lane.shipDate] = lane.text;
+    CHECK(textOf["2026-08-06"].find("reserved: 21\n") != string::npos);
+    CHECK(textOf["2026-08-07"].find("reserved: 25\n") != string::npos);
+    map<string, size_t> trucksOn;
+    for (const PlannedTruck& truck : selection.trucks) {
+        ++trucksOn[truck.shipDate];
+        // Pull-forward is off in this planner: no good rides a date other than its own.
+        for (const size_t index : truck.items) CHECK(day.items.items[index].shipDate == truck.shipDate);
+    }
+    CHECK(trucksOn["2026-08-06"] >= 1);
+    CHECK(trucksOn["2026-08-06"] <= 21);
+    CHECK(trucksOn["2026-08-07"] >= 1);
+    CHECK(trucksOn["2026-08-07"] <= 25);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    m5Evidence::note("expected", {"two M5 pieces: 6 Aug pool 21, 7 Aug pool 25", "each good on its own date", "every good once"});
 }
 
 TEST_CASE("X-ROUTE-03 U-SP-01 a lane over the threshold on one date and under on the other" * doctest::test_suite("m5")) {
@@ -156,7 +215,7 @@ TEST_CASE("X-ROUTE-07 routing follows reserved trucks, never the size of the dem
     }
 }
 
-TEST_CASE("U-RT-07 X-ROUTE-08 RD-08 a raw-material lane over the threshold is never planned" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-07/synthetic X-ROUTE-08 RD-08: a raw-material lane over the threshold is never planned" * doctest::test_suite("m5")) {
     const Day day = dayOf({groupOn("2027", "2528", "TL_N102")}, 30, itemsOf(0, 30, 0), {reservedOn("2027", "2528", "TL_N102", 21)});
     REQUIRE(day.classification.routes.front().method == SolveMethod::M5);
     const SelectionPlan selection = plan(day, withPlanner());
@@ -164,16 +223,53 @@ TEST_CASE("U-RT-07 X-ROUTE-08 RD-08 a raw-material lane over the threshold is ne
     REQUIRE(selection.largeLanes.size() == 1);
     CHECK_FALSE(selection.largeLanes[0].planned);
     CHECK(selection.largeLanes[0].outcome.find("out of scope") != string::npos);
+    REQUIRE(selection.leftOver.size() == 30);
     for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::M5InvalidInput);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    // Control: the same lane on a finished-goods condition is planned.
+    const Day finished = dayOf({groupOn("2027", "2528", "TL")}, 30, itemsOf(0, 30, 0), {reservedOn("2027", "2528", "TL", 21)});
+    const SelectionPlan planned = plan(finished, withPlanner());
+    REQUIRE(planned.largeLanes.size() == 1);
+    CHECK(planned.largeLanes[0].planned);
+    CHECK_FALSE(planned.trucks.empty());
+    m5Evidence::note("expected", {"TL_N102 over 20: not planned, 30 goods left as out of scope", "TL control planned"});
 }
 
-TEST_CASE("U-SP-03 U-SP-05 a lane ID with underscores is one lane; goods that may mix stay one piece" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-06/synthetic: zero reserved with valid demand: no M5, no truck, reported as no reservation; a forced M5 run invents no capacity" * doctest::test_suite("m5")) {
+    const Day day = dayOf({group("2027")}, 10, itemsOf(0, 10, 0), {reserved("2027", 0)});
+    for (const LaneRoute& route : day.classification.routes) CHECK(route.method != SolveMethod::M5);
+    const SelectionPlan selection = plan(day, withPlanner());
+    CHECK(selection.trucks.empty());
+    CHECK(selection.largeLanes.empty());
+    REQUIRE(selection.leftOver.size() == 10);
+    for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::NoReservation);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    // Test-only forcing: M5 itself on a lane-date of 0 slots.
+    const m5::M5LaneDateInput forced = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 10), 0);
+    const m5::M5LaneOutcome outcome = m5Fixtures::plan(forced, m5Fixtures::syntheticProfile());
+    CHECK(outcome.kind == m5::OutcomeKind::CompletedZeroDispatch);
+    CHECK_FALSE(outcome.hasCandidate);
+    CHECK_FALSE(outcome.selected.has_value());
+    CHECK(outcome.reservedTrucks == 0);
+    REQUIRE(outcome.leftOver.size() == 10);
+    for (const m5::LeftOver& left : outcome.leftOver) CHECK(left.cause == m5::LeftOverCause::OverReservation);
+    m5Evidence::note("expected", {"0 reserved: M4 lane, no truck, 10 goods NoReservation", "forced M5: zero dispatch, 0 slots, 10 left"});
+}
+
+TEST_CASE("U-SP-03/synthetic U-SP-05/synthetic: a lane ID with underscores is one origin and one destination; goods that may mix stay one piece" * doctest::test_suite("m5")) {
     const Day day = dayOf({groupOn("1757_1724_1725", "2528", "TL")}, 40, itemsOf(0, 40, 0), {reservedOn("1757_1724_1725", "2528", "TL", 21)});
+    REQUIRE(day.classification.routes.size() == 1);
     const SelectionPlan selection = plan(day, withPlanner());
     REQUIRE(selection.largeLanes.size() == 1);
     CHECK(selection.largeLanes[0].origin == "1757_1724_1725");
+    CHECK(selection.largeLanes[0].destination == "2528");
+    CHECK(selection.largeLanes[0].planned);
+    CHECK(selection.largeLanes[0].text.find("multi-stop") == string::npos);
     CHECK(selection.trucks.size() == 2);
+    for (const PlannedTruck& truck : selection.trucks) CHECK(truck.groupIndex == 0);
     CHECK(selection.largeLanes[0].text.find("groups sharing the reservation: group 0\n") != string::npos);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    m5Evidence::note("expected", {"1757_1724_1725 -> 2528 is one lane, not multi-stop", "one group, one piece, 2 trucks"});
 }
 
 TEST_CASE("X-DATE-11 X-DATE-12 lanes never borrow each other's trucks; M5 makes up no date" * doctest::test_suite("m5")) {
@@ -226,10 +322,34 @@ TEST_CASE("U-DA-06 X-RUN-08 a combo lane stops the run before any plan is publis
     CHECK_THROWS_AS(Pipeline::run(day.inputs), runtime_error);
 }
 
-TEST_CASE("U-DA-01 X-DATA-08 CS, DIS and PAL all divide by Cases_Unit_Load" * doctest::test_suite("m5")) {
+TEST_CASE("U-DA-01/synthetic X-DATA-08: CS, DIS and PAL all divide by Cases_Unit_Load; a DIS is never one whole unit load" * doctest::test_suite("m5")) {
     CHECK(Converter::to_pallets(240, "CS", product("a", 10)) == 24.0);
     CHECK(Converter::to_pallets(432, "DIS", product("b", 18)) == 24.0);
     CHECK(Converter::to_pallets(60, "PAL", product("c", 2)) == 30.0);
+    // One display is 1/18 of a unit load, not a unit load of its own; part loads are kept, not rounded.
+    CHECK(Converter::to_pallets(1, "DIS", product("b", 18)) == 1.0 / 18.0);
+    CHECK(Converter::to_pallets(9, "DIS", product("b", 18)) == 0.5);
+    CHECK(Converter::to_pallets(433, "DIS", product("b", 18)) == 433.0 / 18.0);
+    m5Evidence::note("expected", {"240 CS / 10 = 24", "432 DIS / 18 = 24", "60 PAL / 2 = 30", "9 DIS / 18 = 0.5"});
+}
+
+TEST_CASE("U-DA-02/synthetic: a line in eaches is caught and reported; it adds no truck" * doctest::test_suite("m5")) {
+    CHECK_FALSE(Converter::isConvertibleUom("EA"));
+    CHECK(Converter::to_pallets(5000, "EA", product("a", 10)) == 0.0);
+    const m4SmallDay::SmallDay base("uDa02Base");
+    nlohmann::json eaches = m4SmallDay::SmallDay::lineJson("GOOD", 5000, "TL");
+    eaches["UNITOFMEAS"] = "EA";
+    eaches["BNFPO"] = 20;
+    const m4SmallDay::SmallDay withEaches("uDa02Eaches", "," + eaches.dump());
+    const PipelineResult before = Pipeline::run(base.inputs);
+    const PipelineResult after = Pipeline::run(withEaches.inputs);
+    CHECK(after.validation.unknown_uom == 1);
+    CHECK(after.selectionPlan.trucks.size() == before.selectionPlan.trucks.size());
+    const auto reported = find_if(after.stackReport.unstackedLines.begin(), after.stackReport.unstackedLines.end(),
+                                  [](const ReportedLine& line) { return line.reason.find("EA") != string::npos; });
+    REQUIRE(reported != after.stackReport.unstackedLines.end());
+    CHECK(reported->matnr == "GOOD");
+    m5Evidence::note("expected", {"5,000 EA: unknown unit of measure, 1 line reported by product", "trucks unchanged"});
 }
 
 TEST_CASE("U-DA-02 X-DATA-03 X-DATA-04 eaches, zero divisors and part pallets follow M4's rule" * doctest::test_suite("m5")) {
@@ -239,18 +359,20 @@ TEST_CASE("U-DA-02 X-DATA-03 X-DATA-04 eaches, zero divisors and part pallets fo
     CHECK(Converter::to_pallets(9, "CS", product("c", 2)) == 4.5);
 }
 
-TEST_CASE("U-DA-03 a product missing from the master is reported by its ID" * doctest::test_suite("m5")) {
-    STRRecord line;
-    line.matnr = "MISSING";
-    line.trans = 10;
-    line.unitofmeas = "CS";
-    const ProductIndex index = Joiner::build_index({product("PRESENT", 10)});
-    const JoinResult joined = Joiner::join({line}, index);
-    CHECK(joined.unmatched_lines == 1);
-    CHECK(find(joined.unmatched_matnrs.begin(), joined.unmatched_matnrs.end(), "MISSING") != joined.unmatched_matnrs.end());
+TEST_CASE("U-DA-03/synthetic: a product missing from the master is reported by its ID, never silently dropped" * doctest::test_suite("m5")) {
+    const m4SmallDay::SmallDay day("uDa03Missing", "," + m4SmallDay::SmallDay::line("MISSING", 80, "TL"));
+    const PipelineResult result = Pipeline::run(day.inputs);
+    CHECK(result.join.unmatched_lines == 1);
+    CHECK(find(result.join.unmatched_matnrs.begin(), result.join.unmatched_matnrs.end(), "MISSING") != result.join.unmatched_matnrs.end());
+    CHECK(result.validation.unmatched_product == 1);
+    const auto reported = find_if(result.stackReport.unstackedLines.begin(), result.stackReport.unstackedLines.end(),
+                                  [](const ReportedLine& line) { return line.matnr == "MISSING"; });
+    REQUIRE(reported != result.stackReport.unstackedLines.end());
+    CHECK_FALSE(reported->reason.empty());
+    m5Evidence::note("expected", {"MISSING unmatched once, reported by ID with a reason"});
 }
 
-TEST_CASE("U-DA-04 X-DATA-05 the pallet type is chosen by whole pallets, not by row order" * doctest::test_suite("m5")) {
+TEST_CASE("U-DA-04/synthetic X-DATA-05: the pallet type is chosen by whole pallets as in M4; ambiguous and non-whole results are reported, never rounded" * doctest::test_suite("m5")) {
     const vector<ProductRecord> types{product("p", 5, "PTL"), product("p", 4, "TLD")};
     const Joiner::PalletTypePick divides = Joiner::choosePalletType(types, 12.0);
     CHECK(divides.choice == PalletTypeChoice::DividesEvenly);
@@ -261,6 +383,14 @@ TEST_CASE("U-DA-04 X-DATA-05 the pallet type is chosen by whole pallets, not by 
     const Joiner::PalletTypePick backward = Joiner::choosePalletType(reversed, 12.0);
     CHECK(forward.choice == PalletTypeChoice::SeveralDivide);
     CHECK(forward.product->pallet_id == backward.product->pallet_id);
+    // 7 cases on types of 2 and 3: none divides; the pick is flagged and the part load stays a part.
+    const Joiner::PalletTypePick none = Joiner::choosePalletType(both, 7.0);
+    CHECK(none.choice == PalletTypeChoice::NoneDivides);
+    REQUIRE(none.product != nullptr);
+    const double pallets = Converter::to_pallets(7, "CS", *none.product);
+    CHECK(pallets == 7.0 / none.product->cases_unit_load);
+    CHECK(pallets != floor(pallets));
+    m5Evidence::note("expected", {"12 on 5/4: TLD 4 divides", "12 on 2/3: several, same pick either order", "7 on 2/3: none divides, 3.5 or 2.33 kept"});
 }
 
 namespace {

@@ -147,6 +147,16 @@ inline ob::SelectionPlan plan(const Day& day, const ob::SelectorSettings& settin
     return ob::selectLoads(day.run, day.book, day.items, day.classification, settings);
 }
 
+// Every item on exactly one truck or left over.
+inline bool accountedOnce(const ob::SelectionPlan& selection, std::size_t items) {
+    std::vector<int> uses(items, 0);
+    for (const ob::PlannedTruck& truck : selection.trucks) {
+        for (const std::size_t index : truck.items) ++uses[index];
+    }
+    for (const ob::LeftOverItem& left : selection.leftOver) ++uses[left.itemIndex];
+    return std::all_of(uses.begin(), uses.end(), [](int count) { return count == 1; });
+}
+
 // Sixteen stacks for one truck, all due the same day at the same priority: 34 unit loads that stand
 // in exactly 630 in grouped one way, though in sorted order their rows need 692 in. A search that
 // dropped a stack whenever the rows refused the load with it proved 31; one that trusted the sorted

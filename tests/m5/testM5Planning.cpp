@@ -971,14 +971,6 @@ size_t shippedWithPrefix(const set<string>& shipped, const string& prefix) {
     return static_cast<size_t>(count_if(shipped.begin(), shipped.end(), [&](const string& id) { return id.rfind(prefix, 0) == 0; }));
 }
 
-LeftOverCause causeOf(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& id) {
-    for (const LeftOver& left : outcome.leftOver) {
-        if (input.atoms[left.atom].id == id) return left.cause;
-    }
-    FAIL("not left over: " << id);
-    return LeftOverCause::OverReservation;
-}
-
 size_t leftOverEntriesOf(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& id) {
     return static_cast<size_t>(count_if(outcome.leftOver.begin(), outcome.leftOver.end(),
                                         [&](const LeftOver& left) { return input.atoms[left.atom].id == id; }));
@@ -1647,7 +1639,7 @@ TEST_CASE("U-RS-05 X-DATA-13 X-DATA-11 bad input is refused before planning" * d
     CHECK(plan(badSlot, syntheticProfile()).kind == OutcomeKind::InvalidInput);
 }
 
-TEST_CASE("U-RT-06 zero reservations: zero dispatch, no capacity invented" * doctest::test_suite("m5")) {
+TEST_CASE("U-RT-06 forced M5 with zero reservations: zero dispatch, no capacity invented" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 10), 0);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     CHECK(outcome.kind == OutcomeKind::CompletedZeroDispatch);

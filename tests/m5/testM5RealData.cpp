@@ -15,6 +15,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <tuple>
@@ -188,7 +189,17 @@ TEST_CASE("RD-05 Aug4 and Aug6 have no lane-date above the threshold, so M5 plan
     CHECK(withM5(2).selectionPlan.largeLanes.empty());
 }
 
-TEST_CASE("U-RT-08 the shipped threshold is 20 and routes exactly the lane-dates above it" * doctest::skip()) {
+TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the shipped 20 routes exactly the lane-dates above it" * doctest::skip()) {
+    // Code review: the backwards asserts once near lines 552 and 554 of testM4Benchmark.cpp ("no rule is
+    // supportable") are gone; the benchmark now checks the shipped threshold against the data.
+    string benchmarkSource;
+    {
+        ifstream file("tests/benchmarkHarness/testM4Benchmark.cpp", ios::binary);
+        REQUIRE(file);
+        benchmarkSource.assign(istreambuf_iterator<char>(file), istreambuf_iterator<char>());
+    }
+    CHECK(benchmarkSource.find("supportable") == string::npos);
+    CHECK(benchmarkSource.find("CHECK(shipped.m5Threshold < *overBudget);") != string::npos);
     REQUIRE(m4AugustTests::augustPresent());
     CHECK(loadSelectionParams(crossDayTests::kStrictParamsPath).routing.m5Threshold == 20);
     for (size_t runIndex = 0; runIndex < 3; ++runIndex) {

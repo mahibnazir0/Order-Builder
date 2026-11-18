@@ -97,6 +97,36 @@ vector<size_t> blockSizes(const M5LaneDateInput& input) {
 
 // ---------------------------------------------------------------------------- rolling blocks
 
+// Every block truck ships once, each its one whole-truck item, and nothing is left.
+void requireEachBlockOnce(const M5LaneOutcome& outcome, const M5LaneDateInput& input, size_t trucks) {
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == trucks);
+    vector<int> shipped(input.atoms.size(), 0);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() == 1);
+        for (const size_t atom : truck.atoms) ++shipped[atom];
+    }
+    CHECK(all_of(shipped.begin(), shipped.end(), [](int count) { return count == 1; }));
+    CHECK(outcome.leftOver.empty());
+    requireInvariants(outcome, input);
+}
+
+TEST_CASE("U-RB-01/synthetic: goods for exactly 38 full trucks on enough reservations go 19 + 19" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(38), 39);
+    CHECK(blockSizes(input) == vector<size_t>{19, 19});
+    requireEachBlockOnce(plan(input, blocksOnly()), input, 38);
+    m5Evidence::note("expected", {"19", "19", "38 trucks, one reservation unused"});
+}
+
+TEST_CASE("U-RB-02/synthetic: goods for exactly 21 full trucks on 21 reserved go 19 + 2, no padding truck" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(21), 21);
+    CHECK(blockSizes(input) == vector<size_t>{19, 2});
+    const M5LaneOutcome outcome = plan(input, blocksOnly());
+    requireEachBlockOnce(outcome, input, 21);
+    for (const TruckPlan& truck : outcome.selected->trucks) CHECK_FALSE(truck.atoms.empty());
+    m5Evidence::note("expected", {"19", "2", "21 trucks, none empty"});
+}
+
 TEST_CASE("U-RB-01 X-BLK-01 blocks of 19, the last never padded" * doctest::test_suite("m5")) {
     const vector<pair<size_t, vector<size_t>>> expected{{0, {}},           {1, {1}},         {18, {18}},         {19, {19}},
                                                         {20, {19, 1}},     {37, {19, 18}},   {38, {19, 19}},     {39, {19, 19, 1}}};
@@ -109,17 +139,7 @@ TEST_CASE("U-RB-01 X-BLK-01 blocks of 19, the last never padded" * doctest::test
 TEST_CASE("U-RB-01/thirtyNineBlocks: 39 whole-truck items on 39 reservations go 19 + 19 + 1, each once" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(blocks(39), 39);
     CHECK(blockSizes(input) == vector<size_t>{19, 19, 1});
-    const M5LaneOutcome outcome = plan(input, blocksOnly());
-    REQUIRE(outcome.selected);
-    CHECK(outcome.selected->trucks.size() == 39);
-    vector<int> shipped(input.atoms.size(), 0);
-    for (const TruckPlan& truck : outcome.selected->trucks) {
-        CHECK(truck.atoms.size() == 1);
-        for (const size_t atom : truck.atoms) ++shipped[atom];
-    }
-    CHECK(all_of(shipped.begin(), shipped.end(), [](int count) { return count == 1; }));
-    CHECK(outcome.leftOver.empty());
-    requireInvariants(outcome, input);
+    requireEachBlockOnce(plan(input, blocksOnly()), input, 39);
     m5Evidence::note("expected", {"19", "19", "1"});
 }
 
@@ -524,6 +544,31 @@ TEST_CASE("X-STATE-07 two groups competing for the last reservation: exactly one
     for (int run = 0; run < 5; ++run) CHECK(shippedIds(plan(input, syntheticProfile()), input) == shippedIds(first, input));
 }
 
+TEST_CASE("U-RB-05/synthetic: A and B with the same trucks are compared on goods and priority first; only a true tie uses the tie rule" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 30, "A", 0), fx30Units("b", 30, "B", 1)), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const UrgencyDomain domain(snapshot);
+    Truck a, b, b29;
+    for (size_t atom = 0; atom < 30; ++atom) {
+        a.push_back(atom);
+        b.push_back(atom + 30);
+        if (atom < 29) b29.push_back(atom + 30);
+    }
+    const auto comparator = makeComparator(ComparatorKind::M4Urgency);
+    // One truck each: P0 goods beat P1 goods.
+    CHECK(comparator->better(keyOf(snapshot, domain, {a}), keyOf(snapshot, domain, {b})));
+    CHECK_FALSE(comparator->better(keyOf(snapshot, domain, {b}), keyOf(snapshot, domain, {a})));
+    // Same priority, one truck each: more goods win.
+    CHECK(comparator->better(keyOf(snapshot, domain, {b}), keyOf(snapshot, domain, {b29})));
+    // A true tie: neither is better, so ED-21's rule decides.
+    CHECK_FALSE(comparator->better(keyOf(snapshot, domain, {a}), keyOf(snapshot, domain, {a})));
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedOfGroup(outcome, input, "A") == 30);
+    CHECK(shippedOfGroup(outcome, input, "B") == 0);
+    m5Evidence::note("expected", {"30 P0 beat 30 P1 on 1 truck", "30 P1 beat 29 P1", "equal plans: no winner by class, tie rule applies"});
+}
+
 TEST_CASE("X-STATE-08 U-RB-05 equal trucks are not a tie: 30 P0 strictly beats 30 P1" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 30, "A", 0), fx30Units("b", 30, "B", 1)), 1);
     CHECK(shippedOfGroup(plan(input, syntheticProfile()), input, "A") == 30);
@@ -539,16 +584,52 @@ TEST_CASE("X-STATE-08 U-RB-05 equal trucks are not a tie: 30 P0 strictly beats 3
     CHECK_FALSE(comparator->better(keyOf(snapshot, domain, {b}), keyOf(snapshot, domain, {a})));
 }
 
-TEST_CASE("U-RB-04 A and B plan isolated copies of one snapshot; only the selected result commits" * doctest::test_suite("m5")) {
+TEST_CASE("U-RB-04/synthetic: A and B plan isolated copies of one snapshot; real statuses; only the selected checked result commits; a B not started is no zero-truck success" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 75), 3);
+    const M5LaneDateInput untouched = input;
     const M5LaneOutcome outcome = planWithServices(input, syntheticProfile(), [](M5RunServices& services) {
         services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
     });
+    requireInvariants(outcome, input);
     REQUIRE(outcome.methods.size() == 2);
-    CHECK(outcome.methods[0].unitLoads == 75.0);
-    CHECK(outcome.methods[1].unitLoads == 75.0);
+    CHECK(outcome.methods[0].method == MethodId::PatternRepeat);
+    CHECK(outcome.methods[1].method == MethodId::RollingBlocks);
+    for (const MethodRecord& record : outcome.methods) {
+        CHECK(record.ran);
+        CHECK(record.skippedBecause.empty());
+        CHECK(record.validated);
+        CHECK(record.unitLoads == 75.0);
+        CHECK(record.trucks == 3);
+    }
     CHECK(count_if(outcome.methods.begin(), outcome.methods.end(), [](const MethodRecord& record) { return record.selected; }) == 1);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.delta);
     CHECK(outcome.delta->trucks.size() == outcome.selected->trucks.size());
+    CHECK(shippedCount(outcome) == 75);
+    // The input both methods read is not changed by either.
+    REQUIRE(input.atoms.size() == untouched.atoms.size());
+    for (size_t atom = 0; atom < input.atoms.size(); ++atom) CHECK(input.atoms[atom].id == untouched.atoms[atom].id);
+
+    // A spends the whole shared allowance: B never starts and is reported so, not as a plan of 0 trucks.
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    services.beforeMethod = [&](MethodId method) {
+        if (method == MethodId::PatternRepeat) clock.advance(10.0);
+    };
+    const M5LaneOutcome late = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(late, input);
+    REQUIRE(late.methods.size() == 2);
+    CHECK_FALSE(late.methods[1].ran);
+    CHECK_FALSE(late.methods[1].skippedBecause.empty());
+    CHECK_FALSE(late.methods[1].selected);
+    CHECK_FALSE(late.methods[1].validated);
+    CHECK(late.stop == StopReason::BudgetExhausted);
+    CHECK(late.kind != OutcomeKind::CompletedZeroDispatch);
+    CHECK(late.kind != OutcomeKind::CompletedWithDispatch);
+    m5Evidence::note("expected", {"A and B both ran and validated, 75 unit loads on 3 trucks each", "one selected, its delta committed",
+                                  "B after a spent allowance: not started, reported as such, run is a timeout"});
 }
 
 TEST_CASE("X-STATE-04 settings changed in one process plan as a fresh process would" * doctest::test_suite("m5")) {
@@ -1164,6 +1245,107 @@ TEST_CASE("X-REPORT-07 U-RP-02 U-RP-05 90 units: 60 shipped, 30 left, counted on
     CHECK(text.find("seconds per loaded truck") != string::npos);
 }
 
+// FX-GAP on a lane: `count` units of 60 x 60 in on ten slots. Two never stand across the 100 in floor
+// and ten rows of 60 in fill 630 in, so a truck holds at most 10: ceil(count / 10) trucks are needed,
+// and the floor-area bound B = ceil(count x 3,600 / 63,000) never exceeds that (a valid bound).
+M5LaneDateInput gapLane(int count) {
+    vector<Atom> atoms;
+    for (int unit = 0; unit < count; ++unit) atoms.push_back(unitOf("s" + to_string(100 + unit), "A", 60, 60, 50, 1000));
+    return laneWith(atoms, 10);
+}
+
+// The trucks gapLane(count) needs at least: ten to a truck.
+long long gapLaneTrucks(int count) { return (count + 9) / 10; }
+
+void requireEscalation(const M5LaneOutcome& outcome, int count, long long quick, long long bound, bool escalated) {
+    REQUIRE(outcome.escalation.quickTrucks);
+    REQUIRE(outcome.escalation.bound);
+    CHECK(*outcome.escalation.quickTrucks == quick);
+    CHECK(*outcome.escalation.bound == bound);
+    CHECK(*outcome.escalation.bound <= gapLaneTrucks(count));
+    CHECK(quick >= gapLaneTrucks(count));
+    CHECK(outcome.escalation.escalated == escalated);
+}
+
+TEST_CASE("U-FF-01/approvedPolicy: A is exactly G = 1 above a valid bound with allowance left: B runs" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = gapLane(30);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(syntheticProfile().gapTrucks == 1);
+    requireEscalation(outcome, 30, 3, 2, true);
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK(outcome.methods[1].ran);
+    CHECK(outcome.escalation.gap == "1 truck, 50.0% above the bound of 2");
+    CHECK_FALSE(outcome.timing.exhausted);
+    CHECK(outcome.allowanceSeconds - outcome.timing.elapsedSeconds > 0.0);
+    CHECK(shippedCount(outcome) == 30);
+    m5Evidence::note("expected", {"F 3, valid B 2, G 1, allowance left", "escalated: B ran", "gap 1 truck, 50.0%"});
+}
+
+TEST_CASE("U-FF-02/approvedPolicy: A is G + 1 above the bound: B runs with allowance left, and is recorded as not started without" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = gapLane(50);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    requireEscalation(outcome, 50, 5, 3, true);
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK(outcome.methods[1].ran);
+    CHECK(outcome.escalation.gap == "2 trucks, 66.7% above the bound of 3");
+
+    // No allowance left. The lane applies shouldEscalate(F, B, G, allowance left); no seam stops the
+    // clock between A's validation and B's start, so the rule is checked at that call, and on a lane
+    // whose allowance runs out inside A: B starts no fresh time and the run records the exhaustion.
+    CHECK_FALSE(shouldEscalate(5, 3, 1, false));
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 5.0;
+    services.beforeMethod = [&](MethodId method) {
+        if (method == MethodId::PatternRepeat) clock.advance(5.0);
+    };
+    const M5LaneOutcome spent = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(spent, input);
+    REQUIRE(spent.methods.size() == 2);
+    CHECK_FALSE(spent.methods[1].ran);
+    CHECK(spent.methods[1].skippedBecause.find("allowance was spent") != string::npos);
+    CHECK_FALSE(spent.escalation.escalated);
+    CHECK(spent.stop == StopReason::BudgetExhausted);
+    CHECK(spent.timing.exhausted);
+    CHECK(spent.timing.elapsedSeconds == 5.0);
+    CHECK(spent.kind == OutcomeKind::TimeoutNoIncumbent);
+    CHECK(countCause(spent, LeftOverCause::NoResult) == 50);
+    CHECK(countCause(spent, LeftOverCause::Unfittable) == 0);
+    m5Evidence::note("expected", {"F 5, B 3: escalated with allowance", "no allowance: shouldEscalate false",
+                                  "allowance spent in A: B not started, budget exhausted at 5 s, 50 kept as no result"});
+}
+
+TEST_CASE("U-FF-03/approvedPolicy: A equal to a valid bound never escalates" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = gapLane(20);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    requireEscalation(outcome, 20, 2, 2, false);
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK_FALSE(outcome.methods[1].ran);
+    CHECK(outcome.methods[1].skippedBecause.find("equal the valid bound of 2") != string::npos);
+    CHECK(outcome.escalation.gap == "0 trucks, 0.0% above the bound of 2");
+    m5Evidence::note("expected", {"F 2 = B 2: B not run", "gap 0 trucks"});
+}
+
+TEST_CASE("U-FF-05/approvedPolicy: the report names every escalated lane with its gap in 3C" * doctest::test_suite("m5")) {
+    for (const auto& [count, gap] : vector<pair<int, string>>{{30, "1 truck, 50.0% above the bound of 2"}, {50, "2 trucks, 66.7% above the bound of 3"}}) {
+        const M5LaneDateInput input = gapLane(count);
+        const string text = renderAscii(buildReportData(plan(input, syntheticProfile()), input, nullptr, {}));
+        INFO(count << " units");
+        const size_t box = text.find("3C ");
+        REQUIRE(box != string::npos);
+        CHECK(text.find("quick count vs bound: " + gap, box) != string::npos);
+        CHECK(text.find("method B (rolling blocks): ran", box) != string::npos);
+    }
+    const M5LaneDateInput equal = gapLane(20);
+    const string text = renderAscii(buildReportData(plan(equal, syntheticProfile()), equal, nullptr, {}));
+    CHECK(text.find("quick count vs bound: 0 trucks, 0.0% above the bound of 2") != string::npos);
+    CHECK(text.find("method B (rolling blocks): not run") != string::npos);
+    m5Evidence::note("expected", {"30 units: 1 truck, 50.0%", "50 units: 2 trucks, 66.7%", "20 units: not escalated, 0 trucks"});
+}
+
 TEST_CASE("X-REPORT-08 U-FF-05 U-RP-03 every method shows its real status and the escalation gap" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 60), 3);
     const string text = renderAscii(buildReportData(plan(input, syntheticProfile()), input, nullptr, {}));
@@ -1210,11 +1392,30 @@ TEST_CASE("U-PF-01 U-PF-07 timing is recorded per phase on one deadline; sequent
     CHECK(outcome.timing.secondsByPhase.count("validation") == 1);
 }
 
-TEST_CASE("U-SP-04 a group of one unit load gets a clear outcome" * doctest::test_suite("m5")) {
+TEST_CASE("U-SP-04/synthetic: a group of one unit load gets a clear outcome: shipped, left over or rejected, never dropped" * doctest::test_suite("m5")) {
+    // Shipped: room for it.
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 30, "A"), {fx30("lonely", "B")}), 2);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    CHECK(shippedOfGroup(outcome, input, "B") == 1);
     requireInvariants(outcome, input);
+    CHECK(shippedOfGroup(outcome, input, "B") == 1);
+    CHECK(shippedCount(outcome) + outcome.leftOver.size() == 31);
+    // Left over: one slot, which the 30 of group A fill first by priority.
+    vector<Atom> urgent = fx30Units("a", 30, "A");
+    Atom later = fx30("lonely", "B");
+    later.components[0].priority = 11;
+    const M5LaneDateInput full = laneWith(concat(urgent, {later}), 1);
+    const M5LaneOutcome fullOutcome = plan(full, syntheticProfile());
+    requireInvariants(fullOutcome, full);
+    CHECK(shippedOfGroup(fullOutcome, full, "B") == 0);
+    CHECK(causeOf(fullOutcome, full, "lonely") == LeftOverCause::OverReservation);
+    CHECK(shippedCount(fullOutcome) + fullOutcome.leftOver.size() == 31);
+    // Rejected: taller than the trailer.
+    const M5LaneDateInput tall = laneWith(concat(fx30Units("a", 30, "A"), {unitOf("lonely", "B", 48, 40, 130, 500)}), 2);
+    const M5LaneOutcome tallOutcome = plan(tall, syntheticProfile());
+    requireInvariants(tallOutcome, tall);
+    CHECK(causeOf(tallOutcome, tall, "lonely") == LeftOverCause::Unfittable);
+    CHECK(shippedCount(tallOutcome) + tallOutcome.leftOver.size() == 31);
+    m5Evidence::note("expected", {"room: B's one unit ships", "one slot, B later: left over the reservation", "130 in tall: rejected as unfittable"});
 }
 
 TEST_CASE("X-E2E-03 patterns with pull-forward and unavailable stock" * doctest::test_suite("m5")) {
