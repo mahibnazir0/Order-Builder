@@ -218,7 +218,13 @@ TEST_CASE("U-PF-09/freshContextRetry: a new context of 6/6 completes P in 4 stat
     const M5LaneOutcome two = plan(lane, syntheticProfile());
     CHECK(one.floorSearch.perCallStates == 200'000);
     CHECK(one.floorSearch.routeStates == 1'000'000);
-    CHECK(one.floorSearch.identity != two.floorSearch.identity);
+    // PR-10e: a context is named by its own lane-date, not by how many ran before it in the process, so the same
+    // lane-date always reports the same identity and a different lane-date another.
+    CHECK(one.floorSearch.identity == two.floorSearch.identity);
+    CHECK(one.floorSearch.identity == identityOfScope(one.floorSearch.scope));
+    M5LaneDateInput otherLane = lane;
+    otherLane.lane = {"3000", "3100", "TL"};
+    CHECK(plan(otherLane, syntheticProfile()).floorSearch.identity != one.floorSearch.identity);
     CHECK(one.floorSearch.scope.find(lane.lane.text()) != string::npos);
     CHECK(one.floorSearch.statesCharged >= 0);
     CHECK(one.floorSearch.statesCharged <= one.floorSearch.routeStates);

@@ -34,8 +34,18 @@ const char* searchStopName(SearchStop stop) {
     return "none";
 }
 
-RouteSearchBudget::RouteSearchBudget(string scope, long long perCallStates, long long routeStates, function<bool()> wallStop)
-    : scope_(std::move(scope)), identity_(nextRouteIdentity.fetch_add(1)), perCallStates_(perCallStates),
+uint64_t identityOfScope(const string& scope) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (const unsigned char character : scope) {
+        hash ^= character;
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+RouteSearchBudget::RouteSearchBudget(string scope, long long perCallStates, long long routeStates, function<bool()> wallStop,
+                                     optional<uint64_t> identity)
+    : scope_(std::move(scope)), identity_(identity ? *identity : nextRouteIdentity.fetch_add(1)), perCallStates_(perCallStates),
       routeStates_(routeStates), statesLeft_(routeStates), wallStop_(std::move(wallStop)) {
     if (perCallStates < 1 || routeStates < 1) {
         throw invalid_argument("floor-search state limits must be at least 1 (per call " + to_string(perCallStates) + ", route "

@@ -1034,6 +1034,8 @@ struct ProfileRun {
     bool accepted = false;
     size_t shipped = 0;
     string profileKey;
+    uint64_t routeIdentity = 0;
+    string reportHash;
 };
 
 ProfileRun runUnder(double y, const string& profileId = "fx-synthetic", int revision = 1) {
@@ -1048,6 +1050,8 @@ ProfileRun runUnder(double y, const string& profileId = "fx-synthetic", int revi
     run.profileKey = report.profileKey;
     const M5LaneOutcome outcome = plan(input, profile);
     run.shipped = shippedCount(outcome);
+    run.routeIdentity = outcome.floorSearch.identity;
+    run.reportHash = digestOf(renderAscii(buildReportData(outcome, input, &profile, {})));
     return run;
 }
 
@@ -1080,10 +1084,9 @@ namespace {
 
 // One profile run as its own process prints these lines; the parent reads them back.
 void printFreshProcessRun(double y) {
-    // The first route budget of a fresh process takes identity 1 from the process-wide counter.
-    const RouteSearchBudget firstBudget("freshProcess", 1, 1);
     const ProfileRun run = runUnder(y);
-    cout << "freshProcess.firstRouteIdentity=" << firstBudget.identity() << "\n"
+    cout << "freshProcess.routeIdentity=" << run.routeIdentity << "\n"
+         << "freshProcess.reportHash=" << run.reportHash << "\n"
          << "freshProcess.accepted=" << (run.accepted ? 1 : 0) << "\n"
          << "freshProcess.shipped=" << run.shipped << "\n"
          << "freshProcess.profileKey=" << run.profileKey << "\n";
@@ -1130,17 +1133,18 @@ TEST_CASE("m5 fresh-process child B: y 3,000 cu ft" * doctest::test_suite("m5"))
 }
 
 TEST_CASE("U-AC-08/freshProcess: each profile run in a fresh process equals the in-process A, B, A results" * doctest::test_suite("m5")) {
-    // M5 has process-wide state: the route-budget identity counter (nextRouteIdentity, m5FloorSearch.cpp;
-    // search of src/m5* and include/m5* in pr11b-report.txt). So each run is a real second process.
+    // The only process-wide counter (nextRouteIdentity, m5FloorSearch.cpp) no longer reaches a lane-date's report (PR-10e):
+    // two runs in one process, after other budgets were made, give the same report as two fresh processes.
+    const RouteSearchBudget history("history", 1, 1), moreHistory("moreHistory", 1, 1);
+    REQUIRE(moreHistory.identity() > history.identity());
     const ProfileRun inA = runUnder(2400.0), inB = runUnder(3000.0), inAAgain = runUnder(2400.0);
-    const RouteSearchBudget probe("inProcess", 1, 1);
-    REQUIRE(probe.identity() > 1);
     const ChildRun freshA = runInFreshProcess("A"), freshB = runInFreshProcess("B"), freshAAgain = runInFreshProcess("A");
     vector<string> verdicts;
     for (const auto& [inProcess, fresh] : {pair{&inA, &freshA}, pair{&inB, &freshB}, pair{&inAAgain, &freshAAgain}}) {
         CHECK(fresh->status == 0);
-        REQUIRE(fresh->fields.size() == 4);
-        CHECK(fresh->fields.at("firstRouteIdentity") == "1");
+        REQUIRE(fresh->fields.size() == 5);
+        CHECK(fresh->fields.at("routeIdentity") == to_string(inProcess->routeIdentity));
+        CHECK(fresh->fields.at("reportHash") == inProcess->reportHash);
         CHECK(fresh->fields.at("accepted") == (inProcess->accepted ? "1" : "0"));
         CHECK(fresh->fields.at("shipped") == to_string(inProcess->shipped));
         CHECK(fresh->fields.at("profileKey") == inProcess->profileKey);
@@ -1151,7 +1155,9 @@ TEST_CASE("U-AC-08/freshProcess: each profile run in a fresh process equals the 
     CHECK(inB.shipped == 0);
     CHECK(freshA.fields.at("profileKey") == freshAAgain.fields.at("profileKey"));
     CHECK(freshA.fields.at("profileKey") != freshB.fields.at("profileKey"));
-    m5Evidence::note("expected", {"true", "false", "true", "three child processes of ob_tests, identities start at 1"});
+    CHECK(inA.routeIdentity == inAAgain.routeIdentity);
+    CHECK(inA.reportHash == inAAgain.reportHash);
+    m5Evidence::note("expected", {"true", "false", "true", "three child processes of ob_tests", "route identity and the whole report equal the in-process runs"});
 }
 
 TEST_CASE("U-AC-08/sameIdRevision: revising one profile id's thresholds re-decides acceptance" * doctest::test_suite("m5")) {

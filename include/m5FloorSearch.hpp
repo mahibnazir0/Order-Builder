@@ -52,16 +52,22 @@ struct LayoutWitness {
 // The states one route context may spend on floor searches, shared by every check in it, and the per-call
 // cap no single search may pass. Thread-safe: a permit is admitted only while states are left, so the
 // count never underflows however checks interleave. Not copyable: a copy would be a second budget.
+// A stable 64-bit name for a scope (FNV-1a): the same scope gives the same number on every run and platform.
+std::uint64_t identityOfScope(const std::string& scope);
+
 class RouteSearchBudget {
 public:
     // wallStop, when set, is the context's wall deadline: once it says true no further state is admitted.
+    // `identity` names the context in reports. A lane-date run gives it from its own scope (identityOfScope), so a
+    // report never depends on what else ran in the process; without one the budget takes the next number of a
+    // process-wide counter, which only distinguishes budgets that have no scope of their own (tests).
     RouteSearchBudget(std::string scope, long long perCallStates, long long routeStates,
-                      std::function<bool()> wallStop = {});
+                      std::function<bool()> wallStop = {}, std::optional<std::uint64_t> identity = std::nullopt);
     RouteSearchBudget(const RouteSearchBudget&) = delete;
     RouteSearchBudget& operator=(const RouteSearchBudget&) = delete;
 
     const std::string& scope() const { return scope_; }
-    std::uint64_t identity() const { return identity_; }  // unique per budget in the process
+    std::uint64_t identity() const { return identity_; }
     long long perCallStates() const { return perCallStates_; }
     long long routeStates() const { return routeStates_; }
     long long statesLeft() const { return statesLeft_.load(); }

@@ -234,7 +234,7 @@ PhysicalSettings withRouteBudget(const PhysicalSettings& settings, const string&
     PhysicalSettings routed = settings;
     if (!routed.routeBudget) {
         routed.routeBudget = make_shared<RouteSearchBudget>(scope, settings.floor.searchStateLimit, settings.floor.routeSearchStateLimit,
-                                                            std::move(wallStop));
+                                                            std::move(wallStop), identityOfScope(scope));
     }
     return routed;
 }
