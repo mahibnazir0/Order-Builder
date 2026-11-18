@@ -2,7 +2,6 @@
 # (NOT_RUN) and why. The acceptance gate (X-RUN-09) accepts a variant with a recorded reason and rejects one
 # without. A variant that gets a PASS record must have its line removed (the gate reports a reason kept for a
 # variant that has a result). A reason is never a pass: it stays visible in the evidence status.
-RD-04/realData|The test exists but does not declare this variant; the linked-date baselines need per-source evidence from earlier M4 commits.
 RD-13/baselineAug5_2023_2508|The Aug5 linked-date baseline needs per-source evidence from earlier M4 commits that this tree does not hold.
 RD-13/baselineAug5_2299_2292|The Aug5 linked-date baseline needs per-source evidence from earlier M4 commits that this tree does not hold.
 RD-13/linkedDates|The linked-date comparison needs per-source baselines from earlier M4 commits that this tree does not hold.

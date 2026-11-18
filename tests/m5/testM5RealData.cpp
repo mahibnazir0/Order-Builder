@@ -273,23 +273,90 @@ TEST_CASE("RD-03/productionProfile X-REPORT-01/realRun Aug5 7 Aug: at most 21 tr
     MESSAGE("7 Aug, 2028 -> 2574: M5 built " << builtTrucks << " against the client's historical " << historical << " (shipped and left are in the report above)");
 }
 
-TEST_CASE("RD-04 RD-13 7 and 8 Aug of 2028 -> 2574 reconcile item by item across both dates" * doctest::skip()) {
+// The 8 Aug lane-date of 2028 -> 2574 as one run planned it: its reservations, the trucks M4 built
+// there and the unit loads of the goods offered to it (ship date up to 8 Aug).
+struct EighthAugust {
+    int routes = 0;
+    bool everyRouteReserves20 = true;  // the lane-date's 20 reserved trucks, carried by each of its routes
+    long long built = 0;
+    double offeredUnitLoads = 0.0;  // everything the route holds
+    double dueUnitLoads = 0.0;      // of it, ship date up to 8 Aug
+    double shippedUnitLoads = 0.0;
+    bool allPlannedByM4 = true;
+};
+
+EighthAugust eighthAugustOf(const PipelineResult& run) {
+    EighthAugust result;
+    for (size_t routeIndex = 0; routeIndex < run.laneClassification.routes.size(); ++routeIndex) {
+        const LaneRoute& route = run.laneClassification.routes[routeIndex];
+        if (!onLargeLane(run, route) || route.shipDate != "2026-08-08") continue;
+        ++result.routes;
+        result.everyRouteReserves20 = result.everyRouteReserves20 && route.reservedTrucks == 20;
+        result.built += run.selectionPlan.routes[routeIndex].trucksBuilt;
+        result.allPlannedByM4 = result.allPlannedByM4 && route.method != SolveMethod::M5;
+        for (const size_t index : route.itemIndices) {
+            const SelectionItem& item = run.selectionItems.items[index];
+            result.offeredUnitLoads += item.unitLoads;
+            if (item.shipDate <= route.shipDate) result.dueUnitLoads += item.unitLoads;
+        }
+    }
+    for (const PlannedTruck& truck : run.selectionPlan.trucks) {
+        if (!onLargeLane(run, run.laneClassification.routes[truck.routeIndex]) || truck.shipDate != "2026-08-08") continue;
+        for (const size_t index : truck.items) result.shippedUnitLoads += run.selectionItems.items[index].unitLoads;
+    }
+    return result;
+}
+
+TEST_CASE("RD-04/realData RD-13 Aug5 8 Aug of 2028 -> 2574: M4 plans it with its 20 reservations, and the lane reconciles item by item across both dates" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
     const PipelineResult& run = withM5(1);
+    const EighthAugust eighth = eighthAugustOf(run);
+    const EighthAugust baseline = eighthAugustOf(aug5WithoutM5());
+    // M4 as it was (the shipped params without "m5"): the baseline of 7cef94e and f9d9945.
+    CHECK(baseline.routes > 0);
+    CHECK(baseline.everyRouteReserves20);
+    CHECK(baseline.built == 20);
+    CHECK(baseline.offeredUnitLoads == doctest::Approx(763.0));
+    CHECK(baseline.shippedUnitLoads == doctest::Approx(678.0));
+    // With M5 on: still planned by M4 with 20 reservations; carry and can-go change what it is offered.
+    CHECK(eighth.routes == baseline.routes);
+    CHECK(eighth.everyRouteReserves20);
+    CHECK(eighth.allPlannedByM4);
+    CHECK(eighth.built == 20);
+    CHECK(eighth.shippedUnitLoads <= eighth.offeredUnitLoads);
+    MESSAGE("RD-04 8 Aug of 2028 -> 2574, M5 off: built " << baseline.built << ", " << baseline.shippedUnitLoads << " of " << baseline.offeredUnitLoads
+                                                          << " offered; M5 on: built " << eighth.built << ", " << eighth.shippedUnitLoads << " of "
+                                                          << eighth.offeredUnitLoads << " offered");
     for (const LaneRoute& route : run.laneClassification.routes) {
         if (onLargeLane(run, route) && route.shipDate == "2026-08-08") CHECK(route.method != SolveMethod::M5);
     }
     CHECK(run.selectionViolations.empty());
-    // Every item of the lane that reached either date ends exactly once, on a truck or left over.
+    // Every item of the lane that reached either date ends exactly once, on a truck or left over, and
+    // the unit loads shipped plus left over equal the unit loads of those items.
     vector<int> ends(run.selectionItems.items.size(), 0);
+    double shipped = 0.0, leftOver = 0.0, laneUnitLoads = 0.0;
     for (const PlannedTruck& truck : run.selectionPlan.trucks) {
         for (const size_t index : truck.items) ++ends[index];
     }
     for (const LeftOverItem& left : run.selectionPlan.leftOver) ++ends[left.itemIndex];
+    set<size_t> laneItems;
     for (const LaneRoute& route : run.laneClassification.routes) {
         if (!onLargeLane(run, route)) continue;
-        for (const size_t index : route.itemIndices) CHECK(ends[index] == 1);
+        for (const size_t index : route.itemIndices) laneItems.insert(index);
     }
+    for (const size_t index : laneItems) {
+        CHECK(ends[index] == 1);
+        laneUnitLoads += run.selectionItems.items[index].unitLoads;
+    }
+    for (const PlannedTruck& truck : run.selectionPlan.trucks) {
+        if (!onLargeLane(run, run.laneClassification.routes[truck.routeIndex])) continue;
+        for (const size_t index : truck.items) shipped += run.selectionItems.items[index].unitLoads;
+    }
+    for (const LeftOverItem& left : run.selectionPlan.leftOver) {
+        if (laneItems.count(left.itemIndex)) leftOver += run.selectionItems.items[left.itemIndex].unitLoads;
+    }
+    CHECK(laneItems.size() > 0);
+    CHECK(shipped + leftOver == doctest::Approx(laneUnitLoads));
 }
 
 TEST_CASE("RD-11/reconciliation reservations reconcile: reserved = built + unused, M5's lane within its 21" * doctest::skip()) {
