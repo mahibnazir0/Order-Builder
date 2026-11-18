@@ -148,7 +148,7 @@ TEST_CASE("U-PB-04 patterns come from M4's floorPattern: wide-wide and pinwheel 
     CHECK(checkTruck(square, all8, kDefaultTrailer, physicalSettings()).fits);
 }
 
-TEST_CASE("U-PB-05 X-PAT-06 footprints: TLD and GMA use the layer, PTL and PGM the larger per side" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-06/synthetic: PTL layers 49 x 39 and 47 x 41 stand 49 x 40 and 48 x 41, TLD keeps the layer; one product id is not one pattern" * doctest::test_suite("m5")) {
     ob::ProductRecord product;
     product.layerLengthIn = 49.0;
     product.layerWidthIn = 39.0;
@@ -164,9 +164,21 @@ TEST_CASE("U-PB-05 X-PAT-06 footprints: TLD and GMA use the layer, PTL and PGM t
     const ob::UnitLoadFootprint onTld = ob::unitLoadFootprint(product, tld, ob::FootprintRule::WrittenRule);
     CHECK(onTld.longSideIn == 47.0);
     CHECK(onTld.shortSideIn == 41.0);
+    product.layerLengthIn = 49.0;
+    product.layerWidthIn = 39.0;
+    const ob::UnitLoadFootprint firstOnTld = ob::unitLoadFootprint(product, tld, ob::FootprintRule::WrittenRule);
+    CHECK(firstOnTld.longSideIn == 49.0);
+    CHECK(firstOnTld.shortSideIn == 39.0);
+    // The same product id on two footprints: a saved pattern is keyed by the physical class, never the id.
+    const Atom first = unitOf("first", "A", 49, 40, 50, 500), second = unitOf("second", "A", 48, 41, 50, 500);
+    REQUIRE(first.components[0].product == second.components[0].product);
+    CHECK(physicalClassOf(laneWith({first, second}, 1)) == vector<size_t>{0, 1});
+    CHECK(classSignatureOf(first) != classSignatureOf(second));
+    CHECK(classSignatureOf(first) == classSignatureOf(unitOf("twin", "B", 49, 40, 50, 500)));
+    m5Evidence::note("expected", {"PTL 49 x 40 and 48 x 41", "TLD 47 x 41 and 49 x 39", "same product id, two footprints: two classes"});
 }
 
-TEST_CASE("U-PB-06 X-PAT-07 the deck counts once per pallet: two PTL of 51 in exceed 108, two TLD do not" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-07/synthetic: content 51 in per unit load: two TLD stand 102 in and fit 108; two PTL with their own 6 in decks stand 114 and do not" * doctest::test_suite("m5")) {
     ob::ProductRecord product;
     product.height_in = 51.0;
     product.layers_unit_load = 1;
@@ -179,21 +191,50 @@ TEST_CASE("U-PB-06 X-PAT-07 the deck counts once per pallet: two PTL of 51 in ex
     const M5LaneDateInput input = laneWith({unitOf("tld", "A", 48, 40, 102, 500), unitOf("ptl", "A", 48, 40, 114, 500)}, 1);
     CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
     CHECK_FALSE(checkTruck(input, {1}, kDefaultTrailer, physicalSettings()).fits);
+    m5Evidence::note("expected", {"2 x 51 TLD = 102 in fits 108", "2 x (51 + 6) PTL = 114 in does not"});
 }
 
-TEST_CASE("U-PB-07 X-PAT-15 M5 never stacks: every atom takes its own floor position" * doctest::test_suite("m5")) {
-    vector<Atom> layers;
-    for (int unit = 0; unit < 9; ++unit) layers.push_back(unitOf("x" + to_string(100 + unit), "A", 48, 40, 36, 300));
-    layers.push_back(stackOfLevels("three", 48, 40, 36, 3, 300));
-    layers.push_back(stackOfLevels("two", 48, 40, 36, 2, 300));
-    const M5LaneDateInput input = laneWith(layers, 1);
+TEST_CASE("X-PAT-15/synthetic: 36 in layers in 108 in: only the stackable product stands three high; copies and remainders keep their levels" * doctest::test_suite("m5")) {
+    // M2 builds the stacks from each product's flags; M5 receives them as rigid atoms and never re-stacks.
+    // Stackable S: 6 layers as two stacks of 3. Not stackable N: 6 singles. Two-high T: 5 layers as 2 + 2 + 1.
+    // A 315 x 100 in footprint puts two atoms on a truck, so the 11 atoms need 6 trucks; 4 slots leave 3.
+    const auto layersOf = [](const string& id, const string& product, int levels) {
+        Atom atom = stackOfLevels(id, 315, 100, 36, levels, 300);
+        atom.components[0].product = product;
+        return atom;
+    };
+    vector<Atom> atoms{layersOf("s1", "S", 3), layersOf("s2", "S", 3)};
+    for (int unit = 0; unit < 6; ++unit) atoms.push_back(layersOf("n" + to_string(unit), "N", 1));
+    for (const int levels : {2, 2, 1}) atoms.push_back(layersOf("t" + to_string(atoms.size()), "T", levels));
+    const map<string, int> maxLevelsOf{{"S", 3}, {"N", 1}, {"T", 2}};
+    const M5LaneDateInput input = laneWith(atoms, 4);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    CHECK(outcome.finalValidationPassed);
     REQUIRE(outcome.selected);
-    const TruckPlan& truck = outcome.selected->trucks.front();
-    CHECK(truck.atoms.size() == 11);
-    CHECK(truck.layout.positions == 11);
-    CHECK(input.atoms[9].floor.levels == 3);
-    CHECK(input.atoms[10].floor.levels == 2);
+    CHECK(outcome.selected->trucks.size() == 4);
+    CHECK(shippedCount(outcome) == 8);
+    CHECK(outcome.leftOver.size() == 3);
+    map<string, double> layersSeen;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.layout.positions == static_cast<int>(truck.atoms.size()));
+        for (const size_t atom : truck.atoms) {
+            const Atom& placed = input.atoms[atom];
+            CHECK(placed.floor.levels <= maxLevelsOf.at(placed.components[0].product));
+            CHECK(placed.floor.heightIn == doctest::Approx(36.0 * placed.floor.levels));
+            CHECK(placed.floor.heightIn <= 108.0);
+            layersSeen[placed.components[0].product] += placed.unitLoads;
+        }
+    }
+    for (const LeftOver& left : outcome.leftOver) {
+        const Atom& remainder = input.atoms[left.atom];
+        CHECK(left.cause == LeftOverCause::OverReservation);
+        CHECK(remainder.floor.levels <= maxLevelsOf.at(remainder.components[0].product));
+        layersSeen[remainder.components[0].product] += remainder.unitLoads;
+    }
+    CHECK(layersSeen == map<string, double>{{"N", 6.0}, {"S", 6.0}, {"T", 5.0}});
+    const auto threeHigh = count_if(input.atoms.begin(), input.atoms.end(), [](const Atom& atom) { return atom.floor.levels == 3; });
+    CHECK(threeHigh == 2);
+    m5Evidence::note("expected", {"only S stands 3 high (108 in)", "N single, T at most 2 high", "8 ship on 4 trucks, 3 left, layers 6/6/5 conserved"});
 }
 
 TEST_CASE("U-PB-08 EC-05 a weight-bound product's pattern stops at the payload, not the floor" * doctest::test_suite("m5")) {
@@ -203,7 +244,7 @@ TEST_CASE("U-PB-08 EC-05 a weight-bound product's pattern stops at the payload, 
     CHECK(bestSingleClassLoad(light, 0, kDefaultTrailer, physicalSettings(), 100) == 30);
 }
 
-TEST_CASE("X-PAT-08 a pattern is rechecked on a smaller trailer, not copied" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-08/synthetic: a 625 in and a 42,000 lb pattern are refused on a 600 in, 40,000 lb trailer; a 590 in, 30,000 lb one still fits" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith({unitOf("long", "A", 625, 100, 108, 1000), unitOf("heavy", "A", 600, 100, 108, 42000),
                                             unitOf("fine", "A", 590, 100, 108, 30000)},
                                            1);
@@ -213,9 +254,18 @@ TEST_CASE("X-PAT-08 a pattern is rechecked on a smaller trailer, not copied" * d
     CHECK(checkTruck(input, {1}, kDefaultTrailer, physicalSettings()).fits);
     CHECK_FALSE(checkTruck(input, {1}, shortTrailer, physicalSettings()).fits);
     CHECK(checkTruck(input, {2}, shortTrailer, physicalSettings()).fits);
+    // A pattern saved for the long trailer is keyed by the trailer's capability, so it is not reused as is.
+    CHECK(kDefaultTrailer.signature() != shortTrailer.signature());
+    // Planned on the short trailer: the two that no longer fit are left as unfittable, the fitting one ships.
+    const M5LaneDateInput onShort = laneWith(input.atoms, 3, shortTrailer);
+    const M5LaneOutcome outcome = plan(onShort, syntheticProfile());
+    CHECK(shippedIds(outcome, onShort) == set<string>{"fine"});
+    CHECK(causeOf(outcome, onShort, "long") == LeftOverCause::Unfittable);
+    CHECK(causeOf(outcome, onShort, "heavy") == LeftOverCause::Unfittable);
+    m5Evidence::note("expected", {"625 in and 42,000 lb refused on 600 in / 40,000 lb", "590 in / 30,000 lb ships"});
 }
 
-TEST_CASE("X-PAT-09 X-DATA-06 a heavier master revision changes the pattern: 30 at 1,500 lb, 28 at 1,600" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-09/synthetic: master V2 of the same id, heavier or taller, never ships a V1-only load (also X-DATA-06)" * doctest::test_suite("m5")) {
     const M5LaneDateInput versionOne = laneWith({fx30("v1")}, 1);
     Atom heavier = fx30("v2");
     heavier.weightLb = 1600.0;
@@ -229,9 +279,30 @@ TEST_CASE("X-PAT-09 X-DATA-06 a heavier master revision changes the pattern: 30 
     const M5LaneOutcome heavierOutcome = plan(laneWith(heavierUnits, 1), syntheticProfile());
     CHECK(shippedCount(outcome) == 30);
     CHECK(shippedCount(heavierOutcome) == 28);
+    CHECK(classSignatureOf(fx30("v1")) != classSignatureOf(heavier));
+    // V2 taller than the ceiling, same id: the V1 load of one unit no longer ships.
+    Atom taller = fx30("v1");
+    taller.floor.heightIn = 108.01;
+    CHECK(classSignatureOf(fx30("v1")) != classSignatureOf(taller));
+    const M5LaneDateInput tallerLane = laneWith({taller}, 1);
+    const M5LaneOutcome tallerOutcome = plan(tallerLane, syntheticProfile());
+    CHECK(shippedCount(tallerOutcome) == 0);
+    CHECK(causeOf(tallerOutcome, tallerLane, "v1") == LeftOverCause::Unfittable);
+    m5Evidence::note("expected", {"V1 1,500 lb: 30 per truck", "V2 1,600 lb: 28", "V2 108.01 in: not shipped"});
 }
 
-TEST_CASE("X-PAT-02 a mixed pattern's copies are limited by every product it uses" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-02/synthetic: a pattern of 2 A + 1 B on stock A = 5, B = 4 makes 2 copies, uses A 4 and B 2, leaves A 1 and B 2" * doctest::test_suite("m5")) {
+    const vector<long long> stock{5, 4}, perCopy{2, 1};
+    const long long copies = mixedPatternCopies(stock, perCopy, 10);
+    CHECK(copies == 2);
+    vector<long long> used, left;
+    for (size_t product = 0; product < stock.size(); ++product) {
+        used.push_back(copies * perCopy[product]);
+        left.push_back(stock[product] - used.back());
+    }
+    CHECK(used == vector<long long>{4, 2});
+    CHECK(left == vector<long long>{1, 2});
+    m5Evidence::note("expected", {"2 copies", "uses A 4, B 2", "left A 1, B 2"});
     CHECK(mixedPatternCopies({5, 4}, {2, 1}, 10) == 2);
     CHECK(mixedPatternCopies({5, 4}, {2, 1}, 1) == 1);
     CHECK(mixedPatternCopies({5, 0}, {2, 1}, 10) == 0);
@@ -239,7 +310,7 @@ TEST_CASE("X-PAT-02 a mixed pattern's copies are limited by every product it use
     CHECK_THROWS_AS(mixedPatternCopies({5}, {2, 1}, 10), invalid_argument);
 }
 
-TEST_CASE("X-PAT-05 copies draw only eligible goods and keep each line's own dates" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-05/synthetic: 30 eligible and 70 due 11 days later, pull limit 10, pattern 10: 3 copies, each keeping its lines, dates and priority" * doctest::test_suite("m5")) {
     vector<Atom> atoms;
     for (int unit = 0; unit < 30; ++unit) atoms.push_back(unitOf("now" + to_string(100 + unit), "A", 100, 63, 108, 4500));
     for (int unit = 0; unit < 70; ++unit) atoms.push_back(unitOf("late" + to_string(100 + unit), "A", 100, 63, 108, 4500, 0, dayAfter(11)));
@@ -249,11 +320,24 @@ TEST_CASE("X-PAT-05 copies draw only eligible goods and keep each line's own dat
     CHECK(outcome.selected->trucks.size() == 3);
     for (const TruckPlan& truck : outcome.selected->trucks) {
         CHECK(truck.atoms.size() == 10);
-        for (const size_t atom : truck.atoms) CHECK(input.atoms[atom].components[0].dueDate == kD);
+        for (const size_t atom : truck.atoms) {
+            const Component& line = input.atoms[atom].components[0];
+            CHECK(line.dueDate == kD);
+            CHECK(line.availableDate == kD);
+            CHECK(line.priority == 0);
+            CHECK(line.source == "line-" + input.atoms[atom].id);
+            CHECK(input.atoms[atom].id.rfind("now", 0) == 0);
+        }
     }
+    CHECK(outcome.leftOver.size() == 70);
+    for (const LeftOver& left : outcome.leftOver) {
+        CHECK(left.cause == LeftOverCause::NotEligible);
+        CHECK(input.atoms[left.atom].components[0].dueDate == dayAfter(11));
+    }
+    m5Evidence::note("expected", {"3 copies of 10, all due D, priority 0, own source lines", "70 due D+11 left not eligible"});
 }
 
-TEST_CASE("X-PAT-10 X-STATE-06 repairing one copy leaves the others; removed goods return once" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-10/synthetic: one pattern on 3 trucks, the middle one repaired: the others unchanged, the removed good back once (also X-STATE-06)" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
     CandidatePlan candidate = *plan(input, syntheticProfile()).selected;
@@ -267,6 +351,13 @@ TEST_CASE("X-PAT-10 X-STATE-06 repairing one copy leaves the others; removed goo
     for (const TruckPlan& truck : candidate.trucks) {
         for (const size_t atom : truck.atoms) CHECK(seen.insert(atom).second);
     }
+    CHECK(before[0].atoms.size() == 30);
+    CHECK(before[2].atoms.size() == 30);
+    CHECK(candidate.trucks[1].atoms.size() == 29);
+    CHECK(count_if(candidate.leftOver.begin(), candidate.leftOver.end(), [&](const LeftOver& left) { return left.atom == removed; }) == 1);
+    CHECK(seen.count(removed) == 0);
+    CHECK(seen.size() + candidate.leftOver.size() == input.atoms.size());
+    m5Evidence::note("expected", {"trucks 1 and 3 unchanged (30 each)", "middle 29", "removed unit left exactly once", "ledger balanced"});
 }
 
 TEST_CASE("U-PB-11 R-1c a changed truck loses its proof and its validation" * doctest::test_suite("m5")) {
@@ -807,6 +898,42 @@ TEST_CASE("X-PAT-13/twoAcross100: two fixed 50.00 in widths make a 100.00 in row
     for (const ob::FloorRow& row : apart.layout.rows) CHECK(hundredthsRoundedUp(row.widthIn) <= kWidth);
     CHECK(m5LayoutChecker::witnessProblems(apart.layout, floorsOf(wider), 630, 100, 108, fixed.floor).empty());
     m5Evidence::note("expected", {{"rowWidthHundredths", {10000, 10001}}, {"floorFitsAfterStep", true}});
+}
+
+TEST_CASE("X-PAT-13/synthetic: length, width, height, stacked height and weight at the limit and 0.01 under fit; 0.01 over does not" * doctest::test_suite("m5")) {
+    // Default trailer 630 x 100 x 108 in, 45,000 lb; every other measure of each unit is feasible.
+    struct Probe {
+        string name;
+        Atom atom;
+        bool fits;
+    };
+    const vector<Probe> probes{
+        {"length at", unitOf("la", "A", 630.00, 50, 50, 500), true},
+        {"length under", unitOf("lu", "A", 629.99, 50, 50, 500), true},
+        {"length over", unitOf("lo", "A", 630.01, 50, 50, 500), false},
+        {"length over by 0.001", unitOf("lm", "A", 630.001, 50, 50, 500), false},
+        {"width at", unitOf("wa", "A", 630.00, 100.00, 50, 500), true},
+        {"width under", unitOf("wu", "A", 630.00, 99.99, 50, 500), true},
+        {"width over", unitOf("wo", "A", 630.00, 100.01, 50, 500), false},
+        {"height at", unitOf("ha", "A", 48, 40, 108.00, 500), true},
+        {"height under", unitOf("hu", "A", 48, 40, 107.99, 500), true},
+        {"height over", unitOf("ho", "A", 48, 40, 108.01, 500), false},
+        {"stacked at", stackOfLevels("sa", 48, 40, 54.00, 2, 500), true},
+        {"stacked under", stackOfLevels("su", 48, 40, 53.995, 2, 500), true},
+        {"stacked over", stackOfLevels("so", 48, 40, 54.005, 2, 500), false},
+        {"weight at", unitOf("ga", "A", 48, 40, 50, 45000.00), true},
+        {"weight under", unitOf("gu", "A", 48, 40, 50, 44999.99), true},
+        {"weight over", unitOf("go", "A", 48, 40, 50, 45000.01), false},
+    };
+    for (const Probe& probe : probes) {
+        INFO(probe.name);
+        const M5LaneDateInput input = laneWith({probe.atom}, 1);
+        CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits == probe.fits);
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        CHECK(shippedCount(outcome) == (probe.fits ? 1u : 0u));
+        if (!probe.fits) CHECK(causeOf(outcome, input, probe.atom.id) == LeftOverCause::Unfittable);
+    }
+    m5Evidence::note("expected", {"at and 0.01 under: fit and ship", "0.01 over (and 630.001): unfittable", "length, width, height, stacked height, weight"});
 }
 
 TEST_CASE("X-PAT-13/microLengthBoundary: 630.00 in fits the 630 in floor exactly; 630.01 in does not, whatever the rounding" * doctest::test_suite("m5")) {

@@ -1,11 +1,15 @@
 #include "doctest.h"
+#include "m5Ledger.hpp"
 #include "m5Report.hpp"
+#include "m5Solver.hpp"
+#include "m5Validation.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5StubMethods.hpp"
 
 #include <algorithm>
 #include <memory>
+#include <set>
 
 using namespace std;
 using namespace ob::m5;
@@ -38,6 +42,31 @@ TEST_CASE("X-RUN-02 X-CG-12 time out before any result: no result, every good ke
     CHECK(outcome.stop == StopReason::BudgetExhausted);
     CHECK_FALSE(outcome.hasCandidate);
     CHECK(countCause(outcome, LeftOverCause::NoResult) == 40);
+}
+
+TEST_CASE("X-CG-12/synthetic: stopped before any result: no result found, every good kept; not a zero-truck success, not impossible" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 40), 2);
+    FakeClock clock;
+    const M5LaneOutcome outcome =
+        planWith(input, syntheticProfile(), clock, 10.0, {}, [&](MethodId) { clock.advance(11.0); });
+    CHECK(outcome.kind == OutcomeKind::TimeoutNoIncumbent);
+    CHECK(outcome.kind != OutcomeKind::CompletedNoEligibleInput);
+    CHECK_FALSE(outcome.hasCandidate);
+    CHECK(outcome.proof != ProofStatus::ProvenInfeasible);
+    CHECK(outcome.leftOver.size() == 40);
+    CHECK(countCause(outcome, LeftOverCause::NoResult) == 40);
+    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 0);
+    // The scalar solver stopped at once: no packing, Budget, nothing called impossible or proven.
+    ScalarModel model;
+    model.sizes = {6, 5, 3, 2, 2, 2};
+    model.capacity = 10;
+    const ScalarResult scalar = solveCuttingStock(model, ScalarLimits(), [] { return true; });
+    CHECK_FALSE(scalar.packing.has_value());
+    CHECK(scalar.impossible.empty());
+    CHECK(scalar.evidence.termination == Termination::Budget);
+    CHECK(scalar.evidence.proof != ProofStatus::ProvenOptimal);
+    CHECK(scalar.evidence.proof != ProofStatus::ProvenInfeasible);
+    m5Evidence::note("expected", {"TimeoutNoIncumbent, 40 left NoResult", "scalar: no packing, Budget, not proven"});
 }
 
 TEST_CASE("X-RUN-04 the careful method gets only what the quick one left" * doctest::test_suite("m5")) {
@@ -181,6 +210,121 @@ TEST_CASE("Q6 equality stops the count phase: B is skipped with its reason" * do
     CHECK(outcome.escalation.quickTrucks == 2);
     CHECK(outcome.escalation.bound == 2);
     CHECK(outcome.proof == ProofStatus::ProvenOptimal);
+}
+
+namespace {
+
+// X-CG-20: five FX-BLOCK atoms on two slots, atoms 0..2 P11 and 3..4 P0, all due and available D.
+M5LaneDateInput xcg20Lane() {
+    return laneWith({fxBlock("p11-a", "A", 11), fxBlock("p11-b", "A", 11), fxBlock("p11-c", "A", 11), fxBlock("p0-a", "A", 0),
+                     fxBlock("p0-b", "A", 0)},
+                    2);
+}
+
+// The injected quick candidate: the two P11 atoms 0 and 1, one per truck, supplied as exact for its own subset.
+shared_ptr<const MethodPlanner> xcg20Quick() {
+    auto quick = make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, GroupTrucks{{0}, {1}});
+    quick->markExact();
+    return quick;
+}
+
+// Oracle: every two-of-five choice, scored by shipped count per priority class (P0 first); the best set.
+set<size_t> bestTwoOfFive(const M5LaneDateInput& input) {
+    set<size_t> best;
+    pair<int, int> bestScore{-1, -1};
+    for (size_t first = 0; first < input.atoms.size(); ++first) {
+        for (size_t second = first + 1; second < input.atoms.size(); ++second) {
+            int p0 = 0, p11 = 0;
+            for (const size_t atom : {first, second}) (input.atoms[atom].components[0].priority == 0 ? p0 : p11) += 1;
+            if (make_pair(p0, p11) > bestScore) {
+                bestScore = {p0, p11};
+                best = {first, second};
+            }
+        }
+    }
+    return best;
+}
+
+set<size_t> shippedAtoms(const M5LaneOutcome& outcome) {
+    set<size_t> shipped;
+    if (outcome.selected) {
+        for (const TruckPlan& truck : outcome.selected->trucks) shipped.insert(truck.atoms.begin(), truck.atoms.end());
+    }
+    return shipped;
+}
+
+}  // namespace
+
+TEST_CASE("X-CG-20/subsetBound: a quick plan of two P11 blocks with its subset bound 2 does not stop the search; both P0 blocks ship, three P11 stay" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = xcg20Lane();
+    FakeClock clock;
+    const M5LaneOutcome outcome = planWith(input, syntheticProfile(), clock, 1000.0, {xcg20Quick(), make_shared<BlockPlanner>()}, {});
+    REQUIRE(outcome.selected);
+    CHECK(bestTwoOfFive(input) == set<size_t>{3, 4});
+    CHECK(shippedAtoms(outcome) == set<size_t>{3, 4});
+    CHECK(outcome.selected->trucks.size() == 2);
+    CHECK(outcome.leftOver.size() == 3);
+    for (const LeftOver& left : outcome.leftOver) CHECK(input.atoms[left.atom].components[0].priority == 11);
+    CHECK(outcome.offeredService == ServiceLevel::Partial);
+    CHECK(outcome.proof != ProofStatus::ProvenOptimal);
+    CHECK(outcome.selected->evidence.proof != ProofStatus::ProvenOptimal);
+    CHECK(outcome.finalValidationPassed);
+    m5Evidence::note("expected", {"ships p0-a and p0-b", "p11-a, p11-b, p11-c left", "partial service, not proven optimal"});
+}
+
+TEST_CASE("X-CG-20/wrongAllGoodsBound: F = 2 against the all-goods bound 5 is not clipped into a zero gap or a certificate" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = xcg20Lane();
+    FakeClock clock;
+    const M5LaneOutcome outcome = planWith(input, syntheticProfile(), clock, 1000.0, {xcg20Quick(), make_shared<BlockPlanner>()}, {});
+    REQUIRE(outcome.selected);
+    // All five whole-truck blocks need five trucks: the all-required bound is 5, analytically one per truck.
+    CHECK(trucksAtLeast(input, {0, 1, 2, 3, 4}, kDefaultTrailer) == 5);
+    CHECK(gapText(2, 5).find("0 trucks") == string::npos);
+    CHECK(gapText(2, 5).rfind("-3 trucks", 0) == 0);
+    const SolverEvidence& evidence = outcome.selected->evidence;
+    if (evidence.lowerBound) CHECK(*evidence.lowerBound <= 2);
+    CHECK(evidence.proof != ProofStatus::ProvenOptimal);
+    // The count metric does not compare against a partial objective: no "0 trucks" gap is reported.
+    CHECK(outcome.escalation.gap.find("0 trucks") == string::npos);
+    CandidatePlan claimed = *outcome.selected;
+    claimed.evidence.lowerBound = 5;
+    claimed.evidence.proof = ProofStatus::ProvenOptimal;
+    const ValidationReport report = validateFinal(claimed, *buildSnapshot(input).snapshot, syntheticProfile(), physicalSettings());
+    CHECK(report.metadata == SectionStatus::Fail);
+    m5Evidence::note("expected", {"all-goods bound 5", "gap on F = 2 never 0", "a proof claimed on bound 5 fails metadata"});
+}
+
+TEST_CASE("X-CG-20/timedIncumbent: time out after the quick plan: its two P11 blocks are kept Unproven and do not pass as the expected selection" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = xcg20Lane();
+    FakeClock clock;
+    const M5LaneOutcome outcome = planWith(input, syntheticProfile(), clock, 100.0, {xcg20Quick(), make_shared<BlockPlanner>()},
+                                           [&](MethodId method) { clock.advance(method == MethodId::PatternRepeat ? 101.0 : 0.0); });
+    CHECK(outcome.stop == StopReason::BudgetExhausted);
+    CHECK(outcome.kind == OutcomeKind::TimeoutWithIncumbent);
+    REQUIRE(outcome.selected);
+    CHECK(shippedAtoms(outcome) == set<size_t>{0, 1});
+    CHECK(shippedAtoms(outcome) != bestTwoOfFive(input));
+    CHECK(outcome.proof == ProofStatus::Unproven);
+    CHECK(outcome.selected->evidence.proof != ProofStatus::ProvenOptimal);
+    m5Evidence::note("expected", {"TimeoutWithIncumbent", "p11-a, p11-b shipped, Unproven", "not the expected P0 selection"});
+}
+
+TEST_CASE("X-CG-20/matchingCountControl: [6,6,4,4] on 10, quick 2 and same-model bound 2: count escalation is skipped, the proof scoped to that model" * doctest::test_suite("m5")) {
+    ScalarModel model;
+    model.sizes = {6, 6, 4, 4};
+    model.capacity = 10;
+    CHECK(scalarLowerBound(model) == 2);
+    CHECK_FALSE(shouldEscalate(2, 2, 1, true));
+    const ScalarResult result = solveCuttingStock(model, ScalarLimits());
+    REQUIRE(result.packing.has_value());
+    CHECK(result.packing->bins.size() == 2);
+    CHECK(result.evidence.incumbent == 2);
+    CHECK(result.evidence.lowerBound == 2);
+    CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+    CHECK(result.evidence.proofModel == result.evidence.boundModel);
+    CHECK_FALSE(result.evidence.proofModel.empty());
+    CHECK(result.evidence.layoutScope.find("floor") == string::npos);
+    m5Evidence::note("expected", {"2 bins, bound 2, ProvenOptimal for the scalar count model only", "no escalation (F = B)"});
 }
 
 TEST_CASE("X-CG-20 a count bound on shipped goods is not a service proof" * doctest::test_suite("m5")) {

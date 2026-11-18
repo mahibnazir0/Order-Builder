@@ -6,6 +6,7 @@
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
 #include "m5Report.hpp"
+#include "m5Solver.hpp"
 #include "m5Validation.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
@@ -164,27 +165,149 @@ TEST_CASE("U-PB-03/synthetic: less than one truck of goods forms no pattern; all
     m5Evidence::note("expected", {"pattern 30 > stock 20: 0 copies", "all 20 packed as remainder on 1 truck"});
 }
 
-TEST_CASE("X-PAT-01 X-PAT-03 X-PAT-04 pattern copies by stock and slots, checked" * doctest::test_suite("m5")) {
-    const vector<pair<long long, long long>> stockAndCopies{{0, 0}, {4, 0}, {5, 1}, {15, 3}, {17, 3}};
-    for (const auto& [stock, copies] : stockAndCopies) CHECK(patternCopies(stock, 5, 10) == copies);
-    CHECK(patternCopies(17, 5, 2) == 2);
-    CHECK(patternCopies(17, 0, 10) == 0);
-    CHECK(patternCopies(1LL << 31, 64, 1LL << 40) == 33'554'432);
-    CHECK_THROWS_AS(patternCopies(numeric_limits<long long>::max(), 64, 1), out_of_range);
-    CHECK_THROWS_AS(patternCopies(-1, 5, 1), invalid_argument);
+TEST_CASE("X-PAT-01/synthetic: a pattern of 5 on goods 0, 4, 5, 15, 17 makes 0, 0, 1, 3, 3 copies and leaves 0, 4, 0, 0, 2; no extra truck at exact multiples" * doctest::test_suite("m5")) {
+    const vector<long long> goods{0, 4, 5, 15, 17}, expectedCopies{0, 0, 1, 3, 3}, expectedLeft{0, 4, 0, 0, 2};
+    // A 126 x 100 in unit stands 5 deep in 630 in: the pattern holds 5. Ten slots never limit.
+    const vector<size_t> expectedTrucks{0, 1, 1, 3, 4};
+    for (size_t index = 0; index < goods.size(); ++index) {
+        INFO("goods " << goods[index]);
+        const long long copies = patternCopies(goods[index], 5, 10);
+        CHECK(copies == expectedCopies[index]);
+        CHECK(goods[index] - copies * 5 == expectedLeft[index]);
+        vector<Atom> units;
+        for (long long unit = 0; unit < goods[index]; ++unit) units.push_back(unitOf("u" + to_string(100 + unit), "A", 126, 100, 100, 1000));
+        const M5LaneDateInput input = laneWith(units, 10);
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        CHECK(shippedCount(outcome) == static_cast<size_t>(goods[index]));
+        const size_t trucks = outcome.selected ? outcome.selected->trucks.size() : 0;
+        CHECK(trucks == expectedTrucks[index]);
+        if (!outcome.selected) continue;
+        requireInvariants(outcome, input);
+        size_t fullCopies = 0;
+        for (const TruckPlan& truck : outcome.selected->trucks) fullCopies += truck.atoms.size() == 5 ? 1 : 0;
+        CHECK(static_cast<long long>(fullCopies) == expectedCopies[index]);
+    }
+    m5Evidence::note("expected", {"copies 0, 0, 1, 3, 3", "left over 0, 4, 0, 0, 2", "trucks 0, 1, 1, 3, 4 (15 makes exactly 3)"});
 }
 
-TEST_CASE("X-PAT-11 cube never stands in for a floor: one of two 60 x 60 in a 100 x 100" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-03/synthetic: an empty pattern, an all-zero pattern and a pattern needing a product with no stock make zero copies and use nothing" * doctest::test_suite("m5")) {
+    CHECK(patternCopies(17, 0, 10) == 0);
+    CHECK(patternCopies(0, 5, 10) == 0);
+    CHECK(patternCopies(17, 5, 0) == 0);
+    CHECK(mixedPatternCopies({}, {}, 10) == 0);
+    CHECK(mixedPatternCopies({5, 4}, {0, 0}, 10) == 0);
+    const vector<long long> stock{5, 0}, perCopy{2, 1};
+    const long long copies = mixedPatternCopies(stock, perCopy, 10);
+    CHECK(copies == 0);
+    for (size_t product = 0; product < stock.size(); ++product) CHECK(stock[product] - copies * perCopy[product] == stock[product]);
+    CHECK_THROWS_AS(patternCopies(-1, 5, 1), invalid_argument);
+    CHECK_THROWS_AS(mixedPatternCopies({5}, {2, 1}, 10), invalid_argument);
+    m5Evidence::note("expected", {"empty, all-zero, no-stock: 0 copies", "stock untouched", "negative stock and mismatched pattern refused"});
+}
+
+TEST_CASE("X-PAT-04/synthetic: 2^31 units on a pattern of 64 make 33,554,432 copies; past the range is refused, never wrapped" * doctest::test_suite("m5")) {
+    const long long units = 1LL << 31;
+    const long long copies = patternCopies(units, 64, 1LL << 40);
+    CHECK(copies == 33'554'432);
+    CHECK(copies * 64 == units);
+    CHECK(patternCopies(units, 64, 1000) == 1000);
+    CHECK_THROWS_AS(patternCopies(numeric_limits<long long>::max(), 64, 1), out_of_range);
+    m5Evidence::note("expected", {"33,554,432 copies", "LLONG_MAX: out_of_range"});
+}
+
+TEST_CASE("X-CG-10/synthetic: no goods gives zero bins; reservations with no eligible goods give zero trucks and use no reservation" * doctest::test_suite("m5")) {
+    ScalarModel empty;
+    empty.capacity = 10;
+    const ScalarResult none = solveCuttingStock(empty, ScalarLimits());
+    REQUIRE(none.packing.has_value());
+    CHECK(none.packing->bins.empty());
+    CHECK(none.impossible.empty());
+    CHECK(none.evidence.lowerBound == 0);
+    const M5LaneOutcome noGoods = plan(laneWith({}, 3), syntheticProfile());
+    CHECK(shippedCount(noGoods) == 0);
+    CHECK((!noGoods.selected || noGoods.selected->trucks.empty()));
+    // Ten units due five days after the departure, pull-forward off: none is eligible on 3 slots.
+    vector<Atom> later;
+    for (int unit = 0; unit < 10; ++unit) later.push_back(fx30("late" + to_string(100 + unit), "A", 0, dayAfter(5)));
+    const M5LaneDateInput input = laneWith(later, 3);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    CHECK(shippedCount(outcome) == 0);
+    CHECK((!outcome.selected || outcome.selected->trucks.empty()));
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 10);
+    CHECK(outcome.leftOver.size() == 10);
+    CHECK_FALSE(outcome.hasCandidate);
+    m5Evidence::note("expected", {"no goods: 0 bins, bound 0", "3 slots, 10 not eligible: 0 trucks, 10 left not eligible"});
+}
+
+TEST_CASE("X-CG-14/synthetic: a result of 2 with a claimed bound of 3, a bound from other goods, or no bound: refused or shown N/A, never a clipped zero gap" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 2);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->evidence.incumbent == 2);
+    CandidatePlan overBound = *outcome.selected;
+    overBound.evidence.lowerBound = 3;
+    overBound.evidence.proof = ProofStatus::Unproven;
+    const ValidationReport overReport = validateFinal(overBound, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(overReport.metadata == SectionStatus::Fail);
+    CHECK_FALSE(overReport.allPassed());
+    CHECK(gapText(2, 3).find("0 trucks") == string::npos);
+    CHECK(gapText(2, 3).rfind("-1 truck", 0) == 0);
+
+    CandidatePlan otherGoods = *outcome.selected;
+    otherGoods.evidence.lowerBound = 2;
+    otherGoods.evidence.proof = ProofStatus::ProvenOptimal;
+    otherGoods.evidence.boundModel = "count bound of a different goods set";
+    const ValidationReport otherReport = validateFinal(otherGoods, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(otherReport.metadata == SectionStatus::Fail);
+
+    M5LaneOutcome noBound = outcome;
+    noBound.selected->evidence.lowerBound.reset();
+    noBound.selected->evidence.proof = ProofStatus::Unproven;
+    const M5ReportData data = buildReportData(noBound, input, nullptr, {});
+    CHECK(data.countEvidence.find("bound N/A") != string::npos);
+    CHECK(gapText(2, nullopt) == "N/A (no valid bound)");
+    const ValidationReport noBoundReport = validateFinal(*noBound.selected, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(noBoundReport.metadata == SectionStatus::Pass);
+    m5Evidence::note("expected", {"bound 3 over result 2: metadata FAIL", "proof on another model's bound: FAIL", "no bound: N/A, not proven"});
+}
+
+TEST_CASE("X-PAT-11/synthetic: two 60 x 60 x 100 in loads in a 100 x 100 x 100 in trailer: one fits at 72 percent cube; cube never decides" * doctest::test_suite("m5")) {
     const TrailerCapability trailer{100.0, 100.0, 100.0, 45000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput input = laneWith({unitOf("a", "A", 60, 60, 100, 100), unitOf("b", "A", 60, 60, 100, 100)}, 1, trailer);
+    CHECK((2.0 * 60 * 60 * 100) / (100.0 * 100 * 100) == doctest::Approx(0.72));
     CHECK_FALSE(checkTruck(input, {0, 1}, trailer, physicalSettings()).fits);
     CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
+    const M5LaneOutcome one = plan(input, syntheticProfile());
+    requireInvariants(one, input);
+    CHECK(shippedCount(one) == 1);
+    CHECK(countCause(one, LeftOverCause::OverReservation) == 1);
+    const M5LaneDateInput twoSlots = laneWith(input.atoms, 2, trailer);
+    const M5LaneOutcome two = plan(twoSlots, syntheticProfile());
+    REQUIRE(two.selected);
+    CHECK(two.selected->trucks.size() == 2);
+    m5Evidence::note("expected", {"cube 72%", "one per truck: 1 slot ships 1 and leaves 1; 2 slots use 2 trucks"});
 }
 
-TEST_CASE("X-PAT-12 a load turned to fit a narrow trailer fits" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-12/synthetic: a 60 x 100 x 100 in load fits a 100 x 60 x 100 in trailer turned; every copy records the turn" * doctest::test_suite("m5")) {
     const TrailerCapability trailer{100.0, 60.0, 100.0, 45000.0, kFixtureUnitLoadCap};
-    const M5LaneDateInput input = laneWith({unitOf("a", "A", 100, 60, 100, 100)}, 1, trailer);
-    CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
+    const M5LaneDateInput single = laneWith({unitOf("a", "A", 100, 60, 100, 100)}, 1, trailer);
+    CHECK(checkTruck(single, {0}, trailer, physicalSettings()).fits);
+    const M5LaneDateInput input = laneWith({unitOf("a", "A", 100, 60, 100, 100), unitOf("b", "A", 100, 60, 100, 100),
+                                            unitOf("c", "A", 100, 60, 100, 100)},
+                                           3, trailer);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 3);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.layout.turnedItems == 1);
+        REQUIRE(truck.layout.rows.size() == 1);
+        REQUIRE(truck.layout.rows.front().placements.size() == 1);
+        CHECK(truck.layout.rows.front().placements.front().turned);
+        CHECK(checkStoredRows(input, truck.atoms, truck.layout, trailer, physicalSettings().floor).fits);
+    }
+    m5Evidence::note("expected", {"fits turned", "3 copies, each truck records 1 turned item in its stored row"});
 }
 
 TEST_CASE("X-PAT-13 limits are exact: at the limit fits, a step over does not" * doctest::test_suite("m5")) {
@@ -198,13 +321,40 @@ TEST_CASE("X-PAT-13 limits are exact: at the limit fits, a step over does not" *
     CHECK_FALSE(checkTruck(input, {3}, trailer, physicalSettings()).fits);
 }
 
-TEST_CASE("X-PAT-14 planning by floor never turns the weight limit off" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-14/synthetic: limits W = 10 and V = 10, two items of W 6 and V 1, then swapped: never on one truck either way" * doctest::test_suite("m5")) {
+    // Scalar two-limit model, acceptance off (x = y = 0: any nonempty bin passes).
+    for (const bool weightBinds : {true, false}) {
+        const string caseName = weightBinds ? "W 6, V 1" : "W 1, V 6";
+        INFO(caseName);
+        AcceptedModel model;
+        model.weight = weightBinds ? vector<double>{6, 6} : vector<double>{1, 1};
+        model.cube = weightBinds ? vector<double>{1, 1} : vector<double>{6, 6};
+        model.weightCapacity = 10;
+        model.cubeCapacity = 10;
+        model.bins = 2;
+        const AcceptedResult result = solveAccepted(model);
+        CHECK(result.allGoods == ProofStatus::ProvenOptimal);
+        REQUIRE(result.allGoodsPacking.has_value());
+        CHECK(result.allGoodsPacking->bins.size() == 2);
+        for (const auto& bin : result.allGoodsPacking->bins) CHECK(bin.size() == 1);
+    }
+    // On the floor: weight 6,000 lb each on a 10,000 lb trailer, then floor 330 in each on 630 in at 1 lb.
     const TrailerCapability trailer{630.0, 100.0, 108.0, 10000.0, kFixtureUnitLoadCap};
-    const M5LaneDateInput input = laneWith({unitOf("a", "A", 48, 40, 50, 6000), unitOf("b", "A", 48, 40, 50, 6000)}, 2, trailer);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    requireInvariants(outcome, input);
-    REQUIRE(outcome.selected);
-    CHECK(outcome.selected->trucks.size() == 2);
+    const vector<pair<string, vector<Atom>>> cases{
+        {"weight binds", {unitOf("a", "A", 48, 40, 50, 6000), unitOf("b", "A", 48, 40, 50, 6000)}},
+        {"floor binds", {unitOf("a", "A", 330, 100, 50, 1), unitOf("b", "A", 330, 100, 50, 1)}}};
+    for (const auto& [name, atoms] : cases) {
+        INFO(name);
+        const M5LaneDateInput input = laneWith(atoms, 2, trailer);
+        CHECK_FALSE(checkTruck(input, {0, 1}, trailer, physicalSettings()).fits);
+        CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(outcome.selected->trucks.size() == 2);
+        for (const TruckPlan& truck : outcome.selected->trucks) CHECK(truck.atoms.size() == 1);
+    }
+    m5Evidence::note("expected", {"scalar W/V both ways: 2 bins of 1", "weight-bound and floor-bound lanes: 2 trucks of 1"});
 }
 
 namespace {

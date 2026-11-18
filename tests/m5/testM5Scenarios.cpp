@@ -1748,7 +1748,27 @@ TEST_CASE("U-CG-08/structural: M5 uses M4's one columnGeneration implementation,
     m5Evidence::note("expected", {"solveCoveringLp defined once (src/columnGeneration)", "PatternPricer defined once", "m5Solver calls both"});
 }
 
-TEST_CASE("X-CG-08 at its round cap pricing stops with a checked result and no runaway columns" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-08/synthetic: pricing at its round cap, or returning the same pattern again (also reordered), stops with a checked result and a recorded reason" * doctest::test_suite("m5")) {
+    // The same fresh pattern (one 5, two 2s) offered on every call, on the sizes in either order.
+    for (const vector<long long>& sizes : {vector<long long>{5, 5, 2, 2, 2, 2, 2}, vector<long long>{2, 2, 2, 2, 2, 5, 5}}) {
+        const ScalarModel repeated = scalarModel(sizes, 10);
+        size_t calls = 0;
+        ScalarLimits limits;
+        limits.pricing = [&](const vector<long long>& types, long long, const vector<double>&, const vector<long long>&) {
+            ++calls;
+            vector<int> counts(types.size(), 0);
+            for (size_t type = 0; type < types.size(); ++type) counts[type] = types[type] == 5 ? 1 : 2;
+            return PricedPattern{counts, 2.0, true};
+        };
+        const ScalarResult result = solveCuttingStock(repeated, limits);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(repeated, *result.packing, result.impossible));
+        CHECK(result.evidence.columnsGenerated == 3);
+        CHECK(calls <= 4);
+        CHECK(result.evidence.termination == Termination::Completed);
+        CHECK_FALSE(result.evidence.lpStatus.empty());
+    }
+    m5Evidence::note("expected", {"a repeated pattern enters once (3 columns)", "pricing calls <= 4", "round cap 1: IterationCap, pricingIncomplete"});
     const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2, 4, 4, 7, 1}, 10);
     ScalarLimits capped;
     capped.maxColumnRounds = 1;
@@ -1757,9 +1777,11 @@ TEST_CASE("X-CG-08 at its round cap pricing stops with a checked result and no r
     CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
     CHECK(result.evidence.columnsGenerated <= model.sizes.size() + 1);
     CHECK(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(model.sizes, 10));
+    CHECK(result.evidence.termination == Termination::IterationCap);
+    CHECK(result.evidence.lpStatus == "pricingIncomplete");
 }
 
-TEST_CASE("X-CG-11 stopped before or after a first result: none, or the checked FFD" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-11/synthetic: the FFD trap stopped before the better answer keeps the checked 3-bin result, labelled timed out, not best" * doctest::test_suite("m5")) {
     const ScalarModel model = scalarModel({6, 5, 3, 2, 2, 2}, 10);
     const ScalarResult before = solveCuttingStock(model, ScalarLimits(), [] { return true; });
     CHECK_FALSE(before.packing.has_value());
@@ -1771,12 +1793,35 @@ TEST_CASE("X-CG-11 stopped before or after a first result: none, or the checked 
     CHECK(after.evidence.termination == Termination::Budget);
     CHECK(after.packing->bins.size() == 3);
     CHECK(after.evidence.proof == ProofStatus::Unproven);
+    CHECK(after.evidence.incumbent == 3);
+    CHECK(m5Oracles::bruteForceBins(model.sizes, 10) == 2);
+    m5Evidence::note("expected", {"stopped first: no result, Budget", "stopped after FFD: 3 bins kept, Budget, Unproven (best is 2)"});
 }
 
-TEST_CASE("X-CG-07 near-degenerate duals: the solve ends at the best answer" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-07/synthetic: reduced costs just past the tolerance on either side: an improving pattern enters, a non-improving one does not, no endless loop" * doctest::test_suite("m5")) {
     const ScalarModel model = scalarModel({5, 5, 5, 5, 3, 3, 3, 3, 2, 2}, 10);
     const ScalarResult result = solveCuttingStock(model, ScalarLimits());
     CHECK(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(model.sizes, 10));
+    CHECK(result.evidence.termination == Termination::Completed);
+    // [5,5,2,2,2,2,2]: a fresh pattern (one 5, two 2s) priced at reduced cost -/+ 1e-6 with tolerance 1e-9.
+    const ScalarModel small = scalarModel({5, 5, 2, 2, 2, 2, 2}, 10);
+    for (const double reducedCost : {-1e-6, 1e-6}) {
+        INFO("reduced cost " << reducedCost);
+        size_t calls = 0;
+        ScalarLimits limits;
+        limits.pricing = [&](const vector<long long>&, long long, const vector<double>&, const vector<long long>&) {
+            ++calls;
+            return PricedPattern{{1, 2}, 1.0 - reducedCost, true};
+        };
+        const ScalarResult priced = solveCuttingStock(small, limits);
+        REQUIRE(priced.packing.has_value());
+        CHECK(m5Oracles::packingValid(small, *priced.packing, priced.impossible));
+        CHECK(priced.evidence.columnsGenerated == (reducedCost < 0 ? 3u : 2u));
+        CHECK(calls <= 4);
+        CHECK(priced.evidence.termination == Termination::Completed);
+        CHECK(static_cast<long long>(priced.packing->bins.size()) == m5Oracles::bruteForceBins(small.sizes, 10));
+    }
+    m5Evidence::note("expected", {"best answer, Completed", "rc -1e-6 enters (3 columns), +1e-6 does not (2)", "pricing calls <= 4"});
 }
 
 TEST_CASE("X-META-07 X-META-09 more capacity or one more reservation is never worse" * doctest::test_suite("m5")) {

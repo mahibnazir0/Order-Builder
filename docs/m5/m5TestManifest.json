@@ -8047,7 +8047,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -8239,7 +8239,7 @@
         "TEST"
       ],
       "workPackage": "WP2",
-      "testFile": "tests/m5/testM5Solver.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Solver.cpp",
       "fixture": "FX-COUNT",
       "localOverrides": "",
       "entryPoint": "CORE",
@@ -9848,7 +9848,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -9894,7 +9894,7 @@
         "M-VAL"
       ],
       "workPackage": "WP6",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-BLOCK",
       "localOverrides": "",
       "entryPoint": "DIRECT",

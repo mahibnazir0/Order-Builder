@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "columnGeneration.hpp"
 #include "m5Solver.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Oracles.hpp"
@@ -23,6 +24,12 @@ ScalarModel modelOf(vector<long long> sizes, long long capacity = 10) {
     return model;
 }
 
+size_t packedCount(const ScalarPacking& packing) {
+    size_t items = 0;
+    for (const vector<size_t>& bin : packing.bins) items += bin.size();
+    return items;
+}
+
 ScalarResult solveChecked(const ScalarModel& model) {
     const ScalarResult result = solveCuttingStock(model, ScalarLimits());
     REQUIRE(result.packing.has_value());
@@ -32,32 +39,92 @@ ScalarResult solveChecked(const ScalarModel& model) {
 
 }  // namespace
 
-TEST_CASE("X-CG-01 the FFD trap: FFD needs 3, M5 finds 2" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-01/synthetic: the FFD trap [6,5,3,2,2,2] on 10: FFD uses 3, M5 finds 2, every item kept, gap 1 truck" * doctest::test_suite("m5")) {
     const ScalarModel model = modelOf({6, 5, 3, 2, 2, 2});
     CHECK(scalarFirstFitDecreasing(model).bins.size() == 3);
     const ScalarResult result = solveChecked(model);
     CHECK(result.packing->bins.size() == 2);
+    CHECK(packedCount(*result.packing) == 6);
+    CHECK(result.impossible.empty());
     CHECK(result.ffdBins == 3);
+    CHECK(result.ffdBins - static_cast<long long>(result.packing->bins.size()) == 1);
+    CHECK(m5Oracles::bruteForceBins(model.sizes, 10) == 2);
+    CHECK(result.evidence.incumbent == 2);
+    CHECK(result.evidence.lowerBound == 2);
     CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+    m5Evidence::note("expected", {"FFD 3", "M5 2, all 6 items", "gap 1 truck", "proven by bound 2"});
 }
 
-TEST_CASE("X-CG-02 three 6s need 3 bins; the volume bound of 2 is not the answer" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-02/synthetic: three 6s on 10 need 3; the volume bound of 2 is never the plan or a zero gap" * doctest::test_suite("m5")) {
     const ScalarModel model = modelOf({6, 6, 6});
+    CHECK((18 + 10 - 1) / 10 == 2);
     CHECK(scalarLowerBound(model) == 3);
-    CHECK(solveChecked(model).packing->bins.size() == 3);
+    const ScalarResult result = solveChecked(model);
+    CHECK(result.packing->bins.size() == 3);
+    CHECK(packedCount(*result.packing) == 3);
+    CHECK(result.evidence.lowerBound == 3);
+    CHECK(result.evidence.incumbent == 3);
+    CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+    CHECK(gapText(3, 2) == "1 truck, 50.0% above the bound of 2");
+    m5Evidence::note("expected", {"3 bins", "volume bound 2 is not used; bound 3 (items over half)"});
 }
 
-TEST_CASE("X-CG-03 five 3s ship in 2 bins, exactly 5 items" * doctest::test_suite("m5")) {
-    const ScalarResult result = solveChecked(modelOf({3, 3, 3, 3, 3}));
+TEST_CASE("X-CG-03/synthetic: five 3s on 10 ship in 2 bins, exactly 5 items; the relaxation alone is not the proof" * doctest::test_suite("m5")) {
+    const ScalarModel model = modelOf({3, 3, 3, 3, 3});
+    const ScalarResult result = solveChecked(model);
     CHECK(result.packing->bins.size() == 2);
+    CHECK(packedCount(*result.packing) == 5);
+    // A bin holds at most three 3s, so the LP over legal patterns is 5 / 3: below 2, not itself a proof.
+    REQUIRE(result.evidence.lpValue.has_value());
+    CHECK(*result.evidence.lpValue == doctest::Approx(5.0 / 3.0));
+    // The proof is the integer bound of the same model meeting the checked packing.
+    CHECK(result.evidence.lowerBound == 2);
+    CHECK(result.evidence.incumbent == 2);
+    CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+    CHECK(result.evidence.proofModel == result.evidence.boundModel);
+    CHECK(m5Oracles::bruteForceBins(model.sizes, 10) == 2);
+    m5Evidence::note("expected", {"2 bins, 5 items", "LP 5/3; proof from integer bound 2"});
 }
 
-TEST_CASE("X-CG-04 the mixed pattern (1,1) is found: one bin for 6 and 4" * doctest::test_suite("m5")) {
-    const ScalarResult result = solveChecked(modelOf({6, 4}));
-    CHECK(result.packing->bins.size() == 1);
+TEST_CASE("X-CG-04/synthetic: sizes 6 and 4, LP started on (1,0) and (0,2) at 1.5: pricing finds (1,1) and the answer is 1, one of each shipped" * doctest::test_suite("m5")) {
+    // The restricted LP exactly as written, on the covering LP M5's solver uses (src/columnGeneration).
+    const ob::CoveringLpSolution restricted = ob::solveCoveringLp({{1, 0}, {0, 2}}, {1, 1}, 1000);
+    REQUIRE(restricted.solved);
+    CHECK(restricted.value == doctest::Approx(1.5));
+    REQUIRE(restricted.patternUses.size() == 2);
+    CHECK(restricted.patternUses[0] == doctest::Approx(1.0));
+    CHECK(restricted.patternUses[1] == doctest::Approx(0.5));
+    REQUIRE(restricted.typeValues.size() == 2);
+    const PricedPattern mixed = pricePattern({6, 4}, 10, restricted.typeValues, {1, 1}, 1000);
+    CHECK(mixed.exact);
+    CHECK(mixed.counts == vector<int>{1, 1});
+    CHECK(1.0 - mixed.value < 0.0);
+    const ob::CoveringLpSolution withMixed = ob::solveCoveringLp({{1, 0}, {0, 2}, {1, 1}}, {1, 1}, 1000);
+    REQUIRE(withMixed.solved);
+    CHECK(withMixed.value == doctest::Approx(1.0));
+    // The solver itself (its own start is demand-limited, (1,0) and (0,1)) reaches the same answer.
+    const ScalarModel model = modelOf({6, 4});
+    vector<vector<double>> dualsSeen;
+    ScalarLimits limits;
+    limits.pricing = [&](const vector<long long>& sizes, long long capacity, const vector<double>& duals, const vector<long long>& available) {
+        dualsSeen.push_back(duals);
+        return pricePattern(sizes, capacity, duals, available, 1000);
+    };
+    const ScalarResult result = solveCuttingStock(model, limits);
+    REQUIRE(result.packing.has_value());
+    CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+    REQUIRE_FALSE(dualsSeen.empty());
+    CHECK(result.evidence.columnsGenerated == 3);
+    REQUIRE(result.evidence.lpValue.has_value());
+    CHECK(*result.evidence.lpValue == doctest::Approx(1.0));
+    REQUIRE(result.packing->bins.size() == 1);
+    CHECK(result.packing->bins.front().size() == 2);
+    CHECK(result.evidence.lowerBound == 1);
+    CHECK(result.evidence.proof == ProofStatus::ProvenOptimal);
+    m5Evidence::note("expected", {"restricted LP 1.5 (duals 1, 0.5)", "(1,1) enters", "1 bin with one 6 and one 4", "bound 1, never 2"});
 }
 
-TEST_CASE("X-CG-05 U-CG-08 pricing, on M4's shared PatternPricer, at duals 3/5 and 11/20 returns (1,1) at 23/20" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-05/synthetic: U-CG-08 pricing, on M4's shared PatternPricer, at duals 3/5 and 11/20 returns (1,1) at 23/20" * doctest::test_suite("m5")) {
     const PricedPattern priced = pricePattern({6, 4}, 10, {0.6, 0.55}, {1, 1}, 1000);
     CHECK(priced.exact);
     CHECK(priced.counts == vector<int>{1, 1});
@@ -65,16 +132,49 @@ TEST_CASE("X-CG-05 U-CG-08 pricing, on M4's shared PatternPricer, at duals 3/5 a
     CHECK(1.0 - priced.value == doctest::Approx(-0.15));
 }
 
-TEST_CASE("X-CG-06 pricing stopped early is reported incomplete" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-06/synthetic: pricing stopped early on every call is reported incomplete; a proof needs a separate equal bound" * doctest::test_suite("m5")) {
     const PricedPattern priced = pricePattern({6, 4, 3, 2}, 10, {0.6, 0.55, 0.3, 0.2}, {5, 5, 5, 5}, 1);
     CHECK_FALSE(priced.exact);
+    const vector<vector<long long>> models{{6, 4}, {6, 5, 3, 2, 2, 2}, {6, 6, 6}};
+    for (const vector<long long>& sizes : models) {
+        INFO("items " << sizes.size());
+        const ScalarModel model = modelOf(sizes);
+        ScalarLimits limits;
+        limits.pricing = [](const vector<long long>& types, long long capacity, const vector<double>& duals, const vector<long long>& available) {
+            PricedPattern partial = pricePattern(types, capacity, duals, available, 1000);
+            partial.exact = false;
+            return partial;
+        };
+        const ScalarResult result = solveCuttingStock(model, limits);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(result.evidence.lpStatus == "pricingIncomplete");
+        const long long bins = static_cast<long long>(result.packing->bins.size());
+        CHECK(bins == m5Oracles::bruteForceBins(model.sizes, 10));
+        if (result.evidence.proof == ProofStatus::ProvenOptimal) {
+            CHECK(result.evidence.lowerBound == bins);
+            CHECK(result.evidence.incumbent == bins);
+            CHECK(result.evidence.boundModel == result.evidence.proofModel);
+            CHECK(scalarLowerBound(model) == bins);
+        }
+    }
+    m5Evidence::note("expected", {"lpStatus pricingIncomplete", "proof only where the separate bound equals the checked result"});
 }
 
-TEST_CASE("X-CG-09 an item bigger than the bin is reported impossible, never packed" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-09/synthetic: one item of 11 on 10 is reported impossible and counted; no illegal pattern, no empty rescue truck" * doctest::test_suite("m5")) {
     const ScalarModel model = modelOf({11, 4});
     const ScalarResult result = solveChecked(model);
     CHECK(result.impossible == vector<size_t>{0});
     CHECK(result.packing->bins.size() == 1);
+    for (const vector<size_t>& bin : result.packing->bins) {
+        CHECK_FALSE(bin.empty());
+        CHECK(find(bin.begin(), bin.end(), size_t{0}) == bin.end());
+    }
+    const ScalarResult alone = solveChecked(modelOf({11}));
+    CHECK(alone.impossible == vector<size_t>{0});
+    CHECK(alone.packing->bins.empty());
+    CHECK_FALSE(validColumn({1}, {11}, 10));
+    m5Evidence::note("expected", {"item 11 impossible, counted once", "the 4 ships in 1 bin", "alone: 0 bins"});
 }
 
 TEST_CASE("X-CG-10 no goods: zero bins, nothing divided by zero" * doctest::test_suite("m5")) {
@@ -83,17 +183,29 @@ TEST_CASE("X-CG-10 no goods: zero bins, nothing divided by zero" * doctest::test
     CHECK(result.evidence.lowerBound == 0);
 }
 
-TEST_CASE("X-CG-13 bounds are worked out per group, then added" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-13/synthetic: 6 in A and 4 in B, no mixing: 2 though volume says 1; A [6,6] on 12 and B [4] on 8: bound 2, per group then added" * doctest::test_suite("m5")) {
     ScalarModel model = modelOf({6, 4});
     model.groupOf = {0, 1};
+    CHECK((6 + 4 + 9) / 10 == 1);
     CHECK(scalarLowerBound(model) == 2);
-    CHECK(solveChecked(model).packing->bins.size() == 2);
-
+    const ScalarResult first = solveChecked(model);
+    CHECK(first.packing->bins.size() == 2);
+    for (const vector<size_t>& bin : first.packing->bins) {
+        for (const size_t item : bin) CHECK(model.groupOf[item] == model.groupOf[bin.front()]);
+    }
     ScalarModel trailers = modelOf({6, 6, 4});
     trailers.groupOf = {0, 0, 1};
     trailers.capacityOfGroup = {12, 8};
+    // Per group: A ceil(12 / 12) = 1, B ceil(4 / 8) = 1, added 2.
     CHECK(scalarLowerBound(trailers) == 2);
-    CHECK(solveChecked(trailers).packing->bins.size() == 2);
+    const ScalarResult second = solveChecked(trailers);
+    CHECK(second.packing->bins.size() == 2);
+    CHECK(second.evidence.lowerBound == 2);
+    CHECK(second.evidence.proof == ProofStatus::ProvenOptimal);
+    for (const vector<size_t>& bin : second.packing->bins) {
+        for (const size_t item : bin) CHECK(trailers.groupOf[item] == trailers.groupOf[bin.front()]);
+    }
+    m5Evidence::note("expected", {"first: 2 bins, bound 2 (volume 1)", "second: bound 1 + 1 = 2, 2 bins"});
 }
 
 TEST_CASE("X-CG-14 a bound above the incumbent is never a proof" * doctest::test_suite("m5")) {
@@ -103,22 +215,45 @@ TEST_CASE("X-CG-14 a bound above the incumbent is never a proof" * doctest::test
     CHECK(gapText(2, nullopt) == "N/A (no valid bound)");
 }
 
-TEST_CASE("X-CG-16 invalid columns are rejected before use" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-16/synthetic: a column with a negative count, an unknown item or over capacity is rejected before use" * doctest::test_suite("m5")) {
     const vector<long long> sizes{6, 4};
     CHECK(validColumn({1, 1}, sizes, 10));
     CHECK_FALSE(validColumn({-1, 2}, sizes, 10));
     CHECK_FALSE(validColumn({1, 1, 1}, sizes, 10));
     CHECK_FALSE(validColumn({2, 0}, sizes, 10));
     CHECK_FALSE(validColumn({0, 0}, sizes, 10));
+    // Counts are whole numbers by type (vector<int>), so a fractional count cannot be expressed. A priced
+    // column that breaks the rules never enters the master; the result stays checked.
+    const vector<vector<int>> badColumns{{-1, 2}, {1, 1, 1}, {2, 0}};
+    for (const vector<int>& bad : badColumns) {
+        ScalarLimits limits;
+        limits.pricing = [&](const vector<long long>&, long long, const vector<double>&, const vector<long long>&) {
+            return PricedPattern{bad, 5.0, true};
+        };
+        const ScalarModel model = modelOf({6, 4});
+        const ScalarResult result = solveCuttingStock(model, limits);
+        REQUIRE(result.packing.has_value());
+        CHECK(m5Oracles::packingValid(model, *result.packing, result.impossible));
+        CHECK(result.evidence.columnsGenerated == 2);
+    }
+    m5Evidence::note("expected", {"(1,1) valid", "(-1,2), (1,1,1), (2,0), (0,0) rejected", "bad priced columns never enter"});
 }
 
-TEST_CASE("X-CG-17 the gap names trucks and its denominator" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-17/synthetic: result 12 on bound 10: gap 2 trucks, 20.0% above the bound (one contract); escalation by F > B with allowance; no bound prints N/A" * doctest::test_suite("m5")) {
     CHECK(gapText(12, 10) == "2 trucks, 20.0% above the bound of 10");
+    // The recorded contract's denominator is the bound: (12 - 10) / 10, not (12 - 10) / 12 = 16.7%.
+    CHECK(100.0 * (12 - 10) / 10 == doctest::Approx(20.0));
+    CHECK(gapText(12, 10).find("16.") == string::npos);
     CHECK(gapText(10, 10) == "0 trucks, 0.0% above the bound of 10");
     CHECK(gapText(3, 0) == "N/A (no valid bound)");
+    CHECK(gapText(3, nullopt) == "N/A (no valid bound)");
+    CHECK(shouldEscalate(12, 10, 1, true));
+    CHECK_FALSE(shouldEscalate(12, 10, 1, false));
+    CHECK_FALSE(shouldEscalate(10, 10, 1, true));
+    m5Evidence::note("expected", {"2 trucks, 20.0% above the bound of 10", "escalate only with allowance left", "N/A for bound 0 or none"});
 }
 
-TEST_CASE("X-CG-18 converged LP pricing does not prove the restricted integer best" * doctest::test_suite("m5")) {
+TEST_CASE("X-CG-18/synthetic: three 5s and six 2s on 10: LP 2.7 converged, single-product integer 4, final 3 bins proven by bound 3" * doctest::test_suite("m5")) {
     const ScalarModel model = modelOf({5, 5, 5, 2, 2, 2, 2, 2, 2});
     const ScalarResult result = solveChecked(model);
     const SolverEvidence& evidence = result.evidence;
@@ -132,6 +267,56 @@ TEST_CASE("X-CG-18 converged LP pricing does not prove the restricted integer be
     CHECK(evidence.incumbent == 3);
     CHECK(evidence.proof == ProofStatus::ProvenOptimal);
     CHECK(m5Oracles::bruteForceBins(model.sizes, model.capacity) == 3);
+    CHECK(packedCount(*result.packing) == 9);
+    CHECK(evidence.boundModel == evidence.proofModel);
+    m5Evidence::note("expected", {"LP 2.7 converged", "restricted integer 4", "final 3 bins, all 9 items", "bound 3, proven"});
+}
+
+namespace {
+
+AcceptedModel xcg19Model() {
+    AcceptedModel model;
+    model.cube = {6, 2, 2, 2};
+    model.weight = {1, 1, 1, 1};
+    model.cubeCapacity = 10;
+    model.weightCapacity = 10;
+    model.xWeight = 10;
+    model.yCube = 6;
+    model.bins = 4;
+    return model;
+}
+
+}  // namespace
+
+TEST_CASE("X-CG-19/allGoodsFeasibility: cubes [6,2,2,2] on 10 with y = 6 strict: the capacity bound 2 certifies nothing; all goods proven infeasible" * doctest::test_suite("m5")) {
+    const AcceptedModel model = xcg19Model();
+    const AcceptedResult result = solveAccepted(model);
+    // By hand: weight never passes x = 10, so an accepted bin needs cube > 6. With every item placed, the bin
+    // holding the 6 can take at most two 2s; any bin without the 6 holds at most 6. So no all-goods packing.
+    CHECK(result.capacityBound == 2);
+    CHECK(result.allGoods == ProofStatus::ProvenInfeasible);
+    CHECK_FALSE(result.allGoodsPacking.has_value());
+    m5Evidence::note("expected", {"capacity bound 2, reported as a relaxation only", "all goods: proven infeasible"});
+}
+
+TEST_CASE("X-CG-19/partialService: the most cube in accepted bins is one bin [6,2,2] = 10, labelled partial" * doctest::test_suite("m5")) {
+    const AcceptedModel model = xcg19Model();
+    const AcceptedResult result = solveAccepted(model);
+    CHECK(result.allGoods == ProofStatus::ProvenInfeasible);
+    REQUIRE(result.partial.bins.size() == 1);
+    const vector<size_t>& bin = result.partial.bins.front();
+    CHECK(bin.size() == 3);
+    double cube = 0.0, weight = 0.0;
+    for (const size_t item : bin) {
+        cube += model.cube[item];
+        weight += model.weight[item];
+    }
+    CHECK(cube == doctest::Approx(10.0));
+    CHECK(cube > model.yCube);
+    CHECK(weight <= model.weightCapacity);
+    CHECK(find(bin.begin(), bin.end(), size_t{0}) != bin.end());
+    CHECK(result.partialCube == doctest::Approx(10.0));
+    m5Evidence::note("expected", {"partial: one bin [6,2,2], cube 10 > 6", "one 2 left"});
 }
 
 TEST_CASE("X-CG-19 a capacity bound does not certify an accepted all-goods packing" * doctest::test_suite("m5")) {
