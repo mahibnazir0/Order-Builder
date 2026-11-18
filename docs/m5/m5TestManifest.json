@@ -10189,7 +10189,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10436,7 +10436,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -10742,7 +10742,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Physical.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 with heterogeneous reserved trailers",
       "localOverrides": "45,000 / 30,000 lb; variant A y = 2,400; variant B y = 3,000",
       "entryPoint": "DIRECT",

@@ -10,6 +10,7 @@
 #include "m5UnitLoads.hpp"
 #include "paramsFields.hpp"
 #include "pipeline.hpp"
+#include "placeholder_importer.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "../runTempFolder.hpp"
@@ -206,6 +207,69 @@ TEST_CASE("X-RES-05 a reservation count out of range is refused with its row; ze
     REQUIRE(book.skipped.size() == 2);
     CHECK(book.skipped[0].reason == PlaceholderSkipReason::InvalidLoadCount);
     CHECK(book.skipped[1].reason == PlaceholderSkipReason::ZeroLoads);
+}
+
+TEST_CASE("X-RES-04/synthetic: several labels for one lane-date never double its reservation; another lane's trucks are never used" * doctest::test_suite("m5")) {
+    const ReservationBook book =
+        buildReservationBook({reserved("2027", 11), reserved("2027", 11), reserved("2028", 21)}, kCtl, kPlanDate, {"53F", {"53F"}});
+    // The repeated lane-date is refused as ambiguous (no row identity tells a repeat from a second request).
+    CHECK(findReservation(book, "2027", "2528", "TL", "2026-08-06") == nullptr);
+    REQUIRE(findReservation(book, "2028", "2528", "TL", "2026-08-06") != nullptr);
+    CHECK(findReservation(book, "2028", "2528", "TL", "2026-08-06")->trucks == 21);
+    CHECK(book.reservedTrucks == 21);
+    CHECK(book.skippedTrucks == 22);
+    // The same products on the two lanes: only the 21-truck lane goes to M5, with its own pool only.
+    const Day day = dayOf({group("2027"), group("2028")}, 10, join(itemsOf(0, 5, 0), itemsOf(1, 5, 5)),
+                          {reserved("2027", 11), reserved("2027", 11), reserved("2028", 21)});
+    CHECK_FALSE(routedToM5(day, "2027", "2026-08-06"));
+    CHECK(routedToM5(day, "2028", "2026-08-06"));
+    const SelectionPlan selection = plan(day, withPlanner());
+    REQUIRE(selection.largeLanes.size() == 1);
+    CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    m5Evidence::note("expected", {"2027 labels refused, never 22", "2028 keeps 21", "M5 pool 21 for 2028 only"});
+}
+
+TEST_CASE("X-RES-05/synthetic: reserved counts -1, 1.5, NaN, infinity and huge are refused with their row; a real 0 is no trucks" * doctest::test_suite("m5")) {
+    const filesystem::path folder = testTemp::runTempFolder() / "xres05";
+    filesystem::create_directories(folder);
+    const filesystem::path path = folder / "placeholders.json";
+    {
+        ofstream file(path, ios::binary);
+        file << "{\"PHOLDER\": [";
+        const vector<string> counts{"-1", "1.5", "1e300", "2000", "\"NaN\"", "\"Infinity\"", "0", "21"};
+        for (size_t row = 0; row < counts.size(); ++row) {
+            file << (row ? "," : "") << "{\"LOCFRNO\": \"" << 3000 + row << "\", \"LOCTONO\": \"2528\", \"SHIP_COND\": \"TL\","
+                 << " \"DATFR_TA\": \"2026-08-06\", \"DATTO_TA\": \"2026-08-06\", \"ZZNA_EQUIP_SIZE\": \"53F\", \"NO_OF_LOADS\": " << counts[row] << "}";
+        }
+        file << "]}";
+    }
+    const PlaceholderLoadResult loaded = PlaceholderImporter::load(path.string());
+    REQUIRE(loaded.placeholders.size() == 8);
+    const ReservationBook book = buildReservationBook(loaded.placeholders, kCtl, kPlanDate, {"53F", {"53F"}});
+    REQUIRE(book.reservations.size() == 1);
+    CHECK(book.reservations.front().origin == "3007");
+    CHECK(book.reservations.front().trucks == 21);
+    map<size_t, PlaceholderSkipReason> reasonOf;
+    for (const SkippedPlaceholder& skipped : book.skipped) reasonOf[skipped.placeholderIndex] = skipped.reason;
+    REQUIRE(reasonOf.size() == 7);
+    for (size_t row = 0; row < 6; ++row) {
+        INFO("row " << row);
+        CHECK(reasonOf.at(row) == PlaceholderSkipReason::InvalidLoadCount);
+        // The skipped row names its lane and date through the placeholder it points at.
+        CHECK(loaded.placeholders[row].locfrno == to_string(3000 + row));
+        CHECK(loaded.placeholders[row].datfr_ta == "2026-08-06");
+    }
+    CHECK(reasonOf.at(6) == PlaceholderSkipReason::ZeroLoads);
+    CHECK(book.reservedTrucks == 21);
+    // JSON has no NaN or Infinity number: a bare NaN makes the file invalid and it is refused whole.
+    const filesystem::path bare = folder / "bareNaN.json";
+    {
+        ofstream file(bare, ios::binary);
+        file << "{\"PHOLDER\": [{\"LOCFRNO\": \"3000\", \"NO_OF_LOADS\": NaN}]}";
+    }
+    CHECK_THROWS_AS(PlaceholderImporter::load(bare.string()), runtime_error);
+    m5Evidence::note("expected", {"-1, 1.5, 1e300, 2000, \"NaN\", \"Infinity\": InvalidLoadCount on their rows", "0: ZeroLoads", "21 kept", "bare NaN: file refused"});
 }
 
 TEST_CASE("X-ROUTE-07 routing follows reserved trucks, never the size of the demand" * doctest::test_suite("m5")) {
