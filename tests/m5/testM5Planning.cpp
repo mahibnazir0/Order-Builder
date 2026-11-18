@@ -2112,6 +2112,20 @@ TEST_CASE("X-STATE-10 commitment is atomic, idempotent and refuses stale or conf
     CHECK(residual.id != snapshot.id);
 }
 
+TEST_CASE("X-DATA-13 finite but enormous dimensions that overflow when multiplied are refused before planning" * doctest::test_suite("m5")) {
+    M5LaneDateInput overflow = laneWith({fx30("physical")}, 1);
+    overflow.atoms[0].floor.cubeCubicIn = numeric_limits<double>::max();
+    overflow.atoms[0].floor.longSideIn = numeric_limits<double>::max();
+    const SnapshotBuild build = buildSnapshot(overflow);
+    CHECK_FALSE(build.snapshot.has_value());
+    CHECK(any_of(build.errors.begin(), build.errors.end(), [](const string& error) {
+        return error.find("volume overflows") != string::npos;
+    }));
+    const M5LaneOutcome outcome = plan(overflow, syntheticProfile());
+    CHECK(outcome.kind == OutcomeKind::InvalidInput);
+    CHECK(shippedCount(outcome) == 0);
+}
+
 TEST_CASE("X-DATA-13/inconsistentSlotCapabilities: payload 0, cap 0, NaN width or a slot unlike its catalogue type is refused before packing" * doctest::test_suite("m5")) {
     const auto refused = [](const M5LaneDateInput& input, OutcomeKind kind, LeftOverCause cause, const string& reasonText) {
         const M5LaneDateInput before = input;

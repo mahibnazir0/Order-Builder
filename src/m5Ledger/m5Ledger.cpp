@@ -32,6 +32,9 @@ void checkAtom(const Atom& atom, size_t index, vector<string>& errors) {
         errors.push_back(name + " has a footprint that is not two finite sides above zero, long side first");
     }
     if (!positiveFinite(floor.heightIn)) errors.push_back(name + " has a height that is not finite and above zero");
+    if (!isfinite(floor.longSideIn * floor.shortSideIn * floor.heightIn)) {
+        errors.push_back(name + " has dimensions whose volume overflows a finite number");
+    }
     if (floor.levels < 1) errors.push_back(name + " has fewer than one level");
     if (!isfinite(floor.cubeCubicIn) || floor.cubeCubicIn < 0.0) errors.push_back(name + " has a cube that is negative or not finite");
     if (!isfinite(atom.weightLb) || atom.weightLb < 0.0) errors.push_back(name + " has a weight that is negative or not finite");
