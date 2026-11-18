@@ -668,7 +668,7 @@ TEST_CASE("X-STATE-01/synthetic: A and B give the same result in either order or
     m5Evidence::note("expected", {"A alone, B alone, A then B, B then A: the same 75 goods on 3 trucks", "each method's own record is the same in either order"});
 }
 
-TEST_CASE("X-REB-09 rebalance both sides of a strict acceptance boundary" * doctest::test_suite("m5")) {
+TEST_CASE("X-REB-09/fifty X-REB-09/fortyNine X-REB-09/productionProfile rebalance both sides of a strict acceptance boundary" * doctest::test_suite("m5")) {
     const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
     SUBCASE("fifty: rebalance 25 + 25") {
         const M5LaneDateInput input = laneWith(fx30Units("u", 50), 2);
@@ -694,6 +694,18 @@ TEST_CASE("X-REB-09 rebalance both sides of a strict acceptance boundary" * doct
         requireInvariants(outcome, input);
         CHECK(shippedCount(outcome) == 49);
         CHECK(outcome.selected->trucks.size() == 2);
+        // No unit is left solely for numeric acceptance; each truck is legal and nonempty (30 + 19 is a witness, not the unique optimum).
+        CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 0);
+        for (const TruckPlan& truck : outcome.selected->trucks) {
+            CHECK(truck.atoms.size() > 0);
+            CHECK(truck.atoms.size() <= 30);
+        }
+        const M5LaneDateInput fifty = laneWith(fx30Units("u", 50), 2);
+        const M5LaneOutcome fiftyOutcome = plan(fifty, syntheticProfile());
+        requireInvariants(fiftyOutcome, fifty);
+        CHECK(shippedCount(fiftyOutcome) == 50);
+        CHECK(fiftyOutcome.selected->trucks.size() == 2);
+        CHECK(countCause(fiftyOutcome, LeftOverCause::AcceptanceWithheld) == 0);
     }
 }
 
@@ -1226,6 +1238,24 @@ void requireOnOffOn(const M5PolicyProfile& on, const M5PolicyProfile& off) {
 
 }  // namespace
 
+TEST_CASE("X-STATE-09/report: the OFF report states export-after-M5 and carries no stale withheld reason or old threshold; ON then prints its own again" * doctest::test_suite("m5")) {
+    const StateRun on = stateRun(acceptanceOn(MethodPolicy::SequentialAThenB));
+    const StateRun off = stateRun(acceptanceOff(MethodPolicy::SequentialAThenB));
+    const StateRun onAgain = stateRun(acceptanceOn(MethodPolicy::SequentialAThenB));
+    CHECK(on.report.find("withheld by minimum-load policy: 20.00 unit loads") != string::npos);
+    CHECK(on.report.find("optional policy ON: weight > 40000.0 lb OR cube > 3000.0 cu ft (strict)") != string::npos);
+    CHECK(off.report.find("minimum-load check: at export, after M5") != string::npos);
+    CHECK(off.report.find("withheld") == string::npos);
+    CHECK(off.report.find("40000.0") == string::npos);
+    CHECK(off.report.find("3000.0") == string::npos);
+    CHECK(off.report.find("cu ft") == string::npos);
+    CHECK(onAgain.report == on.report);
+    CHECK(off.profileKey != on.profileKey);
+    CHECK(off.report.find(off.profileKey) != string::npos);
+    CHECK(on.report.find(on.profileKey) != string::npos);
+    m5Evidence::note("expected", {"ON report: the numeric rule and the 20 withheld", "OFF report: at export, after M5; no withheld reason, no x or y", "ON again: the first report exactly"});
+}
+
 TEST_CASE("X-STATE-09/methodA: ON withholds all 20, OFF ships all 20 on one truck, ON withholds again (Method A alone)" * doctest::test_suite("m5")) {
     requireOnOffOn(acceptanceOn(MethodPolicy::PatternOnly), acceptanceOff(MethodPolicy::PatternOnly));
     m5Evidence::note("expected", {"ON: 20 withheld, 0 shipped", "OFF: 20 shipped on 1 truck, report says at export, after M5", "ON: 20 withheld again"});
@@ -1646,7 +1676,7 @@ TEST_CASE("U-FL-08 buckets: eligible residual, none, or rule-excluded only" * do
                     .bucket.has_value());
 }
 
-TEST_CASE("U-FL-09 an interrupted fit check is Unknown, never a conclusive label" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-09/interrupted an interrupted fit check is Unknown, never a conclusive label" * doctest::test_suite("m5")) {
     vector<Atom> displays;
     for (int unit = 0; unit < 31; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
     const M5LaneDateInput input = laneWith(displays, 1);

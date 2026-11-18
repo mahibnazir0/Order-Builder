@@ -460,7 +460,7 @@ TEST_CASE("X-RUN-07/afterPartialCommit: after a partial commit the retry plans t
     m5Evidence::note("expected", {"38 committed once, replay suppressed", "full original again: conflict, nothing consumed", "residual: one unit, last slot; 39 and 39 in the end"});
 }
 
-TEST_CASE("X-E2E-05/keepValidated: blocks stopped in block 3's repair: the checked 38 trucks stand with one item left; never a 39-truck success; the deadline is not renewed" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-05/keepValidated X-E2E-05/wholeLaneRollback: blocks stopped in block 3's repair: the checked 38 trucks stand with one item left; never a 39-truck success; the deadline is not renewed" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(blocks(39), 39);
     FakeClock clock;
     M5RunServices services(clock);
@@ -3420,7 +3420,7 @@ TEST_CASE("X-DATA-09/synthetic: identities stay as M4 resolved them: 001234 and 
     m5Evidence::note("expected", {"001234 and 1234 remain distinct", "reversed row order ships both", "underscore group kept verbatim"});
 }
 
-TEST_CASE("X-DATA-10 a delta from another snapshot is refused as stale" * doctest::test_suite("m5")) {
+TEST_CASE("X-DATA-10/synthetic a delta from another demand extract or another reservation version is refused as stale" * doctest::test_suite("m5")) {
     const M5LaneDateInput runOne = laneWith(fx30Units("u", 30), 1);
     M5LaneDateInput runTwo = runOne;
     runTwo.sourceVersion = "a different extract";
@@ -3437,6 +3437,7 @@ TEST_CASE("X-DATA-10 a delta from another snapshot is refused as stale" * doctes
     CHECK(reservationState.consumedAtoms.empty());
     CHECK(reservationState.slotsUsed == 0);
     m5Evidence::note("expected", {"different demand extract rejected", "different reservation version rejected", "no state changed"});
+    m5Evidence::note("notCovered", "a different product master than the expected results: the master identity reaches the M5 run header only after the feature/m4 merge (U-RP-01, PR-13)");
 }
 
 TEST_CASE("X-DATA-12/synthetic: counts near 3e9 stay exact" * doctest::test_suite("m5")) {
@@ -3778,7 +3779,7 @@ TEST_CASE("X-REPORT-03/structuredInput: a plan without a certificate is never ca
     m5Evidence::note("notCovered", "747 stacks / 763 units and the means 3,171/3,209/3,192 are reproduced only in the real-data run (PR-13)");
 }
 
-TEST_CASE("X-REPORT-04/productionProfile: x = 40,000 lb and y = 3,300 cu ft decide by weight OR cube, strictly, from full precision; the report states the rule" * doctest::test_suite("m5")) {
+TEST_CASE("X-REPORT-04/synthetic: x = 40,000 lb and y = 3,300 cu ft decide by weight OR cube, strictly, from full precision; the report states the rule" * doctest::test_suite("m5")) {
     const M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 3300.0);
     struct Case {
         double cubeCuFt;
@@ -3804,6 +3805,28 @@ TEST_CASE("X-REPORT-04/productionProfile: x = 40,000 lb and y = 3,300 cu ft deci
     CHECK(evaluateAcceptance(20000.0, 3300.1 * 1728.0, *profile.acceptance).byCube);
     CHECK(evaluateAcceptance(40000.5, 100.0 * 1728.0, *profile.acceptance).accepted);
     m5Evidence::note("expected", {"3,299.9 and 3,300.0 withheld; 3,300.1 and 3,307.5 ship", "a cube 0.5 cu in above y ships although both print 3,300.0", "numeric x/y, strict OR and the profile named; no 84% rule"});
+}
+
+TEST_CASE("X-REPORT-04/productionProfile: with the policy OFF the same cubes all ship and the header says the minimum-load check is at export, after M5, with no x or y printed" * doctest::test_suite("m5")) {
+    const M5PolicyProfile production = syntheticProfile();
+    REQUIRE_FALSE(production.acceptance.has_value());
+    for (const double cubeCuFt : {3299.9, 3300.0, 3300.0 + 0.5 / 1728.0, 3300.1, 3307.5}) {
+        INFO("cube " << cubeCuFt);
+        vector<Atom> atoms = fx30Units("u", 1);
+        atoms[0].weightLb = 20000.0;
+        atoms[0].floor.cubeCubicIn = cubeCuFt * 1728.0;
+        const M5LaneDateInput input = laneWith(atoms, 1);
+        const M5LaneOutcome outcome = plan(input, production);
+        requireInvariants(outcome, input);
+        CHECK(shippedCount(outcome) == 1);
+        const string text = renderAscii(buildReportData(outcome, input, &production, {"PRODUCTION", 20, "fixture"}));
+        CHECK(text.find("minimum-load check: at export, after M5") != string::npos);
+        CHECK(text.find("cu ft") == string::npos);
+        CHECK(text.find("40000") == string::npos);
+        CHECK(text.find("3300") == string::npos);
+        CHECK(text.find("optional policy ON") == string::npos);
+    }
+    m5Evidence::note("expected", {"acceptance OFF: every candidate ships, whatever its cube", "header: minimum-load check at export, after M5; no x or y"});
 }
 
 TEST_CASE("X-REPORT-06/synthetic: no eligible input, a completed zero dispatch and a timeout with no result are told apart; empty averages are N/A" * doctest::test_suite("m5")) {
