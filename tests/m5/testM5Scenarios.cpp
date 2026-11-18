@@ -2619,6 +2619,177 @@ TEST_CASE("X-STATE-04/synthetic: settings changed in one process plan as a fresh
 
 // --------------------------------------------------------------------------- R-5b and the core
 
+namespace {
+
+// R-5b corpus. Tom's footprints (72 x 60, 80 x 48, 120 x 48, 48 x 48, 96 x 40, 60 x 60, 40 x 33, 100 x 50, 110 x 40,
+// 90 x 55, 80 x 60, 100 x 60), the 48 x 36, 48 x 40 and 44 x 40 variants (long side first) and a narrow one; one- and two-high
+// stacks (35 in a level, 2,500 lb a level), one or two priorities.
+struct CorpusShape {
+    double longSide, shortSide;
+};
+
+const vector<CorpusShape> kCorpusShapes{{72, 60}, {80, 48}, {120, 48}, {48, 48}, {96, 40}, {60, 60}, {40, 33}, {100, 50},
+                                        {110, 40}, {90, 55}, {80, 60}, {100, 60}, {48, 36}, {48, 40}, {44, 40}, {100, 20}};
+
+Atom corpusStack(const string& id, const CorpusShape& shape, int levels, int priority) {
+    Atom atom = unitOf(id, "A", shape.longSide, shape.shortSide, 35.0 * levels, 2500.0 * levels, priority);
+    atom.floor.levels = levels;
+    atom.unitLoads = levels;
+    atom.components[0].unitLoads = levels;
+    return atom;
+}
+
+using Objective = pair<double, double>;  // unit loads of P0, then of P11
+
+Objective valueOfChosen(const vector<Atom>& atoms, const vector<size_t>& chosen) {
+    Objective value{0.0, 0.0};
+    for (const size_t index : chosen) (atoms[index].components[0].priority == 0 ? value.first : value.second) += atoms[index].unitLoads;
+    return value;
+}
+
+// M4's floor and the payload judge one candidate set of stacks.
+bool legalTruck(const vector<Atom>& atoms, const vector<size_t>& chosen) {
+    double weight = 0.0;
+    vector<ob::FloorItem> items;
+    for (const size_t index : chosen) {
+        weight += atoms[index].weightLb;
+        items.push_back(atoms[index].floor);
+    }
+    if (weight > kDefaultTrailer.maxWeightLb) return false;
+    const ob::FloorLayout layout = ob::arrangeFloor(items, trailerOf(kDefaultTrailer), physicalSettings().floor);
+    return layout.fitsLength && layout.unplaceableItems.empty();
+}
+
+// The exact best over every subset of the stacks.
+Objective exactBestOverSubsets(const vector<Atom>& atoms) {
+    Objective best{0.0, 0.0};
+    for (unsigned mask = 1; mask < (1u << atoms.size()); ++mask) {
+        vector<size_t> chosen;
+        for (size_t stack = 0; stack < atoms.size(); ++stack) {
+            if (mask & (1u << stack)) chosen.push_back(stack);
+        }
+        const Objective value = valueOfChosen(atoms, chosen);
+        if (value > best && legalTruck(atoms, chosen)) best = value;
+    }
+    return best;
+}
+
+// The exact best over the counts taken of each class of identical stacks, for few footprints.
+Objective exactBestOverCounts(const vector<Atom>& atoms) {
+    vector<vector<size_t>> classes;
+    for (size_t stack = 0; stack < atoms.size(); ++stack) {
+        bool placed = false;
+        for (vector<size_t>& members : classes) {
+            const Atom& first = atoms[members.front()];
+            if (first.floor.longSideIn == atoms[stack].floor.longSideIn && first.floor.shortSideIn == atoms[stack].floor.shortSideIn
+                && first.floor.levels == atoms[stack].floor.levels && first.components[0].priority == atoms[stack].components[0].priority) {
+                members.push_back(stack);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) classes.push_back({stack});
+    }
+    Objective best{0.0, 0.0};
+    vector<size_t> taken(classes.size(), 0);
+    function<void(size_t)> choose = [&](size_t position) {
+        if (position == classes.size()) {
+            vector<size_t> chosen;
+            for (size_t index = 0; index < classes.size(); ++index) chosen.insert(chosen.end(), classes[index].begin(), classes[index].begin() + static_cast<ptrdiff_t>(taken[index]));
+            if (chosen.empty()) return;
+            const Objective value = valueOfChosen(atoms, chosen);
+            if (value > best && legalTruck(atoms, chosen)) best = value;
+            return;
+        }
+        for (size_t count = 0; count <= classes[position].size(); ++count) {
+            taken[position] = count;
+            choose(position + 1);
+        }
+    };
+    choose(0);
+    return best;
+}
+
+string describeCorpus(const vector<Atom>& atoms) {
+    string text;
+    for (const Atom& atom : atoms) {
+        text += to_string(static_cast<int>(atom.floor.longSideIn)) + "x" + to_string(static_cast<int>(atom.floor.shortSideIn)) + "/"
+                + to_string(atom.floor.levels) + "/P" + to_string(atom.components[0].priority) + " ";
+    }
+    return text;
+}
+
+// One seeded round through M5's whole selection: never worse than the exact best, a proof only on the exact best.
+void checkM5Round(unsigned seed, int round, const vector<Atom>& atoms, const Objective& best) {
+    M5LaneDateInput input = laneWith(atoms, 1);
+    input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
+    const M5LaneOutcome outcome = planWithServices(input, syntheticProfile(), [](M5RunServices& services) { services.workAllowance = 50'000'000; });
+    Objective shipped{0.0, 0.0};
+    if (outcome.selected && !outcome.selected->trucks.empty()) {
+        const vector<size_t>& onTruck = outcome.selected->trucks.front().atoms;
+        shipped = valueOfChosen(atoms, vector<size_t>(onTruck.begin(), onTruck.end()));
+    }
+    INFO("seed " << seed << " round " << round << " stacks " << atoms.size() << ": " << describeCorpus(atoms));
+    CHECK(shipped >= best);
+    CHECK(shipped <= best);
+    if (outcome.selected && outcome.selected->evidence.proof == ProofStatus::ProvenOptimal) CHECK(shipped == best);
+    requireInvariants(outcome, input);
+}
+
+vector<Atom> randomCorpus(mt19937& generator, size_t count, size_t footprints) {
+    vector<CorpusShape> pool = kCorpusShapes;
+    shuffle(pool.begin(), pool.end(), generator);
+    if (footprints > 0) pool.resize(footprints);
+    // With few footprints each footprint keeps one height and one priority, so the classes stay few.
+    vector<int> levelsOf, priorityOf;
+    for (size_t shape = 0; shape < pool.size(); ++shape) {
+        levelsOf.push_back(uniform_int_distribution<int>(1, 2)(generator));
+        priorityOf.push_back(uniform_int_distribution<int>(0, 1)(generator) == 0 ? 0 : 11);
+    }
+    vector<Atom> atoms;
+    for (size_t stack = 0; stack < count; ++stack) {
+        const size_t pick = uniform_int_distribution<size_t>(0, pool.size() - 1)(generator);
+        const int levels = footprints > 0 ? levelsOf[pick] : uniform_int_distribution<int>(1, 2)(generator);
+        const int priority = footprints > 0 ? priorityOf[pick] : (uniform_int_distribution<int>(0, 1)(generator) == 0 ? 0 : 11);
+        atoms.push_back(corpusStack("s" + to_string(100 + stack), pool[pick], levels, priority));
+    }
+    return atoms;
+}
+
+}  // namespace
+
+TEST_CASE("R-5b/m5Path seeded single trucks of 6-10 stacks of Tom's footprints through M5's selection are never worse than the exact best" * doctest::test_suite("m5")) {
+    constexpr unsigned seed = 20261118;
+    mt19937 generator(seed);
+    for (int round = 0; round < 30; ++round) {
+        const vector<Atom> atoms = randomCorpus(generator, uniform_int_distribution<size_t>(6, 10)(generator), 0);
+        checkM5Round(seed, round, atoms, exactBestOverSubsets(atoms));
+    }
+    m5Evidence::note("expected", {"30 rounds, seed 20261118, 6 to 10 stacks, one or two high, P0 or P11", "shipped equals the exact best over every subset (M4's floor and the payload)"});
+    m5Evidence::note("notCovered", "the oracle judges each subset with M4's own floor arrangement; an independent exact row-grouping enumerator is not built, so a fault inside M4's row judgement itself would not show here");
+}
+
+TEST_CASE("R-5b/groupingRegion11to16 seeded single trucks of 11-13 mixed-footprint stacks, the region where M4 once judged rows by two sorted orders" * doctest::test_suite("m5")) {
+    constexpr unsigned seed = 20261119;
+    mt19937 generator(seed);
+    for (int round = 0; round < 10; ++round) {
+        const vector<Atom> atoms = randomCorpus(generator, uniform_int_distribution<size_t>(11, 13)(generator), 0);
+        checkM5Round(seed, round, atoms, exactBestOverSubsets(atoms));
+    }
+    m5Evidence::note("expected", {"10 rounds, seed 20261119, 11 to 13 mixed-footprint stacks", "never worse than the exact best; a proof only on the exact best"});
+    m5Evidence::note("notCovered", "14 to 16 mixed footprints need a subset search beyond this oracle's reach (2^16 judged floors per round); the 14 to 20 range is covered for few footprints");
+}
+
+TEST_CASE("R-5b/fewFootprints14to20 seeded single trucks of 14-20 stacks of two or three distinct footprints, exact over the counts taken of each" * doctest::test_suite("m5")) {
+    constexpr unsigned seed = 20261120;
+    mt19937 generator(seed);
+    for (int round = 0; round < 20; ++round) {
+        const vector<Atom> atoms = randomCorpus(generator, uniform_int_distribution<size_t>(14, 20)(generator), uniform_int_distribution<size_t>(2, 3)(generator));
+        checkM5Round(seed, round, atoms, exactBestOverCounts(atoms));
+    }
+    m5Evidence::note("expected", {"20 rounds, seed 20261120, 14 to 20 stacks of 2 or 3 footprints", "shipped equals the exact best over the counts"});
+}
+
 TEST_CASE("R-5b seeded single trucks of 6-11 stacks are never worse than brute force" * doctest::test_suite("m5")) {
     struct Shape {
         double longSide, shortSide;
@@ -2971,51 +3142,156 @@ TEST_CASE("X-CG-07/synthetic: reduced costs just past the tolerance on either si
     m5Evidence::note("expected", {"best answer, Completed", "rc -1e-6 enters (3 columns), +1e-6 does not (2)", "pricing calls <= 4"});
 }
 
-TEST_CASE("X-META-07 X-META-09 more capacity or one more reservation is never worse" * doctest::test_suite("m5")) {
+TEST_CASE("X-META-07/synthetic X-META-09/synthetic more capacity, one item fewer or one more reservation is never worse (exact small cases)" * doctest::test_suite("m5")) {
     ScalarModel model = scalarModel({6, 5, 4, 3, 3, 2}, 10);
     const size_t tight = solveCuttingStock(model, ScalarLimits()).packing->bins.size();
     model.capacity = 11;
     CHECK(solveCuttingStock(model, ScalarLimits()).packing->bins.size() <= tight);
     model.sizes.pop_back();
     CHECK(solveCuttingStock(model, ScalarLimits()).packing->bins.size() <= tight);
+    // Seeded small cases against an independent exact answer: raise the capacity, or remove one item.
+    constexpr unsigned seed = 20261122;
+    mt19937 generator(seed);
+    for (int round = 0; round < 60; ++round) {
+        const size_t count = uniform_int_distribution<size_t>(1, 9)(generator);
+        vector<long long> sizes;
+        for (size_t item = 0; item < count; ++item) sizes.push_back(uniform_int_distribution<long long>(1, 10)(generator));
+        const long long capacity = uniform_int_distribution<long long>(10, 14)(generator);
+        const long long exact = m5Oracles::bruteForceBins(sizes, capacity);
+        INFO("seed " << seed << " round " << round << " capacity " << capacity << " items " << count);
+        CHECK(m5Oracles::bruteForceBins(sizes, capacity + 1) <= exact);
+        vector<long long> fewer = sizes;
+        fewer.erase(fewer.begin() + static_cast<ptrdiff_t>(uniform_int_distribution<size_t>(0, count - 1)(generator)));
+        CHECK(m5Oracles::bruteForceBins(fewer, capacity) <= exact);
+        const ScalarResult solved = solveCuttingStock(scalarModel(sizes, capacity), ScalarLimits());
+        REQUIRE(solved.packing.has_value());
+        CHECK(static_cast<long long>(solved.packing->bins.size()) == exact);
+    }
+    // One more reservation: the exact best (here every unit shipped by the unlimited planner) is never worse.
     const M5LaneDateInput two = laneWith(concat(fx30Units("a", 40, "A", 0), fx30Units("b", 40, "B", 3)), 2);
     const M5LaneDateInput three = laneWith(concat(fx30Units("a", 40, "A", 0), fx30Units("b", 40, "B", 3)), 3);
-    CHECK(shippedCount(plan(three, syntheticProfile())) >= shippedCount(plan(two, syntheticProfile())));
+    const M5LaneOutcome fewerTrucks = plan(two, syntheticProfile()), moreTrucks = plan(three, syntheticProfile());
+    CHECK(shippedCount(moreTrucks) >= shippedCount(fewerTrucks));
+    CHECK(shippedCount(fewerTrucks) == 40);
+    CHECK(shippedCount(moreTrucks) == 70);
+    m5Evidence::note("expected", {"60 seeded small cases: more capacity or one item fewer never needs more bins", "one more reservation: 40 then 70 shipped (A first, then B on the extra truck)"});
 }
 
-TEST_CASE("X-META-03 X-META-05 shuffled or renamed rows give the same shipments and trucks" * doctest::test_suite("m5")) {
-    vector<Atom> atoms = concat(fx30Units("a", 45, "A", 0), fx30Units("b", 25, "B", 4));
-    const M5LaneOutcome base = plan(laneWith(atoms, 2), syntheticProfile());
-    mt19937 generator(7);
-    shuffle(atoms.begin(), atoms.end(), generator);
-    const M5LaneDateInput shuffled = laneWith(atoms, 2);
-    const M5LaneOutcome reshuffled = plan(shuffled, syntheticProfile());
-    CHECK(shippedCount(reshuffled) == shippedCount(base));
-    CHECK(reshuffled.selected->trucks.size() == base.selected->trucks.size());
-    vector<Atom> renamed = atoms;
-    for (Atom& atom : renamed) {
-        atom.id = "r-" + atom.id;
-        atom.group = atom.group == "A" ? "Z" : "Y";
-        atom.components[0].source = "r-" + atom.components[0].source;
+TEST_CASE("X-META-03/synthetic shuffled atoms and source lines keep their own IDs: the same goods by ID ship and the truck count is the same (scoped to M5's input)" * doctest::test_suite("m5")) {
+    // Scoped to M5 input (Decision 2): shuffling raw input-file rows changes results because M4 stacking follows file
+    // order (architecture 22.9). Here the atoms and their source lines are shuffled after M4, each keeping its own ID.
+    const vector<Atom> original = concat(fx30Units("a", 45, "A", 0), fx30Units("b", 25, "B", 4));
+    const M5LaneDateInput baseInput = laneWith(original, 2);
+    const M5LaneOutcome base = plan(baseInput, syntheticProfile());
+    requireInvariants(base, baseInput);
+    constexpr unsigned seed = 7;
+    mt19937 generator(seed);
+    for (int round = 0; round < 12; ++round) {
+        vector<Atom> atoms = original;
+        shuffle(atoms.begin(), atoms.end(), generator);
+        // The components inside every atom are shuffled too; each keeps its source line.
+        for (Atom& atom : atoms) shuffle(atom.components.begin(), atom.components.end(), generator);
+        const M5LaneDateInput shuffled = laneWith(atoms, 2);
+        const M5LaneOutcome outcome = plan(shuffled, syntheticProfile());
+        INFO("seed " << seed << " round " << round);
+        requireInvariants(outcome, shuffled);
+        CHECK(shippedIds(outcome, shuffled) == shippedIds(base, baseInput));
+        REQUIRE(outcome.selected);
+        CHECK(outcome.selected->trucks.size() == base.selected->trucks.size());
+        for (const Atom& atom : shuffled.atoms) CHECK(atom.id.empty() == false);
     }
-    const M5LaneDateInput renamedInput = laneWith(renamed, 2);
-    const M5LaneOutcome afterRename = plan(renamedInput, syntheticProfile());
-    CHECK(shippedCount(afterRename) == shippedCount(base));
-    CHECK(shippedOfGroup(afterRename, renamedInput, "Z") == shippedOfGroup(base, laneWith(concat(fx30Units("a", 45, "A", 0), fx30Units("b", 25, "B", 4)), 2), "A"));
+    m5Evidence::note("expected", {"12 shuffles of atoms and components, seed 7", "the same goods by ID ship; the same truck count", "IDs are never re-numbered by position"});
+    m5Evidence::note("notCovered", "shuffling raw input-file rows: M4 stacking follows file order (architecture 22.9), so that claim does not hold for real rows and is not tested here");
 }
 
-TEST_CASE("X-META-04 X-DATA-07 a line split across stacks plans the same and keeps its identity" * doctest::test_suite("m5")) {
-    vector<Atom> split = fx30Units("u", 30);
-    for (size_t unit = 0; unit < 15; ++unit) split[unit].components[0].source = "line-first-half";
-    for (size_t unit = 15; unit < 30; ++unit) split[unit].components[0].source = "line-second-half";
-    const M5LaneDateInput input = laneWith(split, 1);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    CHECK(shippedCount(outcome) == 30);
-    CHECK(reconcile(*buildSnapshot(input).snapshot, *outcome.selected).balanced);
+TEST_CASE("X-META-05/synthetic renaming products, groups and source lines keeps feasibility, truck count and the objective; a unique optimum maps exactly, a tie may flip by ID" * doctest::test_suite("m5")) {
+    const auto renamedCopy = [](const vector<Atom>& atoms, const map<string, string>& groupNames) {
+        vector<Atom> renamed = atoms;
+        for (Atom& atom : renamed) {
+            atom.id = "r-" + atom.id;
+            atom.group = groupNames.at(atom.group);
+            for (Component& component : atom.components) {
+                component.source = "r-" + component.source;
+                component.product = "r-" + component.product;
+            }
+        }
+        return renamed;
+    };
+    const auto classVector = [](const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+        map<int, size_t> shippedByPriority;
+        if (outcome.selected) {
+            for (const TruckPlan& truck : outcome.selected->trucks) {
+                for (const size_t atom : truck.atoms) ++shippedByPriority[input.atoms[atom].components[0].priority];
+            }
+        }
+        return shippedByPriority;
+    };
+    // A unique optimum: B's 20 P0 beat A's 1 P0 + 29 P11 on one truck. Renaming maps the winner exactly.
+    vector<Atom> unique{fx30("a0", "A", 0)};
+    unique = concat(unique, fx30Units("a11-", 29, "A", 11));
+    unique = concat(unique, fx30Units("b0-", 20, "B", 0));
+    const M5LaneDateInput uniqueInput = laneWith(unique, 1);
+    const M5LaneOutcome uniqueBase = plan(uniqueInput, syntheticProfile());
+    const M5LaneDateInput uniqueRenamed = laneWith(renamedCopy(unique, {{"A", "Zebra"}, {"B", "Alpha"}}), 1);
+    const M5LaneOutcome uniqueAfter = plan(uniqueRenamed, syntheticProfile());
+    requireInvariants(uniqueAfter, uniqueRenamed);
+    CHECK(shippedOfGroup(uniqueBase, uniqueInput, "B") == 20);
+    CHECK(shippedOfGroup(uniqueAfter, uniqueRenamed, "Alpha") == 20);
+    CHECK(shippedOfGroup(uniqueAfter, uniqueRenamed, "Zebra") == 0);
+    CHECK(classVector(uniqueAfter, uniqueRenamed) == classVector(uniqueBase, uniqueInput));
+
+    // A tied allocation: two equal groups, one truck. The ID-based tie rule may pick the other group after renaming,
+    // but feasibility, truck count and the class vector are preserved.
+    const vector<Atom> tied = concat(fx30Units("a", 30, "A", 3), fx30Units("b", 30, "B", 3));
+    const M5LaneDateInput tiedInput = laneWith(tied, 1);
+    const M5LaneOutcome tiedBase = plan(tiedInput, syntheticProfile());
+    for (const map<string, string>& names : {map<string, string>{{"A", "Y"}, {"B", "X"}}, map<string, string>{{"A", "m1"}, {"B", "m2"}}}) {
+        const M5LaneDateInput renamedInput = laneWith(renamedCopy(tied, names), 1);
+        const M5LaneOutcome after = plan(renamedInput, syntheticProfile());
+        requireInvariants(after, renamedInput);
+        REQUIRE(after.selected);
+        CHECK(after.selected->trucks.size() == tiedBase.selected->trucks.size());
+        CHECK(shippedCount(after) == shippedCount(tiedBase));
+        CHECK(classVector(after, renamedInput) == classVector(tiedBase, tiedInput));
+    }
+    m5Evidence::note("expected", {"unique optimum: the renamed winner is B's image", "tied groups: the same truck count and class vector, the winner may differ"});
 }
 
-TEST_CASE("X-META-10 seeded random inputs: either refused as invalid or planned within every invariant" * doctest::test_suite("m5")) {
-    mt19937 generator(31337);
+TEST_CASE("X-META-04/synthetic splitting one line into two with the same total, and merging back, gives the same answer" * doctest::test_suite("m5")) {
+    const auto withSources = [](size_t firstHalf, size_t secondHalf) {
+        vector<Atom> units = fx30Units("u", firstHalf + secondHalf);
+        for (size_t unit = 0; unit < units.size(); ++unit) units[unit].components[0].source = unit < firstHalf ? "line-first" : "line-second";
+        return units;
+    };
+    const auto whole = [] {
+        vector<Atom> units = fx30Units("u", 30);
+        for (Atom& unit : units) unit.components[0].source = "line-whole";
+        return units;
+    }();
+    const M5LaneDateInput wholeInput = laneWith(whole, 1);
+    const M5LaneOutcome wholeOutcome = plan(wholeInput, syntheticProfile());
+    for (const size_t firstHalf : {size_t{1}, size_t{15}, size_t{29}}) {
+        const M5LaneDateInput splitInput = laneWith(withSources(firstHalf, 30 - firstHalf), 1);
+        const M5LaneOutcome splitOutcome = plan(splitInput, syntheticProfile());
+        requireInvariants(splitOutcome, splitInput);
+        INFO("split " << firstHalf << " + " << 30 - firstHalf);
+        CHECK(shippedIds(splitOutcome, splitInput) == shippedIds(wholeOutcome, wholeInput));
+        CHECK(splitOutcome.selected->trucks.size() == wholeOutcome.selected->trucks.size());
+        CHECK(reconcile(*buildSnapshot(splitInput).snapshot, *splitOutcome.selected).balanced);
+        // Merged back: the same as the original line.
+        vector<Atom> merged = withSources(firstHalf, 30 - firstHalf);
+        for (Atom& unit : merged) unit.components[0].source = "line-whole";
+        const M5LaneDateInput mergedInput = laneWith(merged, 1);
+        const M5LaneOutcome mergedOutcome = plan(mergedInput, syntheticProfile());
+        CHECK(shippedIds(mergedOutcome, mergedInput) == shippedIds(wholeOutcome, wholeInput));
+        CHECK(mergedOutcome.selected->trucks.size() == wholeOutcome.selected->trucks.size());
+    }
+    m5Evidence::note("expected", {"one line of 30 against splits of 1+29, 15+15 and 29+1: the same 30 ship on one truck", "merged back: the original answer"});
+}
+
+TEST_CASE("X-META-10/seeded random valid and invalid physical inputs: either refused as invalid or planned within every invariant; a failing seed and round are printed" * doctest::test_suite("m5")) {
+    constexpr unsigned seed = 31337;
+    mt19937 generator(seed);
     const vector<double> odd{-1.0, 0.0, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity()};
     for (int round = 0; round < 40; ++round) {
         vector<Atom> atoms;
@@ -3030,7 +3306,7 @@ TEST_CASE("X-META-10 seeded random inputs: either refused as invalid or planned 
         if (round % 4 == 0) atoms.front().weightLb = odd[static_cast<size_t>(round / 4) % odd.size()];
         const M5LaneDateInput input = laneWith(atoms, uniform_int_distribution<size_t>(0, 4)(generator));
         const M5LaneOutcome outcome = plan(input, syntheticProfile());
-        INFO("round " << round);
+        INFO("seed " << seed << " round " << round << " stacks " << atoms.size() << " reserved " << input.pool.slots.size());
         if (outcome.kind == OutcomeKind::InvalidInput) {
             CHECK(round % 4 == 0);
             continue;

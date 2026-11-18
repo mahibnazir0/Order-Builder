@@ -470,17 +470,21 @@ TEST_CASE("ACC-3/fxGap U-FF-01 U-FF-02 U-FF-03 FX-GAP escalates on F > B with al
     m5Evidence::note("expected", {"F = B: no escalation", "F = B + 1 with G = 1: escalates only while allowance is left", "G = 2 moves the boundary to F = B + 2"});
 }
 
-TEST_CASE("X-META-01 every multiset of up to 7 sizes 1-6 at capacity 6 matches brute force" * doctest::test_suite("m5")) {
+namespace {
+
+// Every multiset of at most `maxItems` item sizes from 1 to 6 at capacity 6, each solved and compared with brute force.
+size_t everyMultisetUpTo(size_t maxItems) {
     size_t multisets = 0;
     vector<long long> sizes;
     function<void(long long)> extend = [&](long long smallest) {
         ++multisets;
         const ScalarModel model = modelOf(sizes, 6);
         const ScalarResult result = solveCuttingStock(model, ScalarLimits());
+        INFO("sizes " << sizes.size() << " items, multiset " << multisets);
         REQUIRE(result.packing.has_value());
         REQUIRE(m5Oracles::packingValid(model, *result.packing, result.impossible));
         REQUIRE(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(sizes, 6));
-        if (sizes.size() == 7) return;
+        if (sizes.size() == maxItems) return;
         for (long long size = smallest; size <= 6; ++size) {
             sizes.push_back(size);
             extend(size);
@@ -488,11 +492,25 @@ TEST_CASE("X-META-01 every multiset of up to 7 sizes 1-6 at capacity 6 matches b
         }
     };
     extend(1);
-    CHECK(multisets == 1716);
+    return multisets;
 }
 
-TEST_CASE("X-CG-15 seeded random small cases match brute force" * doctest::test_suite("m5")) {
-    mt19937 generator(20261113);
+}  // namespace
+
+TEST_CASE("X-META-01/ciSubset every multiset of up to 4 sizes 1-6 at capacity 6 matches brute force (the deterministic CI subset of the 1,716)" * doctest::test_suite("m5")) {
+    // 1 + 6 + 21 + 56 + 126 multisets of 0 to 4 items.
+    CHECK(everyMultisetUpTo(4) == 210);
+    m5Evidence::note("expected", {"210 multisets of 0 to 4 items: best bin count equals brute force, packing valid"});
+}
+
+TEST_CASE("X-META-01/full every multiset of up to 7 sizes 1-6 at capacity 6 matches brute force: all 1,716" * doctest::test_suite("m5")) {
+    CHECK(everyMultisetUpTo(7) == 1716);
+    m5Evidence::note("expected", {"1,716 multisets of 0 to 7 items: best bin count equals brute force, packing valid"});
+}
+
+TEST_CASE("X-CG-15/seeded random small cases match brute force" * doctest::test_suite("m5")) {
+    constexpr unsigned seed = 20261113;
+    mt19937 generator(seed);
     for (int round = 0; round < 300; ++round) {
         const long long capacity = uniform_int_distribution<long long>(5, 20)(generator);
         const size_t count = uniform_int_distribution<size_t>(0, 10)(generator);
@@ -500,14 +518,15 @@ TEST_CASE("X-CG-15 seeded random small cases match brute force" * doctest::test_
         for (size_t item = 0; item < count; ++item) sizes.push_back(uniform_int_distribution<long long>(1, capacity)(generator));
         const ScalarModel model = modelOf(sizes, capacity);
         const ScalarResult result = solveCuttingStock(model, ScalarLimits());
-        INFO("round " << round);
+        INFO("seed " << seed << " round " << round << " capacity " << capacity << " items " << count);
         REQUIRE(result.packing.has_value());
         REQUIRE(m5Oracles::packingValid(model, *result.packing, result.impossible));
         REQUIRE(static_cast<long long>(result.packing->bins.size()) == m5Oracles::bruteForceBins(sizes, capacity));
     }
+    m5Evidence::note("expected", {"300 seeded small cases of at most 10 items equal brute force; a failing seed and round are printed"});
 }
 
-TEST_CASE("X-META-02 scaling sizes and capacity keeps the best bin count" * doctest::test_suite("m5")) {
+TEST_CASE("X-META-02/synthetic scaling sizes and capacity by 10 and 100 keeps the best bin count" * doctest::test_suite("m5")) {
     const vector<long long> sizes{6, 5, 3, 2, 2, 2};
     for (const long long scale : {1LL, 10LL, 100LL}) {
         vector<long long> scaled;
@@ -516,11 +535,43 @@ TEST_CASE("X-META-02 scaling sizes and capacity keeps the best bin count" * doct
     }
 }
 
-TEST_CASE("X-META-08 a do-not-mix rule never lowers the exact best" * doctest::test_suite("m5")) {
+TEST_CASE("X-META-08/synthetic a do-not-mix rule never lowers the exact best; removing it restores it" * doctest::test_suite("m5")) {
     ScalarModel mixed = modelOf({6, 4, 6, 4});
     ScalarModel apart = mixed;
     apart.groupOf = {0, 1, 0, 1};
     CHECK(solveChecked(apart).packing->bins.size() >= solveChecked(mixed).packing->bins.size());
+    // Seeded small cases against an independent exact answer: with the rule the best is the sum over groups.
+    constexpr unsigned seed = 20261118;
+    mt19937 generator(seed);
+    for (int round = 0; round < 80; ++round) {
+        const size_t count = uniform_int_distribution<size_t>(1, 8)(generator);
+        vector<long long> sizes;
+        vector<size_t> groups;
+        for (size_t item = 0; item < count; ++item) {
+            sizes.push_back(uniform_int_distribution<long long>(1, 10)(generator));
+            groups.push_back(uniform_int_distribution<size_t>(0, 2)(generator));
+        }
+        long long separate = 0;
+        for (size_t group = 0; group < 3; ++group) {
+            vector<long long> members;
+            for (size_t item = 0; item < count; ++item) {
+                if (groups[item] == group) members.push_back(sizes[item]);
+            }
+            separate += m5Oracles::bruteForceBins(members, 10);
+        }
+        const long long together = m5Oracles::bruteForceBins(sizes, 10);
+        ScalarModel withRule = modelOf(sizes, 10);
+        withRule.groupOf = groups;
+        ScalarModel withoutRule = modelOf(sizes, 10);
+        INFO("seed " << seed << " round " << round << " sizes " << count);
+        const ScalarResult ruled = solveChecked(withRule), free = solveChecked(withoutRule);
+        REQUIRE(ruled.packing.has_value());
+        REQUIRE(free.packing.has_value());
+        CHECK(static_cast<long long>(ruled.packing->bins.size()) == separate);
+        CHECK(static_cast<long long>(free.packing->bins.size()) == together);
+        CHECK(separate >= together);
+    }
+    m5Evidence::note("expected", {"with a do-not-mix rule the exact best is never fewer bins than without", "removing the rule restores the unmixed best"});
 }
 
 // PUB-01..03 need OR-Library's binpack1.txt in tests/m5/data/orlib/. It is skipped in the full run so a

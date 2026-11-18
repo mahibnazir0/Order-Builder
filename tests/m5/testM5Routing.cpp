@@ -531,6 +531,56 @@ TEST_CASE("R-6/m4Path one truck, two do-not-mix groups on one lane: M4's selecto
     m5Evidence::note("expected", {"M4 selector, no planner: group B's eleven ship on the one truck", "group A's twelve stay left over (only ten fit)"});
 }
 
+TEST_CASE("R-5b/m4Path seeded single trucks of 6-10 one-high stacks through M4's selector are never worse than the exact best" * doctest::test_suite("m5")) {
+    struct Footprint {
+        double longSide, shortSide;
+    };
+    const vector<Footprint> shapes{{72, 60}, {80, 48}, {120, 48}, {48, 48}, {96, 40}, {60, 60}, {40, 33}, {100, 50},
+                                   {110, 40}, {90, 55}, {80, 60}, {100, 60}, {48, 36}, {48, 40}, {44, 40}, {100, 20}};
+    constexpr unsigned seed = 20261121;
+    mt19937 generator(seed);
+    for (int round = 0; round < 25; ++round) {
+        const size_t count = uniform_int_distribution<size_t>(6, 10)(generator);
+        vector<SelectionItem> goods;
+        vector<m5::Atom> atoms;
+        string described;
+        for (size_t stack = 0; stack < count; ++stack) {
+            const Footprint shape = shapes[uniform_int_distribution<size_t>(0, shapes.size() - 1)(generator)];
+            const int priority = uniform_int_distribution<int>(0, 1)(generator) == 0 ? 0 : 11;
+            goods.push_back(item(0, stack, 2500.0, priority, shape.longSide, shape.shortSide));
+            atoms.push_back(m5Fixtures::unitOf("s" + to_string(100 + stack), "A", shape.longSide, shape.shortSide, 50.0, 2500.0, priority));
+            described += to_string(static_cast<int>(shape.longSide)) + "x" + to_string(static_cast<int>(shape.shortSide)) + "/P" + to_string(priority) + " ";
+        }
+        const Day day = dayOf({group("2027")}, count, goods, {reserved("2027", 1)});
+        // The exact best over every subset, judged by M4's floor and the payload: P0 stacks first, then P11.
+        pair<int, int> best{0, 0};
+        for (unsigned mask = 1; mask < (1u << count); ++mask) {
+            pair<int, int> value{0, 0};
+            double weight = 0.0;
+            vector<ob::FloorItem> floors;
+            for (size_t stack = 0; stack < count; ++stack) {
+                if (!(mask & (1u << stack))) continue;
+                (goods[stack].priority == 0 ? value.first : value.second) += 1;
+                weight += goods[stack].weightLb;
+                floors.push_back(atoms[stack].floor);
+            }
+            if (value <= best || weight > m5Fixtures::kDefaultTrailer.maxWeightLb) continue;
+            const ob::FloorLayout layout = ob::arrangeFloor(floors, m5::trailerOf(m5Fixtures::kDefaultTrailer), m5Fixtures::physicalSettings().floor);
+            if (layout.fitsLength && layout.unplaceableItems.empty()) best = value;
+        }
+        const SelectionPlan selected = plan(day, selectorSettings());
+        pair<int, int> shipped{0, 0};
+        for (const PlannedTruck& truck : selected.trucks) {
+            for (const size_t index : truck.items) (day.items.items[index].priority == 0 ? shipped.first : shipped.second) += 1;
+        }
+        INFO("seed " << seed << " round " << round << " stacks " << count << ": " << described);
+        CHECK(shipped >= best);
+        CHECK(accountedOnce(selected, day.items.items.size()));
+    }
+    m5Evidence::note("expected", {"25 rounds, seed 20261121, 6 to 10 one-high stacks", "the selector's truck is never worse than the exact best over every subset"});
+    m5Evidence::note("notCovered", "the oracle judges each subset with M4's own floor arrangement; an independent exact row-grouping enumerator is not built");
+}
+
 TEST_CASE("X-STATE-03/synthetic: an M4 lane plans the same with an unrelated M5 lane beside it" * doctest::test_suite("m5")) {
     const Day day = dayOf({group("2027"), group("2028")}, 60, join(itemsOf(0, 30, 0), itemsOf(1, 30, 30)),
                           {reserved("2027", 20), reserved("2028", 21)});

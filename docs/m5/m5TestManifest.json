@@ -934,7 +934,7 @@
         "TEST"
       ],
       "workPackage": "WP9",
-      "testFile": "tests/m5/testM5Scenarios.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Random single-truck stacks, fixed seeds; exact row-grouping oracle; failures_old (7cef94e) and failures_e51d9c4 regressions",
       "localOverrides": "",
       "entryPoint": "M4 + DIRECT",
