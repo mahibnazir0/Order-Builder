@@ -16,6 +16,7 @@
 #include "m5Policy.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -51,9 +52,16 @@ struct OperationalState {
 
 enum class ApplyStatus { Applied, AlreadyApplied, StaleSnapshot, PayloadConflict };
 
+// The two places inside one commit where a failure can be injected (X-STATE-10).
+enum class CommitStep { AfterDataUpdate, AfterOperationRecord };
+
 class CommitLedger {
 public:
     ApplyStatus applyIfCurrent(const CommitDelta& delta, const DemandSnapshot& snapshot, OperationalState& state);
+
+    // Test seam only: called at each step of a commit. Whatever it throws, the state and the operation
+    // log are exactly as before the call, or the commit is complete: never half applied.
+    std::function<void(CommitStep)> failureInjection;
 
 private:
     std::mutex mutex_;

@@ -525,3 +525,64 @@ TEST_CASE("X-STATE-10/sameSlotTieConcurrent: G1's and a stale G2 candidate race 
     CHECK(sourceUnits == 6);
     m5Evidence::note("expected", {"G1 Applied once", "G2 StaleSnapshot", "1 slot", "6 source unit loads"});
 }
+
+namespace {
+
+// Snapshot V7 of X-STATE-10: twenty identified FX-30 units, two free slots, acceptance off. The selected
+// candidate C1 is units 0 to 9 on one truck; its delta is operation O1.
+struct SnapshotV7 {
+    M5LaneDateInput input;
+    M5LaneOutcome selected;
+    set<string> c1Units;
+};
+
+SnapshotV7 snapshotV7() {
+    SnapshotV7 v7;
+    v7.input = laneWith(fx30Units("u", 20), 2);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, 1, 10)};
+    v7.selected = planLaneDate(v7.input, syntheticProfile(), physicalSettings(), services);
+    REQUIRE(v7.selected.delta);
+    REQUIRE(v7.selected.delta->trucks.size() == 1);
+    for (const TruckPlan& truck : v7.selected.delta->trucks) {
+        for (const size_t atom : truck.atoms) v7.c1Units.insert(v7.input.atoms[atom].id);
+    }
+    REQUIRE(v7.c1Units.size() == 10);
+    return v7;
+}
+
+DemandSnapshot snapshotOf(const M5LaneDateInput& input) { return *buildSnapshot(input).snapshot; }
+
+}  // namespace
+
+TEST_CASE("X-STATE-10/atomicFailure: a failure between the data update and the operation record leaves the ledger entirely before or entirely after the commit" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    for (const CommitStep failAt : {CommitStep::AfterDataUpdate, CommitStep::AfterOperationRecord}) {
+        CommitLedger ledger;
+        OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+        ledger.failureInjection = [&](CommitStep step) {
+            if (step == failAt) throw runtime_error("injected failure");
+        };
+        CHECK_THROWS_AS(ledger.applyIfCurrent(o1, snapshot, state), runtime_error);
+        // Entirely pre-commit: no goods consumed, no slot used, no version step, no operation record.
+        CHECK(state.snapshot == snapshot.id);
+        CHECK(state.reservationVersion == snapshot.input.pool.version);
+        CHECK(state.consumedAtoms.empty());
+        CHECK(state.slotsUsed == 0);
+        ledger.failureInjection = nullptr;
+        CHECK(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::Applied);
+        // Entirely committed, once.
+        CHECK(state.consumedAtoms == v7.c1Units);
+        CHECK(state.slotsUsed == 1);
+        CHECK(state.reservationVersion == snapshot.input.pool.version + 1);
+        CHECK(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::AlreadyApplied);
+        CHECK(state.consumedAtoms.size() == 10);
+        CHECK(state.slotsUsed == 1);
+    }
+    m5Evidence::note("expected", {"failure after the data update: nothing applied, nothing recorded",
+                                  "failure after the operation record: record withdrawn, nothing applied",
+                                  "a clean retry applies ten units and one slot exactly once"});
+}

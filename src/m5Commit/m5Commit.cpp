@@ -66,11 +66,22 @@ ApplyStatus CommitLedger::applyIfCurrent(const CommitDelta& delta, const DemandS
         }
     }
     if (state.slotsUsed + delta.reservationsUsed > state.slotsReserved) return ApplyStatus::StaleSnapshot;
-    state.consumedAtoms.insert(consumed.begin(), consumed.end());
-    state.slotsUsed += delta.reservationsUsed;
-    ++state.reservationVersion;
-    state.snapshot = delta.expectedSnapshot + "+" + delta.operationKey;
+    // The data update is built on a copy and published last, so a failure anywhere before that leaves the
+    // caller's state and the operation log untouched (CL-10: data and operation record are one step).
+    OperationalState updated = state;
+    updated.consumedAtoms.insert(consumed.begin(), consumed.end());
+    updated.slotsUsed += delta.reservationsUsed;
+    ++updated.reservationVersion;
+    updated.snapshot = delta.expectedSnapshot + "+" + delta.operationKey;
+    if (failureInjection) failureInjection(CommitStep::AfterDataUpdate);
     payloadByOperation_.emplace(delta.operationKey, delta.payloadHash);
+    try {
+        if (failureInjection) failureInjection(CommitStep::AfterOperationRecord);
+    } catch (...) {
+        payloadByOperation_.erase(delta.operationKey);
+        throw;
+    }
+    state = std::move(updated);
     return ApplyStatus::Applied;
 }
 
