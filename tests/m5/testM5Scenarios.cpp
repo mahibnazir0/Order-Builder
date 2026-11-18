@@ -1291,30 +1291,32 @@ TEST_CASE("U-FF-02/approvedPolicy: A is G + 1 above the bound: B runs with allow
     CHECK(outcome.methods[1].ran);
     CHECK(outcome.escalation.gap == "2 trucks, 66.7% above the bound of 3");
 
-    // No allowance left. The lane applies shouldEscalate(F, B, G, allowance left); no seam stops the
-    // clock between A's validation and B's start, so the rule is checked at that call, and on a lane
-    // whose allowance runs out inside A: B starts no fresh time and the run records the exhaustion.
-    CHECK_FALSE(shouldEscalate(5, 3, 1, false));
+    // No allowance left: A finishes with F = 5 against B = 3, then the test hook spends the whole
+    // allowance before B's turn. B starts no fresh time; the run records the exhaustion and keeps A's plan.
     FakeClock clock;
     M5RunServices services(clock);
     services.allowanceSeconds = 5.0;
-    services.beforeMethod = [&](MethodId method) {
+    services.afterMethod = [&](MethodId method) {
         if (method == MethodId::PatternRepeat) clock.advance(5.0);
     };
     const M5LaneOutcome spent = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
     requireInvariants(spent, input);
+    requireEscalation(spent, 50, 5, 3, false);
     REQUIRE(spent.methods.size() == 2);
+    CHECK(spent.methods[0].ran);
+    CHECK(spent.methods[0].validated);
+    CHECK(spent.methods[0].trucks == 5);
+    CHECK(spent.methods[0].selected);
     CHECK_FALSE(spent.methods[1].ran);
     CHECK(spent.methods[1].skippedBecause.find("allowance was spent") != string::npos);
-    CHECK_FALSE(spent.escalation.escalated);
     CHECK(spent.stop == StopReason::BudgetExhausted);
     CHECK(spent.timing.exhausted);
     CHECK(spent.timing.elapsedSeconds == 5.0);
-    CHECK(spent.kind == OutcomeKind::TimeoutNoIncumbent);
-    CHECK(countCause(spent, LeftOverCause::NoResult) == 50);
-    CHECK(countCause(spent, LeftOverCause::Unfittable) == 0);
-    m5Evidence::note("expected", {"F 5, B 3: escalated with allowance", "no allowance: shouldEscalate false",
-                                  "allowance spent in A: B not started, budget exhausted at 5 s, 50 kept as no result"});
+    CHECK(spent.kind == OutcomeKind::TimeoutWithIncumbent);
+    CHECK(shippedCount(spent) == 50);
+    CHECK(spent.leftOver.empty());
+    m5Evidence::note("expected", {"F 5, B 3: escalated with allowance",
+                                  "A done (F 5), allowance then spent: B not started, not escalated, exhausted at 5 s, A's 5 trucks kept"});
 }
 
 TEST_CASE("U-FF-03/approvedPolicy: A equal to a valid bound never escalates" * doctest::test_suite("m5")) {

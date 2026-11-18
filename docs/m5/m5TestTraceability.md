@@ -331,7 +331,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 | U-DA-03 | unstated | Product missing from the master | M-INT / M-M4 M-LED | WP8 | Unit-conversion fixtures (M4 converter) | ROUTE + DIRECT | ARITH + LEDGER | 01 15 18 23 24 | 20 | - | synthetic (required, NOT_RUN) |
 | U-DA-04 | unstated | Pallet-type variant chosen by whole pallets | M-INT / M-M4 M-LED | WP8 | Unit-conversion fixtures (M4 converter) | ROUTE + DIRECT | ARITH + LEDGER | 01 15 18 23 24 | - | - | synthetic (required, NOT_RUN) |
 | U-DA-05 | unstated | Per-truck size or weight given in the input | M-INT / M-M4 M-LED | WP8 | Unit-conversion fixtures (M4 converter) | ROUTE + DIRECT | ARITH + LEDGER | 01 15 18 23 24 | - | CAPABILITY:per-truck trailer size/weight in input (NOT SUPPORTED at 7cef94e, C9) | adapterSeam (required, NOT_RUN); inputFeed (conditional, BLOCKED); mixedRunRejected (required, NOT_RUN) |
-| U-DA-06 | unstated | Multi-stop, temperature class or combo lane appears | M-INT / M-M4 | WP8 | Parked-feature rows | ROUTE | CONFIGERR | 15 23 24 | 24 | - | synthetic (required, NOT_RUN) |
+| U-DA-06 | unstated | Multi-stop, temperature class or combo lane appears (PARTIAL: only the combo-lane stop is tested. Multi-stop loads and temperature classes have no input field today (each STR line has one LOCFRNO and one LOCTONO and no temperature), so they cannot be fed in; question for Tom.) | M-INT / M-M4 | WP8 | Parked-feature rows | ROUTE | CONFIGERR | 15 23 24 | 24 | - | synthetic (required, NOT_RUN) |
 ### Current requirements Section 4.10
 
 | ID | P | Title | Own / collab | WP | Fixture | Entry | Oracle | INV | EC | Deps | Variants |

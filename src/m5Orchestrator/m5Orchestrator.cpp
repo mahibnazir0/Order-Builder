@@ -348,6 +348,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
             }
         }
         outcome.methods.push_back(std::move(record));
+        if (services.afterMethod) services.afterMethod(method.id());
     }
     if (services.wholeLaneRollback && stoppedByBudget && incumbent) {
         incumbent.reset();

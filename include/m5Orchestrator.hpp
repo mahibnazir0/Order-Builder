@@ -97,6 +97,9 @@ struct M5RunServices {
     std::optional<long long> workAllowance;       // deterministic stop
     std::vector<std::shared_ptr<const MethodPlanner>> methods;  // empty: the profile's method policy
     std::function<void(MethodId)> beforeMethod;
+    // Test seam only: called once a method's checked candidate is recorded, before the next method's
+    // allowance check, so a test can spend the allowance between A and B (U-FF-02).
+    std::function<void(MethodId)> afterMethod;
     std::function<void(std::size_t)> afterBlock;  // test seam, see MethodContext
     // Test seam only: replaces the check of one eligible atom alone on the roomiest slot, so a test can
     // force an Undecided verdict that a one-unit check never gives today (U-CF-08, ED-19).

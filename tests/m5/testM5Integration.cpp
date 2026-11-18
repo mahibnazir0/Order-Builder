@@ -163,7 +163,32 @@ TEST_CASE("U-RT-02 without a planner the lane-date is escalated, as before M5" *
     CHECK(selection.reservations[0].escalated);
 }
 
-TEST_CASE("U-SP-02/synthetic X-ROUTE-02: two do-not-mix groups are two cargo plans sharing one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
+TEST_CASE("U-SP-02/synthetic: two do-not-mix groups needing 11 and 10 trucks are two cargo plans on one pool of 21; no goods move between them" * doctest::test_suite("m5")) {
+    // 48 x 40 in, 1,000 lb goods stand 30 to a truck: 310 need 11 trucks, 280 need 10 (X-ROUTE-02 sizes).
+    vector<SelectionItem> goods;
+    for (size_t index = 0; index < 590; ++index) goods.push_back(item(index < 310 ? 0 : 1, index, 1000.0, 0));
+    const Day day = dayOf({group("2027"), group("2027", SplitReason::DoNotMix, "S01")}, goods.size(), goods, {reserved("2027", 21)});
+    SelectorSettings settings = selectorSettings();
+    settings.largeLanePlanner = plannerOf();
+    const SelectionPlan selection = plan(day, settings);
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    map<size_t, size_t> trucksOfGroup;
+    for (const PlannedTruck& truck : selection.trucks) {
+        ++trucksOfGroup[truck.groupIndex];
+        for (const size_t index : truck.items) CHECK(day.items.items[index].groupIndex == truck.groupIndex);
+    }
+    // Two cargo plans: each group gets its own trucks, together within the one pool.
+    CHECK(trucksOfGroup[0] == 11);
+    CHECK(trucksOfGroup[1] == 10);
+    CHECK(selection.trucks.size() == 21);
+    CHECK(selection.leftOver.empty());
+    REQUIRE(selection.largeLanes.size() == 1);
+    CHECK(selection.largeLanes[0].text.find("groups sharing the reservation: group 0, group 1 (S01)\n") != string::npos);
+    CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+    m5Evidence::note("expected", {"group 0: 11 trucks, group 1: 10 trucks, one pool of 21", "every good ships once", "no good on a truck of the other group"});
+}
+
+TEST_CASE("X-ROUTE-02 two do-not-mix groups over the pool share one 21-truck pool, never 21 each" * doctest::test_suite("m5")) {
     const Day day = dayWithReserved(21, 2000, 2);
     SelectorSettings settings = selectorSettings();
     settings.largeLanePlanner = plannerOf();
@@ -182,7 +207,6 @@ TEST_CASE("U-SP-02/synthetic X-ROUTE-02: two do-not-mix groups are two cargo pla
     CHECK(selection.largeLanes[0].text.find("groups sharing the reservation: group 0, group 1 (S01)\n") != string::npos);
     for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::OverReservation);
     CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
-    m5Evidence::note("expected", {"one lane report, pool 21 shared by groups 0 and 1", "21 trucks in all", "no good on a truck of the other group"});
 }
 
 TEST_CASE("M5 settings that do not read leave every good with the configuration reason" * doctest::test_suite("m5")) {

@@ -317,6 +317,27 @@ TEST_CASE("X-RUN-01 U-PF-03 the same input plans the same at 1, 2 and 8 threads"
     }
 }
 
+TEST_CASE("U-DA-06/synthetic: a combo lane stops the run with a clear message (multi-stop and temperature class not covered)" * doctest::test_suite("m5")) {
+    const m4SmallDay::SmallDay combo("uDa06Combo", "," + m4SmallDay::SmallDay::line("GOOD", 16, "TF"));
+    string message;
+    try {
+        Pipeline::run(combo.inputs);
+    } catch (const runtime_error& error) {
+        message = error.what();
+    }
+    INFO(message);
+    CHECK(message.find("M4 does not plan combo lanes") != string::npos);
+    CHECK(message.find("1 -> 2 under TF and TL") != string::npos);
+    // Control: the same day without the TF line plans.
+    const m4SmallDay::SmallDay plain("uDa06Plain");
+    const PipelineResult result = Pipeline::run(plain.inputs);
+    CHECK_FALSE(result.selectionPlan.trucks.empty());
+    m5Evidence::note("expected", {"combo lane 1 -> 2 (TF and TL): run stops naming it", "TL only: planned"});
+    // The input has no field that carries a multi-stop load or a temperature class (one LOCFRNO and LOCTONO
+    // per line, no temperature), so those two clauses cannot be fed in (decision D11-1, question for Tom).
+    m5Evidence::note("notCovered", "multi-stop and temperature class: no input field carries them today, so they cannot be fed in");
+}
+
 TEST_CASE("U-DA-06 X-RUN-08 a combo lane stops the run before any plan is published" * doctest::test_suite("m5")) {
     const m4SmallDay::SmallDay day("comboLane", "," + m4SmallDay::SmallDay::line("GOOD", 16, "TF"));
     CHECK_THROWS_AS(Pipeline::run(day.inputs), runtime_error);

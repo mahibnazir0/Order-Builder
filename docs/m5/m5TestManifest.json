@@ -5336,7 +5336,7 @@
       "customerGate": "NOT_EVALUATED",
       "executionStatus": "NOT_RUN",
       "blocker": "",
-      "acceptanceGateNote": "",
+      "acceptanceGateNote": "PARTIAL: only the combo-lane stop is tested. Multi-stop loads and temperature classes have no input field today (each STR line has one LOCFRNO and one LOCTONO and no temperature), so they cannot be fed in; question for Tom. Decision D11-1 (Mahib, 18 Nov 2026): record U-DA-06/synthetic as PARTIAL (evidence field notCovered), not PASS and not NOT_RUN; the v12 text is unchanged.",
       "runnableAfter": "WP8",
       "variants": [
         {
@@ -5344,7 +5344,7 @@
           "requirement": "required",
           "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "Synthetic fixture variant; executable now",
+          "note": "Synthetic fixture variant; executable now. PARTIAL: only the combo-lane stop is tested. Multi-stop loads and temperature classes have no input field today (each STR line has one LOCFRNO and one LOCTONO and no temperature), so they cannot be fed in; question for Tom.",
           "evidenceScope": "SYNTHETIC",
           "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. Synthetic fixture variant; executable now",
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."
