@@ -230,6 +230,26 @@ TEST_CASE("X-RES-04/synthetic: several labels for one lane-date never double its
     m5Evidence::note("expected", {"2027 labels refused, never 22", "2028 keeps 21", "M5 pool 21 for 2028 only"});
 }
 
+TEST_CASE("X-ROUTE-05/synthetic: a repeated reservation record never doubles available trucks" * doctest::test_suite("m5")) {
+    const PlaceholderRecord row = reserved("2027", 21);
+    const ReservationBook once = buildReservationBook({row}, kCtl, kPlanDate, {"53F", {"53F"}});
+    const ReservationBook twice = buildReservationBook({row, row}, kCtl, kPlanDate, {"53F", {"53F"}});
+    REQUIRE(findReservation(once, "2027", "2528", "TL", "2026-08-06"));
+    CHECK(once.reservedTrucks == 21);
+    CHECK(findReservation(twice, "2027", "2528", "TL", "2026-08-06") == nullptr);
+    CHECK(twice.reservedTrucks == 0);
+    CHECK(twice.skippedTrucks == 42);
+    REQUIRE(twice.skipped.size() == 2);
+    CHECK(twice.skipped[0].placeholderIndex == 0);
+    CHECK(twice.skipped[1].placeholderIndex == 1);
+    for (const SkippedPlaceholder& skipped : twice.skipped) {
+        CHECK(skipped.reason == PlaceholderSkipReason::DuplicateLaneDate);
+    }
+    CHECK(string(describeSkipReason(twice.skipped[0].reason)) == "duplicate lane and ship date");
+    m5Evidence::note("expected", {"one row reserves 21", "repeated row reserves 0, never 42", "both rows named duplicate lane and ship date"});
+    m5Evidence::note("notCovered", "two genuine equal reservations cannot be distinguished from a repeated record: the placeholder feed has no reservation identity");
+}
+
 TEST_CASE("X-RES-05/synthetic: reserved counts -1, 1.5, NaN, infinity and huge are refused with their row; a real 0 is no trucks" * doctest::test_suite("m5")) {
     const filesystem::path folder = testTemp::runTempFolder() / "xres05";
     filesystem::create_directories(folder);

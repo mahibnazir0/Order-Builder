@@ -180,9 +180,10 @@ TEST_CASE("m5Registry: the committed manifest is the v12 one: requirement hash, 
     CHECK(manifest.variants.size() == 557);
     CHECK(keys.size() == 557);
     // Decision D1 selected R-7's two conditional integration variants and decision 4 (both 17 Nov 2026)
-    // U-AC-04/zeroAndRange and U-FL-03/zeroAndMaximumRange: 554 NOT_RUN, 3 BLOCKED.
-    CHECK(byStatus["NOT_RUN"] == 554);
+    // X-ROUTE-05/synthetic is PARTIAL; the remaining manifest statuses are 553 NOT_RUN and 3 BLOCKED.
+    CHECK(byStatus["NOT_RUN"] == 553);
     CHECK(byStatus["BLOCKED"] == 3);
+    CHECK(byStatus["PARTIAL"] == 1);
     CHECK(byRequirement["required"] == 548);
     CHECK(byRequirement["conditional"] == 9);
     for (const Variant& variant : manifest.variants) {

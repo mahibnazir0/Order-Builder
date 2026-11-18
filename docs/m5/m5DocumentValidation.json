@@ -28,8 +28,9 @@
     "DEFERRED": 1
   },
   "variantStatuses": {
-    "NOT_RUN": 554,
-    "BLOCKED": 3
+    "NOT_RUN": 553,
+    "BLOCKED": 3,
+    "PARTIAL": 1
   },
   "invariants": 24,
   "edgeCases": 48,
@@ -1380,8 +1381,8 @@
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
     "m5ReviewAndChanges.md": "9ef821f2006177a532f2375994a23449b6edcd3e299179ef44e0349b775b1f86",
-    "m5TestManifest.json": "4594653ef537dc71c54543a94e7c6f03ec547a836f7df5ccf10d548d32ee7eba",
-    "m5TestTraceability.md": "66ddb1f545ed3aba6e24cd23de2973d25333de981feeb2224f3cc8e4851d5205"
+    "m5TestManifest.json": "66dbe13f0fb0ec31b867887cbe4ebf23dc7b6e0485275994ef73e10e6dfec3ff",
+    "m5TestTraceability.md": "4be446ccaf6a1a05f33dd0f160d6a4e157262c4b616e767ebba992fbd7aae7e8"
   },
   "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
   "revision91Fixes": {
@@ -1415,11 +1416,12 @@
         "detail": null
       },
       {
-        "check": "variant statuses 554 NOT_RUN, 3 BLOCKED",
+        "check": "variant statuses 553 NOT_RUN, 3 BLOCKED, 1 PARTIAL",
         "status": "PASS",
         "detail": {
-          "NOT_RUN": 554,
-          "BLOCKED": 3
+          "NOT_RUN": 553,
+          "BLOCKED": 3,
+          "PARTIAL": 1
         }
       },
       {
@@ -1499,7 +1501,7 @@
       "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
       "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
       "m5ReviewAndChanges.md": "9ef821f2006177a532f2375994a23449b6edcd3e299179ef44e0349b775b1f86",
-      "m5TestManifest.json": "799ed5afaae9f3c5553c48da9a4c66706d7d3b439566d0ab544ec3203fc85d2d",
+      "m5TestManifest.json": "4594653ef537dc71c54543a94e7c6f03ec547a836f7df5ccf10d548d32ee7eba",
       "m5TestTraceability.md": "66ddb1f545ed3aba6e24cd23de2973d25333de981feeb2224f3cc8e4851d5205"
     },
     "requirementSha256Before": "5a6105c61244ed08faa8915d3fd35b74be5768e5a704f9bab3fdebea49e17340",

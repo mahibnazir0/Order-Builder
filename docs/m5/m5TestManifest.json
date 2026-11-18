@@ -7341,15 +7341,15 @@
       "customerGate": "NOT_EVALUATED",
       "executionStatus": "NOT_RUN",
       "blocker": "",
-      "acceptanceGateNote": "",
+      "acceptanceGateNote": "X-ROUTE-05/synthetic PARTIAL by Mahib's 18 Nov 2026 decision: repeated record never doubles trucks is tested. The placeholder feed has no reservation identity, so two genuine equal reservations cannot be distinguished from a repeated record. Ask Tom which field distinguishes them. The v12 spec and M4 are unchanged.",
       "runnableAfter": "WP8",
       "variants": [
         {
           "variant": "synthetic",
           "requirement": "required",
-          "executionStatus": "NOT_RUN",
+          "executionStatus": "PARTIAL",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "Synthetic fixture variant; executable now",
+          "note": "Only repeated-record idempotence is tested (evidence notCovered). The placeholder feed has no reservation identity, so two genuine equal reservations cannot be distinguished from a repeated record; ask Tom which field distinguishes them.",
           "evidenceScope": "SYNTHETIC",
           "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. Synthetic fixture variant; executable now",
           "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."

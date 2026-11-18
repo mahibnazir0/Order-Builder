@@ -635,6 +635,85 @@ CandidatePlan checkedPlanOf(const M5LaneDateInput& input, const DemandSnapshot& 
     return plan;
 }
 
+TEST_CASE("X-RES-09/synthetic: selection compares A after repair, so B's 20 P0 beats A's 10 P0" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(concat(fx30Units("p0", 50), fx30Units("p11", 30, "A", 11)), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const UrgencyDomain domain(snapshot);
+    const unique_ptr<AllocationComparator> comparator = makeComparator(ComparatorKind::FxPriority);
+    Truck firstA, finalA, planB;
+    for (size_t atom = 0; atom < 30; ++atom) firstA.push_back(atom);
+    for (size_t atom = 0; atom < 10; ++atom) finalA.push_back(atom);
+    for (size_t atom = 50; atom < 70; ++atom) finalA.push_back(atom);
+    for (size_t atom = 30; atom < 50; ++atom) planB.push_back(atom);
+    for (size_t atom = 70; atom < 80; ++atom) planB.push_back(atom);
+    CandidatePlan first = checkedPlanOf(input, snapshot, {firstA});
+    REQUIRE(first.validation->allPassed());
+    const CandidatePlan b = checkedPlanOf(input, snapshot, {planB});
+    REQUIRE(b.validation->allPassed());
+    CHECK(comparator->better(keyOfPlan(snapshot, domain, first), keyOfPlan(snapshot, domain, b)));
+    // A's stored witness fails the final check. Repair replaces twenty urgent units with twenty P11.
+    first.trucks[0].layout.rows.clear();
+    first.validation = validateFinal(first, snapshot, syntheticProfile(), physicalSettings());
+    REQUIRE_FALSE(first.validation->allPassed());
+    const RepairProposal repair = [&](CandidatePlan& work, size_t iteration) {
+        if (iteration != 0) return false;
+        work.trucks[0].atoms = finalA;
+        work.leftOver.clear();
+        vector<char> shipped(input.atoms.size(), 0);
+        for (const size_t atom : finalA) shipped[atom] = 1;
+        for (size_t atom = 0; atom < shipped.size(); ++atom) {
+            if (!shipped[atom]) work.leftOver.push_back({atom, LeftOverCause::OverReservation});
+        }
+        ++work.revision;
+        work.validation.reset();
+        storeRows(work, input);
+        return true;
+    };
+    const RepairRun repaired = runRepair(first, snapshot, syntheticProfile(), physicalSettings(), *comparator, domain,
+                                         repair, 1, StopCheck());
+    REQUIRE(repaired.incumbent);
+    REQUIRE(repaired.incumbent->validation->allPassed());
+    CHECK(repaired.incumbent->trucks[0].atoms == finalA);
+    CHECK(keyOfPlan(snapshot, domain, *repaired.incumbent).shippedByPriority[0] == 10000);
+    CHECK(keyOfPlan(snapshot, domain, *repaired.incumbent).shippedByPriority[11] == 20000);
+    CHECK(comparator->better(keyOfPlan(snapshot, domain, b), keyOfPlan(snapshot, domain, *repaired.incumbent)));
+    CHECK(reconcile(snapshot, *repaired.incumbent).balanced);
+    CHECK(repaired.incumbent->leftOver.size() == 50);
+    m5Evidence::note("expected", {"A first 30 P0; repaired 10 P0 + 20 P11", "B 20 P0 + 10 P11 wins",
+                                  "twenty removed P0 units return once"});
+}
+
+TEST_CASE("X-RES-11/synthetic: failed final validation releases both provisional reservations before a valid alternative commits" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 61), 3);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    Truck overfull, second, validFirst;
+    for (size_t atom = 0; atom < 31; ++atom) overfull.push_back(atom);
+    for (size_t atom = 31; atom < 61; ++atom) second.push_back(atom);
+    for (size_t atom = 0; atom < 30; ++atom) validFirst.push_back(atom);
+    const CandidatePlan failed = checkedPlanOf(input, snapshot, {overfull, second});
+    REQUIRE_FALSE(failed.validation->allPassed());
+    CHECK(failed.trucks.size() == 2);
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 3};
+    CommitLedger ledger;
+    string error;
+    CHECK_FALSE(buildDelta(failed, snapshot, syntheticProfile(), &error));
+    CHECK(error.find("failed validation") != string::npos);
+    CHECK(state.slotsUsed == 0);
+    CHECK(state.consumedAtoms.empty());
+    CandidatePlan alternative = checkedPlanOf(input, snapshot, {validFirst, second});
+    REQUIRE(alternative.validation->allPassed());
+    const optional<CommitDelta> delta = buildDelta(alternative, snapshot, syntheticProfile(), &error);
+    REQUIRE(delta);
+    CHECK(delta->reservationsUsed == 2);
+    CHECK(ledger.applyIfCurrent(*delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(state.slotsUsed == 2);
+    CHECK(state.consumedAtoms.size() == 60);
+    CHECK(ledger.applyIfCurrent(*delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+    CHECK(state.slotsUsed == 2);
+    m5Evidence::note("expected", {"failed 2-of-3 candidate commits nothing", "valid 2-of-3 alternative commits once",
+                                  "one reservation remains unused; no goods duplicated"});
+}
+
 // Every atom of the input ends exactly once: on one truck or left over.
 bool eachAtomOnce(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
     vector<int> ends(input.atoms.size(), 0);
