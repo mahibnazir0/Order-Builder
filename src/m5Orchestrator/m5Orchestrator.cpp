@@ -180,6 +180,13 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     if (!allowance || !isfinite(*allowance) || *allowance < 0.0) {
         return configurationIncomplete(input, "the lane-date allowance cannot be declared: seconds per load " + allowanceError);
     }
+    // The deadline is the clock's start plus the allowance. If the clock cannot hold that sum exactly enough, a
+    // run would stop late or never: refuse it before any search rather than treat overflow as unlimited time (U-PF-06).
+    const double clockStart = services.clock.nowSeconds();
+    const double deadline = clockStart + *allowance;
+    if (!isfinite(clockStart) || !isfinite(deadline) || deadline - clockStart < *allowance * (1.0 - 1e-9)) {
+        return configurationIncomplete(input, "the clock cannot represent a deadline of " + to_string(*allowance) + " s after its start");
+    }
     BudgetDeclaration declaration;
     declaration.allowanceSeconds = *allowance;
     declaration.workAllowance = services.workAllowance;

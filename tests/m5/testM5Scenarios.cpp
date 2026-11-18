@@ -597,6 +597,47 @@ TEST_CASE("X-E2E-06/synthetic: a pattern that fits only the big trailer, saved u
     m5Evidence::note("notCovered", "the report naming the master and the trailers: the product-master identity is passed to the M5 run header only after the feature/m4 merge (U-RP-01, PR-13)");
 }
 
+namespace {
+
+// A clock whose zero is wherever the test puts it, for deadline arithmetic.
+class StartedClock final : public Clock {
+public:
+    explicit StartedClock(double start) : now_(start) {}
+    double nowSeconds() const override { return now_; }
+    void advance(double seconds) { now_ += seconds; }
+
+private:
+    double now_;
+};
+
+M5LaneOutcome planUnderClock(const M5LaneDateInput& input, const M5PolicyProfile& profile, const Clock& clock) {
+    const M5RunServices services(clock);
+    return planLaneDate(input, profile, physicalSettings(), services);
+}
+
+}  // namespace
+
+TEST_CASE("U-PF-06/deadlineOverflow: a clock whose start plus the allowance cannot be represented is refused before any search, never read as unlimited time" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 3);
+    for (const double start : {numeric_limits<double>::max(), 1.7e308, 1.0e300, numeric_limits<double>::infinity()}) {
+        StartedClock clock(start);
+        INFO("clock start " << start);
+        const M5LaneOutcome outcome = planUnderClock(input, syntheticProfile(), clock);
+        CHECK(outcome.kind == OutcomeKind::ConfigurationIncomplete);
+        CHECK(shippedCount(outcome) == 0);
+        CHECK(outcome.floorSearch.statesCharged == 0);
+        CHECK(outcome.leftOver.size() == 30);
+        CHECK_FALSE(outcome.delta.has_value());
+    }
+    // An ordinary clock, including one that has run for a year, is accepted.
+    for (const double start : {0.0, 1000.0, 3.2e7}) {
+        StartedClock clock(start);
+        CHECK(planUnderClock(input, syntheticProfile(), clock).kind == OutcomeKind::CompletedWithDispatch);
+    }
+    m5Evidence::note("expected", {"a start of 1e300 or more with a 30 s allowance: configuration incomplete", "a normal clock (0, 1,000 s, one year) plans"});
+}
+
+
 // ------------------------------------------------------------------- repair and final contents
 
 TEST_CASE("R-1c X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired on a copy; goods return once" * doctest::test_suite("m5")) {
