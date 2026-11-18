@@ -236,3 +236,8 @@ add_test(NAME m5Published COMMAND ob_tests -ts=m5Published --no-skip
 add_test(NAME m5EvidenceStatus COMMAND ob_tests "-tc=m5EvidenceStatus*" --no-skip
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(m5EvidenceStatus PROPERTIES DEPENDS "ob_tests;augustAcceptance;m5Core;m5RealData;m5Published")
+# The acceptance gate (X-RUN-09): fails, naming each variant, until every selected required variant has one
+# current PASS record at this build. Needs the whole evidence set of the entries above.
+add_test(NAME m5Acceptance COMMAND ob_tests "-tc=m5Acceptance*" --no-skip
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(m5Acceptance PROPERTIES DEPENDS "m5EvidenceStatus")
