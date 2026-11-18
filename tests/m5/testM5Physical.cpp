@@ -352,7 +352,7 @@ TEST_CASE("X-PAT-05/synthetic: 30 eligible and 70 due 11 days later, pull limit 
     m5Evidence::note("expected", {"3 copies of 10, all due D, priority 0, own source lines", "70 due D+11 left not eligible"});
 }
 
-TEST_CASE("X-PAT-10/synthetic: one pattern on 3 trucks, the middle one repaired: the others unchanged, the removed good back once (also X-STATE-06)" * doctest::test_suite("m5")) {
+TEST_CASE("X-PAT-10/synthetic X-STATE-06/synthetic: one pattern on 3 trucks, the middle one repaired: the others unchanged, the removed good back once" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
     CandidatePlan candidate = *plan(input, syntheticProfile()).selected;

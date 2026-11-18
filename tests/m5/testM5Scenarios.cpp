@@ -1670,26 +1670,49 @@ TEST_CASE("U-RS-02 X-RES-10 unused reservations and their penalty: known rates a
     CHECK(*buildReportData(plan(oneUnused, zero), oneUnused, &zero, {}).penaltyAmount == 0.0);
 }
 
-TEST_CASE("X-STATE-02 committed totals count the selected plan once: 60 units, 2 trucks, penalty 5" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-02/synthetic: committed totals count the selected plan once: 60 units, 2 trucks, 1 unused, penalty 5" * doctest::test_suite("m5")) {
     M5PolicyProfile profile = syntheticProfile();
     profile.penaltyPerUnusedTruck = 5.0;
     const M5LaneDateInput input = laneWith(fx30Units("u", 60), 3);
     const M5LaneOutcome outcome = planWithServices(input, profile, [](M5RunServices& services) {
         services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
     });
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.methods.size() == 2);
+    for (const MethodRecord& record : outcome.methods) {
+        CHECK(record.ran);
+        CHECK(record.validated);
+        CHECK(record.unitLoads == 60.0);
+        CHECK(record.trucks == 2);
+    }
     const M5ReportData report = buildReportData(outcome, input, &profile, {});
     CHECK(report.unitLoadsShipped == 60.0);
+    CHECK(report.unitLoadsShipped != 120.0);
     CHECK(report.loadedTrucks == 2);
+    CHECK(report.loadedTrucks != 4);
+    CHECK(report.unusedReservations == 1);
     CHECK(*report.penaltyAmount == 5.0);
     REQUIRE(outcome.delta);
     CHECK(outcome.delta->trucks.size() == 2);
+    CHECK(shippedCount(outcome) == 60);
+    m5Evidence::note("expected", {"A and B each ship 60 in 2 of 3 reserved trucks", "committed once: 60 units, 2 trucks, 1 unused, penalty 5", "not 120 units or 4 trucks"});
 }
 
-TEST_CASE("X-STATE-07 two groups competing for the last reservation: exactly one wins" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-07/synthetic: two groups competing for the last reservation: exactly one wins, never both" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 30, "A", 2), fx30Units("b", 30, "B", 2)), 1);
     const M5LaneOutcome first = plan(input, syntheticProfile());
+    requireInvariants(first, input);
     REQUIRE(first.selected->trucks.size() == 1);
+    CHECK(shippedCount(first) == 30);
+    const size_t byA = shippedOfGroup(first, input, "A"), byB = shippedOfGroup(first, input, "B");
+    CHECK(((byA == 30 && byB == 0) || (byA == 0 && byB == 30)));
     for (int run = 0; run < 5; ++run) CHECK(shippedIds(plan(input, syntheticProfile()), input) == shippedIds(first, input));
+
+    const M5LaneDateInput urgent = laneWith(concat(fx30Units("a", 30, "A", 5), fx30Units("b", 30, "B", 0)), 1);
+    const M5LaneOutcome byPriority = plan(urgent, syntheticProfile());
+    CHECK(shippedOfGroup(byPriority, urgent, "B") == 30);
+    CHECK(shippedOfGroup(byPriority, urgent, "A") == 0);
+    m5Evidence::note("expected", {"equal priority: one group takes the only truck by the fixed tie rule, repeatably", "P0 against P5: the P0 group wins", "never both"});
 }
 
 TEST_CASE("U-RB-05/synthetic: A and B with the same trucks are compared on goods and priority first; only a true tie uses the tie rule" * doctest::test_suite("m5")) {
@@ -1717,9 +1740,14 @@ TEST_CASE("U-RB-05/synthetic: A and B with the same trucks are compared on goods
     m5Evidence::note("expected", {"30 P0 beat 30 P1 on 1 truck", "30 P1 beat 29 P1", "equal plans: no winner by class, tie rule applies"});
 }
 
-TEST_CASE("X-STATE-08 U-RB-05 equal trucks are not a tie: 30 P0 strictly beats 30 P1" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-08/synthetic U-RB-05 equal trucks are not a tie: 30 P0 strictly beats 30 P1" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 30, "A", 0), fx30Units("b", 30, "B", 1)), 1);
-    CHECK(shippedOfGroup(plan(input, syntheticProfile()), input, "A") == 30);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedOfGroup(outcome, input, "A") == 30);
+    CHECK(shippedOfGroup(outcome, input, "B") == 0);
+    CHECK(shippedCount(outcome) == 30);
+    m5Evidence::note("expected", {"same trucks, fill and dates: A (30 P0) strictly dominates B (30 P1)", "A wins; no tie rule involved"});
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
     const UrgencyDomain domain(snapshot);
     Truck a, b;
@@ -1780,7 +1808,7 @@ TEST_CASE("U-RB-04/synthetic: A and B plan isolated copies of one snapshot; real
                                   "B after a spent allowance: not started, reported as such, run is a timeout"});
 }
 
-TEST_CASE("X-STATE-04 settings changed in one process plan as a fresh process would" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-04/synthetic: settings changed in one process plan as a fresh process would" * doctest::test_suite("m5")) {
     const vector<Atom> atoms = concat(fx30Units("old-", 30, "A", 11, kDayBefore, kDayBefore), fx30Units("now-", 30, "A", 0));
     M5LaneDateInput ageFirst = laneWith(atoms, 1), priorityFirst = laneWith(atoms, 1);
     priorityFirst.pastDueOrder = ob::PastDueOrder::PriorityFirst;
@@ -1792,9 +1820,13 @@ TEST_CASE("X-STATE-04 settings changed in one process plan as a fresh process wo
     }
     const M5LaneDateInput pullOn = laneWith(fx30Units("c", 10, "A", 0, dayAfter(2)), 1, kDefaultTrailer, true);
     const M5LaneDateInput pullOff = laneWith(fx30Units("c", 10, "A", 0, dayAfter(2)), 1, kDefaultTrailer, false);
+    const set<string> freshPullOn = shippedIds(plan(pullOn, syntheticProfile()), pullOn);
     CHECK(shippedCount(plan(pullOn, syntheticProfile())) == 10);
     CHECK(shippedCount(plan(pullOff, syntheticProfile())) == 0);
     CHECK(shippedCount(plan(pullOn, syntheticProfile())) == 10);
+    CHECK(shippedIds(plan(pullOn, syntheticProfile()), pullOn) == freshPullOn);
+    CHECK(shippedIds(plan(pullOff, syntheticProfile()), pullOff).empty());
+    m5Evidence::note("expected", {"pull on, off, on: 10, 0, 10, each equal to a fresh run", "age-first then priority-first each equal to a fresh run"});
 }
 
 // --------------------------------------------------------------------------- R-5b and the core

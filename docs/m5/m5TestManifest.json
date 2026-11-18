@@ -16788,7 +16788,7 @@
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
       "ownerModule": "M-ORC",
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Planning.cpp",
       "fixture": "TwentyFX30 units, one slot; ON(x40000/y3000)/OFF(absentsection)/ON with fresh and same-ID revised contexts",
       "entryPoint": "DIRECT + REPORT",
       "oracle": "ARITH + STATE + LEDGER + REPORTPARSE",

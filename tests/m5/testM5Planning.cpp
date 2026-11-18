@@ -530,27 +530,78 @@ TEST_CASE("X-RES-01 X-ROUTE-02 groups share one pool: never two pools of the sam
     CHECK(countCause(outcome, LeftOverCause::OverReservation) == 90);
 }
 
-TEST_CASE("U-RS-04 X-STATE-05 the same input plans the same way every time" * doctest::test_suite("m5")) {
+TEST_CASE("U-RS-04 X-STATE-05/synthetic: running M5 twice from one hand-over gives the same plan and leaves the hand-over alone" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A", 3), fx30Units("b", 40, "B", 3)), 2);
+    const M5LaneDateInput handOver = input;
     const M5LaneOutcome first = plan(input, syntheticProfile());
     const M5LaneOutcome second = plan(input, syntheticProfile());
     REQUIRE(first.selected);
     REQUIRE(second.selected);
+    CHECK(first.kind == second.kind);
     CHECK(first.selected->trucks.size() == second.selected->trucks.size());
     for (size_t truck = 0; truck < first.selected->trucks.size(); ++truck) {
         CHECK(first.selected->trucks[truck].atoms == second.selected->trucks[truck].atoms);
+        CHECK(first.selected->trucks[truck].group == second.selected->trucks[truck].group);
     }
+    CHECK(shippedCount(first) == shippedCount(second));
+    CHECK(shippedIds(first, input) == shippedIds(second, input));
+    CHECK(first.leftOver.size() == second.leftOver.size());
+    REQUIRE(input.atoms.size() == handOver.atoms.size());
+    CHECK(input.pool.slots.size() == handOver.pool.slots.size());
+    for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
+        CHECK(input.atoms[atom].id == handOver.atoms[atom].id);
+        CHECK(input.atoms[atom].unitLoads == handOver.atoms[atom].unitLoads);
+    }
+    m5Evidence::note("expected", {"two runs, one hand-over: same trucks, goods and left-overs", "the hand-over is unchanged after the first run"});
 }
 
-TEST_CASE("X-STATE-01 A and B give the same result in either order or alone" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-01/synthetic: A and B give the same result in either order or alone" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 75), 3);
+    const M5LaneDateInput untouched = input;
     M5PolicyProfile patternOnly = syntheticProfile(), blocksOnly = syntheticProfile();
     patternOnly.method = MethodPolicy::PatternOnly;
     blocksOnly.method = MethodPolicy::BlocksOnly;
-    const set<string> alone = shippedIds(plan(input, patternOnly), input);
-    CHECK(shippedIds(plan(input, blocksOnly), input) == alone);
+    const M5LaneOutcome aAlone = plan(input, patternOnly);
+    const M5LaneOutcome bAlone = plan(input, blocksOnly);
+    const set<string> alone = shippedIds(aAlone, input);
+    CHECK(shippedIds(bAlone, input) == alone);
     CHECK(shippedIds(plan(input, syntheticProfile()), input) == alone);
     CHECK(alone.size() == 75);
+
+    const auto recordOf = [](const M5LaneOutcome& outcome, MethodId method) {
+        const auto found = find_if(outcome.methods.begin(), outcome.methods.end(), [&](const MethodRecord& record) { return record.method == method; });
+        REQUIRE(found != outcome.methods.end());
+        return *found;
+    };
+    const auto planInOrder = [&](const vector<shared_ptr<const MethodPlanner>>& order) {
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.methods = order;
+        return planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    };
+    const shared_ptr<const MethodPlanner> methodA = make_shared<PatternPlanner>(), methodB = make_shared<BlockPlanner>();
+    const M5LaneOutcome aThenB = planInOrder({methodA, methodB});
+    const M5LaneOutcome bThenA = planInOrder({methodB, methodA});
+    for (const MethodId method : {MethodId::PatternRepeat, MethodId::RollingBlocks}) {
+        const MethodRecord forward = recordOf(aThenB, method), backward = recordOf(bThenA, method);
+        CHECK(forward.ran);
+        CHECK(backward.ran);
+        CHECK(forward.validated);
+        CHECK(backward.validated);
+        CHECK(forward.unitLoads == backward.unitLoads);
+        CHECK(forward.trucks == backward.trucks);
+        CHECK(forward.unitLoads == 75.0);
+        CHECK(forward.trucks == 3);
+    }
+    CHECK(shippedIds(aThenB, input) == alone);
+    CHECK(shippedIds(bThenA, input) == alone);
+    REQUIRE(aThenB.selected);
+    REQUIRE(bThenA.selected);
+    REQUIRE(aAlone.selected);
+    CHECK(aThenB.selected->trucks.size() == aAlone.selected->trucks.size());
+    CHECK(bThenA.selected->trucks.size() == aAlone.selected->trucks.size());
+    for (size_t atom = 0; atom < input.atoms.size(); ++atom) CHECK(input.atoms[atom].id == untouched.atoms[atom].id);
+    m5Evidence::note("expected", {"A alone, B alone, A then B, B then A: the same 75 goods on 3 trucks", "each method's own record is the same in either order"});
 }
 
 TEST_CASE("X-REB-09 rebalance both sides of a strict acceptance boundary" * doctest::test_suite("m5")) {
@@ -1040,6 +1091,267 @@ TEST_CASE("U-AC-08/sameIdRevision: revising one profile id's thresholds re-decid
     CHECK(first.profileKey != revised.profileKey);
     CHECK(first.profileKey != restored.profileKey);
     m5Evidence::note("expected", {"true", "false", "true", "keys differ by revision"});
+}
+
+namespace {
+
+// X-STATE-09: twenty FX-30 units (30,000 lb, 2,500 cu ft), one group, one reservation, planned from a
+// fresh snapshot each time. ON is x = 40,000 lb / y = 3,000 cu ft, OFF has no acceptance section.
+struct StateRun {
+    size_t shipped = 0;
+    size_t trucks = 0;
+    size_t withheld = 0;
+    string report;
+    string profileKey;
+    bool balanced = false;
+};
+
+StateRun stateRun(const M5PolicyProfile& profile) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const M5LaneOutcome outcome = plan(input, profile);
+    requireInvariants(outcome, input);
+    StateRun run;
+    run.shipped = shippedCount(outcome);
+    run.trucks = outcome.selected ? outcome.selected->trucks.size() : 0;
+    run.withheld = countCause(outcome, LeftOverCause::AcceptanceWithheld);
+    run.report = renderAscii(buildReportData(outcome, input, &profile, {}));
+    run.profileKey = profile.key();
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan accounted = outcome.selected ? *outcome.selected : CandidatePlan{};
+    accounted.leftOver = outcome.leftOver;
+    run.balanced = reconcile(snapshot, accounted).balanced;
+    return run;
+}
+
+M5PolicyProfile acceptanceOn(MethodPolicy method) {
+    M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    profile.method = method;
+    return profile;
+}
+
+M5PolicyProfile acceptanceOff(MethodPolicy method) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.method = method;
+    return profile;
+}
+
+// ON, OFF, ON on fresh snapshots: ON withholds all 20, OFF ships all 20 on one checked truck with the
+// export-after-M5 statement and no trace of the earlier thresholds, ON withholds again identically.
+void requireOnOffOn(const M5PolicyProfile& on, const M5PolicyProfile& off) {
+    const StateRun first = stateRun(on), second = stateRun(off), third = stateRun(on);
+    for (const StateRun* withheld : {&first, &third}) {
+        CHECK(withheld->shipped == 0);
+        CHECK(withheld->trucks == 0);
+        CHECK(withheld->withheld == 20);
+        CHECK(withheld->balanced);
+        CHECK(withheld->report.find("optional policy ON: weight > 40000.0 lb OR cube > 3000.0 cu ft (strict)") != string::npos);
+    }
+    CHECK(second.shipped == 20);
+    CHECK(second.trucks == 1);
+    CHECK(second.withheld == 0);
+    CHECK(second.balanced);
+    CHECK(second.report.find("at export, after M5") != string::npos);
+    CHECK(second.report.find("withheld by minimum-load policy") == string::npos);
+    CHECK(second.report.find("40000.0") == string::npos);
+    CHECK(second.report.find("3000.0") == string::npos);
+    CHECK(second.report.find("optional policy ON") == string::npos);
+    CHECK(third.report == first.report);
+    CHECK(third.profileKey == first.profileKey);
+    CHECK(second.profileKey != first.profileKey);
+}
+
+}  // namespace
+
+TEST_CASE("X-STATE-09/methodA: ON withholds all 20, OFF ships all 20 on one truck, ON withholds again (Method A alone)" * doctest::test_suite("m5")) {
+    requireOnOffOn(acceptanceOn(MethodPolicy::PatternOnly), acceptanceOff(MethodPolicy::PatternOnly));
+    m5Evidence::note("expected", {"ON: 20 withheld, 0 shipped", "OFF: 20 shipped on 1 truck, report says at export, after M5", "ON: 20 withheld again"});
+}
+
+TEST_CASE("X-STATE-09/methodB: ON withholds all 20, OFF ships all 20 on one truck, ON withholds again (Method B alone)" * doctest::test_suite("m5")) {
+    requireOnOffOn(acceptanceOn(MethodPolicy::BlocksOnly), acceptanceOff(MethodPolicy::BlocksOnly));
+    m5Evidence::note("expected", {"ON: 20 withheld, 0 shipped", "OFF: 20 shipped on 1 truck", "ON: 20 withheld again"});
+}
+
+TEST_CASE("X-STATE-09/remainder: twenty units are below one pattern truck, so A's remainder packing and the allocation both obey ON, OFF, ON" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const M5LaneOutcome offOutcome = plan(input, syntheticProfile());
+    REQUIRE(offOutcome.selected);
+    const auto methodA = find_if(offOutcome.methods.begin(), offOutcome.methods.end(), [](const MethodRecord& record) { return record.method == MethodId::PatternRepeat; });
+    REQUIRE(methodA != offOutcome.methods.end());
+    CHECK(methodA->unitLoads == 20.0);
+    CHECK(methodA->trucks == 1);
+    const M5LaneDateInput oneFullTruck = laneWith(fx30Units("u", 30), 1);
+    CHECK(shippedCount(plan(oneFullTruck, syntheticProfile())) == 30);
+    requireOnOffOn(acceptanceOn(MethodPolicy::SequentialAThenB), acceptanceOff(MethodPolicy::SequentialAThenB));
+    m5Evidence::note("expected", {"20 units: no whole pattern truck of 30, all 20 are A's remainder", "ON: 20 withheld; OFF: 20 shipped; ON: 20 withheld"});
+}
+
+TEST_CASE("X-STATE-09/repair: a truck failing ON is dropped by repair, the same truck stands under OFF, ON drops it again" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const UrgencyDomain domain(snapshot);
+    const auto comparator = makeComparator(ComparatorKind::M4Urgency);
+    const M5PolicyProfile on = acceptanceOn(MethodPolicy::SequentialAThenB), off = acceptanceOff(MethodPolicy::SequentialAThenB);
+    const RepairProposal dropTruck = [](CandidatePlan& work, size_t) {
+        if (work.trucks.empty()) return false;
+        CandidateEditor(work).removeTruck(0, LeftOverCause::OverReservation);
+        return true;
+    };
+    for (const M5PolicyProfile* profile : {&on, &off, &on}) {
+        CandidatePlan start = oneTruck(input, 20);
+        start.validation = validateFinal(start, snapshot, *profile, physicalSettings());
+        const bool startPassed = start.validation->allPassed();
+        const RepairRun run = runRepair(start, snapshot, *profile, physicalSettings(), *comparator, domain, dropTruck, 3, StopCheck());
+        REQUIRE(run.incumbent.has_value());
+        CHECK(run.incumbent->validation->allPassed());
+        CHECK(run.incumbent->validation->profileKey == profile->key());
+        if (profile == &off) {
+            CHECK(startPassed);
+            CHECK(run.incumbent->trucks.size() == 1);
+            CHECK(run.incumbent->leftOver.empty());
+        } else {
+            CHECK_FALSE(startPassed);
+            CHECK(run.incumbent->trucks.empty());
+            CHECK(run.incumbent->leftOver.size() == 20);
+        }
+        CHECK(reconcile(snapshot, *run.incumbent).balanced);
+    }
+    m5Evidence::note("expected", {"ON: the 20-unit truck fails x/y, repair leaves nothing shipped, 20 left over", "OFF: the truck passes unchanged", "ON: as the first run"});
+}
+
+TEST_CASE("X-STATE-09/finalValidation: the final validator applies x and y only while the section is present" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const CandidatePlan candidate = oneTruck(input, 20);
+    const M5PolicyProfile on = acceptanceOn(MethodPolicy::SequentialAThenB), off = acceptanceOff(MethodPolicy::SequentialAThenB);
+    const ValidationReport first = validateFinal(candidate, snapshot, on, physicalSettings());
+    const ValidationReport second = validateFinal(candidate, snapshot, off, physicalSettings());
+    const ValidationReport third = validateFinal(candidate, snapshot, on, physicalSettings());
+    CHECK(first.physical == SectionStatus::Pass);
+    CHECK(first.acceptance == SectionStatus::Fail);
+    CHECK_FALSE(first.allPassed());
+    CHECK(second.physical == SectionStatus::Pass);
+    CHECK(second.acceptance != SectionStatus::Fail);
+    CHECK(second.allPassed());
+    CHECK(third.acceptance == SectionStatus::Fail);
+    CHECK_FALSE(third.allPassed());
+    CHECK(first.profileKey == third.profileKey);
+    CHECK(second.profileKey != first.profileKey);
+    CHECK(third.findings.size() == first.findings.size());
+    m5Evidence::note("expected", {"ON: acceptance Fail", "OFF: acceptance not run, plan passes", "ON: acceptance Fail again"});
+}
+
+TEST_CASE("X-STATE-09/sameIdRevision: one profile id revised ON, OFF, ON is read afresh each time and the identity records the revision" * doctest::test_suite("m5")) {
+    const auto revision = [](M5PolicyProfile profile, int number) {
+        profile.profileId = "customer-same";
+        profile.profileRevision = number;
+        return profile;
+    };
+    const M5PolicyProfile one = revision(acceptanceOn(MethodPolicy::SequentialAThenB), 1);
+    const M5PolicyProfile two = revision(acceptanceOff(MethodPolicy::SequentialAThenB), 2);
+    const M5PolicyProfile three = revision(acceptanceOn(MethodPolicy::SequentialAThenB), 3);
+    const StateRun first = stateRun(one), second = stateRun(two), third = stateRun(three);
+    CHECK(first.shipped == 0);
+    CHECK(first.withheld == 20);
+    CHECK(second.shipped == 20);
+    CHECK(second.withheld == 0);
+    CHECK(third.shipped == 0);
+    CHECK(third.withheld == 20);
+    CHECK(first.profileKey != second.profileKey);
+    CHECK(first.profileKey != third.profileKey);
+    CHECK(second.profileKey != third.profileKey);
+    for (const StateRun* run : {&first, &second, &third}) CHECK(run->profileKey.find("customer-same") != string::npos);
+    CHECK(second.report.find("40000.0") == string::npos);
+    // A validation made under revision 1 is stale under revision 3 although the settings are the same.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan checked = oneTruck(input, 20);
+    checked.validation = validateFinal(checked, snapshot, one, physicalSettings());
+    CHECK(validationCurrent(checked, snapshot, one));
+    CHECK_FALSE(validationCurrent(checked, snapshot, three));
+    m5Evidence::note("expected", {"rev 1 ON: 20 withheld", "rev 2 OFF: 20 shipped", "rev 3 ON: 20 withheld", "three different identities, same id"});
+}
+
+namespace {
+
+// Children of X-STATE-09/freshProcess: each runs one profile and prints its result.
+void printStateRun(const M5PolicyProfile& profile) {
+    const StateRun run = stateRun(profile);
+    cout << "freshProcess.shipped=" << run.shipped << "\n"
+         << "freshProcess.trucks=" << run.trucks << "\n"
+         << "freshProcess.withheld=" << run.withheld << "\n"
+         << "freshProcess.profileKey=" << run.profileKey << "\n"
+         << "freshProcess.reportHash=" << digestOf(run.report) << "\n";
+}
+
+}  // namespace
+
+TEST_CASE("m5 fresh-process child StateOn: acceptance x 40,000 y 3,000" * doctest::test_suite("m5")) {
+    printStateRun(acceptanceOn(MethodPolicy::SequentialAThenB));
+    CHECK(stateRun(acceptanceOn(MethodPolicy::SequentialAThenB)).shipped == 0);
+}
+
+TEST_CASE("m5 fresh-process child StateOff: acceptance section absent" * doctest::test_suite("m5")) {
+    printStateRun(acceptanceOff(MethodPolicy::SequentialAThenB));
+    CHECK(stateRun(acceptanceOff(MethodPolicy::SequentialAThenB)).shipped == 20);
+}
+
+TEST_CASE("X-STATE-09/freshProcess: ON, OFF, ON each in a fresh process give the same results as one process running them in turn" * doctest::test_suite("m5")) {
+    const StateRun inOn = stateRun(acceptanceOn(MethodPolicy::SequentialAThenB));
+    const StateRun inOff = stateRun(acceptanceOff(MethodPolicy::SequentialAThenB));
+    const StateRun inOnAgain = stateRun(acceptanceOn(MethodPolicy::SequentialAThenB));
+    const ChildRun freshOn = runInFreshProcess("StateOn"), freshOff = runInFreshProcess("StateOff"), freshOnAgain = runInFreshProcess("StateOn");
+    for (const auto& [inProcess, fresh] : {pair{&inOn, &freshOn}, pair{&inOff, &freshOff}, pair{&inOnAgain, &freshOnAgain}}) {
+        CHECK(fresh->status == 0);
+        REQUIRE(fresh->fields.size() == 5);
+        CHECK(fresh->fields.at("shipped") == to_string(inProcess->shipped));
+        CHECK(fresh->fields.at("trucks") == to_string(inProcess->trucks));
+        CHECK(fresh->fields.at("withheld") == to_string(inProcess->withheld));
+        CHECK(fresh->fields.at("profileKey") == inProcess->profileKey);
+        CHECK(fresh->fields.at("reportHash") == digestOf(inProcess->report));
+    }
+    CHECK(freshOn.fields.at("shipped") == "0");
+    CHECK(freshOff.fields.at("shipped") == "20");
+    CHECK(freshOnAgain.fields.at("reportHash") == freshOn.fields.at("reportHash"));
+    CHECK(freshOff.fields.at("reportHash") != freshOn.fields.at("reportHash"));
+    m5Evidence::note("expected", {"three child processes of ob_tests: 0, 20, 0 shipped", "reports and profile keys equal the in-process runs"});
+}
+
+TEST_CASE("X-STATE-09/malformedOffConfig: an absent acceptance section is OFF; a present malformed one is a configuration error, not OFF" * doctest::test_suite("m5")) {
+    nlohmann::json block = nlohmann::json::parse(R"({
+        "enabled": true, "profileId": "customer2-production", "profileRevision": 1,
+        "routing": {"countMode": "reservedTrucks", "scope": "perLaneShipDate"},
+        "secondsPerLoad": 1, "fullness": {"weightFullPercent": 98, "rearInchLimit": 14},
+        "methodPolicy": "SequentialAThenB", "methodAShare": 0.6, "blockSize": 19, "scarcityWindow": 2,
+        "gapTrucks": 1, "canGoFill": true, "repair": {"maxRounds": 8, "maxMovesPerTruck": 64},
+        "penaltyPerUnusedTruck": null})");
+    const M5PolicyProfile off = loadProfile(block);
+    CHECK_FALSE(off.acceptance.has_value());
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    CHECK(shippedCount(plan(input, off)) == 20);
+    for (const nlohmann::json& malformed : {nlohmann::json("on"), nlohmann::json::array({40000, 3000}), nlohmann::json::object(),
+                                            nlohmann::json{{"weightLb", 40000}}, nlohmann::json{{"weightLb", 40000}, {"cubeCuFt", "3000"}},
+                                            nlohmann::json{{"weightLb", -1}, {"cubeCuFt", 3000}}}) {
+        nlohmann::json bad = block;
+        bad["acceptance"] = malformed;
+        INFO(malformed.dump());
+        string error;
+        try {
+            loadProfile(bad);
+        } catch (const runtime_error& thrown) {
+            error = thrown.what();
+        }
+        REQUIRE_FALSE(error.empty());
+        // The lane-date is not planned as if acceptance were off: every good is left with the configuration reason.
+        const M5LaneOutcome refused = configurationIncomplete(input, error);
+        CHECK(refused.kind == OutcomeKind::ConfigurationIncomplete);
+        CHECK(shippedCount(refused) == 0);
+        REQUIRE(refused.leftOver.size() == 20);
+        for (const LeftOver& left : refused.leftOver) CHECK(left.cause == LeftOverCause::ConfigurationIncomplete);
+        // And the failed read leaves nothing behind: the OFF block still plans afterwards.
+        CHECK(shippedCount(plan(input, loadProfile(block))) == 20);
+    }
+    m5Evidence::note("expected", {"absent section: valid, OFF, 20 ship", "present but malformed: configuration error, nothing planned", "OFF again afterwards: 20 ship"});
 }
 
 TEST_CASE("U-AC-02/synthetic: of five trucks the failing second one is withheld; first, middle and last ship" * doctest::test_suite("m5")) {

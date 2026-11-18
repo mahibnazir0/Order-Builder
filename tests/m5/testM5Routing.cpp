@@ -515,14 +515,25 @@ TEST_CASE("X-DATE-12/synthetic: data beyond M4's period cannot create a new M5 d
     m5Evidence::note("expected", {"M4 period ends 7 Aug", "8 Aug reservation skipped", "no M5 truck or lane-date on 8 Aug"});
 }
 
-TEST_CASE("X-STATE-03 an M4 lane plans the same with an unrelated M5 lane beside it" * doctest::test_suite("m5")) {
+TEST_CASE("X-STATE-03/synthetic: an M4 lane plans the same with an unrelated M5 lane beside it" * doctest::test_suite("m5")) {
     const Day day = dayOf({group("2027"), group("2028")}, 60, join(itemsOf(0, 30, 0), itemsOf(1, 30, 30)),
                           {reserved("2027", 20), reserved("2028", 21)});
-    const auto withM5 = trucksByGroup(plan(day, withPlanner()));
-    const auto withoutM5 = trucksByGroup(plan(day, selectorSettings()));
+    const SelectionPlan withPlan = plan(day, withPlanner());
+    const SelectionPlan withoutPlan = plan(day, selectorSettings());
+    const auto withM5 = trucksByGroup(withPlan);
+    const auto withoutM5 = trucksByGroup(withoutPlan);
     CHECK(withM5.at(0) == withoutM5.at(0));
     CHECK(withM5.count(1) == 1);
     CHECK(withoutM5.count(1) == 0);
+    // The frozen lane's goods are untouched and none of them rides on an M5 truck.
+    set<size_t> frozenGoods;
+    for (const vector<size_t>& truck : withoutM5.at(0)) frozenGoods.insert(truck.begin(), truck.end());
+    for (const vector<size_t>& truck : withM5.at(1)) {
+        for (const size_t item : truck) CHECK(frozenGoods.count(item) == 0);
+    }
+    CHECK(accountedOnce(withPlan, day.items.items.size()));
+    CHECK(accountedOnce(withoutPlan, day.items.items.size()));
+    m5Evidence::note("expected", {"the M4 lane's trucks are the same with and without the M5 planner", "the M5 lane gets its own trucks, sharing no goods"});
 }
 
 TEST_CASE("X-RUN-01 U-PF-03 the same input plans the same at 1, 2 and 8 threads" * doctest::test_suite("m5")) {

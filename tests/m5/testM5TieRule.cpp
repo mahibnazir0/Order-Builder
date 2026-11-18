@@ -586,3 +586,214 @@ TEST_CASE("X-STATE-10/atomicFailure: a failure between the data update and the o
                                   "failure after the operation record: record withdrawn, nothing applied",
                                   "a clean retry applies ten units and one slot exactly once"});
 }
+
+TEST_CASE("X-STATE-10/concurrentIdentical: two identical O1 submissions at once apply one delta; both see the same result; ten units and one slot remain" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    for (int round = 0; round < 50; ++round) {
+        CommitLedger ledger;
+        OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+        atomic<bool> go{false};
+        ApplyStatus first = ApplyStatus::StaleSnapshot, second = ApplyStatus::StaleSnapshot;
+        thread one([&] {
+            while (!go.load()) this_thread::yield();
+            first = ledger.applyIfCurrent(o1, snapshot, state);
+        });
+        thread two([&] {
+            while (!go.load()) this_thread::yield();
+            second = ledger.applyIfCurrent(o1, snapshot, state);
+        });
+        go = true;
+        one.join();
+        two.join();
+        const int applied = (first == ApplyStatus::Applied) + (second == ApplyStatus::Applied);
+        const int already = (first == ApplyStatus::AlreadyApplied) + (second == ApplyStatus::AlreadyApplied);
+        CHECK(applied == 1);
+        CHECK(already == 1);
+        CHECK(state.consumedAtoms == v7.c1Units);
+        CHECK(state.consumedAtoms.size() == 10);
+        CHECK(state.slotsReserved - state.slotsUsed == 1);
+        CHECK(state.reservationVersion == snapshot.input.pool.version + 1);
+        const size_t remaining = snapshot.input.atoms.size() - state.consumedAtoms.size();
+        CHECK(remaining == 10);
+    }
+    m5Evidence::note("expected", {"one Applied, one AlreadyApplied, 50 rounds", "ten units consumed, ten remain, one slot remains", "version V7 + 1 = V8"});
+}
+
+TEST_CASE("X-STATE-10/conflictingPayload: the same O1 with a different cargo digest is a conflict; a new candidate revision alone is no new authorization" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+    REQUIRE(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::Applied);
+    const set<string> committed = state.consumedAtoms;
+    const string committedSnapshot = state.snapshot;
+
+    // Same operation key, other units (10 to 19): a different cargo digest.
+    FakeClock clock;
+    M5RunServices services(clock);
+    Truck otherTen;
+    for (size_t atom = 10; atom < 20; ++atom) otherTen.push_back(atom);
+    services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, GroupTrucks{otherTen})};
+    const M5LaneOutcome other = planLaneDate(v7.input, syntheticProfile(), physicalSettings(), services);
+    REQUIRE(other.delta);
+    CHECK(other.delta->operationKey == o1.operationKey);
+    CHECK(other.delta->payloadHash != o1.payloadHash);
+    CHECK(ledger.applyIfCurrent(*other.delta, snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms == committed);
+    CHECK(state.slotsUsed == 1);
+
+    // A re-planned candidate of the same cargo (a new revision of the same plan) gives the same digest:
+    // it is the same operation, answered with the prior result, never a second dispatch.
+    const M5LaneOutcome again = [&] {
+        FakeClock replanClock;
+        M5RunServices replan(replanClock);
+        replan.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, 1, 10)};
+        return planLaneDate(v7.input, syntheticProfile(), physicalSettings(), replan);
+    }();
+    REQUIRE(again.delta);
+    CHECK(again.delta->payloadHash == o1.payloadHash);
+    CHECK(ledger.applyIfCurrent(*again.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+    // A hand-edited digest on the same key is a conflict too, whatever the units.
+    CommitDelta forged = o1;
+    forged.payloadHash = "another layout";
+    CHECK(ledger.applyIfCurrent(forged, snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms == committed);
+    CHECK(state.snapshot == committedSnapshot);
+    CHECK(state.slotsUsed == 1);
+    m5Evidence::note("expected", {"same key, units 10 to 19: PayloadConflict, no second delta", "re-planned same cargo: AlreadyApplied", "state unchanged: ten units, one slot"});
+}
+
+TEST_CASE("X-STATE-10/staleSnapshot: a new operation from stale V7 on C1's original units is rejected, even with a new candidate id or a free slot" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+    REQUIRE(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::Applied);
+    const OperationalState v8 = state;
+
+    CommitDelta o2 = o1;
+    o2.operationKey = "O2: a different operation from the same V7";
+    CHECK(ledger.applyIfCurrent(o2, snapshot, state) == ApplyStatus::StaleSnapshot);
+    CommitDelta otherCandidate = o2;
+    otherCandidate.operationKey = "O3: a different candidate id";
+    otherCandidate.payloadHash = "candidate-c2";
+    CHECK(ledger.applyIfCurrent(otherCandidate, snapshot, state) == ApplyStatus::StaleSnapshot);
+    CHECK(state.consumedAtoms == v8.consumedAtoms);
+    CHECK(state.slotsUsed == v8.slotsUsed);
+    CHECK(state.reservationVersion == v8.reservationVersion);
+    CHECK(state.snapshot == v8.snapshot);
+
+    // A shallow check sees a free slot and a matching version; the goods are what refuse it.
+    OperationalState shallow{snapshot.id, snapshot.input.pool.version, v7.c1Units, 0, 2};
+    CHECK(shallow.slotsUsed < shallow.slotsReserved);
+    CHECK(ledger.applyIfCurrent(o2, snapshot, shallow) == ApplyStatus::StaleSnapshot);
+    CHECK(shallow.consumedAtoms == v7.c1Units);
+    CHECK(shallow.slotsUsed == 0);
+    m5Evidence::note("expected", {"O2 from V7 after V8: StaleSnapshot", "a different candidate id: StaleSnapshot", "free slot and matching version, units already consumed: StaleSnapshot", "no state changed"});
+}
+
+TEST_CASE("X-STATE-10/residualContinuation: the continuation from V8 ships the remaining ten units on the last slot and reaches V9 with 20 shipped" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+    REQUIRE(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::Applied);
+    const ReservationVersion v8 = state.reservationVersion;
+
+    const DemandSnapshot residual = residualAfter(snapshot, o1);
+    CHECK(residual.input.atoms.size() == 10);
+    CHECK(residual.input.pool.slots.size() == 1);
+    CHECK(residual.input.pool.version == v8);
+    for (const Atom& atom : residual.input.atoms) CHECK(v7.c1Units.count(atom.id) == 0);
+    const M5LaneOutcome continuation = plan(residual.input, syntheticProfile());
+    REQUIRE(continuation.delta);
+    CHECK(shippedCount(continuation) == 10);
+    CHECK(continuation.delta->trucks.size() == 1);
+    CHECK(continuation.delta->operationKey != o1.operationKey);
+    CHECK(continuation.delta->expectedReservationVersion == v8);
+
+    // Reconciled: the state's snapshot is the residual the continuation was planned from.
+    state.snapshot = residual.id;
+    CHECK(ledger.applyIfCurrent(*continuation.delta, residual, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 20);
+    CHECK(state.slotsUsed == 2);
+    CHECK(state.slotsUsed == state.slotsReserved);
+    CHECK(state.reservationVersion == v8 + 1);
+    set<string> everyUnit;
+    for (const Atom& atom : v7.input.atoms) everyUnit.insert(atom.id);
+    CHECK(state.consumedAtoms == everyUnit);
+    m5Evidence::note("expected", {"residual: 10 units, 1 slot, version V8", "continuation under its own operation: Applied", "V9, 20 units shipped, 2 slots used"});
+}
+
+TEST_CASE("X-STATE-10/replayAfterContinuation: replaying O1 after the continuation returns its prior result and subtracts nothing again" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    const CommitDelta& o1 = *v7.selected.delta;
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+    REQUIRE(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::Applied);
+    const DemandSnapshot residual = residualAfter(snapshot, o1);
+    const M5LaneOutcome continuation = plan(residual.input, syntheticProfile());
+    REQUIRE(continuation.delta);
+    state.snapshot = residual.id;
+    REQUIRE(ledger.applyIfCurrent(*continuation.delta, residual, state) == ApplyStatus::Applied);
+    const OperationalState v9 = state;
+
+    CHECK(ledger.applyIfCurrent(o1, snapshot, state) == ApplyStatus::AlreadyApplied);
+    CHECK(ledger.applyIfCurrent(*continuation.delta, residual, state) == ApplyStatus::AlreadyApplied);
+    CHECK(state.consumedAtoms == v9.consumedAtoms);
+    CHECK(state.consumedAtoms.size() == 20);
+    CHECK(state.slotsUsed == 2);
+    CHECK(state.reservationVersion == v9.reservationVersion);
+    CHECK(state.snapshot == v9.snapshot);
+    m5Evidence::note("expected", {"O1 replayed after V9: AlreadyApplied", "the continuation replayed: AlreadyApplied", "20 units, 2 slots, V9 unchanged"});
+}
+
+TEST_CASE("X-STATE-10/changedValidationContext: a validation made under another policy or pool is not current; revalidation is needed before a new commit" * doctest::test_suite("m5")) {
+    const SnapshotV7 v7 = snapshotV7();
+    const DemandSnapshot snapshot = snapshotOf(v7.input);
+    REQUIRE(v7.selected.selected);
+    const CandidatePlan& c1 = *v7.selected.selected;
+    const M5PolicyProfile profile = syntheticProfile();
+    string error;
+    REQUIRE(buildDelta(c1, snapshot, profile, &error).has_value());
+
+    // A revised policy (same id, new revision, or new thresholds) makes the old validation stale.
+    M5PolicyProfile revised = profile;
+    revised.profileRevision = profile.profileRevision + 1;
+    error.clear();
+    CHECK_FALSE(buildDelta(c1, snapshot, revised, &error).has_value());
+    CHECK(error.find("stale") != string::npos);
+    const M5PolicyProfile stricter = withAcceptance(profile, 40000.0, 3000.0);
+    error.clear();
+    CHECK_FALSE(buildDelta(c1, snapshot, stricter, &error).has_value());
+    CHECK(error.find("stale") != string::npos);
+
+    // A changed pool (the reservation version) is another validation context.
+    M5LaneDateInput otherPool = v7.input;
+    otherPool.pool.version = v7.input.pool.version + 1;
+    const DemandSnapshot changedPool = snapshotOf(otherPool);
+    error.clear();
+    CHECK_FALSE(buildDelta(c1, changedPool, profile, &error).has_value());
+    CHECK(error.find("stale") != string::npos);
+
+    // Revalidated under the new context, the plan can commit again; the committed original stays one dispatch.
+    CandidatePlan revalidated = c1;
+    revalidated.validation = validateFinal(revalidated, snapshot, revised, physicalSettings());
+    REQUIRE(revalidated.validation->allPassed());
+    const optional<CommitDelta> fresh = buildDelta(revalidated, snapshot, revised, &error);
+    REQUIRE(fresh.has_value());
+    CHECK(fresh->payloadHash != v7.selected.delta->payloadHash);
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 2};
+    REQUIRE(ledger.applyIfCurrent(*v7.selected.delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(ledger.applyIfCurrent(*v7.selected.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+    CHECK(state.consumedAtoms.size() == 10);
+    CHECK(state.slotsUsed == 1);
+    m5Evidence::note("expected", {"revised policy, new thresholds, changed pool: validation stale, no delta", "revalidated plan builds a delta", "an idempotent read of the committed result dispatches nothing"});
+}
