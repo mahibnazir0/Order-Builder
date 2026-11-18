@@ -200,13 +200,38 @@ TEST_CASE("X-ROUTE-02 two do-not-mix groups over the pool share one 21-truck poo
         ++trucksOfGroup[truck.groupIndex];
         for (const size_t index : truck.items) CHECK(day.items.items[index].groupIndex == truck.groupIndex);
     }
-    // Two cargo plans drawing on one pool: their trucks together are the 21, never 21 each. Which group
-    // gets the trucks is ED-21's business (equal classes here), not this test's.
+    // A stress case with more goods than the pool can ship: all groups still share only 21 trucks.
     CHECK(trucksOfGroup[0] + trucksOfGroup[1] == 21);
     REQUIRE(selection.largeLanes.size() == 1);
     CHECK(selection.largeLanes[0].text.find("groups sharing the reservation: group 0, group 1 (S01)\n") != string::npos);
     for (const LeftOverItem& left : selection.leftOver) CHECK(left.reason == LeftOverReason::OverReservation);
     CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+}
+
+TEST_CASE("X-ROUTE-02/synthetic: groups needing 11 and 10 trucks share exactly one 21-truck lane-date pool" * doctest::test_suite("m5")) {
+    vector<SelectionItem> goods;
+    for (size_t index = 0; index < 590; ++index) goods.push_back(item(index < 310 ? 0 : 1, index, 1000.0, 0));
+    const Day day = dayOf({group("2027"), group("2027", SplitReason::DoNotMix, "S01")}, goods.size(), goods,
+                          {reserved("2027", 21)});
+    SelectorSettings settings = selectorSettings();
+    settings.largeLanePlanner = plannerOf();
+    REQUIRE(day.classification.routes.size() == 2);
+    for (const LaneRoute& route : day.classification.routes) CHECK(route.method == SolveMethod::M5);
+    const SelectionPlan selection = plan(day, settings);
+    REQUIRE(selection.trucks.size() == 21);
+    CHECK(selection.leftOver.empty());
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    map<size_t, size_t> trucksOfGroup;
+    for (const PlannedTruck& truck : selection.trucks) {
+        ++trucksOfGroup[truck.groupIndex];
+        for (const size_t index : truck.items) CHECK(day.items.items[index].groupIndex == truck.groupIndex);
+    }
+    CHECK(trucksOfGroup[0] == 11);
+    CHECK(trucksOfGroup[1] == 10);
+    REQUIRE(selection.largeLanes.size() == 1);
+    CHECK(selection.largeLanes[0].text.find("reserved: 21\n") != string::npos);
+    m5Evidence::note("expected", {"A needs and gets 11, B needs and gets 10", "one lane-date pool of 21",
+                                  "590 goods accounted once, none cross groups"});
 }
 
 TEST_CASE("M5 settings that do not read leave every good with the configuration reason" * doctest::test_suite("m5")) {

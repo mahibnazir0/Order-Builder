@@ -7,6 +7,7 @@
 #include "floorPattern.hpp"
 #include "joiner.hpp"
 #include "m5Integration.hpp"
+#include "m5Policy.hpp"
 #include "m5UnitLoads.hpp"
 #include "paramsFields.hpp"
 #include "pipeline.hpp"
@@ -166,7 +167,7 @@ TEST_CASE("U-SP-01/synthetic: one lane with two ship dates is two pieces, each w
     m5Evidence::note("expected", {"two M5 pieces: 6 Aug pool 21, 7 Aug pool 25", "each good on its own date", "every good once"});
 }
 
-TEST_CASE("X-ROUTE-03 U-SP-01 a lane over the threshold on one date and under on the other" * doctest::test_suite("m5")) {
+TEST_CASE("X-ROUTE-03/synthetic: only the 21-reserved dates route to M5 in either input order" * doctest::test_suite("m5")) {
     const vector<SelectionItem> goods =
         join(join(itemsOf(0, 4, 0, "2026-08-06"), itemsOf(0, 4, 4, "2026-08-07")), join(itemsOf(1, 4, 8, "2026-08-06"), itemsOf(1, 4, 12, "2026-08-07")));
     const Day day = dayOf({group("2027"), group("2028")}, 16, goods,
@@ -181,12 +182,117 @@ TEST_CASE("X-ROUTE-03 U-SP-01 a lane over the threshold on one date and under on
     for (const PlannedTruck& truck : selection.trucks) {
         for (const size_t index : truck.items) CHECK(day.items.items[index].shipDate == truck.shipDate);
     }
+    vector<SelectionItem> reversedGoods = goods;
+    reverse(reversedGoods.begin(), reversedGoods.end());
+    const Day reversed = dayOf({group("2027"), group("2028")}, 16, reversedGoods,
+                               {reserved("2028", 21, "2026-08-07"), reserved("2028", 20, "2026-08-06"),
+                                reserved("2027", 20, "2026-08-07"), reserved("2027", 21, "2026-08-06")});
+    for (const string& origin : {string("2027"), string("2028")}) {
+        for (const string& date : {string("2026-08-06"), string("2026-08-07")}) {
+            CHECK(routedToM5(reversed, origin, date) == routedToM5(day, origin, date));
+        }
+    }
+    CHECK(accountedOnce(selection, day.items.items.size()));
+    m5Evidence::note("expected", {"2027 on 6 Aug and 2028 on 7 Aug route to M5", "20-reserved dates stay in M4",
+                                  "reversing goods and placeholder rows leaves routing unchanged"});
 }
 
-TEST_CASE("X-ROUTE-04 two lanes of 11 are never joined into a lane of 22" * doctest::test_suite("m5")) {
+TEST_CASE("X-ROUTE-04/synthetic: two 11-reserved lanes with the same goods never become a 22-reserved lane" * doctest::test_suite("m5")) {
     const Day day = dayOf({group("2027"), group("2028")}, 10, join(itemsOf(0, 5, 0), itemsOf(1, 5, 5)), {reserved("2027", 11), reserved("2028", 11)});
     for (const LaneRoute& route : day.classification.routes) CHECK(route.method != SolveMethod::M5);
     CHECK(plan(day, withPlanner()).largeLanes.empty());
+    const Day destinations = dayOf({groupOn("2027", "2528", "TL"), groupOn("2027", "2530", "TL")}, 10,
+                                    join(itemsOf(0, 5, 0), itemsOf(1, 5, 5)),
+                                    {reservedOn("2027", "2528", "TL", 11), reservedOn("2027", "2530", "TL", 11)});
+    CHECK(destinations.book.reservedTrucks == 22);
+    REQUIRE(destinations.classification.routes.size() == 2);
+    for (const LaneRoute& route : destinations.classification.routes) {
+        CHECK(route.reservedTrucks == 11);
+        CHECK(route.method != SolveMethod::M5);
+    }
+    const SelectionPlan selected = plan(destinations, withPlanner());
+    CHECK(selected.largeLanes.empty());
+    CHECK(accountedOnce(selected, destinations.items.items.size()));
+    m5Evidence::note("expected", {"different origins: two 11-truck lanes stay below T=20",
+                                  "different destinations: two 11-truck lanes stay below T=20"});
+}
+
+TEST_CASE("X-ROUTE-10/synthetic: repetition does not change the 19 versus 21 reservation threshold" * doctest::test_suite("m5")) {
+    const vector<SelectionItem> goods = itemsOf(0, 120, 0);
+    const Day nineteen = dayOf({group("2027")}, goods.size(), goods, {reserved("2027", 19)});
+    const Day twentyOne = dayOf({group("2027")}, goods.size(), goods, {reserved("2027", 21)});
+    REQUIRE(nineteen.classification.routes.size() == 1);
+    REQUIRE(twentyOne.classification.routes.size() == 1);
+    CHECK(nineteen.classification.routes[0].reservedTrucks == 19);
+    CHECK(nineteen.classification.routes[0].method != SolveMethod::M5);
+    CHECK(twentyOne.classification.routes[0].reservedTrucks == 21);
+    CHECK(twentyOne.classification.routes[0].method == SolveMethod::M5);
+    m5Evidence::note("expected", {"same 120 repetitive goods", "19 stays in M4", "21 routes to M5"});
+}
+
+TEST_CASE("X-ROUTE-09/synthetic: a forced M5 probe at 20 reserved leaves the next normal route in M4" * doctest::test_suite("m5")) {
+    const Day day = dayOf({group("2027")}, 60, itemsOf(0, 60, 0), {reserved("2027", 20)});
+    const SelectionPlan before = plan(day, withPlanner());
+    REQUIRE(day.classification.routes.size() == 1);
+    CHECK(day.classification.routes[0].method != SolveMethod::M5);
+    CHECK(before.largeLanes.empty());
+    const m5::M5LaneDateInput forced = m5Fixtures::laneWith(m5Fixtures::fx30Units("probe", 60), 20);
+    const m5::M5LaneOutcome probe = m5Fixtures::plan(forced, m5Fixtures::syntheticProfile());
+    REQUIRE(probe.selected);
+    CHECK(probe.reservedTrucks == 20);
+    CHECK(m5Fixtures::shippedCount(probe) == 60);
+    const SelectionPlan after = plan(day, withPlanner());
+    CHECK(after.largeLanes.empty());
+    CHECK(day.classification.routes[0].method != SolveMethod::M5);
+    CHECK(after.trucks.size() == before.trucks.size());
+    CHECK(trucksByGroup(after) == trucksByGroup(before));
+    CHECK(after.leftOver.size() == before.leftOver.size());
+    CHECK(accountedOnce(after, day.items.items.size()));
+    m5Evidence::note("expected", {"forced M5 probe plans 60 on a 20-slot lane", "normal route before and after stays M4",
+                                  "normal truck membership and leftovers unchanged"});
+}
+
+TEST_CASE("X-ROUTE-06/synthetic: invalid thresholds and block sizes are rejected before planning" * doctest::test_suite("m5")) {
+    nlohmann::json shipped;
+    {
+        ifstream file("config/orderBuilderParams.json");
+        REQUIRE(file.good());
+        file >> shipped;
+    }
+    const filesystem::path path = testTemp::runTempFolder() / "xRoute06Params.json";
+    const auto thresholdError = [&](nlohmann::json params) {
+        ofstream file(path, ios::binary);
+        file << params.dump();
+        file.close();
+        try {
+            (void)loadSelectionParams(path.string());
+        } catch (const runtime_error& error) {
+            return string(error.what());
+        }
+        return string();
+    };
+    for (const nlohmann::json& bad : {nlohmann::json(-1), nlohmann::json(0), nlohmann::json(1.5),
+                                      nlohmann::json(1.0e300)}) {
+        nlohmann::json params = shipped;
+        params["selection"]["m5Threshold"] = bad;
+        CHECK(thresholdError(params).find("m5Threshold") != string::npos);
+        nlohmann::json block = shipped["m5"];
+        block["blockSize"] = bad;
+        try {
+            (void)m5::loadProfile(block);
+            FAIL_CHECK("invalid block size accepted");
+        } catch (const runtime_error& error) {
+            CHECK(string(error.what()).find("blockSize") != string::npos);
+        }
+    }
+    nlohmann::json missingThreshold = shipped;
+    missingThreshold["selection"].erase("m5Threshold");
+    CHECK(thresholdError(missingThreshold).find("m5Threshold") != string::npos);
+    nlohmann::json missingBlock = shipped["m5"];
+    missingBlock.erase("blockSize");
+    CHECK_THROWS_AS(m5::loadProfile(missingBlock), runtime_error);
+    m5Evidence::note("expected", {"negative, zero, fractional, oversized and missing threshold refused by name",
+                                  "same invalid block-size inputs refused before planning"});
 }
 
 TEST_CASE("X-ROUTE-05 X-RES-04 a lane-date on two rows is not summed; separate lanes keep their own" * doctest::test_suite("m5")) {

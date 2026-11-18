@@ -7387,7 +7387,7 @@
         "M-INT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/testM5Policy.cpp",
+      "testFile": "tests/m5/testM5Policy.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "",
       "entryPoint": "POLICY",
@@ -7524,7 +7524,7 @@
         "M-INT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Integration.cpp",
+      "testFile": "tests/m5/testM5Integration.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "FX-ROUTE",
       "localOverrides": "forced benchmark then normal run, same process",
       "entryPoint": "FORCED + ROUTE",
