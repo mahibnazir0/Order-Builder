@@ -12723,7 +12723,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData) + tests/m5/testM5Scenarios.cpp",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12775,7 +12775,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData) + tests/m5/testM5Scenarios.cpp",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12827,7 +12827,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData)",
+      "testFile": "tests/m5/testM5RealData.cpp (ctest entry m5RealData) + tests/m5/testM5Scenarios.cpp",
       "fixture": "Real Aug5 structured outcome / recorded baseline",
       "localOverrides": "",
       "entryPoint": "REPORT + REAL",
@@ -12881,7 +12881,7 @@
         "M-RPT"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Policy.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Policy.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Synthetic x = 40,000 / y = 3,300",
       "localOverrides": "",
       "entryPoint": "POLICY + REPORT",
@@ -12984,7 +12984,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",
@@ -13110,7 +13110,7 @@
         "M-ORC"
       ],
       "workPackage": "WP8",
-      "testFile": "tests/m5/testM5Orchestrator.cpp",
+      "testFile": "tests/m5/testM5Orchestrator.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Structured outcome fixtures",
       "localOverrides": "",
       "entryPoint": "REPORT",

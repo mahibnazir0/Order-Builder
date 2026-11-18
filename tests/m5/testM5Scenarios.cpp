@@ -2926,6 +2926,231 @@ void requireEscalation(const M5LaneOutcome& outcome, int count, long long quick,
     CHECK(outcome.escalation.escalated == escalated);
 }
 
+TEST_CASE("X-REPORT-01/structuredInput: a 21-truck 7 Aug lane reports 21 reserved; the other date reports its own 20; 38 is never printed as reserved" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput aug7 = laneWith(fx30Units("u", 21 * 30), 21);
+    const M5LaneOutcome outcome = plan(aug7, profile);
+    requireInvariants(outcome, aug7);
+    const M5ReportData data = buildReportData(outcome, aug7, &profile, {"PRODUCTION", 20, "fixture"});
+    CHECK(data.reservedTrucks == 21);
+    CHECK(data.loadedTrucks == 21);
+    CHECK(data.unusedReservations == 0);
+    const string text = renderAscii(data);
+    CHECK(text.find("reserved: 21\n") != string::npos);
+    CHECK(text.find("trucks loaded: 21\n") != string::npos);
+    CHECK(text.find("reserved: 38") == string::npos);
+
+    FakeClock clock;
+    const M5LaneDateInput aug8 = laneWith(fx30Units("later-", 20 * 30), 20, kDefaultTrailer, true);
+    const LinkedDateBenchmark benchmark = benchmarkLinkedDates({aug7, aug8}, profile, physicalSettings(), clock);
+    REQUIRE(benchmark.outcomes.size() == 2);
+    CHECK(benchmark.text.find("reserved: 21\n") != string::npos);
+    CHECK(benchmark.text.find("reserved: 20\n") != string::npos);
+    CHECK(benchmark.text.find("reserved: 38") == string::npos);
+    CHECK(benchmark.text.find("reserved: 41") == string::npos);
+    m5Evidence::note("expected", {"7 Aug: reserved 21, loaded 21", "8 Aug: reserved 20", "never reserved 38; the two dates are reported apart (21 + 20 = 41)"});
+    m5Evidence::note("notCovered", {"the comparison with the client's 18 on 7 Aug needs the local reference file (PR-13)"});
+}
+
+TEST_CASE("X-REPORT-02/structuredInput: a both-dates benchmark is labelled and kept apart from the production report; its numbers are results, not targets" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput first = laneWith(fx30Units("a", 3 * 30), 3);
+    const M5LaneDateInput second = laneWith(fx30Units("b", 2 * 30), 2, kDefaultTrailer, true);
+    FakeClock clock;
+    const LinkedDateBenchmark benchmark = benchmarkLinkedDates({first, second}, profile, physicalSettings(), clock);
+    CHECK(benchmark.text.find("BENCHMARK (labelled, not production; nothing committed)") != string::npos);
+    REQUIRE(benchmark.outcomes.size() == 2);
+    const size_t trucks = benchmark.outcomes[0].selected->trucks.size() + benchmark.outcomes[1].selected->trucks.size();
+    CHECK(trucks == 5);
+    const M5LaneOutcome production = plan(first, profile);
+    const string productionText = renderAscii(buildReportData(production, first, &profile, {"PRODUCTION", 20, "fixture"}));
+    CHECK(productionText.find("BENCHMARK") == string::npos);
+    CHECK(productionText.find("scope: PRODUCTION") != string::npos);
+    CHECK(productionText.find("3D Threshold benchmark\n  rows: none in a production run: benchmark runs are labelled and kept apart\n") != string::npos);
+    CHECK(shippedCount(production) == 90);
+    m5Evidence::note("expected", {"benchmark text labelled BENCHMARK, nothing committed", "production report has no benchmark rows", "figures come from the data: 5 trucks here, not 23 or 38"});
+}
+
+TEST_CASE("X-REPORT-03/structuredInput: a plan without a certificate is never called infeasible, whatever an estimate says; no old baseline figure is printed" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput input = gapLane(30);
+    const M5LaneOutcome outcome = plan(input, profile);
+    requireInvariants(outcome, input);
+    const M5ReportData data = buildReportData(outcome, input, &profile, {"PRODUCTION", 20, "fixture"});
+    const string text = renderAscii(data);
+    CHECK(outcome.proof != ProofStatus::ProvenInfeasible);
+    CHECK(text.find("infeasible") == string::npos);
+    CHECK(text.find("proven infeasible") == string::npos);
+    CHECK(text.find("service proof: ") != string::npos);
+    for (const char* oldFigure : {"635", "3,171", "3,209", "3,192"}) CHECK(text.find(oldFigure) == string::npos);
+    // A figure an estimate gave is not turned into a proof: the quick count and the bound are shown as what they are.
+    CHECK(text.find("quick count vs bound: ") != string::npos);
+    CHECK(text.find("count evidence: ") != string::npos);
+    m5Evidence::note("expected", {"no certificate: no infeasible wording", "estimate and bound shown as such", "no historical 635 or old means in a current report"});
+    m5Evidence::note("notCovered", {"747 stacks / 763 units and the means 3,171/3,209/3,192 are reproduced only in the real-data run (PR-13)"});
+}
+
+TEST_CASE("X-REPORT-04/productionProfile: x = 40,000 lb and y = 3,300 cu ft decide by weight OR cube, strictly, from full precision; the report states the rule" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 3300.0);
+    struct Case {
+        double cubeCuFt;
+        bool passes;
+    };
+    for (const Case& value : {Case{3299.9, false}, Case{3300.0, false}, Case{3300.0 + 0.5 / 1728.0, true}, Case{3300.1, true}, Case{3307.5, true}}) {
+        INFO("cube " << value.cubeCuFt);
+        vector<Atom> atoms = fx30Units("u", 1);
+        atoms[0].weightLb = 20000.0;
+        atoms[0].floor.cubeCubicIn = value.cubeCuFt * 1728.0;
+        const M5LaneDateInput input = laneWith(atoms, 1);
+        const M5LaneOutcome outcome = plan(input, profile);
+        requireInvariants(outcome, input);
+        CHECK(shippedCount(outcome) == (value.passes ? 1u : 0u));
+        const string text = renderAscii(buildReportData(outcome, input, &profile, {"SYNTHETIC", 20, "fixture"}));
+        CHECK(text.find("optional policy ON: weight > 40000.0 lb OR cube > 3300.0 cu ft (strict)") != string::npos);
+        CHECK(text.find("84%") == string::npos);
+        CHECK(text.find("3307.5") == string::npos);
+        CHECK(text.find(profile.key()) != string::npos);
+    }
+    // Weight cannot change the result: 20,000 lb alone never passes x = 40,000.
+    CHECK_FALSE(evaluateAcceptance(20000.0, 3299.9 * 1728.0, *profile.acceptance).byWeight);
+    CHECK(evaluateAcceptance(20000.0, 3300.1 * 1728.0, *profile.acceptance).byCube);
+    CHECK(evaluateAcceptance(40000.5, 100.0 * 1728.0, *profile.acceptance).accepted);
+    m5Evidence::note("expected", {"3,299.9 and 3,300.0 withheld; 3,300.1 and 3,307.5 ship", "a cube 0.5 cu in above y ships although both print 3,300.0", "numeric x/y, strict OR and the profile named; no 84% rule"});
+}
+
+TEST_CASE("X-REPORT-06/synthetic: no eligible input, a completed zero dispatch and a timeout with no result are told apart; empty averages are N/A" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput twenty = laneWith(fx30Units("u", 20), 1);
+    const M5PolicyProfile strict = withAcceptance(profile, 40000.0, 3000.0);
+    const M5LaneDateInput none = laneWith({}, 1);
+    const M5LaneOutcome noWork = plan(none, profile);
+    const M5LaneOutcome zero = plan(twenty, strict);
+    FakeClock clock;
+    const M5LaneOutcome timedOut = [&] {
+        M5RunServices services(clock);
+        services.allowanceSeconds = 5.0;
+        services.beforeMethod = [&](MethodId) { clock.advance(6.0); };
+        return planLaneDate(twenty, profile, physicalSettings(), services);
+    }();
+    CHECK(noWork.kind == OutcomeKind::CompletedNoEligibleInput);
+    CHECK(zero.kind == OutcomeKind::CompletedZeroDispatch);
+    CHECK(timedOut.kind == OutcomeKind::TimeoutNoIncumbent);
+    const string noWorkText = renderAscii(buildReportData(noWork, none, &profile, {}));
+    const string zeroText = renderAscii(buildReportData(zero, twenty, &strict, {}));
+    const string timedOutText = renderAscii(buildReportData(timedOut, twenty, &profile, {}));
+    CHECK(noWorkText.find("outcome: completed: no eligible goods") != string::npos);
+    CHECK(zeroText.find("outcome: completed: no truck dispatched") != string::npos);
+    CHECK(zeroText.find("withheld by minimum-load policy") != string::npos);
+    CHECK(timedOutText.find("outcome: timed out: no checked result") != string::npos);
+    CHECK(noWorkText != zeroText);
+    CHECK(zeroText != timedOutText);
+    for (const string* text : {&noWorkText, &zeroText, &timedOutText}) {
+        CHECK(text->find("seconds per loaded truck: N/A") != string::npos);
+        CHECK(text->find("average rear inches, all trucks: N/A over 0 trucks") != string::npos);
+        CHECK(text->find("average rear inches, goods remain: N/A over 0 trucks") != string::npos);
+        CHECK(text->find("nan") == string::npos);
+        CHECK(text->find("inf") == string::npos);
+        CHECK(text->find("trucks loaded: 0\n") != string::npos);
+    }
+    m5Evidence::note("expected", {"three different outcome lines", "zero dispatch names the 20 withheld", "averages and seconds per loaded truck N/A, no nan or inf"});
+    m5Evidence::note("notCovered", {"a run with no M5 lane-date at all has no M5 report to print; only the lane-date outcomes are covered"});
+}
+
+TEST_CASE("X-REPORT-07/synthetic: 90 units, 60 shipped, 30 carried: 90 = 60 + 30, the 30 not counted twice" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 90), 2);
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneOutcome outcome = plan(input, profile);
+    requireInvariants(outcome, input);
+    const M5ReportData data = buildReportData(outcome, input, &profile, {"PRODUCTION", 20, "fixture"});
+    double left = 0.0;
+    for (const auto& [cause, loads] : data.unitLoadsLeftByCause) left += loads;
+    CHECK(data.unitLoadsIn == 90.0);
+    CHECK(data.unitLoadsShipped == 60.0);
+    CHECK(left == 30.0);
+    CHECK(data.unitLoadsShipped + left == data.unitLoadsIn);
+    CHECK(data.unitLoadsLeftByCause.size() == 1);
+    CHECK(data.unitLoadsLeftByCause.at("over the reservation") == 30.0);
+    const string text = renderAscii(data);
+    CHECK(text.find("unit loads in / shipped / of them can-go: 90.00 / 60.00 / 0.00") != string::npos);
+    // The carried goods, planned again next day, ship once there and are not in today's shipped figure.
+    const M5LaneDateInput carried = laneWith(fx30Units("u", 90), 2);
+    CHECK(shippedCount(plan(carried, profile)) == 60);
+    m5Evidence::note("expected", {"90 in = 60 shipped + 30 left", "the 30 appear once, under over the reservation"});
+}
+
+TEST_CASE("X-REPORT-08/synthetic: A finishes; B not started, timed out or failed shows its real status, with no old numbers and no (run) left" * doctest::test_suite("m5")) {
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneDateInput input = laneWith(fx30Units("u", 75), 3);
+    // An earlier full run: both methods ran and shipped 75 on 3 trucks.
+    const M5LaneOutcome earlier = planWithServices(input, profile, [](M5RunServices& services) {
+        services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    });
+    REQUIRE(earlier.methods.size() == 2);
+    CHECK(earlier.methods[1].ran);
+
+    // Now A spends the whole allowance: B is not started.
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    services.beforeMethod = [&](MethodId method) {
+        if (method == MethodId::PatternRepeat) clock.advance(10.0);
+    };
+    const M5LaneOutcome notStarted = planLaneDate(input, profile, physicalSettings(), services);
+    REQUIRE(notStarted.methods.size() == 2);
+    const string text = renderAscii(buildReportData(notStarted, input, &profile, {}));
+    CHECK(text.find("method B (rolling blocks): not run:") != string::npos);
+    CHECK(text.find("(run)") == string::npos);
+    CHECK_FALSE(notStarted.methods[1].ran);
+    CHECK(notStarted.methods[1].unitLoads == 0.0);
+    CHECK(notStarted.methods[1].trucks == 0);
+    // B's earlier figures are not reused: no method B line carries the earlier 75.00 unit loads.
+    const size_t methodB = text.find("method B (rolling blocks)");
+    REQUIRE(methodB != string::npos);
+    const size_t methodBEnd = text.find('\n', methodB);
+    CHECK(text.substr(methodB, methodBEnd - methodB).find("75") == string::npos);
+
+    // B failed its own final validation: its status says so, not "selected" and not "not started".
+    const M5LaneDateInput tall = laneWith(fx30Units("u", 31), 1);
+    FakeClock failedClock;
+    M5RunServices failing(failedClock);
+    failing.methods = {make_shared<PatternPlanner>(), make_shared<m5Stubs::FixedMethod>(MethodId::RollingBlocks, 1, 31)};
+    const M5LaneOutcome failed = planLaneDate(tall, profile, physicalSettings(), failing);
+    const string failedText = renderAscii(buildReportData(failed, tall, &profile, {}));
+    CHECK(failedText.find("(run)") == string::npos);
+    CHECK(failedText.find("method B (rolling blocks): ") != string::npos);
+    m5Evidence::note("expected", {"B not started after A used the allowance: reported not run, no old B figures", "no (run) placeholder anywhere", "a B that cannot be validated is shown with its own status"});
+}
+
+TEST_CASE("X-REPORT-09/synthetic: ids with non-ASCII, quotes, commas, newlines and very long text leave the report ASCII and its rows intact" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = fx30Units("u", 3);
+    const string hostile = "gr\xc3\xbcppe, \"quoted\"\nnext\ttab " + string(600, 'x');
+    for (Atom& atom : atoms) atom.group = hostile;
+    atoms[1].group = "second, group";
+    const M5LaneDateInput input = laneWith(atoms, 1);
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneOutcome outcome = plan(input, profile);
+    const string text = renderAscii(buildReportData(outcome, input, &profile, {"SYNTHETIC", 20, "run, \"x\"\n\xe2\x82\xac"}));
+    CHECK(all_of(text.begin(), text.end(), [](char character) {
+        const auto code = static_cast<unsigned char>(character);
+        return character == '\n' || (code >= 0x20 && code <= 0x7e);
+    }));
+    // Rows stay intact: between the lane header and the method section there is one line per truck (it starts
+    // with the truck number), none broken by a newline or quote inside an id.
+    const M5ReportData data = buildReportData(outcome, input, &profile, {});
+    const size_t laneStart = text.find("3B Lane\n"), laneEnd = text.find("3C Method evidence\n");
+    REQUIRE(laneStart != string::npos);
+    REQUIRE(laneEnd != string::npos);
+    size_t rowLines = 0;
+    istringstream lane(text.substr(laneStart, laneEnd - laneStart));
+    for (string line; getline(lane, line);) {
+        if (!line.empty() && line.front() >= '0' && line.front() <= '9') ++rowLines;
+    }
+    CHECK(rowLines == data.trucks.size());
+    CHECK(text.find("3E Summary\n") != string::npos);
+    m5Evidence::note("expected", {"every byte 0x20..0x7e or newline", "one table row per truck", "sections 3A to 3E present"});
+}
+
 TEST_CASE("U-FF-01/approvedPolicy: A is exactly G = 1 above a valid bound with allowance left: B runs" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = gapLane(30);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
