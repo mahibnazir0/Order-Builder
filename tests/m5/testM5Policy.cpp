@@ -370,12 +370,13 @@ TEST_CASE("U-FF-04/synthetic: the gap is a positive whole number of trucks, G = 
     m5Evidence::note("expected", {"G = 1 shipped; 2 accepted as a synthetic setting", "0, -1, 1.5, NaN, inf, 1e300, 2^63-1, text, null, missing refused"});
 }
 
-TEST_CASE("U-PF-05 lane-date allowance is seconds per load times reserved trucks" * doctest::test_suite("m5")) {
+TEST_CASE("U-PF-05/synthetic lane-date allowance is seconds per load times reserved trucks, declared before the search and never enlarged" * doctest::test_suite("m5")) {
     CHECK(*laneAllowanceSeconds(1.0, 21, nullptr) == 21.0);
     CHECK(*laneAllowanceSeconds(1.0, 20, nullptr) == 20.0);
     CHECK(*laneAllowanceSeconds(2.5, 21, nullptr) == 52.5);
     CHECK(*laneAllowanceSeconds(2.5, 20, nullptr) == 50.0);
-    for (const json& bad : {json(0), json(-1), json("1"), json(nullptr)}) {
+    for (const json& bad : {json(0), json(-1), json("1"), json(nullptr), json(numeric_limits<double>::quiet_NaN()),
+                            json(numeric_limits<double>::infinity()), json(-numeric_limits<double>::infinity()), json::array(), json(true)}) {
         json block = productionBlock();
         block["secondsPerLoad"] = bad;
         requireRejected(block, "seconds per load " + bad.dump());
@@ -383,6 +384,16 @@ TEST_CASE("U-PF-05 lane-date allowance is seconds per load times reserved trucks
     json block = productionBlock();
     block.erase("secondsPerLoad");
     requireRejected(block, "seconds per load missing");
+    // The setting is per customer; changing it changes only the allowance, never the plan.
+    const M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 60), 21);
+    M5PolicyProfile one = m5Fixtures::syntheticProfile(), slower = m5Fixtures::syntheticProfile();
+    one.secondsPerLoad = 1.0;
+    slower.secondsPerLoad = 2.5;
+    const M5LaneOutcome first = m5Fixtures::plan(input, one), second = m5Fixtures::plan(input, slower);
+    CHECK(first.allowanceSeconds == 21.0);
+    CHECK(second.allowanceSeconds == 52.5);
+    CHECK(m5Fixtures::shippedIds(first, input) == m5Fixtures::shippedIds(second, input));
+    m5Evidence::note("expected", {"1 s: 21 s and 20 s; 2.5 s: 52.5 s and 50 s", "0, negative, NaN, infinity, wrong type and missing refused", "only the allowance changes"});
 }
 
 TEST_CASE("U-PF-06 allowance arithmetic refuses overflow and non-finite rates" * doctest::test_suite("m5")) {

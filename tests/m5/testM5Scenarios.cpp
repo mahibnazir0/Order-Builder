@@ -240,7 +240,7 @@ TEST_CASE("X-RUN-07 retry before commit plans the original; after a partial comm
     CHECK(state.consumedAtoms.size() == 38);
 }
 
-TEST_CASE("X-RUN-01/workCount: the same input stopped by a work count gives the same plan on 1, 2 and 8 threads" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-01/workCount U-PF-03/workCountStop: the same input stopped by a work count gives the same plan on 1, 2 and 8 threads" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
     const auto runOnce = [&](long long work) {
         FakeClock clock;
@@ -273,7 +273,7 @@ TEST_CASE("X-RUN-01/workCount: the same input stopped by a work count gives the 
     m5Evidence::note("expected", {"work allowances 1, 3, 25 and 1,000,000: each gives one plan whatever the thread count"});
 }
 
-TEST_CASE("X-RUN-01/wallClock: a run stopped by the clock is valid and honestly labelled, never a completed run" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-01/wallClock U-PF-03/wallClock: a run stopped by the clock is valid and honestly labelled, never a completed run" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
     for (const double allowance : {0.5, 5.0, 50.0}) {
         INFO("allowance " << allowance);
@@ -617,6 +617,90 @@ M5LaneOutcome planUnderClock(const M5LaneDateInput& input, const M5PolicyProfile
 
 }  // namespace
 
+TEST_CASE("U-PF-06/fractionalSeconds: 0.1 x 21 is 2.1 s, exact on a nanosecond clock; 2.5 x 20 is 50 s; nothing is truncated to whole seconds" * doctest::test_suite("m5")) {
+    string error;
+    const optional<double> small = laneAllowanceSeconds(0.1, 21, &error);
+    REQUIRE(small.has_value());
+    CHECK(llround(*small * 1e9) == 2'100'000'000LL);
+    CHECK(*small == doctest::Approx(2.1));
+    CHECK(*small != 2.0);
+    CHECK(*laneAllowanceSeconds(2.5, 20, &error) == 50.0);
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 0.1;
+    const M5LaneOutcome outcome = plan(laneWith(fx30Units("u", 30), 21), profile);
+    CHECK(outcome.allowanceSeconds == doctest::Approx(2.1));
+    CHECK(llround(outcome.allowanceSeconds * 1e9) == 2'100'000'000LL);
+    CHECK(shippedCount(outcome) == 30);
+    m5Evidence::note("expected", {"2.1 s = 2,100,000,000 ticks of a nanosecond clock", "50 s", "no truncation to whole seconds"});
+}
+
+TEST_CASE("U-PF-06/zeroReservations: a positive rate with no reservation is a valid zero allowance, zero dispatch, all sources accounted, no search" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 0);
+    string error;
+    CHECK(*laneAllowanceSeconds(1.0, 0, &error) == 0.0);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(outcome.allowanceSeconds == 0.0);
+    CHECK(outcome.kind == OutcomeKind::CompletedZeroDispatch);
+    CHECK(outcome.kind != OutcomeKind::TimeoutNoIncumbent);
+    CHECK(outcome.stop == StopReason::Completed);
+    CHECK_FALSE(outcome.selected.has_value());
+    CHECK(outcome.leftOver.size() == 20);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 20);
+    CHECK(outcome.floorSearch.statesCharged == 0);
+    CHECK(outcome.timing.elapsedSeconds == 0.0);
+    CHECK(outcome.timing.secondsByPhase.empty());
+    m5Evidence::note("expected", {"allowance 0, completed zero dispatch", "all 20 sources left over the reservation", "no floor search, no method run"});
+}
+
+TEST_CASE("U-PF-06/invalidSeconds: NaN, infinity, negative, zero and missing seconds per load are errors before any search" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 3);
+    for (const double bad : {numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity(), -numeric_limits<double>::infinity(), -1.0, 0.0}) {
+        string error;
+        CHECK_FALSE(laneAllowanceSeconds(bad, 3, &error).has_value());
+        CHECK_FALSE(error.empty());
+        M5PolicyProfile profile = syntheticProfile();
+        profile.secondsPerLoad = bad;
+        const M5LaneOutcome outcome = plan(input, profile);
+        INFO("seconds per load " << bad);
+        CHECK(outcome.kind == OutcomeKind::ConfigurationIncomplete);
+        CHECK(shippedCount(outcome) == 0);
+        CHECK(outcome.floorSearch.statesCharged == 0);
+        CHECK(outcome.leftOver.size() == 30);
+        for (const LeftOver& left : outcome.leftOver) CHECK(left.cause == LeftOverCause::ConfigurationIncomplete);
+        CHECK_FALSE(outcome.delta.has_value());
+    }
+    m5Evidence::note("expected", {"NaN, +/-infinity, negative and zero refused", "ConfigurationIncomplete, every good left, nothing searched or committed", "a missing value is refused at configuration (U-PF-05)"});
+}
+
+TEST_CASE("U-PF-06/multiplicationOverflow: a finite rate whose product with the reservations overflows is refused, never wrapped or capped" * doctest::test_suite("m5")) {
+    string error;
+    CHECK_FALSE(laneAllowanceSeconds(1.0e308, 21, &error).has_value());
+    CHECK(error.find("past the largest allowance") != string::npos);
+    CHECK_FALSE(laneAllowanceSeconds(numeric_limits<double>::max(), 2, nullptr).has_value());
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0e308;
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 21);
+    const M5LaneOutcome outcome = plan(input, profile);
+    CHECK(outcome.kind == OutcomeKind::ConfigurationIncomplete);
+    CHECK(shippedCount(outcome) == 0);
+    CHECK(outcome.floorSearch.statesCharged == 0);
+    CHECK(outcome.timing.elapsedSeconds == 0.0);
+    m5Evidence::note("expected", {"1e308 x 21 refused with an overflow message", "the lane-date is configuration incomplete: no search, no commit, no unlimited time"});
+}
+
+TEST_CASE("U-PF-06/durationOverflow: an allowance beyond the declared duration range (about 31 years) is refused; the limit itself is accepted" * doctest::test_suite("m5")) {
+    string error;
+    CHECK(*laneAllowanceSeconds(kMaxAllowanceSeconds, 1, &error) == kMaxAllowanceSeconds);
+    CHECK_FALSE(laneAllowanceSeconds(kMaxAllowanceSeconds, 2, &error).has_value());
+    CHECK_FALSE(laneAllowanceSeconds(1.0e10, 21, &error).has_value());
+    CHECK_FALSE(laneAllowanceSeconds(std::nextafter(kMaxAllowanceSeconds, 2.0 * kMaxAllowanceSeconds), 1, &error).has_value());
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0e10;
+    CHECK(plan(laneWith(fx30Units("u", 30), 21), profile).kind == OutcomeKind::ConfigurationIncomplete);
+    m5Evidence::note("expected", {"1e9 s x 1 accepted, x 2 and 1e10 x 21 refused", "the representation limit is declared: kMaxAllowanceSeconds = 1e9 s"});
+}
+
 TEST_CASE("U-PF-06/deadlineOverflow: a clock whose start plus the allowance cannot be represented is refused before any search, never read as unlimited time" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 30), 3);
     for (const double start : {numeric_limits<double>::max(), 1.7e308, 1.0e300, numeric_limits<double>::infinity()}) {
@@ -637,6 +721,234 @@ TEST_CASE("U-PF-06/deadlineOverflow: a clock whose start plus the allowance cann
     m5Evidence::note("expected", {"a start of 1e300 or more with a 30 s allowance: configuration incomplete", "a normal clock (0, 1,000 s, one year) plans"});
 }
 
+TEST_CASE("U-PF-07/parallelWallTime U-PF-07/sequentialWallTime parallel work shares one wall deadline; sequential work adds; CPU work is a separate figure" * doctest::test_suite("m5")) {
+    FakeClock clock;
+    Budget budget({21.0, nullopt, "secondsPerLoad x reserved trucks (CL-05)"}, clock);
+    // A and B start together at t0 and both end at t8: the wall interval is 8, one budget of 21 (not two), 13 left.
+    const double start = clock.nowSeconds();
+    const double aEnd = start + 8.0, bEnd = start + 8.0;
+    clock.advance(8.0);
+    CHECK(budget.elapsedSeconds() == 8.0);
+    CHECK(budget.remainingSeconds() == 13.0);
+    CHECK(max(aEnd, bEnd) - start == 8.0);
+    const double cpuWork = (aEnd - start) + (bEnd - start);
+    CHECK(cpuWork == 16.0);
+    CHECK(budget.elapsedSeconds() != cpuWork);
+    CHECK(budget.ledger().allowanceSeconds == 21.0);
+    CHECK_FALSE(budget.exhausted());
+
+    // The sequential 8 + 8 control: 16 elapsed, five remain.
+    FakeClock sequential;
+    Budget control({21.0, nullopt, "secondsPerLoad x reserved trucks (CL-05)"}, sequential);
+    control.startPhase("methodA");
+    sequential.advance(8.0);
+    control.startPhase("methodB");
+    sequential.advance(8.0);
+    control.finish();
+    CHECK(control.elapsedSeconds() == 16.0);
+    CHECK(control.remainingSeconds() == 5.0);
+    CHECK(control.ledger().secondsByPhase.at("methodA") + control.ledger().secondsByPhase.at("methodB") == 16.0);
+    CHECK_FALSE(control.exhausted());
+    m5Evidence::note("expected", {"parallel A/B both t0 to t8: wall 8, remaining 13, CPU work 16 labelled apart", "sequential 8 + 8: 16 elapsed, 5 remain"});
+}
+
+TEST_CASE("U-PF-07/finishBeforeDeadline U-PF-07/finishAtDeadline all mandatory checks finished at t20.999 or t21.000 keep the checked result" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 21);
+    for (const double finish : {20.999, 21.0}) {
+        INFO("finished at " << finish);
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.allowanceSeconds = 21.0;
+        services.methods = {make_shared<PatternPlanner>()};
+        services.afterMethod = [&](MethodId) { clock.advance(finish); };
+        const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(outcome.finalValidationPassed);
+        CHECK(shippedCount(outcome) == 60);
+        CHECK(outcome.allowanceSeconds == 21.0);
+        CHECK(outcome.timing.elapsedSeconds == doctest::Approx(finish));
+        if (finish < 21.0) {
+            CHECK(outcome.stop == StopReason::Completed);
+            CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+        } else {
+            // At the deadline the checked result stands, labelled as stopped by the allowance.
+            CHECK(outcome.stop == StopReason::BudgetExhausted);
+        }
+    }
+    m5Evidence::note("expected", {"t20.999: completed, within 21", "t21.000: the checked result is kept, stopped by the allowance"});
+}
+
+TEST_CASE("U-PF-07/uncheckedAtDeadline: a task due to start at the deadline is not started; a later method cannot replace the checked earlier result; the real elapsed time is reported" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 21);
+    for (const double startOfB : {21.0, 22.5}) {
+        INFO("B due to start at " << startOfB);
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.allowanceSeconds = 21.0;
+        services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+        services.afterMethod = [&](MethodId method) {
+            if (method == MethodId::PatternRepeat) clock.advance(startOfB);
+        };
+        const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.methods.size() == 2);
+        CHECK(outcome.methods[0].selected);
+        CHECK_FALSE(outcome.methods[1].ran);
+        CHECK_FALSE(outcome.methods[1].selected);
+        CHECK(outcome.kind == OutcomeKind::TimeoutWithIncumbent);
+        CHECK(outcome.stop == StopReason::BudgetExhausted);
+        REQUIRE(outcome.selected);
+        REQUIRE(outcome.selected->validation.has_value());
+        CHECK(outcome.selected->validation->allPassed());
+        CHECK(outcome.timing.elapsedSeconds == doctest::Approx(startOfB));
+        CHECK(outcome.timing.elapsedSeconds >= outcome.allowanceSeconds);
+        const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+        CHECK(text.find("allowance spent") != string::npos);
+    }
+    m5Evidence::note("expected", {"B due at t21 or t22.5: not started", "A's validated result stands; status timeout with incumbent", "actual elapsed 21 or 22.5, never a compliant-timing claim"});
+}
+
+TEST_CASE("U-PF-07/noPriorIncumbent: nothing checked before the deadline is a timeout without an incumbent, with the actual elapsed time" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 21);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 21.0;
+    services.beforeMethod = [&](MethodId) { clock.advance(25.0); };
+    const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(outcome, input);
+    CHECK(outcome.kind == OutcomeKind::TimeoutNoIncumbent);
+    CHECK(outcome.stop == StopReason::BudgetExhausted);
+    CHECK_FALSE(outcome.selected.has_value());
+    CHECK_FALSE(outcome.delta.has_value());
+    CHECK(outcome.timing.elapsedSeconds == doctest::Approx(25.0));
+    CHECK(countCause(outcome, LeftOverCause::NoResult) == 60);
+    m5Evidence::note("expected", {"allowance 21, 25 s used before any result: timeout without incumbent", "elapsed 25 reported, all 60 goods kept"});
+}
+
+TEST_CASE("U-PF-08/laneDateIsolation: D's 21 s and D+1's 20 s are declared apart; D's unused 16 s never enlarge D+1; a 21 s D+1 attempt fails its own 20 s" * doctest::test_suite("m5")) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0;
+    const M5LaneDateInput dayD = laneWith(fx30Units("d", 60), 21);
+    const M5LaneDateInput dayDPlusOne = laneWith(fx30Units("e", 60), 20, kDefaultTrailer, true);
+    FakeClock clock;
+    M5RunServices first(clock);
+    first.methods = {make_shared<PatternPlanner>()};
+    first.afterMethod = [&](MethodId) { clock.advance(5.0); };
+    const M5LaneOutcome outcomeD = planLaneDate(dayD, profile, physicalSettings(), first);
+    CHECK(outcomeD.allowanceSeconds == 21.0);
+    CHECK(outcomeD.timing.elapsedSeconds == doctest::Approx(5.0));
+    CHECK(outcomeD.allowanceSeconds - outcomeD.timing.elapsedSeconds == doctest::Approx(16.0));
+    // The next date declares its own allowance from its own reservations: 20, not 20 + 16.
+    M5RunServices second(clock);
+    second.methods = {make_shared<PatternPlanner>()};
+    second.afterMethod = [&](MethodId) { clock.advance(21.0); };
+    const M5LaneOutcome outcomeE = planLaneDate(dayDPlusOne, profile, physicalSettings(), second);
+    CHECK(outcomeE.allowanceSeconds == 20.0);
+    CHECK(outcomeE.allowanceSeconds != 36.0);
+    CHECK(outcomeE.timing.elapsedSeconds == doctest::Approx(21.0));
+    CHECK(outcomeE.timing.elapsedSeconds > outcomeE.allowanceSeconds);
+    CHECK(outcomeE.stop == StopReason::BudgetExhausted);
+    CHECK(outcomeD.timing.elapsedSeconds + outcomeE.timing.elapsedSeconds < outcomeD.allowanceSeconds + outcomeE.allowanceSeconds);
+    // Joined benchmark reporting keeps both allowances.
+    const LinkedDateBenchmark benchmark = benchmarkLinkedDates({dayD, dayDPlusOne}, profile, physicalSettings(), clock);
+    CHECK(benchmark.text.find("lane-date allowance: 21.00 s (21 reserved)") != string::npos);
+    CHECK(benchmark.text.find("lane-date allowance: 20.00 s (20 reserved)") != string::npos);
+    m5Evidence::note("expected", {"D 21 s of which 5 used; D+1 declares 20 s, not 36", "a 21 s run of D+1 overruns its own 20 s though 26 < 41 combined", "benchmark prints both allowances"});
+}
+
+TEST_CASE("U-PF-08/independentLaneIsolation U-PF-08/reordered U-PF-08/concurrent two lanes on one date keep their own allowances, in either order and at once" * doctest::test_suite("m5")) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0;
+    M5LaneDateInput laneOne = laneWith(fx30Units("a", 60), 21);
+    M5LaneDateInput laneTwo = laneWith(fx30Units("b", 60), 20);
+    laneTwo.lane = {"3000", "3100", "TL"};
+    const auto allowanceOf = [&](const M5LaneDateInput& input, double advanceSeconds) {
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.methods = {make_shared<PatternPlanner>()};
+        services.afterMethod = [&](MethodId) { clock.advance(advanceSeconds); };
+        return planLaneDate(input, profile, physicalSettings(), services);
+    };
+    // Neither receives the other's allowance, whatever the order.
+    const M5LaneOutcome oneFirst = allowanceOf(laneOne, 1.0), twoSecond = allowanceOf(laneTwo, 30.0);
+    const M5LaneOutcome twoFirst = allowanceOf(laneTwo, 30.0), oneSecond = allowanceOf(laneOne, 1.0);
+    CHECK(oneFirst.allowanceSeconds == 21.0);
+    CHECK(twoSecond.allowanceSeconds == 20.0);
+    CHECK(twoFirst.allowanceSeconds == 20.0);
+    CHECK(oneSecond.allowanceSeconds == 21.0);
+    CHECK(oneFirst.stop == StopReason::Completed);
+    CHECK(oneSecond.stop == StopReason::Completed);
+    CHECK(twoSecond.stop == StopReason::BudgetExhausted);
+    CHECK(twoFirst.stop == StopReason::BudgetExhausted);
+    // At the same time on two threads.
+    M5LaneOutcome concurrentOne, concurrentTwo;
+    thread first([&] { concurrentOne = allowanceOf(laneOne, 1.0); });
+    thread second([&] { concurrentTwo = allowanceOf(laneTwo, 30.0); });
+    first.join();
+    second.join();
+    CHECK(concurrentOne.allowanceSeconds == 21.0);
+    CHECK(concurrentTwo.allowanceSeconds == 20.0);
+    CHECK(concurrentOne.stop == StopReason::Completed);
+    CHECK(concurrentTwo.stop == StopReason::BudgetExhausted);
+    CHECK(shippedCount(concurrentOne) == shippedCount(oneFirst));
+    m5Evidence::note("expected", {"lane one 21 s, lane two 20 s, in either order", "the same two allowances on two threads at once", "the slow lane overruns only its own"});
+}
+
+TEST_CASE("U-PF-08/reservationVersionChange: a changed reservation version is a fresh planning context with its own allowance; it never changes an in-flight deadline" * doctest::test_suite("m5")) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0;
+    const M5LaneDateInput original = laneWith(fx30Units("u", 60), 21);
+    M5LaneDateInput revised = laneWith(fx30Units("u", 60), 30);
+    revised.pool.version = original.pool.version + 1;
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    optional<M5LaneOutcome> inner;
+    services.beforeMethod = [&](MethodId method) {
+        if (method != MethodId::PatternRepeat) return;
+        // While the original is in flight a revised reservation arrives: it is planned as its own context.
+        FakeClock otherClock;
+        M5RunServices other(otherClock);
+        inner = planLaneDate(revised, profile, physicalSettings(), other);
+    };
+    const M5LaneOutcome outcome = planLaneDate(original, profile, physicalSettings(), services);
+    REQUIRE(inner.has_value());
+    CHECK(outcome.allowanceSeconds == 21.0);
+    CHECK(inner->allowanceSeconds == 30.0);
+    CHECK(outcome.reservedTrucks == 21);
+    CHECK(inner->reservedTrucks == 30);
+    CHECK(outcome.stop == StopReason::Completed);
+    // The in-flight lane-date's identity is its own snapshot: the revised pool is a different one.
+    CHECK(buildSnapshot(original).snapshot->id != buildSnapshot(revised).snapshot->id);
+    m5Evidence::note("expected", {"original 21 reserved: 21 s, unchanged by the revision", "revised version 30 reserved: its own 30 s in a fresh context"});
+}
+
+TEST_CASE("U-PF-01/fakeClockMetrics: a fake-clock lane-date records the allowance, total time, loaded trucks and the average (N/A with none)" * doctest::test_suite("m5")) {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 1.0;
+    const M5LaneDateInput input = laneWith(fx30Units("u", 90), 21);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+    services.beforeMethod = [&](MethodId method) { clock.advance(method == MethodId::PatternRepeat ? 2.0 : 1.0); };
+    const M5LaneOutcome outcome = planLaneDate(input, profile, physicalSettings(), services);
+    requireInvariants(outcome, input);
+    const M5ReportData report = buildReportData(outcome, input, &profile, {});
+    CHECK(outcome.allowanceSeconds == 21.0);
+    CHECK(report.allowanceSeconds == 21.0);
+    CHECK(report.elapsedSeconds >= 3.0);
+    CHECK(report.loadedTrucks == 3);
+    REQUIRE(report.secondsPerLoadedTruck.has_value());
+    CHECK(*report.secondsPerLoadedTruck == doctest::Approx(report.elapsedSeconds / 3.0));
+    CHECK(report.secondsByPhase.count("methodA") == 1);
+    CHECK(report.secondsByPhase.count("validation") == 1);
+    CHECK(outcome.timing.contract == "secondsPerLoad x reserved trucks (CL-05)");
+    const M5LaneOutcome none = plan(laneWith({}, 21), profile);
+    CHECK_FALSE(buildReportData(none, laneWith({}, 21), &profile, {}).secondsPerLoadedTruck.has_value());
+    m5Evidence::note("expected", {"allowance 21 s = 1 s x 21 reserved (CL-05)", "total, per phase and loaded-truck count recorded", "average per loaded truck, N/A with none"});
+    m5Evidence::note("notCovered", "time per truck and per group are not recorded separately: the ledger holds the total and the phases of the lane-date only; realPerformance runs in PR-13");
+}
 
 // ------------------------------------------------------------------- repair and final contents
 
