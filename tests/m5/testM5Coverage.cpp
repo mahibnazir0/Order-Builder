@@ -76,6 +76,9 @@ m5Gate::ReasonMap variantReasonsOf(const string& path) {
 }
 
 const char* kVariantReasonsPath = "tests/m5/data/m5VariantReasons.txt";
+// "testId/variant|reason" for a selected variant whose test the CI run leaves out (U-PF-04: the 30-minute M4 thread test).
+// Not a debt: it covers the variant only while it has no PASS, and a machine that runs the test has one.
+const char* kCiExclusionsPath = "tests/m5/data/m5CiExclusions.txt";
 
 Manifest committedManifest() {
     string error;
@@ -151,7 +154,8 @@ BuildStatus statusOfThisBuild() {
     status.folder = filesystem::path(OB_M5_EVIDENCE_DIR) / m5Evidence::folderName(status.build);
 #endif
     status.result = m5Gate::evaluate(status.manifest, m5Evidence::readRecords(status.folder),
-                                     m5Evidence::currentIdentity(status.build, status.manifest), variantReasonsOf(kVariantReasonsPath));
+                                     m5Evidence::currentIdentity(status.build, status.manifest), variantReasonsOf(kVariantReasonsPath),
+                                     variantReasonsOf(kCiExclusionsPath));
     return status;
 }
 
@@ -224,7 +228,11 @@ TEST_CASE("m5Registry: every testId/variant a test name declares is a manifest k
             ++declared[key];
         }
     }
-    for (const auto& [key, cases] : declared) CHECK_MESSAGE(cases == 1, key << " is declared by " << cases << " test cases");
+    for (const auto& [key, cases] : declared) {
+        const auto keyCopy = key;      // doctest's INFO is a lambda; Clang in C++17 refuses to capture a structured binding
+        const auto casesCopy = cases;
+        CHECK_MESSAGE(casesCopy == 1, keyCopy << " is declared by " << casesCopy << " test cases");
+    }
 }
 
 TEST_CASE("m5Registry: every manifest test ID has an M5 test or a recorded exception" * doctest::test_suite("m5")) {
@@ -495,6 +503,63 @@ TEST_CASE("m5AcceptanceRule: PASS, PARTIAL, BLOCKED and NOT_RUN with a recorded 
                  "the recorded reason for X-SYN-01/notRun is empty"));
 }
 
+TEST_CASE("m5AcceptanceRule: a variant whose test the CI run leaves out is NOT_RUN with its standing reason, and a PASS from a machine that runs it stays a PASS" * doctest::test_suite("m5")) {
+    const Manifest manifest = syntheticManifest({variantOf("X-SYN-01", "ran"), variantOf("X-SYN-01", "longBenchmark")});
+    const m5Gate::ReasonMap excluded{{"X-SYN-01/longBenchmark", "long benchmark, excluded from CI; passed 3 of 3 locally"}};
+    const Record ran = resultFor("X-SYN-01", "ran");
+
+    // CI: the long test did not run. Without the standing reason it is a missing record; with it, NOT_RUN with that reason.
+    const GateResult missing = m5Gate::evaluate(manifest, {ran}, currentBuild());
+    CHECK_FALSE(missing.accepted());
+    CHECK(missing.notRun == vector<string>{"X-SYN-01/longBenchmark: no record and no recorded reason"});
+    const GateResult ci = m5Gate::evaluate(manifest, {ran}, currentBuild(), {}, excluded);
+    CHECK(ci.accepted());
+    CHECK(ci.problems.empty());
+    CHECK(ci.passed == vector<string>{"X-SYN-01/ran"});
+    CHECK(ci.notRunWithReason == vector<string>{"X-SYN-01/longBenchmark: long benchmark, excluded from CI; passed 3 of 3 locally"});
+    CHECK(ci.notRun.empty());
+
+    // A machine that ran it has a PASS record: the variant passes, and the standing reason is neither shown nor an error.
+    const GateResult local = m5Gate::evaluate(manifest, {ran, resultFor("X-SYN-01", "longBenchmark")}, currentBuild(), {}, excluded);
+    CHECK(local.accepted());
+    CHECK(local.problems.empty());
+    CHECK(local.passed.size() == 2);
+    CHECK(local.notRunWithReason.empty());
+
+    // The standing reason never covers a FAIL, a stale result, or a record that asserted nothing without a reason of its own.
+    CHECK_FALSE(m5Gate::evaluate(manifest, {ran, resultFor("X-SYN-01", "longBenchmark", "FAIL")}, currentBuild(), {}, excluded).accepted());
+    Record old = resultFor("X-SYN-01", "longBenchmark");
+    old.identity.commit = "c0";
+    CHECK_FALSE(m5Gate::evaluate(manifest, {ran, old}, currentBuild(), {}, excluded).accepted());
+    const GateResult asserted = m5Gate::evaluate(manifest, {ran, resultFor("X-SYN-01", "longBenchmark", "NOT_RUN", 0)}, currentBuild(), {}, excluded);
+    CHECK(asserted.accepted());
+    CHECK(asserted.notRunWithReason.size() == 1);
+
+    // An exclusion must name a selected manifest variant, give a reason, and not repeat a recorded reason.
+    CHECK(listed(m5Gate::evaluate(manifest, {ran}, currentBuild(), {}, {{"X-SYN-09/none", "x"}}).problems,
+                 "a CI exclusion for X-SYN-09/none, which the manifest does not list"));
+    CHECK(listed(m5Gate::evaluate(manifest, {ran}, currentBuild(), {}, {{"X-SYN-01/longBenchmark", ""}}).problems,
+                 "the CI exclusion for X-SYN-01/longBenchmark has no reason"));
+    CHECK(listed(m5Gate::evaluate(manifest, {ran}, currentBuild(), {{"X-SYN-01/longBenchmark", "y"}}, excluded).problems,
+                 "X-SYN-01/longBenchmark has both a recorded reason and a CI exclusion"));
+}
+
+TEST_CASE("m5AcceptanceRule: the CI exclusions file names selected manifest variants, gives each a real reason, and holds none of the recorded debts" * doctest::test_suite("m5")) {
+    const Manifest manifest = committedManifest();
+    const m5Gate::ReasonMap excluded = variantReasonsOf(kCiExclusionsPath);
+    const m5Gate::ReasonMap debts = variantReasonsOf(kVariantReasonsPath);
+    CHECK_FALSE(excluded.empty());
+    for (const auto& [key, reason] : excluded) {
+        const auto keyCopy = key;      // a structured binding cannot be captured by a lambda or INFO in C++17 (Clang)
+        const auto reasonCopy = reason;
+        const auto found = find_if(manifest.variants.begin(), manifest.variants.end(), [&](const Variant& v) { return v.key() == keyCopy; });
+        REQUIRE_MESSAGE(found != manifest.variants.end(), keyCopy << " is not a manifest variant");
+        CHECK_MESSAGE(found->selected, keyCopy << " is not selected");
+        CHECK_MESSAGE(reasonCopy.size() > 20, keyCopy << " needs a real reason");
+        CHECK_MESSAGE(debts.count(keyCopy) == 0, keyCopy << " is also in the recorded reasons file");
+    }
+}
+
 TEST_CASE("m5Registry: every existing M4 test case named for an M5 variant exists in its file, names a manifest key, and no M5 test declares that key too" * doctest::test_suite("m5")) {
     const Manifest manifest = committedManifest();
     set<string> known;
@@ -529,10 +594,12 @@ TEST_CASE("m5AcceptanceRule: every line of the recorded-reasons file names a sel
     const m5Gate::ReasonMap reasons = variantReasonsOf(kVariantReasonsPath);
     CHECK_FALSE(reasons.empty());
     for (const auto& [key, reason] : reasons) {
-        const auto found = find_if(manifest.variants.begin(), manifest.variants.end(), [&](const Variant& v) { return v.key() == key; });
-        REQUIRE_MESSAGE(found != manifest.variants.end(), key << " is not a manifest variant");
-        CHECK_MESSAGE(found->selected, key << " is not selected");
-        CHECK_MESSAGE(reason.size() > 20, key << " needs a real reason");
+        const auto keyCopy = key;      // a structured binding cannot be captured by a lambda or INFO in C++17 (Clang)
+        const auto reasonCopy = reason;
+        const auto found = find_if(manifest.variants.begin(), manifest.variants.end(), [&](const Variant& v) { return v.key() == keyCopy; });
+        REQUIRE_MESSAGE(found != manifest.variants.end(), keyCopy << " is not a manifest variant");
+        CHECK_MESSAGE(found->selected, keyCopy << " is not selected");
+        CHECK_MESSAGE(reasonCopy.size() > 20, keyCopy << " needs a real reason");
     }
 }
 

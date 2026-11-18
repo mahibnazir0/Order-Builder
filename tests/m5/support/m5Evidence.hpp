@@ -72,6 +72,12 @@ inline nlohmann::json& currentNotes() {
 
 inline void note(const std::string& field, nlohmann::json value) { currentNotes()[field] = std::move(value); }
 
+// The name of the running test case, set by the listener at each case start, so a test that skips itself can name itself.
+inline std::string& currentTestCase() {
+    static std::string name;
+    return name;
+}
+
 // Records an input file by path and the SHA-256 of its exact bytes (null when it cannot be read).
 inline void input(const std::string& name, const std::string& path) {
     const std::optional<std::string> sha256 = m5Checksum::fileSha256Hex(path);

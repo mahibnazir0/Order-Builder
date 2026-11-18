@@ -65,6 +65,7 @@ public:
     void test_case_start(const doctest::TestCaseData& data) override {
         current_ = m5Evidence::CaseResult();
         current_.testCase = data.m_name;
+        m5Evidence::currentTestCase() = current_.testCase;
         current_.file = data.m_file.c_str();
         current_.line = static_cast<int>(data.m_line);
         keys_ = m5Manifest::declaredKeys(current_.testCase);

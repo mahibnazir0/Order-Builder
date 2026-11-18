@@ -171,11 +171,12 @@ TEST_CASE("X-RUN-09/crossCompilerGate: MSVC and GCC build this commit with the s
     size_t compared = 0;
     vector<string> differing, skipped;
     for (const auto& [key, variant] : syntheticVariants) {
+        const auto variantKey = key;   // the lambda below cannot capture a structured binding in C++17 (Clang)
         string firstCompiler, firstStatus;
         for (const auto& [compilerKey, results] : recordsOf) {
             const auto found = results.find(key);
             if (found == results.end()) {
-                if (!primaryCompilerOnly().count(key) && any_of(recordsOf.begin(), recordsOf.end(), [&](const auto& other) { return other.second.count(key) == 1; })) {
+                if (!primaryCompilerOnly().count(key) && any_of(recordsOf.begin(), recordsOf.end(), [&](const auto& other) { return other.second.count(variantKey) == 1; })) {
                     skipped.push_back(key + " has no result on " + compilerKey);
                 }
                 continue;

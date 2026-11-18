@@ -431,7 +431,8 @@ TEST_CASE("U-PB-06/synthetic: the deck is 6 in for PTL and PGM, 0 for TLD and GM
     const vector<pair<ob::PalletSpec, double>> decks{{{"PTL", 60.0, 6.0, 48.0, 40.0}, 6.0}, {{"PGM", 50.0, 6.0, 48.0, 40.0}, 6.0},
                                                      {{"TLD", 0.0, 0.0, 48.0, 40.0}, 0.0}, {{"GMA", 0.0, 0.0, 48.0, 40.0}, 0.0}};
     for (const auto& [pallet, deck] : decks) {
-        INFO(pallet.palletId);
+        const auto palletName = pallet.palletId;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(palletName);
         // Four 10 in layers on one pallet: one deck, never one per layer (4 x 6 = 24).
         CHECK(ob::unitLoadHeightIn(product, pallet, params) == 40.0 + deck);
     }

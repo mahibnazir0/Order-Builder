@@ -5,7 +5,10 @@
 //   - PASS with real assertions;
 //   - PARTIAL: PASS that names the clause it did not cover (the record's notCovered);
 //   - BLOCKED with a recorded reason (the record's, or the manifest's blocker);
-//   - NOT_RUN with a recorded reason (tests/m5/data/m5VariantReasons.txt).
+//   - NOT_RUN with a recorded reason (tests/m5/data/m5VariantReasons.txt);
+//   - NOT_RUN because its test is left out of the CI run, with the standing reason recorded in
+//     tests/m5/data/m5CiExclusions.txt (a long benchmark). A machine that runs it has a PASS record,
+//     and the standing reason is then not needed and not an error.
 // It is rejected by a FAIL, a stale or duplicated result, a NOT_RUN or BLOCKED key with no reason, or a
 // key with no record and no reason, whatever exit code the test run had. A conditional variant that no
 // recorded decision selects stays visible as deferred and neither passes nor blocks; one deferred
@@ -72,8 +75,11 @@ inline std::string staleBecause(const Identity& record, const Identity& current)
 // key (testId/variant) -> the recorded reason a selected variant has no PASS.
 using ReasonMap = std::map<std::string, std::string>;
 
+// reasons: why a selected variant has no PASS yet; a reason kept for a variant that has a PASS is an error.
+// excludedFromCi: why a selected variant's test is left out of the CI run (a standing reason, not a debt); it
+// counts only while the variant has no PASS, and is ignored, not an error, once a machine that runs it has one.
 inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vector<Record>& records, const Identity& current,
-                           const ReasonMap& reasons = {}) {
+                           const ReasonMap& reasons = {}, const ReasonMap& excludedFromCi = {}) {
     GateResult result;
     if (manifest.requirementSha256 != current.requirementSha256) {
         result.problems.push_back("the manifest was derived from another requirement version");
@@ -97,6 +103,16 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
             result.problems.push_back("a recorded reason for " + key + ", which is not selected");
         }
         if (reason.empty()) result.problems.push_back("the recorded reason for " + key + " is empty");
+    }
+    for (const auto& [key, reason] : excludedFromCi) {
+        const auto known = variantOf.find(key);
+        if (known == variantOf.end()) {
+            result.problems.push_back("a CI exclusion for " + key + ", which the manifest does not list");
+        } else if (!known->second->selected) {
+            result.problems.push_back("a CI exclusion for " + key + ", which is not selected");
+        }
+        if (reason.empty()) result.problems.push_back("the CI exclusion for " + key + " has no reason");
+        if (reasons.count(key)) result.problems.push_back(key + " has both a recorded reason and a CI exclusion");
     }
     std::map<std::string, std::vector<const Record*>> recordsOf;
     for (const Record& record : records) {
@@ -128,11 +144,15 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
         }
         const auto recorded = reasons.find(key);
         const std::string recordedReason = recorded == reasons.end() ? "" : recorded->second;
+        const auto excluded = excludedFromCi.find(key);
+        // The reason that covers a variant with no PASS: its own recorded reason, else the standing CI exclusion.
+        const std::string reasonWithoutPass =
+            !recordedReason.empty() ? recordedReason : (excluded == excludedFromCi.end() ? "" : excluded->second);
         if (ofKey.empty()) {
             if (variant->executionStatus == "BLOCKED" && !variant->blocker.empty()) {
                 result.blocked.push_back(key + ": " + variant->blocker);
-            } else if (!recordedReason.empty()) {
-                result.notRunWithReason.push_back(key + ": " + recordedReason);
+            } else if (!reasonWithoutPass.empty()) {
+                result.notRunWithReason.push_back(key + ": " + reasonWithoutPass);
             } else {
                 result.notRun.push_back(key + ": no record and no recorded reason");
             }
@@ -152,16 +172,16 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
                 result.partial.push_back(key + ": " + record.notCovered);
             }
         } else if (record.executionStatus == "PASS" || record.executionStatus == "NOT_RUN") {
-            if (!recordedReason.empty()) {
-                result.notRunWithReason.push_back(key + ": " + recordedReason);
+            if (!reasonWithoutPass.empty()) {
+                result.notRunWithReason.push_back(key + ": " + reasonWithoutPass);
             } else {
                 result.notRun.push_back(key + ": no assertion ran, no recorded reason");
             }
         } else if (record.executionStatus == "BLOCKED") {
             if (!record.reason.empty()) {
                 result.blocked.push_back(key + ": " + record.reason);
-            } else if (!recordedReason.empty()) {
-                result.blocked.push_back(key + ": " + recordedReason);
+            } else if (!reasonWithoutPass.empty()) {
+                result.blocked.push_back(key + ": " + reasonWithoutPass);
             } else {
                 result.notRun.push_back(key + ": BLOCKED with no reason");
             }

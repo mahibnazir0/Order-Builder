@@ -1070,7 +1070,9 @@ TEST_CASE("U-RM-01/synthetic: the remainder goes to M4's packing and checking ke
 
 TEST_CASE("U-RM-02/synthetic: an empty remainder creates no extra truck" * doctest::test_suite("m5")) {
     for (const auto& [units, slots, trucks] : vector<tuple<size_t, size_t, size_t>>{{60, 3, 2}, {30, 5, 1}, {90, 4, 3}}) {
-        INFO(units << " units on " << slots << " reserved");
+        const size_t unitCount = units;   // INFO cannot capture a structured binding in C++17 (Clang)
+        const size_t slotCount = slots;
+        INFO(unitCount << " units on " << slotCount << " reserved");
         const M5LaneDateInput input = laneWith(fx30Units("u", units), slots);
         for (const M5PolicyProfile& profile : {patternOnly(), syntheticProfile()}) {
             const M5LaneOutcome outcome = plan(input, profile);
@@ -1738,7 +1740,8 @@ TEST_CASE("X-BLK-01/synthetic: block 19 over 0, 1, 18, 19, 20, 37, 38, 39 trucks
     const vector<pair<size_t, vector<size_t>>> expected{{0, {}},       {1, {1}},       {18, {18}},     {19, {19}},
                                                         {20, {19, 1}}, {37, {19, 18}}, {38, {19, 19}}, {39, {19, 19, 1}}};
     for (const auto& [goods, sizes] : expected) {
-        INFO(goods << " trucks of goods");
+        const size_t goodsCount = goods;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(goodsCount << " trucks of goods");
         const M5LaneDateInput input = laneWith(blocks(goods), 39);
         const vector<size_t> built = blockSizes(input);
         CHECK(built == sizes);
@@ -2934,7 +2937,8 @@ TEST_CASE("U-CG-05/synthetic: one unit too big does not fit unless an allowed tu
         {"weight 45,000.01", unitOf("heavy", "A", 100.0, 20.0, 108.0, 45000.01)},
     };
     for (const auto& [label, atom] : tooBig) {
-        INFO(label);
+        const auto atomLabel = label;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(atomLabel);
         const M5LaneDateInput input = laneWith({atom}, 1);
         const PhysicalCheck check = checkTruck(input, {0}, kDefaultTrailer, physicalSettings());
         CHECK_FALSE(check.fits);
@@ -4336,7 +4340,8 @@ TEST_CASE("U-FF-05/approvedPolicy: the report names every escalated lane with it
     for (const auto& [count, gap] : vector<pair<int, string>>{{30, "1 truck, 50.0% above the bound of 2"}, {50, "2 trucks, 66.7% above the bound of 3"}}) {
         const M5LaneDateInput input = gapLane(count);
         const string text = renderAscii(buildReportData(plan(input, syntheticProfile()), input, nullptr, {}));
-        INFO(count << " units");
+        const int unitCount = count;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(unitCount << " units");
         const size_t box = text.find("3C ");
         REQUIRE(box != string::npos);
         CHECK(text.find("quick count vs bound: " + gap, box) != string::npos);

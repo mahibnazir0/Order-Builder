@@ -1,7 +1,7 @@
 // M5 on the real 4-6 August extracts with the shipped params (production profile: acceptance OFF,
 // 14 in rear limit, date first, can-go fill on, 1 s per load). Confidential and gitignored, so the
-// full run skips this suite; the m5RealData ctest entry runs it with --no-skip, where a missing
-// file fails by name rather than passing.
+// full run skips this suite; the m5RealData ctest entry runs it with --no-skip. Where the extracts are
+// absent (a fresh clone) each test skips itself by name and its variants are recorded BLOCKED.
 #include "doctest.h"
 #include "../importer/crossDayFixtures.hpp"
 #include "../m4AugustFixtures.hpp"
@@ -126,17 +126,31 @@ nlohmann::json tomReferenceOrSkip(const string& testName) {
     return nlohmann::json::parse(file);
 }
 
+// The customer's August extracts are kept out of git by design, so a fresh clone does not hold them. A real-data test then
+// skips itself by name: its variants are recorded BLOCKED with this reason, the message names the test, and it never fails.
+const char* kCustomerDataAbsent = "customer data not present on this machine (kept out of git by design)";
+
+// True when the 4-6 August extracts are here. When they are not, records the test BLOCKED and says it was skipped; the
+// caller returns at once.
+bool augustOrSkip() {
+    if (m4AugustTests::augustPresent()) return true;
+    m5Evidence::blocked(kCustomerDataAbsent);
+    MESSAGE("SKIPPED " << m5Evidence::currentTestCase() << " - " << kCustomerDataAbsent);
+    return false;
+}
+
 }  // namespace
 
 TEST_SUITE("m5RealData") {
 
 TEST_CASE("m5RealData: every August extract M5 reads is present" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
+    CHECK(m4AugustTests::augustPresent());
 }
 
 TEST_CASE("RD-01/realData RD-02/realData ACC-2/production7Aug ACC-2/productionProfile Aug5: only 2028 -> 2574 on 7 Aug goes to M5, 21 reserved, with the 747-stack hand-over"
           * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& run = withM5(1);
     REQUIRE(run.selectionPlan.largeLanes.size() == 1);
     const LargeLaneReport& lane = run.selectionPlan.largeLanes.front();
@@ -187,7 +201,7 @@ TEST_CASE("RD-01/realData RD-02/realData ACC-2/production7Aug ACC-2/productionPr
 }
 
 TEST_CASE("RD-10/realData Aug5: every dispatched M5 truck carries a fullness label and bucket" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("minimum-load check: at export, after M5") != string::npos);
     CHECK(text.find("trucks loaded: 21") != string::npos);
@@ -199,7 +213,7 @@ TEST_CASE("RD-10/realData Aug5: every dispatched M5 truck carries a fullness lab
 }
 
 TEST_CASE("U-PB-12 Aug5: products 105666801 and 105446303 each fill trucks of their own" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& run = withM5(1);
     map<string, size_t> singleProductTrucks;
     for (const PlannedTruck& truck : run.selectionPlan.trucks) {
@@ -213,18 +227,18 @@ TEST_CASE("U-PB-12 Aug5: products 105666801 and 105446303 each fill trucks of th
 }
 
 TEST_CASE("RD-09/realData INV-16 Aug5: every lane M5 does not touch plans exactly as without M5" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     CHECK(trucksAwayFromLargeLane(withM5(1)) == trucksAwayFromLargeLane(aug5WithoutM5()));
 }
 
 TEST_CASE("RD-05/realData Aug4 and Aug6 have no lane-date above the threshold, so M5 plans nothing" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     CHECK(withM5(0).selectionPlan.largeLanes.empty());
     CHECK(withM5(2).selectionPlan.largeLanes.empty());
 }
 
 TEST_CASE("RD-08/realData Aug4 raw-material lanes (TL_N102) are never planned by M5" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& run = withM5(0);
     size_t rawMaterialRoutes = 0;
     for (const LaneRoute& route : run.laneClassification.routes) {
@@ -248,6 +262,7 @@ TEST_CASE("RD-08/realData Aug4 raw-material lanes (TL_N102) are never planned by
 }
 
 TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the shipped 20 routes exactly the lane-dates above it" * doctest::skip()) {
+    if (!augustOrSkip()) return;
     // Code review: the backwards asserts once near lines 552 and 554 of testM4Benchmark.cpp ("no rule is
     // supportable") are gone; the benchmark now checks the shipped threshold against the data.
     string benchmarkSource;
@@ -258,7 +273,6 @@ TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the
     }
     CHECK(benchmarkSource.find("supportable") == string::npos);
     CHECK(benchmarkSource.find("CHECK(shipped.m5Threshold < *overBudget);") != string::npos);
-    REQUIRE(m4AugustTests::augustPresent());
     CHECK(loadSelectionParams(crossDayTests::kStrictParamsPath).routing.m5Threshold == 20);
     for (size_t runIndex = 0; runIndex < 3; ++runIndex) {
         for (const LaneRoute& route : withM5(runIndex).laneClassification.routes) {
@@ -268,7 +282,7 @@ TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the
 }
 
 TEST_CASE("RD-03/productionProfile X-REPORT-01/realRun Aug5 7 Aug: at most 21 trucks, shipped and left shown, reserved never 38, compared with the client's historical count" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const nlohmann::json reference = tomReferenceOrSkip("RD-03 and X-REPORT-01 realRun");
     if (reference.is_null()) return;
     const PipelineResult& run = withM5(1);
@@ -323,7 +337,7 @@ EighthAugust eighthAugustOf(const PipelineResult& run) {
 }
 
 TEST_CASE("RD-04/realData RD-13 Aug5 8 Aug of 2028 -> 2574: M4 plans it with its 20 reservations, and the lane reconciles item by item across both dates" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& run = withM5(1);
     const EighthAugust eighth = eighthAugustOf(run);
     const EighthAugust baseline = eighthAugustOf(aug5WithoutM5());
@@ -375,7 +389,7 @@ TEST_CASE("RD-04/realData RD-13 Aug5 8 Aug of 2028 -> 2574: M4 plans it with its
 }
 
 TEST_CASE("RD-11/reconciliation reservations reconcile: reserved = built + unused, M5's lane within its 21" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     for (size_t runIndex = 0; runIndex < 3; ++runIndex) {
         const PipelineResult& run = withM5(runIndex);
         long long reserved = 0, built = 0, unused = 0;
@@ -393,7 +407,7 @@ TEST_CASE("RD-11/reconciliation reservations reconcile: reserved = built + unuse
 }
 
 TEST_CASE("RD-12/productionProfile M5's trucks report fullness reasons and rear-inch averages per bucket" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("by weight") != string::npos);
     CHECK(text.find("by rear inches") != string::npos);
@@ -404,7 +418,7 @@ TEST_CASE("RD-12/productionProfile M5's trucks report fullness reasons and rear-
 
 TEST_CASE("ACC-2/bothDatesBenchmark RD-06/benchmark RD-06/productionProfile X-E2E-01/productionProfile X-REPORT-02/realRun the labelled both-dates benchmark keeps 21 and 20 and commits nothing"
           * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const nlohmann::json reference = tomReferenceOrSkip("ACC-2/bothDatesBenchmark and its labelled variants");
     if (reference.is_null()) return;
     const PipelineResult& production = withM5(1);
@@ -439,7 +453,7 @@ TEST_CASE("ACC-2/bothDatesBenchmark RD-06/benchmark RD-06/productionProfile X-E2
 
 TEST_CASE("ACC-2/syntheticDiagnostic RD-03/syntheticPolicyDiagnostic X-E2E-01/syntheticPolicyDiagnostic Aug5 7 Aug with the optional acceptance policy ON: a labelled diagnostic, committed nowhere"
           * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const vector<m5::M5LaneDateInput> sevenAug = laneDates(aug5WithoutM5(), {"2028", "2574", "TL"}, {"2026-08-07"});
     REQUIRE(sevenAug.size() == 1);
     m5::M5PolicyProfile diagnostic = shippedProfile();
@@ -459,7 +473,7 @@ TEST_CASE("ACC-2/syntheticDiagnostic RD-03/syntheticPolicyDiagnostic X-E2E-01/sy
 }
 
 TEST_CASE("U-PF-02/benchmark X-RUN-10/benchmark M4, A and B on the same goods, in either order" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& baseline = aug5WithoutM5();
     const vector<m5::M5LaneDateInput> sevenAug = laneDates(baseline, {"2028", "2574", "TL"}, {"2026-08-07"});
     REQUIRE(sevenAug.size() == 1);
@@ -484,7 +498,7 @@ TEST_CASE("U-PF-02/benchmark X-RUN-10/benchmark M4, A and B on the same goods, i
 }
 
 TEST_CASE("RD-07/benchmark RD-07/productionProfile Aug6 2028 -> 2190, both dates joined, completes and is reported" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const PipelineResult& run = withM5(2);
     vector<string> dates;
     m5::LaneKey lane{"2028", "2190", ""};
@@ -509,7 +523,7 @@ TEST_CASE("RD-07/benchmark RD-07/productionProfile Aug6 2028 -> 2190, both dates
 }
 
 TEST_CASE("X-REPORT-03/realRun the report never calls the lane infeasible without a certificate" * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     CHECK(text.find("infeasible") == string::npos);
     CHECK(text.find("635") == string::npos);
@@ -522,7 +536,7 @@ TEST_CASE("X-REPORT-03/realRun the report never calls the lane infeasible withou
 
 TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's chart ranges and the client's cube, as context and not pass or fail"
           * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const nlohmann::json reference = tomReferenceOrSkip("U-RP-07/realData");
     if (reference.is_null()) return;
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
@@ -552,7 +566,7 @@ TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's
 
 TEST_CASE("U-PB-12/productionProfile U-PB-12/configIndependentPatterns Aug5 7 Aug: each product fills trucks of its own, the difference from the client's historical loads is reported, and the patterns do not depend on the fullness or time settings"
           * doctest::skip()) {
-    REQUIRE(m4AugustTests::augustPresent());
+    if (!augustOrSkip()) return;
     const nlohmann::json reference = tomReferenceOrSkip("U-PB-12 variants");
     if (reference.is_null()) return;
     const PipelineResult& run = withM5(1);

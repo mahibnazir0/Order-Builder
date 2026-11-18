@@ -1,0 +1,5 @@
+# testId/variant|reason. One line for each selected variant whose test the CI run leaves out on purpose. It is a standing
+# reason, not a debt: it covers the variant only while no PASS record exists, and a machine that runs the test has one (the gate
+# ignores the line then). A variant that is missing for any other reason belongs in m5VariantReasons.txt, which the gate
+# rejects once a PASS exists.
+U-PF-04/existingTest|long benchmark, excluded from CI; passed 3 of 3 locally

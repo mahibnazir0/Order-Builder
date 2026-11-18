@@ -275,7 +275,8 @@ TEST_CASE("U-FL-03/synthetic rear-inch limit: default, overrides and invalid val
         profile.fullness.rearInchLimitDefaulted = false;
         const M5LaneOutcome outcome = m5Fixtures::plan(input, profile);
         REQUIRE(outcome.fullness.size() == 1);
-        INFO("limit " << limit);
+        const double limitInUse = limit;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO("limit " << limitInUse);
         CHECK(outcome.fullness.front().byRearInches == full);
         CHECK(outcome.fullness.front().rearInches == doctest::Approx(50.0));
     }

@@ -348,7 +348,8 @@ TEST_CASE("X-PAT-14/synthetic: limits W = 10 and V = 10, two items of W 6 and V 
         {"weight binds", {unitOf("a", "A", 48, 40, 50, 6000), unitOf("b", "A", 48, 40, 50, 6000)}},
         {"floor binds", {unitOf("a", "A", 330, 100, 50, 1), unitOf("b", "A", 330, 100, 50, 1)}}};
     for (const auto& [name, atoms] : cases) {
-        INFO(name);
+        const auto caseName = name;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(caseName);
         const M5LaneDateInput input = laneWith(atoms, 2, trailer);
         CHECK_FALSE(checkTruck(input, {0, 1}, trailer, physicalSettings()).fits);
         CHECK(checkTruck(input, {0}, trailer, physicalSettings()).fits);
@@ -2149,7 +2150,8 @@ map<string, int> shipmentsBySource(const Cf06Fixture& fixture, const Operational
 void requireEachOnce(const map<string, int>& uses) {
     CHECK(uses.size() == 30);
     for (const auto& [id, count] : uses) {
-        INFO(id);
+        const auto atomId = id;   // INFO cannot capture a structured binding in C++17 (Clang)
+        INFO(atomId);
         CHECK(count == 1);
     }
 }
