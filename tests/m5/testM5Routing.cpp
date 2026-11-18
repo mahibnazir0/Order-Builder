@@ -615,6 +615,37 @@ TEST_CASE("U-DA-01/synthetic X-DATA-08: CS, DIS and PAL all divide by Cases_Unit
     m5Evidence::note("expected", {"240 CS / 10 = 24", "432 DIS / 18 = 24", "60 PAL / 2 = 30", "9 DIS / 18 = 0.5"});
 }
 
+TEST_CASE("X-DATA-08/synthetic: 24 CS, 24 DIS and 30 PAL unit loads reach both M5 methods" * doctest::test_suite("m5")) {
+    const size_t cs = static_cast<size_t>(Converter::to_pallets(240, "CS", product("cs", 10)));
+    const size_t dis = static_cast<size_t>(Converter::to_pallets(432, "DIS", product("dis", 18)));
+    const size_t pal = static_cast<size_t>(Converter::to_pallets(60, "PAL", product("pal", 2)));
+    REQUIRE(cs == 24);
+    REQUIRE(dis == 24);
+    REQUIRE(pal == 30);
+    vector<m5::Atom> atoms;
+    for (size_t index = 0; index < cs + dis + pal; ++index) {
+        m5::Atom atom = m5Fixtures::display("load-" + to_string(index));
+        atom.components[0].product = index < cs ? "CS" : index < cs + dis ? "DIS" : "PAL";
+        atoms.push_back(atom);
+    }
+    const m5::M5LaneDateInput input = m5Fixtures::laneWith(atoms, 3);
+    for (const m5::MethodPolicy method : {m5::MethodPolicy::PatternOnly, m5::MethodPolicy::BlocksOnly}) {
+        m5::M5PolicyProfile profile = m5Fixtures::syntheticProfile();
+        profile.method = method;
+        const m5::M5LaneOutcome outcome = m5Fixtures::plan(input, profile);
+        CHECK(m5Fixtures::shippedCount(outcome) == 78);
+        REQUIRE(outcome.selected);
+        map<string, size_t> byProduct;
+        for (const m5::TruckPlan& truck : outcome.selected->trucks) {
+            for (const size_t index : truck.atoms) ++byProduct[input.atoms[index].components[0].product];
+        }
+        CHECK(byProduct["CS"] == 24);
+        CHECK(byProduct["DIS"] == 24);
+        CHECK(byProduct["PAL"] == 30);
+    }
+    m5Evidence::note("expected", {"240 CS / 10 = 24", "432 DIS / 18 = 24", "60 PAL / 2 = 30", "A and B each ship 78"});
+}
+
 TEST_CASE("U-DA-02/synthetic: a line in eaches is caught and reported; it adds no truck" * doctest::test_suite("m5")) {
     CHECK_FALSE(Converter::isConvertibleUom("EA"));
     CHECK(Converter::to_pallets(5000, "EA", product("a", 10)) == 0.0);
@@ -639,6 +670,60 @@ TEST_CASE("U-DA-02 X-DATA-03 X-DATA-04 eaches, zero divisors and part pallets fo
     CHECK(Converter::to_pallets(500, "EA", product("a", 10)) == 0.0);
     CHECK(Converter::to_pallets(9, "CS", product("b", 0)) == 0.0);
     CHECK(Converter::to_pallets(9, "CS", product("c", 2)) == 4.5);
+}
+
+TEST_CASE("X-DATA-03/synthetic: bad Cases_Unit_Load cells report the product and demand line" * doctest::test_suite("m5")) {
+    const string header = "ID,Description,Length,Width,Height,Strength,UoM,Weight,Cases_Layer,Layers_Unit_Load,Cases_Unit_Load,Pallet_ID\n";
+    for (const string cell : {"0", "-2", "", "NaN", "Infinity"}) {
+        const m4SmallDay::SmallDay day("xData03_" + to_string(cell.size()) + "_" + (cell.empty() ? "missing" : cell));
+        ofstream(day.directory / "products.csv") << header
+            << "GOOD,Good,10,10,10,5,CS,20,4,2," << cell << ",TLD\n"
+            << "OTHER,Other,10,10,10,5,CS,30,4,2,8,TLD\n";
+        const PipelineResult result = Pipeline::run(day.inputs);
+        const auto issue = find_if(result.validation.issues.begin(), result.validation.issues.end(),
+                                   [](const ValidationIssue& value) { return value.matnr == "GOOD" && value.line_index == 0; });
+        INFO("Cases_Unit_Load=" << cell);
+        REQUIRE(issue != result.validation.issues.end());
+        const auto unstacked = find_if(result.stackReport.unstackedLines.begin(), result.stackReport.unstackedLines.end(),
+                                       [](const ReportedLine& value) { return value.matnr == "GOOD" && value.lineIndex == 0; });
+        REQUIRE(unstacked != result.stackReport.unstackedLines.end());
+        CHECK_FALSE(unstacked->reason.empty());
+    }
+    m5Evidence::note("expected", {"0, negative, missing, NaN and Infinity never divided", "GOOD line 0 reported each time"});
+}
+
+TEST_CASE("X-DATA-04/synthetic: nine cases on a two-case unit load remain four and a half" * doctest::test_suite("m5")) {
+    const vector<ProductRecord> onlyType{product("partial", 2)};
+    const Joiner::PalletTypePick picked = Joiner::choosePalletType(onlyType, 9.0);
+    REQUIRE(picked.product != nullptr);
+    CHECK(picked.product->cases_unit_load == 2);
+    const double loads = Converter::to_pallets(9.0, "CS", *picked.product);
+    CHECK(loads == 4.5);
+    CHECK(loads != 4.0);
+    CHECK(loads != 5.0);
+    m5Evidence::note("expected", {"9 / 2 = 4.5", "no other pallet variant", "not rounded to 4 or 5"});
+}
+
+TEST_CASE("X-DATA-05/synthetic: reversed master variants yield the same M4 pick and M5 identity" * doctest::test_suite("m5")) {
+    const vector<ProductRecord> master{product("dual", 2, "PTL"), product("dual", 3, "TLD")};
+    const vector<ProductRecord> reversed{master.rbegin(), master.rend()};
+    const Joiner::PalletTypePick first = Joiner::choosePalletType(master, 12.0);
+    const Joiner::PalletTypePick second = Joiner::choosePalletType(reversed, 12.0);
+    REQUIRE(first.product != nullptr);
+    REQUIRE(second.product != nullptr);
+    CHECK(first.choice == PalletTypeChoice::SeveralDivide);
+    CHECK(second.choice == PalletTypeChoice::SeveralDivide);
+    CHECK(first.product->pallet_id == second.product->pallet_id);
+    CHECK(first.product->cases_unit_load == second.product->cases_unit_load);
+    for (const ProductRecord* chosen : {first.product, second.product}) {
+        m5::Atom atom = m5Fixtures::fx30("picked");
+        atom.components[0].product = chosen->id + "/" + chosen->pallet_id;
+        const m5::M5LaneDateInput input = m5Fixtures::laneWith({atom}, 1);
+        const m5::M5LaneOutcome outcome = m5Fixtures::plan(input, m5Fixtures::syntheticProfile());
+        CHECK(m5Fixtures::shippedCount(outcome) == 1);
+        CHECK(input.atoms[0].components[0].product == chosen->id + "/" + first.product->pallet_id);
+    }
+    m5Evidence::note("expected", {"12 divides by 2 and 3", "row order chooses the same pallet variant", "M5 preserves chosen identity"});
 }
 
 TEST_CASE("U-DA-03/synthetic: a product missing from the master is reported by its ID, never silently dropped" * doctest::test_suite("m5")) {

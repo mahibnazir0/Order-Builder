@@ -291,6 +291,21 @@ TEST_CASE("X-PAT-09/synthetic: master V2 of the same id, heavier or taller, neve
     m5Evidence::note("expected", {"V1 1,500 lb: 30 per truck", "V2 1,600 lb: 28", "V2 108.01 in: not shipped"});
 }
 
+TEST_CASE("X-DATA-06/synthetic: a saved V1 shape is not reused at V2 weight" * doctest::test_suite("m5")) {
+    vector<Atom> one = fx30Units("load-", 30);
+    const M5LaneDateInput v1 = laneWith(one, 1);
+    const M5LaneOutcome before = plan(v1, syntheticProfile());
+    CHECK(shippedCount(before) == 30);
+    for (Atom& atom : one) atom.weightLb = 1600.0;
+    const M5LaneDateInput v2 = laneWith(one, 1);
+    CHECK(classSignatureOf(v1.atoms[0]) != classSignatureOf(v2.atoms[0]));
+    const M5LaneOutcome after = plan(v2, syntheticProfile());
+    CHECK(shippedCount(after) == 28);
+    CHECK(28 * 1600 == 44800);
+    CHECK(29 * 1600 == 46400);
+    m5Evidence::note("expected", {"V1 30 at 1,500 lb", "V2 28 at 1,600 lb", "29 would exceed 45,000 lb"});
+}
+
 TEST_CASE("X-PAT-02/synthetic: a pattern of 2 A + 1 B on stock A = 5, B = 4 makes 2 copies, uses A 4 and B 2, leaves A 1 and B 2" * doctest::test_suite("m5")) {
     const vector<long long> stock{5, 4}, perCopy{2, 1};
     const long long copies = mixedPatternCopies(stock, perCopy, 10);

@@ -12,6 +12,7 @@
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5Oracles.hpp"
+#include "../m4SmallDay.hpp"
 #include "../runTempFolder.hpp"
 
 #include <algorithm>
@@ -2036,6 +2037,29 @@ TEST_CASE("U-RS-05 X-DATA-13 X-DATA-11 bad input is refused before planning" * d
     CHECK(plan(badSlot, syntheticProfile()).kind == OutcomeKind::InvalidInput);
 }
 
+TEST_CASE("X-DATA-11/synthetic: repeated source identity is counted once or reported as conflicting" * doctest::test_suite("m5")) {
+    M5LaneDateInput same = laneWith({fx30("same"), fx30("same")}, 1);
+    const SnapshotBuild repeated = buildSnapshot(same);
+    CHECK_FALSE(repeated.snapshot.has_value());
+    CHECK(any_of(repeated.errors.begin(), repeated.errors.end(), [](const string& error) {
+        return error.find("atom same is offered twice") != string::npos;
+    }));
+    const M5LaneOutcome refused = plan(same, syntheticProfile());
+    CHECK(refused.kind == OutcomeKind::InvalidInput);
+    CHECK(shippedCount(refused) == 0);
+
+    M5LaneDateInput conflict = laneWith({fx30("first"), fx30("second")}, 1);
+    conflict.atoms[1].components[0].source = conflict.atoms[0].components[0].source;
+    conflict.atoms[1].components[0].product = "another-product";
+    const SnapshotBuild conflicting = buildSnapshot(conflict);
+    CHECK_FALSE(conflicting.snapshot.has_value());
+    CHECK(any_of(conflicting.errors.begin(), conflicting.errors.end(), [](const string& error) {
+        return error.find("source line line-first appears with conflicting product") != string::npos;
+    }));
+    CHECK(plan(conflict, syntheticProfile()).kind == OutcomeKind::InvalidInput);
+    m5Evidence::note("expected", {"identical repeated atom rejected, never dispatched twice", "same line with changed product named as conflict"});
+}
+
 TEST_CASE("U-RT-06 forced M5 with zero reservations: zero dispatch, no capacity invented" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 10), 0);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
@@ -2165,6 +2189,31 @@ TEST_CASE("X-DATA-13/inconsistentSlotCapabilities: payload 0, cap 0, NaN width o
     undeclared.trailerTypes = {{"53F", kDefaultTrailer}};
     refused(undeclared, OutcomeKind::InvalidInput, LeftOverCause::InvalidInput, "names no equipment");
     m5Evidence::note("expected", {"payload 0 refused", "cap 0 refused", "NaN width refused", "catalogue mismatch refused"});
+}
+
+TEST_CASE("X-DATA-13/synthetic: invalid dimensions and capacity stop before packing; absent TLD deck is valid" * doctest::test_suite("m5")) {
+    const double nan = numeric_limits<double>::quiet_NaN();
+    const double infinity = numeric_limits<double>::infinity();
+    for (const double bad : {0.0, -1.0, nan, infinity}) {
+        M5LaneDateInput invalid = laneWith({fx30("physical")}, 1);
+        invalid.pool.slots[0].lengthIn = bad;
+        CHECK(plan(invalid, syntheticProfile()).kind == OutcomeKind::InvalidInput);
+        invalid = laneWith({fx30("physical")}, 1);
+        invalid.atoms[0].floor.heightIn = bad;
+        CHECK(plan(invalid, syntheticProfile()).kind == OutcomeKind::InvalidInput);
+    }
+    M5LaneDateInput overflow = laneWith({fx30("physical")}, 1);
+    overflow.atoms[0].floor.cubeCubicIn = numeric_limits<double>::max();
+    overflow.atoms[0].floor.longSideIn = numeric_limits<double>::max();
+    CHECK(plan(overflow, syntheticProfile()).kind == OutcomeKind::InvalidInput);
+
+    const m4SmallDay::SmallDay day("xData13ZeroDeck");
+    ofstream(day.directory / "pallets.csv") << "ID,Footprint_Length,Footprint_Width,Height,Weight\nTLD,48,40,0,1\n";
+    const ob::PipelineResult result = ob::Pipeline::run(day.inputs);
+    CHECK(result.stackReport.unstackedLines.empty());
+    CHECK(result.validation.errors == 0);
+    m5Evidence::note("expected", {"zero, negative, NaN and infinity physical dimensions refused", "overflow refused",
+                                  "TLD deck height zero accepted as absent deck"});
 }
 
 TEST_CASE("X-DATA-13 a slot-equipment list longer or shorter than the slots is refused by name before packing" * doctest::test_suite("m5")) {

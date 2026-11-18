@@ -2481,6 +2481,47 @@ TEST_CASE("X-DATE-10/synthetic: date arithmetic crosses months, years and leap d
 
 // ------------------------------------------------------------------------------ input data
 
+TEST_CASE("X-DATA-07/synthetic: a product can share a shape without losing line facts" * doctest::test_suite("m5")) {
+    vector<Atom> atoms;
+    atoms.push_back(fx30("first", "group_one", 0, kD));
+    atoms.push_back(fx30("second", "group_one", 11, dayAfter(1)));
+    atoms.push_back(fx30("third", "group_two", 4, kD));
+    for (Atom& atom : atoms) atom.components[0].product = "same-product";
+    const M5LaneDateInput input = laneWith(atoms, 2, kDefaultTrailer, true);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedCount(outcome) == 3);
+    CHECK(atoms[0].components[0].source != atoms[1].components[0].source);
+    CHECK(atoms[0].components[0].priority == 0);
+    CHECK(atoms[1].components[0].priority == 11);
+    CHECK(atoms[1].components[0].dueDate == dayAfter(1));
+    CHECK(atoms[2].group == "group_two");
+    CHECK(reconcile(*buildSnapshot(input).snapshot, *outcome.selected).balanced);
+    m5Evidence::note("expected", {"one product on three source lines", "P0 and P11, D and D+1, two groups remain distinct"});
+}
+
+TEST_CASE("X-DATA-01/synthetic: sixty M4 unit loads stay sixty through either M5 method" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = fx30Units("unit-", 60);
+    for (Atom& atom : atoms) atom.components[0].product = "cases-per-load-10";
+    const M5LaneDateInput input = laneWith(atoms, 2);
+    for (const MethodPolicy method : {MethodPolicy::PatternOnly, MethodPolicy::BlocksOnly}) {
+        M5PolicyProfile profile = syntheticProfile();
+        profile.method = method;
+        const M5LaneOutcome outcome = plan(input, profile);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(outcome.selected->trucks.size() == 2);
+        CHECK(shippedCount(outcome) == 60);
+        CHECK(outcome.leftOver.empty());
+        double shippedLoads = 0.0;
+        for (const TruckPlan& truck : outcome.selected->trucks) {
+            for (const size_t index : truck.atoms) shippedLoads += input.atoms[index].unitLoads;
+        }
+        CHECK(shippedLoads == 60.0);
+    }
+    m5Evidence::note("expected", {"M4 hand-over 60 unit loads, Cases_Unit_Load 10", "A and B each dispatch 60, never 6"});
+}
+
 TEST_CASE("X-DATA-01 X-DATA-08 X-DATA-14 M5 takes M4's unit loads as given and checks each quantity" * doctest::test_suite("m5")) {
     vector<Atom> atoms;
     for (const auto& [prefix, count] : vector<pair<string, size_t>>{{"cs", 24}, {"dis", 24}, {"pal", 30}}) {
@@ -2508,11 +2549,11 @@ TEST_CASE("X-DATA-01 X-DATA-08 X-DATA-14 M5 takes M4's unit loads as given and c
     CHECK(plan(fraction, syntheticProfile()).kind == OutcomeKind::CompletedWithDispatch);
 }
 
-TEST_CASE("X-DATA-02 conservation is checked per source line, not only in total" * doctest::test_suite("m5")) {
+TEST_CASE("X-DATA-02/synthetic: conservation is checked per source line, not only in total" * doctest::test_suite("m5")) {
     vector<Atom> atoms = fx30Units("x", 10);
-    for (Atom& atom : atoms) atom.components[0].source = "line-X";
+    for (Atom& atom : atoms) { atom.components[0].source = "line-X"; atom.components[0].product = "X"; }
     vector<Atom> y = fx30Units("y", 20);
-    for (Atom& atom : y) atom.components[0].source = "line-Y";
+    for (Atom& atom : y) { atom.components[0].source = "line-Y"; atom.components[0].product = "Y"; }
     atoms = concat(atoms, y);
     const M5LaneDateInput input = laneWith(atoms, 1);
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
@@ -2521,15 +2562,26 @@ TEST_CASE("X-DATA-02 conservation is checked per source line, not only in total"
     truck.group = "A";
     for (size_t atom = 0; atom < 10; ++atom) truck.atoms.push_back(atom);
     swapped.trucks.push_back(truck);
-    // Leftovers name an X atom twice and drop one Y atom: the same 30 in total.
-    for (size_t atom = 10; atom < 29; ++atom) swapped.leftOver.push_back({atom, LeftOverCause::OverReservation});
-    swapped.leftOver.push_back({0, LeftOverCause::OverReservation});
+    // Faulty output is X=20, Y=10 while its grand total remains 30.
+    for (size_t atom = 0; atom < 10; ++atom) swapped.leftOver.push_back({atom, LeftOverCause::OverReservation});
+    for (size_t atom = 10; atom < 20; ++atom) swapped.leftOver.push_back({atom, LeftOverCause::OverReservation});
     const Reconciliation result = reconcile(snapshot, swapped);
     CHECK_FALSE(result.balanced);
+    CHECK(any_of(result.findings.begin(), result.findings.end(), [](const string& finding) { return finding.find("line-X") != string::npos; }));
     CHECK(any_of(result.findings.begin(), result.findings.end(), [](const string& finding) { return finding.find("line-Y") != string::npos; }));
+
+    // Earlier fault shape, kept: an X atom named twice and one Y atom dropped, again 30 in total.
+    CandidatePlan repeated;
+    repeated.trucks.push_back(truck);
+    for (size_t atom = 10; atom < 29; ++atom) repeated.leftOver.push_back({atom, LeftOverCause::OverReservation});
+    repeated.leftOver.push_back({0, LeftOverCause::OverReservation});
+    const Reconciliation repeatedResult = reconcile(snapshot, repeated);
+    CHECK_FALSE(repeatedResult.balanced);
+    CHECK(any_of(repeatedResult.findings.begin(), repeatedResult.findings.end(), [](const string& finding) { return finding.find("line-Y") != string::npos; }));
+    m5Evidence::note("expected", {"input X=10 Y=20", "faulty output X=20 Y=10", "both line identities named despite equal total"});
 }
 
-TEST_CASE("X-DATA-09 identities stay as M4 resolved them: 001234 and 1234 are two products" * doctest::test_suite("m5")) {
+TEST_CASE("X-DATA-09/synthetic: identities stay as M4 resolved them: 001234 and 1234 are two products" * doctest::test_suite("m5")) {
     vector<Atom> atoms = fx30Units("u", 2);
     atoms[0].components[0].product = "001234";
     atoms[1].components[0].product = "1234";
@@ -2538,6 +2590,14 @@ TEST_CASE("X-DATA-09 identities stay as M4 resolved them: 001234 and 1234 are tw
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     CHECK(shippedCount(outcome) == 2);
     CHECK(input.atoms[0].components[0].product != input.atoms[1].components[0].product);
+    reverse(atoms.begin(), atoms.end());
+    const M5LaneDateInput shuffled = laneWith(atoms, 1);
+    const M5LaneOutcome reversed = plan(shuffled, syntheticProfile());
+    CHECK(shippedCount(reversed) == 2);
+    CHECK(shuffled.atoms[0].components[0].product == "1234");
+    CHECK(shuffled.atoms[1].components[0].product == "001234");
+    CHECK(shuffled.atoms[0].group == "group_1757_1724");
+    m5Evidence::note("expected", {"001234 and 1234 remain distinct", "reversed row order ships both", "underscore group kept verbatim"});
 }
 
 TEST_CASE("X-DATA-10 a delta from another snapshot is refused as stale" * doctest::test_suite("m5")) {
@@ -2549,9 +2609,17 @@ TEST_CASE("X-DATA-10 a delta from another snapshot is refused as stale" * doctes
     CommitLedger ledger;
     OperationalState state{other.id, other.input.pool.version, {}, 0, 1};
     CHECK(ledger.applyIfCurrent(*planned.delta, other, state) == ApplyStatus::StaleSnapshot);
+    M5LaneDateInput otherReservations = runOne;
+    otherReservations.pool.version = runOne.pool.version + 1;
+    const DemandSnapshot reservationSnapshot = *buildSnapshot(otherReservations).snapshot;
+    OperationalState reservationState{reservationSnapshot.id, reservationSnapshot.input.pool.version, {}, 0, 1};
+    CHECK(ledger.applyIfCurrent(*planned.delta, reservationSnapshot, reservationState) == ApplyStatus::StaleSnapshot);
+    CHECK(reservationState.consumedAtoms.empty());
+    CHECK(reservationState.slotsUsed == 0);
+    m5Evidence::note("expected", {"different demand extract rejected", "different reservation version rejected", "no state changed"});
 }
 
-TEST_CASE("X-DATA-12 counts near 3e9 stay exact" * doctest::test_suite("m5")) {
+TEST_CASE("X-DATA-12/synthetic: counts near 3e9 stay exact" * doctest::test_suite("m5")) {
     CHECK(patternCopies(3'000'000'000LL, 1, 4'000'000'000LL) == 3'000'000'000LL);
     AllocationKey total, part;
     part.shippedByClass = {3'000'000'000'000LL};
@@ -2559,6 +2627,28 @@ TEST_CASE("X-DATA-12 counts near 3e9 stay exact" * doctest::test_suite("m5")) {
     addTo(total, part);
     addTo(total, part);
     CHECK(total.shippedByClass.front() == 6'000'000'000'000LL);
+    CHECK(patternCopies(3'000'000'000LL, 2, 4'000'000'000LL) == 1'500'000'000LL);
+    CHECK(patternCopies(3'000'000'000LL, 1, 2'000'000'000LL) == 2'000'000'000LL);
+    m5Evidence::note("expected", {"3,000,000,000 counted exactly", "6,000,000,000,000 added without overflow"});
+}
+
+TEST_CASE("X-DATA-14/synthetic: invalid unit-load quantities stop before planning, a part load stays fractional" * doctest::test_suite("m5")) {
+    for (const double bad : {-1.0, 0.0, numeric_limits<double>::quiet_NaN(), numeric_limits<double>::infinity(),
+                             numeric_limits<double>::max()}) {
+        M5LaneDateInput input = laneWith({fx30("quantity")}, 1);
+        input.atoms[0].unitLoads = input.atoms[0].components[0].unitLoads = bad;
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        CHECK(outcome.kind == OutcomeKind::InvalidInput);
+        CHECK(shippedCount(outcome) == 0);
+    }
+    M5LaneDateInput fractional = laneWith({fx30("quantity")}, 1);
+    fractional.atoms[0].unitLoads = fractional.atoms[0].components[0].unitLoads = 1.5;
+    const M5LaneOutcome outcome = plan(fractional, syntheticProfile());
+    CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks[0].atoms.size() == 1);
+    CHECK(fractional.atoms[0].unitLoads == 1.5);
+    m5Evidence::note("expected", {"negative, zero, NaN, infinity and out-of-range quantity refused", "1.5 unit loads retained without rounding"});
 }
 
 // ---------------------------------------------------------------------------------- report
