@@ -1512,7 +1512,7 @@ TEST_CASE("U-AC-08/productionProfile: rear limits 14, 30, 14 give NOT FULL, FULL
     m5Evidence::note("expected", {"NOT FULL, FULL by rear (30 in), NOT FULL", "same with one profile ID revised 1, 2, 3", "rear 30 in, 9,000 lb"});
 }
 
-TEST_CASE("U-FL-01 29 then 30 FX-30 units: NOT FULL with goods left, FULL by weight with none" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-01/synthetic: 29 then 30 FX-30 units: NOT FULL with goods left, FULL by weight with none" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1);
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
     const CandidatePlan partial = oneTruck(input, 29);
@@ -1532,9 +1532,14 @@ TEST_CASE("U-FL-01 29 then 30 FX-30 units: NOT FULL with goods left, FULL by wei
     CHECK_FALSE(label.byFloorLimit);
     CHECK(label.rearInches == doctest::Approx(30.0));
     CHECK(label.bucket == FullnessBucket::NoGoodsRemain);
+    CHECK(label.weightPercent == doctest::Approx(100.0));
+    // No-fit is not inferred from an empty stock: with the 30th unit gone, nothing is said about the floor.
+    CHECK(label.fitStatus == RemainingFitStatus::NotApplicable);
+    CHECK_FALSE(label.byRearInches);
+    m5Evidence::note("expected", {"29: 43,500 lb, rear 50, the 30th fits: NOT FULL, GoodsRemain", "30: 45,000 lb, rear 30: FULL by weight, NoGoodsRemain"});
 }
 
-TEST_CASE("U-FL-02 31 light TLD units: 30 NOT FULL, 31 FULL by rear inches" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-02/synthetic: 31 light TLD units: 30 NOT FULL, 31 FULL by rear inches" * doctest::test_suite("m5")) {
     vector<Atom> units;
     for (int unit = 0; unit < 31; ++unit) units.push_back(unitOf("t" + to_string(100 + unit), "A", 100, 20, 108, 300));
     const M5LaneDateInput input = laneWith(units, 1);
@@ -1544,6 +1549,8 @@ TEST_CASE("U-FL-02 31 light TLD units: 30 NOT FULL, 31 FULL by rear inches" * do
         evaluateFullness(thirty, snapshot, remainingAfterSelected(snapshot, thirty), syntheticProfile(), physicalSettings()).front();
     CHECK(first.state == FullnessState::NotFull);
     CHECK(first.rearInches == doctest::Approx(30.0));
+    CHECK(first.fitStatus == RemainingFitStatus::Fits);
+    CHECK(first.weightPercent == doctest::Approx(9000.0 / 450.0));
     const CandidatePlan all = oneTruck(input, 31);
     const FullnessLabel second =
         evaluateFullness(all, snapshot, remainingAfterSelected(snapshot, all), syntheticProfile(), physicalSettings()).front();
@@ -1551,9 +1558,11 @@ TEST_CASE("U-FL-02 31 light TLD units: 30 NOT FULL, 31 FULL by rear inches" * do
     CHECK(second.byRearInches);
     CHECK_FALSE(second.byWeight);
     CHECK(second.rearInches == doctest::Approx(10.0));
+    CHECK(second.weightPercent == doctest::Approx(9300.0 / 450.0));
+    m5Evidence::note("expected", {"30: rear 30, 9,000 lb, the 31st fits: NOT FULL", "31: rear 10, 9,300 lb: FULL by rear (<= 14)"});
 }
 
-TEST_CASE("U-FL-04 X-E2E-09 floor-limited needs a remaining display that provably does not fit" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-04/synthetic X-E2E-09 floor-limited needs a remaining display that provably does not fit" * doctest::test_suite("m5")) {
     vector<Atom> displays;
     for (int unit = 0; unit < 31; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
     const M5LaneDateInput input = laneWith(displays, 1);
@@ -1577,6 +1586,25 @@ TEST_CASE("U-FL-04 X-E2E-09 floor-limited needs a remaining display that provabl
     CHECK_FALSE(exhausted.byFloorLimit);
     CHECK(exhausted.state == FullnessState::NotFull);
     CHECK(exhausted.bucket == FullnessBucket::NoGoodsRemain);
+
+    // Rear 30 in and 24,000 lb do not themselves establish FULL: the floor-limit reason is the witness alone.
+    CHECK(label.weightPercent == doctest::Approx(24000.0 / 450.0));
+    // A fitting same-group control (a 20 in unit) clears the floor-limit reason.
+    vector<Atom> control(displays.begin(), displays.begin() + 30);
+    control.push_back(unitOf("fits", "A", 100, 20, 50, 100));
+    const M5LaneDateInput fitting = laneWith(control, 1);
+    const DemandSnapshot fittingSnapshot = *buildSnapshot(fitting).snapshot;
+    const CandidatePlan selected = oneTruck(fitting, 30);
+    const FullnessLabel cleared = evaluateFullness(selected, fittingSnapshot, remainingAfterSelected(fittingSnapshot, selected),
+                                                   syntheticProfile(), physicalSettings())
+                                      .front();
+    CHECK_FALSE(cleared.byFloorLimit);
+    CHECK(cleared.fitStatus == RemainingFitStatus::Fits);
+    CHECK(cleared.state == FullnessState::NotFull);
+    // Labels never change dispatch: the same trucks ship with or without the 31st display.
+    CHECK(shippedCount(plan(input, syntheticProfile())) == 30);
+    CHECK(shippedCount(plan(exact, syntheticProfile())) == 30);
+    m5Evidence::note("expected", {"31 displays, 30 selected: FULL by floor limit on the proven no-fit witness", "30 sources only: no floor-limit claim", "a fitting control clears it", "dispatch unchanged"});
 }
 
 TEST_CASE("U-FL-08 buckets: eligible residual, none, or rule-excluded only" * doctest::test_suite("m5")) {
@@ -1606,6 +1634,123 @@ TEST_CASE("U-FL-09 an interrupted fit check is Unknown, never a conclusive label
                                     .front();
     CHECK(label.fitStatus == RemainingFitStatus::Unknown);
     CHECK(label.state == FullnessState::Undetermined);
+}
+
+namespace {
+
+// U-FL-09: the residual of a 600 in candidate holds a 40 in unit that cannot fit and a 20 in unit that can.
+struct InterruptedFit {
+    M5LaneDateInput input;
+    CandidatePlan candidate;
+};
+
+InterruptedFit interruptedFit(bool nonFittingFirst, double loadedWeightLb = 1000.0) {
+    const Atom loaded = unitOf("load", "A", 600, 100, 108, loadedWeightLb);
+    const Atom fits = unitOf("fits", "A", 100, 20, 108, 100);
+    const Atom tooLong = unitOf("long", "A", 100, 40, 108, 100);
+    InterruptedFit made;
+    made.input = nonFittingFirst ? laneWith({loaded, tooLong, fits}, 1, kDefaultTrailer, true) : laneWith({loaded, fits, tooLong}, 1, kDefaultTrailer, true);
+    made.candidate = oneTruck(made.input, 1);
+    return made;
+}
+
+// A stop that lets `allowedChecks` fit checks through, then fires.
+StopCheck stopAfterChecks(size_t allowedChecks) {
+    const auto asked = make_shared<size_t>(0);
+    return [asked, allowedChecks] { return (*asked)++ >= allowedChecks; };
+}
+
+FullnessLabel labelWithStop(const InterruptedFit& made, const StopCheck& stop) {
+    const DemandSnapshot snapshot = *buildSnapshot(made.input).snapshot;
+    return evaluateFullness(made.candidate, snapshot, remainingAfterSelected(snapshot, made.candidate), syntheticProfile(), physicalSettings(), stop)
+        .front();
+}
+
+}  // namespace
+
+TEST_CASE("U-FL-09/completed: stopped after the first class there is no certificate and the fit is Unknown; completed, the fitting 20 in unit gives NOT FULL" * doctest::test_suite("m5")) {
+    const InterruptedFit made = interruptedFit(true);
+    bool sawUnknown = false;
+    for (size_t allowed = 0; allowed < 12; ++allowed) {
+        const FullnessLabel label = labelWithStop(made, stopAfterChecks(allowed));
+        // Whatever the stop, a floor-limit is never certified while the fitting class is unprobed.
+        CHECK_FALSE(label.byFloorLimit);
+        CHECK(label.fitStatus != RemainingFitStatus::ProvenNoFit);
+        if (label.fitStatus == RemainingFitStatus::Unknown) {
+            sawUnknown = true;
+            CHECK(label.state == FullnessState::Undetermined);
+            CHECK_FALSE(label.byWeight);
+            CHECK_FALSE(label.byRearInches);
+        }
+    }
+    CHECK(sawUnknown);
+    const FullnessLabel completed = labelWithStop(made, StopCheck());
+    CHECK(completed.fitStatus == RemainingFitStatus::Fits);
+    CHECK(completed.state == FullnessState::NotFull);
+    CHECK_FALSE(completed.byFloorLimit);
+    CHECK(completed.bucket == FullnessBucket::GoodsRemain);
+    m5Evidence::note("expected", {"stopped before the 20 in class is probed: Unknown, fullness not established, no floor-limit", "completed: the 20 in unit fits, NOT FULL"});
+}
+
+TEST_CASE("U-FL-09/reversedProbeOrder: with the fitting class probed first the witness appears at once and no stop ever produces a false no-fit" * doctest::test_suite("m5")) {
+    const InterruptedFit made = interruptedFit(false);
+    size_t firstFits = 99;
+    for (size_t allowed = 0; allowed < 12; ++allowed) {
+        const FullnessLabel label = labelWithStop(made, stopAfterChecks(allowed));
+        CHECK_FALSE(label.byFloorLimit);
+        CHECK(label.fitStatus != RemainingFitStatus::ProvenNoFit);
+        if (label.fitStatus == RemainingFitStatus::Fits) firstFits = min(firstFits, allowed);
+    }
+    CHECK(firstFits < 99);
+    // The nonfitting-first order needs more probes to reach the same fitting witness.
+    const InterruptedFit nonFittingFirst = interruptedFit(true);
+    size_t firstFitsLate = 99;
+    for (size_t allowed = 0; allowed < 12; ++allowed) {
+        if (labelWithStop(nonFittingFirst, stopAfterChecks(allowed)).fitStatus == RemainingFitStatus::Fits) firstFitsLate = min(firstFitsLate, allowed);
+    }
+    CHECK(firstFits <= firstFitsLate);
+    const FullnessLabel completed = labelWithStop(made, StopCheck());
+    CHECK(completed.fitStatus == RemainingFitStatus::Fits);
+    CHECK(completed.state == FullnessState::NotFull);
+    m5Evidence::note("expected", {"reversed class order: the fitting witness is reached no later than in the other order", "never a no-fit result from an interrupted check"});
+}
+
+TEST_CASE("U-FL-09/weightFullControl: a 44,100 lb candidate is FULL by weight even when the fit diagnostic is incomplete; the reasons stay separate" * doctest::test_suite("m5")) {
+    const InterruptedFit made = interruptedFit(true, 44100.0);
+    const FullnessLabel label = labelWithStop(made, stopAfterChecks(0));
+    CHECK(label.byWeight);
+    CHECK(label.state == FullnessState::Full);
+    CHECK_FALSE(label.byFloorLimit);
+    CHECK_FALSE(label.byRearInches);
+    CHECK(label.fitStatus == RemainingFitStatus::Unknown);
+    const FullnessLabel completed = labelWithStop(made, StopCheck());
+    CHECK(completed.byWeight);
+    CHECK(completed.state == FullnessState::Full);
+    CHECK(completed.fitStatus == RemainingFitStatus::Fits);
+    m5Evidence::note("expected", {"incomplete fit check: FULL by weight, fit Unknown, no floor-limit", "completed: FULL by weight, the 20 in unit fits"});
+}
+
+TEST_CASE("U-FL-09/budgetIntegration: the fit diagnostic draws on the run's own allowance; an incomplete label does not withhold a validated shipment" * doctest::test_suite("m5")) {
+    const InterruptedFit made = interruptedFit(true);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.afterMethod = [&](MethodId) { clock.advance(100.0); };
+    const M5LaneOutcome outcome = planLaneDate(made.input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(outcome, made.input);
+    CHECK(outcome.allowanceSeconds == 10.0);
+    CHECK(outcome.stop == StopReason::BudgetExhausted);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.finalValidationPassed);
+    CHECK(shippedCount(outcome) >= 1);
+    for (const FullnessLabel& label : outcome.fullness) {
+        // The allowance was spent before or during the diagnostic: no certificate, nothing withheld because of it.
+        CHECK_FALSE((label.fitStatus == RemainingFitStatus::ProvenNoFit && label.byFloorLimit && label.state != FullnessState::Full));
+        CHECK(label.profileKey == syntheticProfile().key());
+    }
+    const M5LaneOutcome relaxed = plan(made.input, syntheticProfile());
+    CHECK(shippedCount(relaxed) == shippedCount(outcome));
+    m5Evidence::note("expected", {"one declared allowance, spent: the plan is kept and checked", "no new budget for the diagnostic", "the shipment equals the unstopped run's"});
 }
 
 namespace {

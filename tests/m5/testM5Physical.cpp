@@ -775,7 +775,7 @@ TEST_CASE("X-E2E-04/y2000 X-E2E-04/y2800 X-E2E-04/productionProfile acceptance a
     m5Evidence::note("expected", {"y = 2,000: both 60%-cube trucks ship", "y = 2,800: neither ships, a penalty never forces one", "production profile: both ship, bucket no goods remain"});
 }
 
-TEST_CASE("U-FL-05 buckets come from the final residual, whatever the truck order" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-05/synthetic buckets come from the final residual, whatever the truck order; truck-weighted bucket means, empty buckets N/A" * doctest::test_suite("m5")) {
     M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A"), fx30Units("b", 30, "B")), 3);
     input.excluded.push_back({"later-b", "B", 4.0, "due after the pull-forward window"});
     const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
@@ -794,15 +794,37 @@ TEST_CASE("U-FL-05 buckets come from the final residual, whatever the truck orde
     const auto all = buckets(forward);
     CHECK(all.count({"A", static_cast<int>(FullnessBucket::NoGoodsRemain)}) == 2);
     CHECK(all.count({"B", static_cast<int>(FullnessBucket::RuleLimited)}) == 1);
+
+    // Eligible residual takes GoodsRemain precedence, whatever else is left.
+    M5LaneDateInput mixed = laneWith(concat(fx30Units("a", 31, "A"), fx30Units("b", 30, "B")), 3);
+    mixed.excluded.push_back({"later-a", "A", 4.0, "due after the pull-forward window"});
+    const DemandSnapshot mixedSnapshot = *buildSnapshot(mixed).snapshot;
+    vector<size_t> thirty(30);
+    iota(thirty.begin(), thirty.end(), size_t{0});
+    const CandidatePlan oneOfA = truckOf(mixed, thirty);
+    const FullnessLabel eligible = evaluateFullness(oneOfA, mixedSnapshot, remainingAfterSelected(mixedSnapshot, oneOfA), syntheticProfile(), physicalSettings()).front();
+    CHECK(eligible.bucket == FullnessBucket::GoodsRemain);
+    // Truck-weighted means by bucket over the real labels; empty buckets are N/A.
+    const vector<FullnessLabel> labels = evaluateFullness(forward, snapshot, remainingAfterSelected(snapshot, forward), syntheticProfile(), physicalSettings());
+    const auto means = rearInchesByBucket(labels);
+    CHECK(means.at("no goods remain").trucks == 2);
+    CHECK(means.at("rule-limited").trucks == 1);
+    CHECK_FALSE(means.at("goods remain").averageRearInches.has_value());
+    CHECK(means.at("goods remain").trucks == 0);
+    m5Evidence::note("expected", {"A: empty residual, NoGoodsRemain", "B: only a date-excluded unit left, RuleLimited", "eligible residual: GoodsRemain", "reversed truck order: the same buckets", "empty bucket N/A"});
 }
 
-TEST_CASE("U-FL-06 exact 98% weight and 14 in rear boundaries, on the slot's own limit" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-06/weightBelow U-FL-06/weightEqual U-FL-06/weightAbove U-FL-06/smallTrailer U-FL-06/largeTrailer U-FL-06/rearAboveLimit U-FL-06/rearEqualLimit U-FL-06/rearBelowLimit exact 98% weight and 14 in rear boundaries, on the slot's own limit" * doctest::test_suite("m5")) {
     for (const auto& [weight, full] : vector<pair<double, bool>>{{44099.999, false}, {44100.0, true}, {44100.001, true}}) {
         const M5LaneDateInput input = laneWith({unitOf("load", "A", 200, 100, 108, weight), unitOf("left", "A", 100, 20, 108, 1)}, 1);
         const FullnessLabel label = labelOf(input, {0});
         CHECK(label.byWeight == full);
         CHECK(label.rearInches == 430.0);
         CHECK(label.fitStatus == RemainingFitStatus::Fits);
+        // Rear space and the fitting leftover do not mask the weight comparison.
+        CHECK_FALSE(label.byRearInches);
+        CHECK_FALSE(label.byFloorLimit);
+        CHECK(label.state == (full ? FullnessState::Full : FullnessState::NotFull));
     }
     const TrailerCapability light{630.0, 100.0, 108.0, 30000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput onLight = laneWith({unitOf("load", "A", 200, 100, 108, 29400), unitOf("left", "A", 100, 20, 108, 1)}, 1, light);
@@ -817,15 +839,24 @@ TEST_CASE("U-FL-06 exact 98% weight and 14 in rear boundaries, on the slot's own
         const FullnessLabel label = labelOf(input, {0});
         CHECK(label.rearInches == rear);
         CHECK(label.byRearInches == full);
+        CHECK_FALSE(label.byWeight);
+        // The printed value rounds to 14.0 for all three; the label keeps the exact figure.
+        CHECK(fabs(label.rearInches - 14.0) < 0.001);
+        if (!full) CHECK(label.rearInches != 14.0);
     }
+    m5Evidence::note("expected", {"44,099.999 / 44,100 / 44,100.001 lb: false / true / true", "29,400 lb: FULL on a 30,000 lb slot, not on 45,000", "rear 14.00006103515625 / 14 / 13.99993896484375 at limit 14: false / true / true"});
 }
 
-TEST_CASE("U-FL-07 rear space is measured after M2's legal stacking; old labels do not carry" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-07/threeHigh U-FL-07/twoHigh U-FL-07/nonstackable U-FL-07/staleLabel rear space is measured after M2's legal stacking; old labels do not carry" * doctest::test_suite("m5")) {
     const Atom leftover = unitOf("left", "A", 100, 20, 108, 100);
     const M5LaneDateInput threeHigh = laneWith({stackOfLevels("s", 210, 100, 36, 3, 1000), leftover}, 1);
     const FullnessLabel three = labelOf(threeHigh, {0});
     CHECK(three.rearInches == 420.0);
     CHECK(three.state == FullnessState::NotFull);
+    CHECK(three.fitStatus == RemainingFitStatus::Fits);
+    CHECK(threeHigh.atoms[0].weightLb == 3000.0);
+    CHECK(threeHigh.atoms[0].floor.longSideIn == 210.0);
+    CHECK(threeHigh.atoms[0].floor.heightIn == 108.0);
     const M5LaneDateInput twoHigh = laneWith({stackOfLevels("s", 210, 100, 36, 2, 1000), stackOfLevels("t", 210, 100, 36, 1, 1000), leftover}, 1);
     const FullnessLabel two = labelOf(twoHigh, {0, 1});
     CHECK(two.rearInches == 210.0);
@@ -839,22 +870,45 @@ TEST_CASE("U-FL-07 rear space is measured after M2's legal stacking; old labels 
     // A label belongs to its candidate revision: after a change it no longer describes the truck.
     CandidatePlan candidate = truckOf(laneWith(single, 1), {0, 1, 2});
     const uint64_t labelled = candidate.revision;
+    const M5LaneDateInput singleInput = laneWith(single, 1);
+    const DemandSnapshot singleSnapshot = *buildSnapshot(singleInput).snapshot;
+    const FullnessLabel stale = evaluateFullness(candidate, singleSnapshot, remainingAfterSelected(singleSnapshot, candidate), syntheticProfile(), physicalSettings()).front();
+    CHECK(stale.state == FullnessState::Full);
+    CHECK(stale.candidateRevision == labelled);
     CandidateEditor(candidate).removeToLeftOver(0, 2, LeftOverCause::OverReservation);
     CHECK(candidate.revision != labelled);
+    storeRows(candidate, singleInput);
+    // The old FULL flag belongs to the old revision; the changed candidate is labelled afresh.
+    const FullnessLabel fresh = evaluateFullness(candidate, singleSnapshot, remainingAfterSelected(singleSnapshot, candidate), syntheticProfile(), physicalSettings()).front();
+    CHECK(fresh.candidateRevision == candidate.revision);
+    CHECK(fresh.candidateRevision != stale.candidateRevision);
+    CHECK(fresh.rearInches == 210.0);
+    CHECK(fresh.state == FullnessState::NotFull);
+    m5Evidence::note("expected", {"three high: one 108 in stack, rear 420, 3,000 lb, NOT FULL", "two high: rear 210, NOT FULL", "nonstackable: rear 0, FULL by rear", "an old label never carries to the changed revision"});
 }
 
-TEST_CASE("U-FL-08 the six residual-scope variants" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-08/fittingResidual U-FL-08/noFitResidual U-FL-08/emptyResidual U-FL-08/ruleExcludedResidual U-FL-08/mixedResidual U-FL-08/otherGroupResidual the six residual-scope variants" * doctest::test_suite("m5")) {
     const Atom loaded = unitOf("load", "A", 600, 100, 108, 1000);
     const Atom fits = unitOf("fits", "A", 100, 20, 108, 100);
     const Atom tooLong = unitOf("long", "A", 100, 40, 108, 100);
     const FullnessLabel one = labelOf(laneWith({loaded, fits}, 1, kDefaultTrailer, true), {0});
     CHECK(one.state == FullnessState::NotFull);
     CHECK(one.bucket == FullnessBucket::GoodsRemain);
+    CHECK(one.rearInches == 30.0);
+    CHECK_FALSE(one.byWeight);
+    CHECK_FALSE(one.byRearInches);
+    CHECK(one.fitStatus == RemainingFitStatus::Fits);
     const FullnessLabel two = labelOf(laneWith({loaded, tooLong}, 1, kDefaultTrailer, true), {0});
     CHECK(two.byFloorLimit);
     CHECK(two.bucket == FullnessBucket::GoodsRemain);
+    CHECK(two.fitStatus == RemainingFitStatus::ProvenNoFit);
+    CHECK(two.state == FullnessState::Full);
+    // Total floor area is also over the trailer's: 600 x 100 + 40 x 100 = 64,000 > 63,000 sq in.
+    CHECK(600.0 * 100.0 + 40.0 * 100.0 > 630.0 * 100.0);
     const FullnessLabel three = labelOf(laneWith({loaded}, 1, kDefaultTrailer, true), {0});
     CHECK_FALSE(three.byFloorLimit);
+    CHECK_FALSE(three.byWeight);
+    CHECK_FALSE(three.byRearInches);
     CHECK(three.fitStatus == RemainingFitStatus::NotApplicable);
     CHECK(three.bucket == FullnessBucket::NoGoodsRemain);
     Atom farFuture = fits;
@@ -863,6 +917,9 @@ TEST_CASE("U-FL-08 the six residual-scope variants" * doctest::test_suite("m5"))
     const FullnessLabel four = labelOf(laneWith({loaded, farFuture}, 1, kDefaultTrailer, true), {0});
     CHECK(four.bucket == FullnessBucket::RuleLimited);
     CHECK_FALSE(four.byFloorLimit);
+    // An independent physical-fit control: the excluded unit does fit beside the loaded one.
+    const M5LaneDateInput control = laneWith({loaded, farFuture}, 1, kDefaultTrailer, true);
+    CHECK(checkTruck(control, {0, 1}, kDefaultTrailer, physicalSettings()).fits);
     const FullnessLabel five = labelOf(laneWith({loaded, tooLong, farFuture}, 1, kDefaultTrailer, true), {0});
     CHECK(five.bucket == FullnessBucket::GoodsRemain);
     CHECK(five.probes == 1);
@@ -870,9 +927,53 @@ TEST_CASE("U-FL-08 the six residual-scope variants" * doctest::test_suite("m5"))
     otherGroup.group = "B";
     const FullnessLabel six = labelOf(laneWith({loaded, otherGroup}, 1, kDefaultTrailer, true), {0});
     CHECK(six.fitStatus == RemainingFitStatus::NotApplicable);
+    CHECK(six.probes == 0);
+    CHECK(six.bucket == FullnessBucket::NoGoodsRemain);
+    m5Evidence::note("expected", {"1 fits: NOT FULL GoodsRemain", "2 no fit: FULL by floor limit, GoodsRemain", "3 none: NoGoodsRemain, no floor claim", "4 only D+11: RuleLimited", "5 eligible 40 + excluded 20: GoodsRemain, one probe", "6 other group: no probes"});
 }
 
-TEST_CASE("U-FL-10 rear comes from the farthest occupied extent of the supplied witness" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-08/residualCacheRefresh U-FL-08/truckOrder a changed residual snapshot clears the floor-limit evidence; truck order never changes the final buckets; labels never withhold the truck" * doctest::test_suite("m5")) {
+    const Atom loaded = unitOf("load", "A", 600, 100, 108, 1000);
+    const Atom fits = unitOf("fits", "A", 100, 20, 108, 100);
+    const Atom tooLong = unitOf("long", "A", 100, 40, 108, 100);
+    // Variant 2 then 1 in one process, each from its own residual snapshot.
+    const FullnessLabel noFit = labelOf(laneWith({loaded, tooLong}, 1, kDefaultTrailer, true), {0});
+    const FullnessLabel fit = labelOf(laneWith({loaded, fits}, 1, kDefaultTrailer, true), {0});
+    const FullnessLabel noFitAgain = labelOf(laneWith({loaded, tooLong}, 1, kDefaultTrailer, true), {0});
+    CHECK(noFit.byFloorLimit);
+    CHECK_FALSE(fit.byFloorLimit);
+    CHECK(fit.state == FullnessState::NotFull);
+    CHECK(noFitAgain.byFloorLimit);
+    CHECK(noFit.remainingSnapshot != fit.remainingSnapshot);
+    CHECK(noFit.remainingSnapshot == noFitAgain.remainingSnapshot);
+    // Reversing the selected trucks does not change the final-snapshot buckets (two trucks of one group).
+    const M5LaneDateInput input = laneWith({loaded, unitOf("load2", "A", 600, 100, 108, 1000), tooLong}, 2, kDefaultTrailer, true);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan forward = truckOf(input, {0});
+    TruckPlan second;
+    second.slot = 1;
+    second.group = "A";
+    second.atoms = {1};
+    forward.trucks.push_back(second);
+    forward.leftOver = {{2, LeftOverCause::OverReservation}};
+    storeRows(forward, input);
+    CandidatePlan reversed = forward;
+    reverse(reversed.trucks.begin(), reversed.trucks.end());
+    const auto bucketsOf = [&](const CandidatePlan& candidate) {
+        multiset<int> result;
+        for (const FullnessLabel& label : evaluateFullness(candidate, snapshot, remainingAfterSelected(snapshot, candidate), syntheticProfile(), physicalSettings())) {
+            result.insert(static_cast<int>(*label.bucket));
+        }
+        return result;
+    };
+    CHECK(bucketsOf(forward) == bucketsOf(reversed));
+    // Labels never withhold the checked truck: the loaded 600 in unit ships with a no-fit or a fit residual alike.
+    CHECK(shippedCount(plan(laneWith({loaded, tooLong}, 1, kDefaultTrailer, true), syntheticProfile())) >= 1);
+    CHECK(shippedCount(plan(laneWith({loaded, fits}, 1, kDefaultTrailer, true), syntheticProfile())) >= 1);
+    m5Evidence::note("expected", {"no-fit, fit, no-fit again: the floor-limit evidence follows each residual snapshot", "truck order: the same buckets", "dispatch unaffected by the labels"});
+}
+
+TEST_CASE("U-FL-10/maxExtent U-FL-10/rowOrder U-FL-10/translatedWitness U-FL-10/outsideTrailer U-FL-10/overlap U-FL-10/nonfinite rear comes from the farthest occupied extent of the supplied witness" * doctest::test_suite("m5")) {
     const WitnessMeasure sideBySide = measureSuppliedWitness({{0, 0, 500, 50}, {0, 50, 600, 50}}, kDefaultTrailer);
     CHECK(sideBySide.valid);
     CHECK(sideBySide.occupiedExtentIn == 600.0);
@@ -880,10 +981,25 @@ TEST_CASE("U-FL-10 rear comes from the farthest occupied extent of the supplied 
     const WitnessMeasure reordered = measureSuppliedWitness({{0, 50, 600, 50}, {0, 0, 500, 50}}, kDefaultTrailer);
     CHECK(reordered.rearInches == 30.0);
     const WitnessMeasure translated = measureSuppliedWitness({{20, 0, 500, 50}, {20, 50, 600, 50}}, kDefaultTrailer);
+    CHECK(translated.valid);
+    CHECK(translated.occupiedExtentIn == 620.0);
     CHECK(translated.rearInches == 10.0);
-    CHECK_FALSE(measureSuppliedWitness({{0, 0, 500, 50}, {31, 50, 600, 50}}, kDefaultTrailer).valid);
+    // The sum of the lengths (1,100) is never the used length; the front gap of 20 in is kept, not compacted.
+    CHECK(sideBySide.occupiedExtentIn != 1100.0);
+    CHECK(translated.occupiedExtentIn == 620.0);
+    // B at x = 31: extent 631 is outside the 630 in floor: the layout is rejected, rear never -1 and "<= 14".
+    const WitnessMeasure outside = measureSuppliedWitness({{0, 0, 500, 50}, {31, 50, 600, 50}}, kDefaultTrailer);
+    CHECK_FALSE(outside.valid);
+    CHECK_FALSE(outside.findings.empty());
     CHECK_FALSE(measureSuppliedWitness({{0, 0, 500, 60}, {0, 50, 600, 50}}, kDefaultTrailer).valid);
-    CHECK_FALSE(measureSuppliedWitness({{numeric_limits<double>::quiet_NaN(), 0, 500, 50}}, kDefaultTrailer).valid);
+    const double notANumber = numeric_limits<double>::quiet_NaN(), infinity = numeric_limits<double>::infinity();
+    for (const PlacedRectangle& bad : {PlacedRectangle{notANumber, 0, 500, 50}, PlacedRectangle{0, infinity, 500, 50},
+                                       PlacedRectangle{0, 0, -infinity, 50}, PlacedRectangle{0, 0, 500, notANumber}}) {
+        CHECK_FALSE(measureSuppliedWitness({bad}, kDefaultTrailer).valid);
+    }
+    // Overlap is a fault too, not a smaller rear.
+    CHECK_FALSE(measureSuppliedWitness({{0, 0, 500, 60}, {100, 40, 400, 50}}, kDefaultTrailer).valid);
+    m5Evidence::note("expected", {"A 500 + B 600 side by side: extent 600, rear 30, any row order", "both at x = 20: extent 620, rear 10", "B at 31: extent 631 rejected", "overlap and non-finite coordinates rejected"});
 }
 
 TEST_CASE("U-DA-05/adapterSeam: the physical adapter sizes a slot by its own capability, overriding the run's default trailer" * doctest::test_suite("m5")) {

@@ -247,7 +247,7 @@ TEST_CASE("U-AC-08 a profile's key changes with its revision and settings" * doc
     CHECK(loadProfile(block).key() != first);
 }
 
-TEST_CASE("U-FL-03 rear-inch limit: default, overrides and invalid values" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-03/synthetic rear-inch limit: default, overrides and invalid values" * doctest::test_suite("m5")) {
     json block = productionBlock();
     block["fullness"].erase("rearInchLimit");
     const M5PolicyProfile defaulted = loadProfile(block);
@@ -259,10 +259,27 @@ TEST_CASE("U-FL-03 rear-inch limit: default, overrides and invalid values" * doc
         CHECK(profile.fullness.rearInchLimit == limit);
         CHECK_FALSE(profile.fullness.rearInchLimitDefaulted);
     }
-    for (const json& bad : {json(-1), json(0), json(0.001), json("14"), json(nullptr)}) {
+    for (const json& bad : {json(-1), json(0), json(0.001), json("14"), json(nullptr), json(numeric_limits<double>::quiet_NaN()),
+                            json(numeric_limits<double>::infinity()), json(-numeric_limits<double>::infinity()), json::array(), json::object(), json(true)}) {
         block["fullness"]["rearInchLimit"] = bad;
         requireRejected(block, "rear-inch limit " + bad.dump());
     }
+    // Missing is defaulted, not invalid: it loads, and the default is reported as a default.
+    block["fullness"].erase("rearInchLimit");
+    CHECK_NOTHROW(loadProfile(block));
+    // A finite positive override changes the labels: 29 FX-30 units leave a rear space of 50 in.
+    const M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 29), 1);
+    for (const auto& [limit, full] : vector<pair<double, bool>>{{14.0, false}, {30.0, false}, {50.0, true}, {55.0, true}}) {
+        M5PolicyProfile profile = m5Fixtures::syntheticProfile();
+        profile.fullness.rearInchLimit = limit;
+        profile.fullness.rearInchLimitDefaulted = false;
+        const M5LaneOutcome outcome = m5Fixtures::plan(input, profile);
+        REQUIRE(outcome.fullness.size() == 1);
+        INFO("limit " << limit);
+        CHECK(outcome.fullness.front().byRearInches == full);
+        CHECK(outcome.fullness.front().rearInches == doctest::Approx(50.0));
+    }
+    m5Evidence::note("expected", {"missing: default 14, reported as default", "14, 10, 30 read as user settings", "malformed, non-finite, negative, zero rejected before planning", "a larger limit flips FULL by rear"});
 }
 
 TEST_CASE("U-RT-04/synthetic: only the reserved-truck count is built; a demand-based count is refused with a clear message" * doctest::test_suite("m5")) {
