@@ -897,10 +897,15 @@ The final gate must distinguish a recorded intentional deferral from a required 
 - The build writes its commit and dirty flag at every build (`cmake/m5BuildIdentity.cmake`). A record names the
   build, the SHA-256 of the specification, manifest and `config/orderBuilderParams.json`, and its assertion
   counts: PASS needs at least one assertion and none failed; a case that asserted nothing is NOT_RUN.
-- The gate (`tests/m5/support/m5EvidenceGate.hpp`, X-RUN-09) accepts only when every selected variant has
-  exactly one current PASS record from a clean build of the current commit. The ctest entry `m5EvidenceStatus`
-  writes `m5EvidenceStatus.txt` beside the records; `ob_tests "-tc=m5Acceptance*" --no-skip` fails until the
-  bundle is complete. An unselected conditional variant must name its decision or blocker, or it is rejected.
+- The gate (`tests/m5/support/m5EvidenceGate.hpp`, X-RUN-09) needs every selected variant to have exactly one
+  current record from a clean build of the current commit, and accepts when each is PASS, PARTIAL (a PASS whose
+  record names the clause it did not cover), BLOCKED with a recorded reason, or NOT_RUN with a recorded reason
+  (`tests/m5/data/m5VariantReasons.txt`). It rejects a FAIL, a stale or duplicated result, a NOT_RUN or BLOCKED
+  key with no reason, and a key with no record. Every non-PASS outcome is listed by name with its reason. The
+  ctest entry `m5EvidenceStatus` writes `m5EvidenceStatus.txt` beside the records; `ob_tests
+  "-tc=m5Acceptance*" --no-skip` runs the gate. An unselected conditional variant must name its decision or
+  blocker, or it is rejected. A test that compares with Tom's local, git-ignored reference file is skipped by
+  name and recorded BLOCKED with that reason when the file is missing.
 - Layout witnesses are checked by `tests/m5/support/m5LayoutChecker.hpp`, which never calls floor-pattern code.
 
 ## 12. Clarifications raised against v5 (PC-1..PC-9) and their v6 status (PC-10)

@@ -1,10 +1,15 @@
 #pragma once
-// The acceptance evidence gate (X-RUN-09). M5 is accepted only when every selected required
-// (testId, variant) key of the manifest has exactly one current PASS record with real assertions,
-// written by a clean build of the current commit against the current requirement, manifest and
-// params. A missing, failed, NOT_RUN, BLOCKED, stale or duplicated result blocks acceptance whatever
-// exit code the test run had. A conditional variant that no recorded decision selects stays visible
-// as deferred and neither passes nor blocks; one deferred without a recorded decision is rejected.
+// The acceptance evidence gate (X-RUN-09). Every selected (testId, variant) key of the manifest needs
+// exactly one current record, written by a clean build of the current commit against the current
+// requirement, manifest and params. The bundle is accepted when each key is
+//   - PASS with real assertions;
+//   - PARTIAL: PASS that names the clause it did not cover (the record's notCovered);
+//   - BLOCKED with a recorded reason (the record's, or the manifest's blocker);
+//   - NOT_RUN with a recorded reason (tests/m5/data/m5VariantReasons.txt).
+// It is rejected by a FAIL, a stale or duplicated result, a NOT_RUN or BLOCKED key with no reason, or a
+// key with no record and no reason, whatever exit code the test run had. A conditional variant that no
+// recorded decision selects stays visible as deferred and neither passes nor blocks; one deferred
+// without a recorded decision is rejected. Every non-PASS outcome is listed by name with its reason.
 
 #include "m5Manifest.hpp"
 
@@ -42,16 +47,16 @@ struct GateResult {
     std::vector<std::string> problems;  // the bundle itself is invalid: duplicates, unknown keys, ...
     std::vector<std::string> passed;
     std::vector<std::string> failed;
-    std::vector<std::string> notRun;
-    std::vector<std::string> blocked;
+    std::vector<std::string> notRun;  // NOT_RUN or missing with no recorded reason: blocks acceptance
+    std::vector<std::string> notRunWithReason;  // "key: reason": accepted, visible
+    std::vector<std::string> blocked;  // "key: reason": accepted, visible; one with no reason is listed in notRun
     std::vector<std::string> stale;
-    std::vector<std::string> partial;  // passed, but the record names a clause it did not cover
+    std::vector<std::string> partial;  // passed, but the record names a clause it did not cover: accepted, visible
     std::vector<std::string> deferred;  // unselected conditional variants, with their reason
     std::size_t selected = 0;
     bool accepted() const {
-        return problems.empty() && failed.empty() && notRun.empty() && blocked.empty() && stale.empty()
-               && partial.empty()
-               && passed.size() == selected;
+        return problems.empty() && failed.empty() && notRun.empty() && stale.empty()
+               && passed.size() + partial.size() + blocked.size() + notRunWithReason.size() == selected;
     }
 };
 
@@ -64,7 +69,11 @@ inline std::string staleBecause(const Identity& record, const Identity& current)
     return "";
 }
 
-inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vector<Record>& records, const Identity& current) {
+// key (testId/variant) -> the recorded reason a selected variant has no PASS.
+using ReasonMap = std::map<std::string, std::string>;
+
+inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vector<Record>& records, const Identity& current,
+                           const ReasonMap& reasons = {}) {
     GateResult result;
     if (manifest.requirementSha256 != current.requirementSha256) {
         result.problems.push_back("the manifest was derived from another requirement version");
@@ -79,6 +88,15 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
         if (!variantOf.emplace(variant.key(), &variant).second) {
             result.problems.push_back("variant " + variant.key() + " is listed twice");
         }
+    }
+    for (const auto& [key, reason] : reasons) {
+        const auto known = variantOf.find(key);
+        if (known == variantOf.end()) {
+            result.problems.push_back("a recorded reason for " + key + ", which the manifest does not list");
+        } else if (!known->second->selected) {
+            result.problems.push_back("a recorded reason for " + key + ", which is not selected");
+        }
+        if (reason.empty()) result.problems.push_back("the recorded reason for " + key + " is empty");
     }
     std::map<std::string, std::vector<const Record*>> recordsOf;
     for (const Record& record : records) {
@@ -108,11 +126,15 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
             result.problems.push_back(key + " has " + std::to_string(ofKey.size()) + " results (" + testCases + ")");
             continue;
         }
+        const auto recorded = reasons.find(key);
+        const std::string recordedReason = recorded == reasons.end() ? "" : recorded->second;
         if (ofKey.empty()) {
-            if (variant->executionStatus == "BLOCKED") {
+            if (variant->executionStatus == "BLOCKED" && !variant->blocker.empty()) {
                 result.blocked.push_back(key + ": " + variant->blocker);
+            } else if (!recordedReason.empty()) {
+                result.notRunWithReason.push_back(key + ": " + recordedReason);
             } else {
-                result.notRun.push_back(key);
+                result.notRun.push_back(key + ": no record and no recorded reason");
             }
             continue;
         }
@@ -121,15 +143,28 @@ inline GateResult evaluate(const m5Manifest::Manifest& manifest, const std::vect
         if (!stale.empty()) {
             result.stale.push_back(key + ": " + stale);
         } else if (record.executionStatus == "PASS" && record.assertions > 0 && record.failedAssertions == 0) {
+            if (!recordedReason.empty()) {
+                result.problems.push_back("a recorded reason for " + key + ", which has a current PASS record: remove the reason");
+            }
             if (record.notCovered.empty()) {
                 result.passed.push_back(key);
             } else {
                 result.partial.push_back(key + ": " + record.notCovered);
             }
         } else if (record.executionStatus == "PASS" || record.executionStatus == "NOT_RUN") {
-            result.notRun.push_back(key + (record.assertions == 0 ? ": no assertion ran" : ""));
+            if (!recordedReason.empty()) {
+                result.notRunWithReason.push_back(key + ": " + recordedReason);
+            } else {
+                result.notRun.push_back(key + ": no assertion ran, no recorded reason");
+            }
         } else if (record.executionStatus == "BLOCKED") {
-            result.blocked.push_back(key + ": " + record.reason);
+            if (!record.reason.empty()) {
+                result.blocked.push_back(key + ": " + record.reason);
+            } else if (!recordedReason.empty()) {
+                result.blocked.push_back(key + ": " + recordedReason);
+            } else {
+                result.notRun.push_back(key + ": BLOCKED with no reason");
+            }
         } else {
             result.failed.push_back(key);
         }

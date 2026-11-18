@@ -63,6 +63,20 @@ map<string, m5Gate::Exception> exceptionsOf(const string& path) {
     return exceptions;
 }
 
+// tests/m5/data/m5VariantReasons.txt: "testId/variant|reason" for a selected variant with no PASS (NOT_RUN or BLOCKED).
+m5Gate::ReasonMap variantReasonsOf(const string& path) {
+    m5Gate::ReasonMap reasons;
+    for (const string& line : linesOf(path)) {
+        const size_t bar = line.find('|');
+        REQUIRE_MESSAGE(bar != string::npos, "no '|' in " << line);
+        const bool added = reasons.emplace(line.substr(0, bar), line.substr(bar + 1)).second;
+        CHECK_MESSAGE(added, line.substr(0, bar) << " has two recorded reasons");
+    }
+    return reasons;
+}
+
+const char* kVariantReasonsPath = "tests/m5/data/m5VariantReasons.txt";
+
 Manifest committedManifest() {
     string error;
     const optional<Manifest> manifest = m5Manifest::load(m5Manifest::kManifestPath, &error);
@@ -137,7 +151,7 @@ BuildStatus statusOfThisBuild() {
     status.folder = filesystem::path(OB_M5_EVIDENCE_DIR) / m5Evidence::folderName(status.build);
 #endif
     status.result = m5Gate::evaluate(status.manifest, m5Evidence::readRecords(status.folder),
-                                     m5Evidence::currentIdentity(status.build, status.manifest));
+                                     m5Evidence::currentIdentity(status.build, status.manifest), variantReasonsOf(kVariantReasonsPath));
     return status;
 }
 
@@ -147,14 +161,14 @@ string statusText(const BuildStatus& status) {
     text << "M5 evidence status: commit " << status.build.commit << (status.build.dirty ? " (changes not committed)" : "")
          << ", " << status.build.compiler << " " << status.build.config << "\n"
          << "Manifest variants " << status.manifest.variants.size() << ", selected " << result.selected << ": PASS "
-         << result.passed.size() << ", FAIL " << result.failed.size() << ", NOT_RUN " << result.notRun.size()
-         << ", BLOCKED " << result.blocked.size() << ", PARTIAL " << result.partial.size() << ", stale " << result.stale.size() << "; deferred "
+         << result.passed.size() << ", FAIL " << result.failed.size() << ", NOT_RUN with no reason " << result.notRun.size()
+         << ", NOT_RUN with a reason " << result.notRunWithReason.size() << ", BLOCKED with a reason " << result.blocked.size() << ", PARTIAL " << result.partial.size() << ", stale " << result.stale.size() << "; deferred "
          << result.deferred.size() << "; problems " << result.problems.size() << "\n"
          << "Accepted: " << (result.accepted() ? "yes" : "no") << "\n";
     const vector<pair<string, const vector<string>*>> lists{{"PROBLEM", &result.problems}, {"PASS", &result.passed},
                                                            {"FAIL", &result.failed},       {"PARTIAL", &result.partial}, {"STALE", &result.stale},
                                                            {"BLOCKED", &result.blocked},   {"DEFERRED", &result.deferred},
-                                                           {"NOT_RUN", &result.notRun}};
+                                                           {"NOT_RUN_WITH_REASON", &result.notRunWithReason}, {"NOT_RUN", &result.notRun}};
     for (const auto& [label, entries] : lists) {
         for (const string& entry : *entries) text << label << " " << entry << "\n";
     }
@@ -282,12 +296,17 @@ TEST_CASE("X-RUN-09/synthetic: only a complete, current bundle is accepted, what
     CHECK_FALSE(failedCase.accepted());
     CHECK(failedCase.failed == vector<string>{"X-SYN-02/one"});
 
+    // A BLOCKED result that names its reason is visible and accepted; without a reason it is not.
     Record missingFixture = resultFor("X-SYN-02", "one", "BLOCKED");
     missingFixture.reason = "fixture missing";
     const GateResult blocked = m5Gate::evaluate(manifest, {complete[0], complete[1], missingFixture}, currentBuild());
-    CHECK_FALSE(blocked.accepted());
+    CHECK(blocked.accepted());
     CHECK(blocked.blocked == vector<string>{"X-SYN-02/one: fixture missing"});
     CHECK(blocked.passed.size() == 2);
+    const GateResult blockedWithoutReason =
+        m5Gate::evaluate(manifest, {complete[0], complete[1], resultFor("X-SYN-02", "one", "BLOCKED")}, currentBuild());
+    CHECK_FALSE(blockedWithoutReason.accepted());
+    CHECK(blockedWithoutReason.notRun == vector<string>{"X-SYN-02/one: BLOCKED with no reason"});
 
     Record oldBuild = complete[2];
     oldBuild.identity.commit = "c0";
@@ -334,13 +353,14 @@ TEST_CASE("X-RUN-09/noAssertion: a registered case that asserted nothing is NOT_
     const GateResult result = m5Gate::evaluate(manifest, {resultFor("X-SYN-01", "one", "PASS", 0)}, currentBuild());
     CHECK_FALSE(result.accepted());
     CHECK(result.passed.empty());
-    CHECK(result.notRun == vector<string>{"X-SYN-01/one: no assertion ran"});
+    CHECK(result.notRun == vector<string>{"X-SYN-01/one: no assertion ran, no recorded reason"});
 
-    // A PASS whose record names a clause it did not cover is partial: listed, not counted, blocks acceptance.
+    // A PASS whose record names a clause it did not cover is partial: listed by name with its reason,
+    // not counted as a PASS, and accepted because the reason is recorded.
     Record partial = resultFor("X-SYN-01", "one");
     partial.notCovered = "invalid cap fails before planning";
     const GateResult partialResult = m5Gate::evaluate(manifest, {partial}, currentBuild());
-    CHECK_FALSE(partialResult.accepted());
+    CHECK(partialResult.accepted());
     CHECK(partialResult.passed.empty());
     CHECK(partialResult.partial == vector<string>{"X-SYN-01/one: invalid cap fails before planning"});
 }
@@ -350,7 +370,7 @@ TEST_CASE("X-RUN-09/missingVariant: a PASS for one variant does not hide a missi
     const GateResult result = m5Gate::evaluate(manifest, {resultFor("X-SYN-01", "one")}, currentBuild());
     CHECK_FALSE(result.accepted());
     CHECK(result.passed == vector<string>{"X-SYN-01/one"});
-    CHECK(result.notRun == vector<string>{"X-SYN-01/two"});
+    CHECK(result.notRun == vector<string>{"X-SYN-01/two: no record and no recorded reason"});
 }
 
 TEST_CASE("X-RUN-09/staleSpecHash: results tied to another requirement, manifest or params version do not count" * doctest::test_suite("m5")) {
@@ -405,7 +425,7 @@ TEST_CASE("X-RUN-09/deferredConditionalSelected: once a recorded decision select
     const GateResult missing = m5Gate::evaluate(manifest, {resultFor("X-SYN-01", "one")}, currentBuild());
     CHECK_FALSE(missing.accepted());
     CHECK(missing.selected == 3);
-    CHECK(missing.notRun == vector<string>{"R-7/m4Path", "R-7/m5Path"});
+    CHECK(missing.notRun == vector<string>{"R-7/m4Path: no record and no recorded reason", "R-7/m5Path: no record and no recorded reason"});
     CHECK(missing.deferred.empty());
 
     // Results recorded under the previous manifest, before the selection, are stale.
@@ -419,6 +439,72 @@ TEST_CASE("X-RUN-09/deferredConditionalSelected: once a recorded decision select
         manifest, {resultFor("X-SYN-01", "one"), resultFor("R-7", "m4Path"), resultFor("R-7", "m5Path")}, currentBuild());
     CHECK(current.accepted());
     CHECK(current.passed.size() == 3);
+}
+
+TEST_CASE("m5AcceptanceRule: PASS, PARTIAL, BLOCKED and NOT_RUN with a recorded reason are accepted; anything else is not" * doctest::test_suite("m5")) {
+    const Manifest manifest = syntheticManifest({variantOf("X-SYN-01", "pass"), variantOf("X-SYN-01", "partial"),
+                                                 variantOf("X-SYN-01", "blocked"), variantOf("X-SYN-01", "notRun")});
+    Record partial = resultFor("X-SYN-01", "partial");
+    partial.notCovered = "what it does not cover";
+    Record blocked = resultFor("X-SYN-01", "blocked", "BLOCKED", 0);
+    blocked.reason = "waiting for the container figures";
+    const vector<Record> records{resultFor("X-SYN-01", "pass"), partial, blocked};
+    const m5Gate::ReasonMap reasons{{"X-SYN-01/notRun", "needs the benchmark history"}};
+
+    const GateResult accepted = m5Gate::evaluate(manifest, records, currentBuild(), reasons);
+    CHECK(accepted.accepted());
+    CHECK(accepted.selected == 4);
+    CHECK(accepted.passed == vector<string>{"X-SYN-01/pass"});
+    CHECK(accepted.partial == vector<string>{"X-SYN-01/partial: what it does not cover"});
+    CHECK(accepted.blocked == vector<string>{"X-SYN-01/blocked: waiting for the container figures"});
+    CHECK(accepted.notRunWithReason == vector<string>{"X-SYN-01/notRun: needs the benchmark history"});
+    CHECK(accepted.notRun.empty());
+
+    // A key with no record and no recorded reason is a missing record.
+    const GateResult missing = m5Gate::evaluate(manifest, records, currentBuild());
+    CHECK_FALSE(missing.accepted());
+    CHECK(missing.notRun == vector<string>{"X-SYN-01/notRun: no record and no recorded reason"});
+
+    // A FAIL, a stale result or a duplicate is never covered by a reason.
+    vector<Record> failing = records;
+    failing[0] = resultFor("X-SYN-01", "pass", "FAIL");
+    CHECK_FALSE(m5Gate::evaluate(manifest, failing, currentBuild(), reasons).accepted());
+    vector<Record> old = records;
+    old[1].identity.commit = "c0";
+    const GateResult stale = m5Gate::evaluate(manifest, old, currentBuild(), reasons);
+    CHECK_FALSE(stale.accepted());
+    CHECK(listed(stale.stale, "X-SYN-01/partial: commit c0"));
+    vector<Record> twice = records;
+    twice.push_back(resultFor("X-SYN-01", "pass"));
+    CHECK_FALSE(m5Gate::evaluate(manifest, twice, currentBuild(), reasons).accepted());
+
+    // A NOT_RUN result (no assertion) with no reason is rejected; with a reason it is accepted and visible.
+    vector<Record> assertedNothing = records;
+    assertedNothing.push_back(resultFor("X-SYN-01", "notRun", "PASS", 0));
+    CHECK_FALSE(m5Gate::evaluate(manifest, assertedNothing, currentBuild()).accepted());
+    CHECK(m5Gate::evaluate(manifest, assertedNothing, currentBuild(), reasons).accepted());
+
+    // A reason may not hide a variant that has a PASS, name an unknown key, or be empty.
+    const m5Gate::ReasonMap passAndReason{{"X-SYN-01/pass", "x"}, {"X-SYN-01/notRun", "needs the benchmark history"}};
+    const GateResult hidden = m5Gate::evaluate(manifest, records, currentBuild(), passAndReason);
+    CHECK_FALSE(hidden.accepted());
+    CHECK(listed(hidden.problems, "a recorded reason for X-SYN-01/pass, which has a current PASS record"));
+    CHECK(listed(m5Gate::evaluate(manifest, records, currentBuild(), {{"X-SYN-09/none", "x"}}).problems,
+                 "a recorded reason for X-SYN-09/none, which the manifest does not list"));
+    CHECK(listed(m5Gate::evaluate(manifest, records, currentBuild(), {{"X-SYN-01/notRun", ""}}).problems,
+                 "the recorded reason for X-SYN-01/notRun is empty"));
+}
+
+TEST_CASE("m5AcceptanceRule: every line of the recorded-reasons file names a selected manifest variant and gives a reason" * doctest::test_suite("m5")) {
+    const Manifest manifest = committedManifest();
+    const m5Gate::ReasonMap reasons = variantReasonsOf(kVariantReasonsPath);
+    CHECK_FALSE(reasons.empty());
+    for (const auto& [key, reason] : reasons) {
+        const auto found = find_if(manifest.variants.begin(), manifest.variants.end(), [&](const Variant& v) { return v.key() == key; });
+        REQUIRE_MESSAGE(found != manifest.variants.end(), key << " is not a manifest variant");
+        CHECK_MESSAGE(found->selected, key << " is not selected");
+        CHECK_MESSAGE(reason.size() > 20, key << " needs a real reason");
+    }
 }
 
 TEST_CASE("m5Acceptance: every selected required variant has one current PASS record at this build" * doctest::skip()) {

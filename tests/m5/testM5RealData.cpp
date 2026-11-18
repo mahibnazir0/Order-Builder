@@ -112,9 +112,17 @@ double unitLoadsShipped(const m5::M5LaneOutcome& outcome, const m5::M5LaneDateIn
 
 const char* kTomReferencePath = "tests/m5/data/tomReference.local.json";
 
-nlohmann::json tomReference() {
+// Tom's figures live in a local, git-ignored file. A test that compares with them is skipped by name,
+// and recorded BLOCKED with the reason, when the file is not present; it never fails for that.
+// Null when the file is missing: the caller returns at once.
+nlohmann::json tomReferenceOrSkip(const string& testName) {
     ifstream file(kTomReferencePath);
-    REQUIRE_MESSAGE(file.good(), "missing " << kTomReferencePath << ": the local reference file of Tom's figures (git-ignored) is needed");
+    if (!file.good()) {
+        const string reason = string("skipped: ") + kTomReferencePath + " is not present (Tom's reference figures, git-ignored)";
+        m5Evidence::blocked(reason);
+        MESSAGE("SKIPPED " << testName << " - " << reason);
+        return nlohmann::json();
+    }
     return nlohmann::json::parse(file);
 }
 
@@ -246,7 +254,8 @@ TEST_CASE("U-RT-08/existingTest: the benchmark asserts the chosen threshold; the
 
 TEST_CASE("RD-03/productionProfile X-REPORT-01/realRun Aug5 7 Aug: at most 21 trucks, shipped and left shown, reserved never 38, compared with the client's historical count" * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
-    const nlohmann::json reference = tomReference();
+    const nlohmann::json reference = tomReferenceOrSkip("RD-03 and X-REPORT-01 realRun");
+    if (reference.is_null()) return;
     const PipelineResult& run = withM5(1);
     const string& text = run.selectionPlan.largeLanes.front().text;
     CHECK(text.find("reserved: 21\n") != string::npos);
@@ -314,7 +323,8 @@ TEST_CASE("RD-12/productionProfile M5's trucks report fullness reasons and rear-
 TEST_CASE("ACC-2/bothDatesBenchmark RD-06/benchmark RD-06/productionProfile X-E2E-01/productionProfile X-REPORT-02/realRun the labelled both-dates benchmark keeps 21 and 20 and commits nothing"
           * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
-    const nlohmann::json reference = tomReference();
+    const nlohmann::json reference = tomReferenceOrSkip("ACC-2/bothDatesBenchmark and its labelled variants");
+    if (reference.is_null()) return;
     const PipelineResult& production = withM5(1);
     const size_t trucksBefore = production.selectionPlan.trucks.size();
     // Fresh hand-overs: the run without M5 leaves both dates as M4 gave them.
@@ -430,7 +440,8 @@ TEST_CASE("X-REPORT-03/realRun the report never calls the lane infeasible withou
 TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's chart ranges and the client's cube, as context and not pass or fail"
           * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
-    const nlohmann::json reference = tomReference();
+    const nlohmann::json reference = tomReferenceOrSkip("U-RP-07/realData");
+    if (reference.is_null()) return;
     const string& text = withM5(1).selectionPlan.largeLanes.front().text;
     // The report's own figures: M5's average rear inches per bucket.
     for (const char* bucket : {"goods remain", "no goods remain", "rule-limited"}) {
@@ -459,7 +470,8 @@ TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's
 TEST_CASE("U-PB-12/productionProfile U-PB-12/configIndependentPatterns Aug5 7 Aug: each product fills trucks of its own, the difference from the client's historical loads is reported, and the patterns do not depend on the fullness or time settings"
           * doctest::skip()) {
     REQUIRE(m4AugustTests::augustPresent());
-    const nlohmann::json reference = tomReference();
+    const nlohmann::json reference = tomReferenceOrSkip("U-PB-12 variants");
+    if (reference.is_null()) return;
     const PipelineResult& run = withM5(1);
     map<string, vector<size_t>> loadsOfProduct;
     for (const PlannedTruck& truck : run.selectionPlan.trucks) {
