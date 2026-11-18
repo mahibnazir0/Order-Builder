@@ -6,6 +6,7 @@
 #include "m5Commit.hpp"
 #include "m5Integration.hpp"
 #include "m5Ledger.hpp"
+#include "m5Repair.hpp"
 #include "m5Report.hpp"
 #include "m5Solver.hpp"
 #include "m5Validation.hpp"
@@ -25,6 +26,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <tuple>
 
 using namespace std;
 using namespace ob::m5;
@@ -259,24 +261,296 @@ TEST_CASE("R-1c X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired o
     CHECK(shippedCount(replanned) == 50);
 }
 
-TEST_CASE("U-RM-01 U-RM-02 the remainder packs through M5's packer layer, and an empty one adds no truck" * doctest::test_suite("m5")) {
-    CHECK(plan(laneWith(fx30Units("u", 65), 3), syntheticProfile()).selected->trucks.size() == 3);
-    CHECK(plan(laneWith(fx30Units("u", 60), 3), syntheticProfile()).selected->trucks.size() == 2);
+namespace {
+
+string sourceText(const string& path) {
+    ifstream file(path, ios::binary);
+    REQUIRE_MESSAGE(file.good(), path);
+    return string((istreambuf_iterator<char>(file)), istreambuf_iterator<char>());
 }
 
-TEST_CASE("U-RM-03 production moves goods only when the whole plan is better" * doctest::test_suite("m5")) {
-    const M5LaneOutcome outcome = plan(laneWith(fx30Units("u", 50), 2), syntheticProfile());
+multiset<size_t> truckSizes(const M5LaneOutcome& outcome) {
+    multiset<size_t> sizes;
+    if (outcome.selected) {
+        for (const TruckPlan& truck : outcome.selected->trucks) sizes.insert(truck.atoms.size());
+    }
+    return sizes;
+}
+
+M5PolicyProfile patternOnly() {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.method = MethodPolicy::PatternOnly;
+    return profile;
+}
+
+}  // namespace
+
+TEST_CASE("U-RM-01/synthetic: the remainder goes to M4's packing and checking kernels, never back through the selector" * doctest::test_suite("m5")) {
+    // 65 FX-30 on 3: two pattern trucks of 30, the remainder of 5 packed on the third; each unit once.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 65), 3);
+    const M5LaneOutcome outcome = plan(input, patternOnly());
+    requireInvariants(outcome, input);
     REQUIRE(outcome.selected);
-    multiset<size_t> loads;
-    for (const TruckPlan& truck : outcome.selected->trucks) loads.insert(truck.atoms.size());
-    CHECK(loads == multiset<size_t>{20, 30});
+    CHECK(truckSizes(outcome) == multiset<size_t>{5, 30, 30});
+    CHECK(outcome.leftOver.empty());
+    CHECK(outcome.finalValidationPassed);
+    // The remainder truck's floor is M4's own arrangement of its goods.
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        vector<ob::FloorItem> floors;
+        for (const size_t atom : truck.atoms) floors.push_back(input.atoms[atom].floor);
+        const ob::FloorLayout m4 = ob::arrangeFloor(floors, trailerOf(kDefaultTrailer), physicalSettings().floor);
+        CHECK(m4.fitsLength);
+        CHECK(truck.layout.usedLengthIn == m4.usedLengthIn);
+        CHECK(truck.layout.positions == m4.positions);
+    }
+    // Code review: the planning units reach M4 only through its packing and checking kernels; none includes
+    // the selector, the lane classifier, the large-lane hand-over or the pipeline, so no residual can re-enter
+    // routing and escalate into M5 again.
+    const vector<string> routingHeaders{"selector.hpp", "demandSelector.hpp", "laneClassifier.hpp", "largeLanePlanner.hpp",
+                                        "pipeline.hpp", "m5Integration.hpp"};
+    const vector<string> planningUnits{"src/m5Methods/m5Methods.cpp", "src/m5Physical/m5Physical.cpp",
+                                       "src/m5Orchestrator/m5Orchestrator.cpp", "src/m5Repair/m5Repair.cpp",
+                                       "src/m5Allocation/m5Allocation.cpp", "src/m5Validation/m5Validation.cpp",
+                                       "include/m5Methods.hpp", "include/m5Physical.hpp", "include/m5Orchestrator.hpp",
+                                       "include/m5Repair.hpp", "include/m5Allocation.hpp", "include/m5Validation.hpp"};
+    for (const string& path : planningUnits) {
+        const string text = sourceText(path);
+        for (const string& header : routingHeaders) CHECK_MESSAGE(text.find("#include \"" + header + "\"") == string::npos, path << " includes " << header);
+    }
+    const string physicalHeader = sourceText("include/m5Physical.hpp");
+    CHECK(physicalHeader.find("#include \"binPacker.hpp\"") != string::npos);
+    CHECK(physicalHeader.find("#include \"floorPattern.hpp\"") != string::npos);
+    CHECK(sourceText("src/m5Physical/m5Physical.cpp").find("#include \"truckCheck.hpp\"") != string::npos);
+    // The adapter hands M5's leftovers back as leftovers with their reasons; it does not plan them again.
+    CHECK(sourceText("src/m5Integration/m5Integration.cpp").find("result.leftOver.push_back({itemOfAtom[left.atom], reasonOf(left.cause)})")
+          != string::npos);
+    m5Evidence::note("expected", {"65 on 3: 30 + 30 + remainder 5, each once", "remainder floor = M4 arrangeFloor",
+                                  "planning units include no selector/classifier/pipeline header",
+                                  "binPacker, floorPattern, truckCheck used"});
 }
 
-TEST_CASE("U-RM-05 usable reservations serve eligible goods; unused slots only with nothing left" * doctest::test_suite("m5")) {
-    CHECK(plan(laneWith(fx30Units("u", 70), 3), syntheticProfile()).selected->trucks.size() == 3);
-    const M5LaneOutcome spare = plan(laneWith(fx30Units("u", 50), 3), syntheticProfile());
-    CHECK(spare.selected->trucks.size() == 2);
-    CHECK(shippedCount(spare) == 50);
+TEST_CASE("U-RM-02/synthetic: an empty remainder creates no extra truck" * doctest::test_suite("m5")) {
+    for (const auto& [units, slots, trucks] : vector<tuple<size_t, size_t, size_t>>{{60, 3, 2}, {30, 5, 1}, {90, 4, 3}}) {
+        INFO(units << " units on " << slots << " reserved");
+        const M5LaneDateInput input = laneWith(fx30Units("u", units), slots);
+        for (const M5PolicyProfile& profile : {patternOnly(), syntheticProfile()}) {
+            const M5LaneOutcome outcome = plan(input, profile);
+            requireInvariants(outcome, input);
+            REQUIRE(outcome.selected);
+            const vector<size_t> expected(trucks, 30);
+            CHECK(truckSizes(outcome) == multiset<size_t>(expected.begin(), expected.end()));
+            CHECK(outcome.leftOver.empty());
+            for (const TruckPlan& truck : outcome.selected->trucks) CHECK_FALSE(truck.atoms.empty());
+        }
+    }
+    // No goods at all: no truck.
+    const M5LaneDateInput none = laneWith({}, 3);
+    const M5LaneOutcome nothing = plan(none, syntheticProfile());
+    CHECK(shippedCount(nothing) == 0);
+    CHECK((!nothing.selected || nothing.selected->trucks.empty()));
+    CHECK(nothing.kind != OutcomeKind::CompletedWithDispatch);
+    m5Evidence::note("expected", {"60 on 3: 2 trucks", "30 on 5: 1 truck", "90 on 4: 3 trucks", "no goods: no truck"});
+}
+
+namespace {
+
+// 50 FX-30 of one group on two reserved trucks, built 30 + 20, with what a repair needs.
+struct RebalanceFixture {
+    M5LaneDateInput input = laneWith(fx30Units("u", 50), 2);
+    DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    GroupTrucks thirtyTwenty() const {
+        Truck first, second;
+        for (size_t atom = 0; atom < 30; ++atom) first.push_back(atom);
+        for (size_t atom = 30; atom < 50; ++atom) second.push_back(atom);
+        return {first, second};
+    }
+};
+
+double weightOf(const M5LaneDateInput& input, const Truck& truck) {
+    double weight = 0.0;
+    for (const size_t atom : truck) weight += input.atoms[atom].weightLb;
+    return weight;
+}
+
+}  // namespace
+
+TEST_CASE("U-RM-03/synthetic: with the optional policy selected, goods move between trucks of the group so the plan is accepted" * doctest::test_suite("m5")) {
+    // x = 40,000 / y = 3,000: 30 + 20 has a failing 20 (30,000 lb, 2,500 cu ft); 25 + 25 passes by cube (3,125).
+    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const RebalanceFixture fixture;
+    GroupTrucks trucks = fixture.thirtyTwenty();
+    const vector<size_t> withheld = rebalanceForAcceptance(trucks, fixture.snapshot, policy, physicalSettings(),
+                                                           fixture.input.pool.slots, StopCheck());
+    CHECK(withheld.empty());
+    REQUIRE(trucks.size() == 2);
+    set<size_t> seen;
+    for (size_t truck = 0; truck < trucks.size(); ++truck) {
+        INFO("truck " << truck);
+        // Donor and recipient both checked: each is legal on its slot and passes the policy.
+        CHECK(checkTruck(fixture.input, trucks[truck], fixture.input.pool.slots[truck], physicalSettings()).fits);
+        double cube = 0.0;
+        for (const size_t atom : trucks[truck]) cube += fixture.input.atoms[atom].floor.cubeCubicIn;
+        CHECK(evaluateAcceptance(weightOf(fixture.input, trucks[truck]), cube, *policy.acceptance).accepted);
+        for (const size_t atom : trucks[truck]) CHECK(seen.insert(atom).second);
+    }
+    CHECK(seen.size() == 50);
+    // Through the planner: both trucks ship accepted, 25 + 25, nothing withheld.
+    const M5LaneOutcome outcome = plan(fixture.input, policy);
+    requireInvariants(outcome, fixture.input);
+    CHECK(truckSizes(outcome) == multiset<size_t>{25, 25});
+    CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 0);
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == SectionStatus::Pass);
+    m5Evidence::note("expected", {"30 + 20 rebalanced: both accepted, donor and recipient legal", "planner: 25 + 25, none withheld"});
+}
+
+TEST_CASE("U-RM-03/productionProfile: production moves goods only when the complete plan improves under CL-02; donor and recipient rechecked" * doctest::test_suite("m5")) {
+    const RebalanceFixture fixture;
+    // Acceptance OFF: the acceptance rebalance does nothing.
+    GroupTrucks trucks = fixture.thirtyTwenty();
+    CHECK(rebalanceForAcceptance(trucks, fixture.snapshot, syntheticProfile(), physicalSettings(), fixture.input.pool.slots, StopCheck())
+              .empty());
+    CHECK(trucks == fixture.thirtyTwenty());
+    // The planner serves all 50 and makes no move for fill alone: 30 + 20.
+    const M5LaneOutcome outcome = plan(fixture.input, syntheticProfile());
+    requireInvariants(outcome, fixture.input);
+    CHECK(truckSizes(outcome) == multiset<size_t>{20, 30});
+
+    // Repair keeps a move only when the complete plan is strictly better under CL-02. Both plans below serve
+    // all 50 (the same class vector), so fill never decides: ED-21's canonical records do, and the order is
+    // strict, so of the two opposite moves 30 + 20 -> 25 + 25 and 25 + 25 -> 30 + 20 exactly one is kept.
+    const unique_ptr<AllocationComparator> comparator = makeComparator(ComparatorKind::M4Urgency, tieOrderFor(fixture.snapshot));
+    const UrgencyDomain domain(fixture.snapshot);
+    auto checkedPlan = [&](const GroupTrucks& built) {
+        CandidatePlan plan;
+        for (size_t truck = 0; truck < built.size(); ++truck) {
+            TruckPlan placed;
+            placed.slot = truck;
+            placed.group = "A";
+            placed.atoms = built[truck];
+            plan.trucks.push_back(placed);
+        }
+        storeRows(plan, fixture.input);
+        plan.validation = validateFinal(plan, fixture.snapshot, syntheticProfile(), physicalSettings());
+        REQUIRE(plan.validation->allPassed());
+        return plan;
+    };
+    const CandidatePlan start = checkedPlan(fixture.thirtyTwenty());
+    GroupTrucks evenTrucks = fixture.thirtyTwenty();
+    for (int move = 0; move < 5; ++move) {
+        evenTrucks[1].push_back(evenTrucks[0].back());
+        evenTrucks[0].pop_back();
+    }
+    sort(evenTrucks[1].begin(), evenTrucks[1].end());
+    const CandidatePlan evenStart = checkedPlan(evenTrucks);
+    auto shift = [&](size_t from, size_t to) {
+        return RepairProposal([&, from, to](CandidatePlan& work, size_t iteration) {
+            if (iteration > 0) return false;
+            CandidateEditor editor(work);
+            for (int move = 0; move < 5; ++move) editor.moveAtom(from, to, work.trucks[from].atoms.back());
+            storeRows(work, fixture.input);
+            return true;
+        });
+    };
+    const RepairRun toEven = runRepair(start, fixture.snapshot, syntheticProfile(), physicalSettings(), *comparator, domain, shift(0, 1), 3, StopCheck());
+    const RepairRun toUneven =
+        runRepair(evenStart, fixture.snapshot, syntheticProfile(), physicalSettings(), *comparator, domain, shift(1, 0), 3, StopCheck());
+    REQUIRE(toEven.incumbent);
+    REQUIRE(toUneven.incumbent);
+    const bool evenKept = toEven.incumbent->trucks[0].atoms.size() == 25;
+    const bool unevenKept = toUneven.incumbent->trucks[0].atoms.size() == 30;
+    CHECK(evenKept != unevenKept);
+    CHECK(toEven.checkedRevisions.size() == 1);
+    CHECK(toUneven.checkedRevisions.size() == 1);
+    for (const RepairRun* run : {&toEven, &toUneven}) {
+        size_t shipped = 0;
+        for (const TruckPlan& truck : run->incumbent->trucks) shipped += truck.atoms.size();
+        CHECK(shipped == 50);
+        CHECK(run->incumbent->validation->allPassed());
+    }
+    // A move that breaks the recipient (31 on it, 46,500 lb) fails its recheck and is discarded.
+    const RepairProposal overload = [&](CandidatePlan& work, size_t iteration) {
+        if (iteration > 0) return false;
+        CandidateEditor editor(work);
+        while (work.trucks[1].atoms.size() > 19) editor.moveAtom(1, 0, work.trucks[1].atoms.back());
+        storeRows(work, fixture.input);
+        return true;
+    };
+    const RepairRun broken = runRepair(start, fixture.snapshot, syntheticProfile(), physicalSettings(), *comparator, domain, overload, 3, StopCheck());
+    REQUIRE(broken.incumbent);
+    CHECK(broken.incumbent->trucks[0].atoms.size() == 30);
+    CHECK(broken.incumbent->trucks[1].atoms.size() == 20);
+    CHECK(weightOf(fixture.input, broken.incumbent->trucks[0].atoms) <= 45000.0);
+    m5Evidence::note("expected", {"acceptance OFF: no acceptance rebalance", "planner 30 + 20 (no fill-only move)",
+                                  "equal class vectors: of 30+20 <-> 25+25 exactly one move kept, by ED-21 records, never by fill",
+                                  "31-unit recipient fails recheck: discarded"});
+}
+
+namespace {
+
+// Usable reservations are used, and unused ones only for a stated reason. Shared by both U-RM-05 variants.
+void requireReservationsUsed(const M5PolicyProfile& profile) {
+    // Goods for three trucks on three: all three are used rather than saving one.
+    const M5LaneDateInput seventy = laneWith(fx30Units("u", 70), 3);
+    const M5LaneOutcome used = plan(seventy, profile);
+    requireInvariants(used, seventy);
+    CHECK(truckSizes(used) == multiset<size_t>{10, 30, 30});
+    CHECK(used.leftOver.empty());
+    // Nothing eligible left: a slot stays unused, with nothing left over.
+    const M5LaneDateInput fifty = laneWith(fx30Units("u", 50), 3);
+    const M5LaneOutcome spare = plan(fifty, profile);
+    requireInvariants(spare, fifty);
+    CHECK(truckSizes(spare) == multiset<size_t>{20, 30});
+    CHECK(spare.leftOver.empty());
+    // Physically impossible cargo: two units too tall for any slot leave two slots unused, reported as
+    // fits no reserved trailer; the run ends with no illegal truck and no retry loop.
+    vector<Atom> withTall = fx30Units("u", 30);
+    withTall.push_back(unitOf("tall1", "A", 48, 40, 120, 500));
+    withTall.push_back(unitOf("tall2", "A", 48, 40, 120, 500));
+    const M5LaneDateInput impossible = laneWith(withTall, 3);
+    const M5LaneOutcome stuck = plan(impossible, profile);
+    requireInvariants(stuck, impossible);
+    CHECK(stuck.kind == OutcomeKind::CompletedWithDispatch);
+    CHECK(stuck.stop == StopReason::Completed);
+    CHECK(truckSizes(stuck) == multiset<size_t>{30});
+    CHECK(countCause(stuck, LeftOverCause::Unfittable) == 2);
+    const string text = renderAscii(buildReportData(stuck, impossible, &profile, {}));
+    CHECK(text.find("unused reservations: 2") != string::npos);
+    CHECK(text.find("left: fits no reserved trailer: 2.00 unit loads") != string::npos);
+    // Can-go under the working contract: 10 goods due D+3 fill the room 30 + 20 required goods leave.
+    vector<Atom> canGo = fx30Units("r", 50);
+    for (Atom& atom : fx30Units("g", 10, "A", 0, dayAfter(3))) canGo.push_back(atom);
+    const M5LaneDateInput pulled = laneWith(canGo, 2, kDefaultTrailer, true);
+    const M5LaneOutcome withCanGo = plan(pulled, profile);
+    requireInvariants(withCanGo, pulled);
+    CHECK(truckSizes(withCanGo) == multiset<size_t>{30, 30});
+    CHECK(withCanGo.leftOver.empty());
+    // Never an empty truck; every unit whole, on one truck or left over, once.
+    for (const M5LaneOutcome* outcome : {&used, &spare, &stuck, &withCanGo}) {
+        REQUIRE(outcome->selected);
+        for (const TruckPlan& truck : outcome->selected->trucks) CHECK_FALSE(truck.atoms.empty());
+    }
+}
+
+}  // namespace
+
+TEST_CASE("U-RM-05/synthetic: usable reservations serve eligible goods; unused slots only for a stated reason" * doctest::test_suite("m5")) {
+    requireReservationsUsed(syntheticProfile());
+    m5Evidence::note("expected", {"70 on 3: 30 + 30 + 10", "50 on 3: 2 used, nothing left", "2 too tall: 2 unused, reported, no retry",
+                                  "can-go fills to 30 + 30", "no empty truck"});
+}
+
+TEST_CASE("U-RM-05/productionProfile: acceptance OFF, FX-FULL labels: the same use of reservations; every truck labelled" * doctest::test_suite("m5")) {
+    REQUIRE_FALSE(syntheticProfile().acceptance.has_value());
+    requireReservationsUsed(syntheticProfile());
+    const M5LaneDateInput seventy = laneWith(fx30Units("u", 70), 3);
+    const M5LaneOutcome outcome = plan(seventy, syntheticProfile());
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.fullness.size() == 3);
+    for (const FullnessLabel& label : outcome.fullness) CHECK(label.bucket.has_value());
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == SectionStatus::NotApplicable);
+    m5Evidence::note("expected", {"as synthetic, acceptance not applicable", "3 trucks each labelled with a bucket"});
 }
 
 TEST_CASE("X-REB-01 single-product patterns must not lock in 3 bins where 2 mixed bins serve" * doctest::test_suite("m5")) {
@@ -1566,6 +1840,138 @@ TEST_CASE("U-RP-04 U-RP-07 the benchmark section and bucket fill averages are pr
     CHECK(text.find("average rear inches, goods remain") != string::npos);
     CHECK(text.find("average rear inches, no goods remain") != string::npos);
     CHECK(text.find("average rear inches, rule-limited") != string::npos);
+}
+
+TEST_CASE("U-RP-02/synthetic: the lane report prints lane, groups, shared reservations, checked cargo, labels, rear, bucket, leftovers and penalty" * doctest::test_suite("m5")) {
+    // Two groups share three reserved trucks: A's 40 and B's 25 FX-30 (each truck holds 30).
+    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A"), fx30Units("b", 25, "B")), 3);
+    M5PolicyProfile profile = syntheticProfile();
+    profile.penaltyPerUnusedTruck = 5.0;
+    const M5LaneOutcome outcome = plan(input, profile);
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.finalValidationPassed);
+    const M5ReportData data = buildReportData(outcome, input, &profile, {"PRODUCTION", 20, "fixture"});
+    const string text = renderAscii(data);
+    INFO(text);
+    const size_t lane = text.find("3B Lane\n");
+    REQUIRE(lane != string::npos);
+    CHECK(text.find("M5 large lane 2028 -> 2574 TL, 2026-08-07\n") == 0);
+    CHECK(text.find("groups sharing the reservation: A, B\n", lane) != string::npos);
+    CHECK(text.find("reserved: 3\n", lane) != string::npos);
+    CHECK(text.find("trucks loaded: 3\n", lane) != string::npos);
+    CHECK(text.find("unused reservations: 0, penalty 5.00 per unused truck = 0.00\n", lane) != string::npos);
+    CHECK(text.find("truck group stacks unit loads can-go weight % rear in fullness reasons", lane) != string::npos);
+    // One row per finally checked truck, carrying its own label, reasons, rear inches and bucket.
+    REQUIRE(data.trucks.size() == outcome.selected->trucks.size());
+    REQUIRE(outcome.fullness.size() == data.trucks.size());
+    for (size_t truck = 0; truck < data.trucks.size(); ++truck) {
+        const TruckPlan& planned = outcome.selected->trucks[truck];
+        const FullnessLabel* label = nullptr;
+        for (const FullnessLabel& candidate : outcome.fullness) label = candidate.truck == truck ? &candidate : label;
+        REQUIRE(label);
+        CHECK(data.trucks[truck].group == planned.group);
+        CHECK(data.trucks[truck].stacks == planned.atoms.size());
+        CHECK(data.trucks[truck].rearInches == label->rearInches);
+        CHECK(data.trucks[truck].fullness == fullnessStateName(label->state));
+        CHECK(data.trucks[truck].bucket == fullnessBucketName(*label->bucket));
+        CHECK(data.trucks[truck].reasons != "");
+    }
+    CHECK(data.unitLoadsShipped == 65.0);
+    CHECK(text.find("left: ", lane) == string::npos);
+    // Leftovers are printed with their cause: 90 on 2 reserved leave 30 over the reservation.
+    const M5LaneDateInput over = laneWith(fx30Units("u", 90), 2);
+    const string overText = renderAscii(buildReportData(plan(over, profile), over, &profile, {"PRODUCTION", 20, "fixture"}));
+    CHECK(overText.find("left: over the reservation: 30.00 unit loads\n") != string::npos);
+    CHECK(overText.find("unused reservations: 0, penalty 5.00 per unused truck = 0.00\n") != string::npos);
+    // AcceptanceWithheld appears only with the optional predicate ON.
+    CHECK(text.find("withheld by minimum-load policy") == string::npos);
+    const M5LaneDateInput fortyNine = laneWith(fx30Units("u", 49), 2);
+    const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const string withheld = renderAscii(buildReportData(plan(fortyNine, policy), fortyNine, &policy, {"SYNTHETIC", 20, "fixture"}));
+    CHECK(withheld.find("left: withheld by minimum-load policy: 19.00 unit loads\n") != string::npos);
+    // A truck count above its bound is labelled unproven, never presented as certain.
+    const M5LaneDateInput gap = gapLane(30);
+    const string estimate = renderAscii(buildReportData(plan(gap, profile), gap, &profile, {"PRODUCTION", 20, "fixture"}));
+    CHECK(estimate.find("count evidence: incumbent 3, bound 2 (") != string::npos);
+    CHECK(estimate.find("), unproven\n") != string::npos);
+    m5Evidence::note("expected", {"lane, groups A and B, reserved 3, loaded 3, penalty line", "one labelled row per checked truck",
+                                  "all 65 ship; 90 on 2 prints 30 left over the reservation", "withheld only with policy ON", "count 3 over bound 2 labelled unproven"});
+}
+
+TEST_CASE("U-RP-03/synthetic: method evidence shows the known optimum, the full check, bound and proof apart, and Q6's real trigger" * doctest::test_suite("m5")) {
+    // FX-GAP 30: known optimum 3 trucks (ten 60 x 60 in to a truck), floor-area bound 2. A gives 3 > 2, so B runs (Q6: F > B).
+    const M5LaneDateInput gap = gapLane(30);
+    const M5LaneOutcome escalated = plan(gap, syntheticProfile());
+    REQUIRE(escalated.selected);
+    CHECK(static_cast<long long>(escalated.selected->trucks.size()) == gapLaneTrucks(30));
+    const string text = renderAscii(buildReportData(escalated, gap, nullptr, {}));
+    INFO(text);
+    const size_t box = text.find("3C Method evidence\n");
+    REQUIRE(box != string::npos);
+    CHECK(text.find("method A (repeated patterns): ran, validated", box) != string::npos);
+    CHECK(text.find("method B (rolling blocks): ran, validated", box) != string::npos);
+    CHECK(text.find("quick count vs bound: 1 truck, 50.0% above the bound of 2\n", box) != string::npos);
+    CHECK(text.find("careful method: run: ", box) != string::npos);
+    // Count evidence (incumbent, bound and its model, count proof) is printed apart from the service proof.
+    CHECK(text.find("count evidence: incumbent 3, bound 2 (capacityOnly", box) != string::npos);
+    CHECK(text.find("service proof: ", box) != string::npos);
+    CHECK(text.find("Q6") == string::npos);
+    CHECK(text.find("pending") == string::npos);
+    // Count equality: A's 2 trucks equal the bound of 2, so B does not run; the stop reason says so. The
+    // service proof keeps its own scope: count equality is not a certificate of the whole allocation.
+    const M5LaneDateInput equal = laneWith(fx30Units("u", 60), 3);
+    const M5LaneOutcome stopped = plan(equal, syntheticProfile());
+    const string equalText = renderAscii(buildReportData(stopped, equal, nullptr, {}));
+    CHECK(equalText.find("method B (rolling blocks): not run: A's 2 trucks equal the valid bound of 2") != string::npos);
+    CHECK(equalText.find("quick count vs bound: 0 trucks, 0.0% above the bound of 2\n") != string::npos);
+    CHECK(equalText.find("careful method: not escalated: ") != string::npos);
+    const size_t proof = equalText.find("service proof: ");
+    REQUIRE(proof != string::npos);
+    const string proofLine = equalText.substr(proof, equalText.find('\n', proof) - proof);
+    CHECK(proofLine.find("service: ") != string::npos);
+    CHECK(proofLine.find("count") == string::npos);
+    m5Evidence::note("expected", {"FX-GAP 30: optimum 3, bound 2, gap 1 truck 50.0%, B ran", "A and B validated",
+                                  "count evidence apart from service proof", "60 on 3: equal, B not run, stop reason printed",
+                                  "no pending Q6"});
+}
+
+TEST_CASE("U-RP-05/synthetic: the summary prints elapsed, dispatched trucks, the average or N/A, and the allowance apart; no per-load cap" * doctest::test_suite("m5")) {
+    // One truck on two reserved; the fake clock spends 15 s in method A: 15 s for the loaded truck is above
+    // secondsPerLoad (10) yet inside the 20 s lane-date allowance, and that is no failure.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 2);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.afterMethod = [&](MethodId method) {
+        if (method == MethodId::PatternRepeat) clock.advance(15.0);
+    };
+    const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+    CHECK(outcome.allowanceSeconds == 20.0);
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5ReportData data = buildReportData(outcome, input, &profile, {"PRODUCTION", 20, "fixture"});
+    const string text = renderAscii(data);
+    INFO(text);
+    const size_t summary = text.find("3E Summary\n");
+    REQUIRE(summary != string::npos);
+    CHECK(text.find("lane-date allowance: 20.00 s (2 reserved)\n") != string::npos);
+    CHECK(text.find("time: 15.000 s of 20.00 s allowed\n", summary) != string::npos);
+    CHECK(text.find("seconds per loaded truck: 15.000\n", summary) != string::npos);
+    CHECK(text.find("FULL trucks: 1 of 1", summary) != string::npos);
+    CHECK(data.findings.empty());
+    // No truck dispatched: the average is N/A, not 0.
+    const M5LaneDateInput none = laneWith({unitOf("tall", "A", 48, 40, 120, 500)}, 2);
+    const string empty = renderAscii(buildReportData(plan(none, profile), none, &profile, {}));
+    CHECK(empty.find("seconds per loaded truck: N/A\n") != string::npos);
+    // The production report carries no benchmark rows; a joined-dates run is labelled BENCHMARK apart.
+    CHECK(text.find("rows: none in a production run: benchmark runs are labelled and kept apart\n") != string::npos);
+    const vector<M5LaneDateInput> dates{laneWith(fx30Units("d", 30), 1), laneWith(fx30Units("e", 30), 1)};
+    const FunctionClock still(nullptr);
+    const LinkedDateBenchmark benchmark = benchmarkLinkedDates(dates, profile, physicalSettings(), still);
+    CHECK(benchmark.text.find("scope: BENCHMARK (labelled, not production; nothing committed)") != string::npos);
+    m5Evidence::note("expected", {"time 15.000 s of 20.00 s, average 15.000 s per loaded truck above 10 s/load: no failure",
+                                  "no truck: N/A", "benchmark labelled apart"});
 }
 
 TEST_CASE("X-E2E-08 a comparison mixing bases is flagged: 1,440 - 1,308 is 132, not 154" * doctest::test_suite("m5")) {

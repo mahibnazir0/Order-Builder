@@ -5,6 +5,7 @@
 #include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
+#include "m5Report.hpp"
 #include "m5Validation.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
@@ -59,32 +60,108 @@ CandidatePlan oneTruck(const M5LaneDateInput& input, size_t carried) {
 
 }  // namespace
 
-TEST_CASE("U-PB-01 goods for exactly N full trucks give N copies, no remainder" * doctest::test_suite("m5")) {
-    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 2);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    requireInvariants(outcome, input);
-    REQUIRE(outcome.selected);
-    CHECK(outcome.selected->trucks.size() == 2);
-    CHECK(shippedCount(outcome) == 60);
-    CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+namespace {
+
+// FX-30's pattern by hand: 20 in deep rows on 630 in give 31 positions, 45,000 / 1,500 lb gives 30.
+constexpr size_t kFx30PatternSize = min<size_t>(630 / 20, 45000 / 1500);
+
+M5PolicyProfile patternOnlyProfile() {
+    M5PolicyProfile profile = syntheticProfile();
+    profile.method = MethodPolicy::PatternOnly;
+    return profile;
 }
 
-TEST_CASE("U-PB-02 N trucks plus a part truck: the part goes to the remainder once" * doctest::test_suite("m5")) {
+multiset<size_t> truckSizes(const M5LaneOutcome& outcome) {
+    multiset<size_t> sizes;
+    if (outcome.selected) {
+        for (const TruckPlan& truck : outcome.selected->trucks) sizes.insert(truck.atoms.size());
+    }
+    return sizes;
+}
+
+// How many times each atom ends: on a truck or left over. Every atom must end exactly once.
+vector<int> endsPerAtom(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    vector<int> ends(input.atoms.size(), 0);
+    if (outcome.selected) {
+        for (const TruckPlan& truck : outcome.selected->trucks) {
+            for (const size_t atom : truck.atoms) ++ends[atom];
+        }
+    }
+    for (const LeftOver& left : outcome.leftOver) ++ends[left.atom];
+    return ends;
+}
+
+}  // namespace
+
+TEST_CASE("U-PB-01/synthetic: goods for exactly N full trucks give N pattern copies and no remainder" * doctest::test_suite("m5")) {
+    REQUIRE(kFx30PatternSize == 30);
+    for (const size_t trucks : {size_t{1}, size_t{2}, size_t{3}}) {
+        INFO(trucks << " trucks of goods on " << trucks << " reserved");
+        const M5LaneDateInput input = laneWith(fx30Units("u", kFx30PatternSize * trucks), trucks);
+        CHECK(bestSingleClassLoad(input, 0, kDefaultTrailer, physicalSettings(), 100) == static_cast<int>(kFx30PatternSize));
+        CHECK(patternCopies(static_cast<long long>(input.atoms.size()), 30, static_cast<long long>(trucks)) == static_cast<long long>(trucks));
+        for (const M5PolicyProfile& profile : {patternOnlyProfile(), syntheticProfile()}) {
+            const M5LaneOutcome outcome = plan(input, profile);
+            requireInvariants(outcome, input);
+            REQUIRE(outcome.selected);
+            CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+            CHECK(outcome.finalValidationPassed);
+            const vector<size_t> expected(trucks, kFx30PatternSize);
+            CHECK(truckSizes(outcome) == multiset<size_t>(expected.begin(), expected.end()));
+            CHECK(outcome.leftOver.empty());
+        }
+    }
+    // Only if reservations allow: 2 trucks of goods on 1 reserved give 1 copy; the other 30 wait over it.
+    const M5LaneDateInput short1 = laneWith(fx30Units("u", 60), 1);
+    const M5LaneOutcome limited = plan(short1, patternOnlyProfile());
+    requireInvariants(limited, short1);
+    CHECK(truckSizes(limited) == multiset<size_t>{30});
+    CHECK(countCause(limited, LeftOverCause::OverReservation) == 30);
+    m5Evidence::note("expected", {"pattern 30 = min(630/20, 45,000/1,500)", "N = 1, 2, 3: N trucks of 30, nothing left",
+                                  "60 on 1 reserved: 1 copy, 30 over the reservation"});
+}
+
+TEST_CASE("U-PB-02/synthetic: N trucks plus a part truck: N copies, the part goes to the remainder exactly once" * doctest::test_suite("m5")) {
+    // 65 = 2 x 30 + 5: two pattern copies; the 5 are remainder, packed once on the third slot.
     const M5LaneDateInput input = laneWith(fx30Units("u", 65), 3);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    requireInvariants(outcome, input);
-    REQUIRE(outcome.selected);
-    CHECK(outcome.selected->trucks.size() == 3);
-    CHECK(shippedCount(outcome) == 65);
+    CHECK(patternCopies(65, 30, 3) == 2);
+    for (const M5PolicyProfile& profile : {patternOnlyProfile(), syntheticProfile()}) {
+        const M5LaneOutcome outcome = plan(input, profile);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(truckSizes(outcome) == multiset<size_t>{5, 30, 30});
+        CHECK(outcome.leftOver.empty());
+        const vector<int> ends = endsPerAtom(outcome, input);
+        CHECK(all_of(ends.begin(), ends.end(), [](int end) { return end == 1; }));
+    }
+    // 95 on 3: three copies use every slot; the part of 5 is remainder with no slot, left once.
+    const M5LaneDateInput full = laneWith(fx30Units("u", 95), 3);
+    CHECK(patternCopies(95, 30, 3) == 3);
+    const M5LaneOutcome noRoom = plan(full, patternOnlyProfile());
+    requireInvariants(noRoom, full);
+    CHECK(truckSizes(noRoom) == multiset<size_t>{30, 30, 30});
+    CHECK(countCause(noRoom, LeftOverCause::OverReservation) == 5);
+    const vector<int> ends = endsPerAtom(noRoom, full);
+    CHECK(all_of(ends.begin(), ends.end(), [](int end) { return end == 1; }));
+    m5Evidence::note("expected", {"65 on 3: copies 2 (30 + 30), remainder 5 on the third truck, each unit once",
+                                  "95 on 3: copies 3, remainder 5 left over once"});
 }
 
-TEST_CASE("U-PB-03 less than one truck of goods forms no pattern but still ships" * doctest::test_suite("m5")) {
+TEST_CASE("U-PB-03/synthetic: less than one truck of goods forms no pattern; all go to the remainder" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 20), 2);
-    const M5LaneOutcome outcome = plan(input, syntheticProfile());
-    requireInvariants(outcome, input);
-    REQUIRE(outcome.selected);
-    CHECK(outcome.selected->trucks.size() == 1);
-    CHECK(shippedCount(outcome) == 20);
+    CHECK(bestSingleClassLoad(input, 0, kDefaultTrailer, physicalSettings(), 100) == 30);
+    CHECK(patternCopies(20, 30, 2) == 0);
+    for (const M5PolicyProfile& profile : {patternOnlyProfile(), syntheticProfile()}) {
+        const M5LaneOutcome outcome = plan(input, profile);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        // The remainder packer puts all 20 on one truck; none is lost or left.
+        CHECK(truckSizes(outcome) == multiset<size_t>{20});
+        CHECK(outcome.leftOver.empty());
+        const vector<int> ends = endsPerAtom(outcome, input);
+        CHECK(all_of(ends.begin(), ends.end(), [](int end) { return end == 1; }));
+    }
+    m5Evidence::note("expected", {"pattern 30 > stock 20: 0 copies", "all 20 packed as remainder on 1 truck"});
 }
 
 TEST_CASE("X-PAT-01 X-PAT-03 X-PAT-04 pattern copies by stock and slots, checked" * doctest::test_suite("m5")) {
@@ -130,14 +207,40 @@ TEST_CASE("X-PAT-14 planning by floor never turns the weight limit off" * doctes
     CHECK(outcome.selected->trucks.size() == 2);
 }
 
-TEST_CASE("U-PB-09 U-PB-10 a unit taller or heavier than the trailer is reported, never placed" * doctest::test_suite("m5")) {
-    const M5LaneDateInput input = laneWith({unitOf("tall", "A", 48, 40, 120, 500), unitOf("heavy", "A", 48, 40, 50, 46000),
-                                            unitOf("fine", "A", 48, 40, 50, 500)},
-                                           2);
+namespace {
+
+// One oversized unit beside a fitting one on two slots: it is left as Unfittable, on no truck, and the
+// report names the cause; the fitting unit ships.
+void requireRejectedAndReported(const Atom& oversized) {
+    const M5LaneDateInput input = laneWith({oversized, unitOf("fine", "A", 48, 40, 50, 500)}, 2);
+    CHECK_FALSE(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
     requireInvariants(outcome, input);
-    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 2);
+    REQUIRE(outcome.selected);
     CHECK(shippedIds(outcome, input) == set<string>{"fine"});
+    CHECK(causeOf(outcome, input, oversized.id) == LeftOverCause::Unfittable);
+    CHECK(outcome.leftOver.size() == 1);
+    const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+    CHECK(text.find("left: fits no reserved trailer: 1.00 unit loads") != string::npos);
+}
+
+}  // namespace
+
+TEST_CASE("U-PB-09/synthetic: a product taller than the trailer is rejected and reported, never placed" * doctest::test_suite("m5")) {
+    // Ceiling 108 in: 108.01 in is over by the 0.01 in step; 120 in is plainly over.
+    requireRejectedAndReported(unitOf("tall", "A", 48, 40, 120, 500));
+    requireRejectedAndReported(unitOf("tallByStep", "A", 48, 40, 108.01, 500));
+    const M5LaneDateInput atCeiling = laneWith({unitOf("atCeiling", "A", 48, 40, 108, 500)}, 1);
+    CHECK(shippedCount(plan(atCeiling, syntheticProfile())) == 1);
+    m5Evidence::note("expected", {"120 in and 108.01 in: Unfittable, on no truck, reported", "108 in ships"});
+}
+
+TEST_CASE("U-PB-10/synthetic: a single unit load heavier than the trailer limit is rejected and reported" * doctest::test_suite("m5")) {
+    requireRejectedAndReported(unitOf("heavy", "A", 48, 40, 50, 46000));
+    requireRejectedAndReported(unitOf("heavyByStep", "A", 48, 40, 50, 45000.01));
+    const M5LaneDateInput atLimit = laneWith({unitOf("atLimit", "A", 48, 40, 50, 45000)}, 1);
+    CHECK(shippedCount(plan(atLimit, syntheticProfile())) == 1);
+    m5Evidence::note("expected", {"46,000 lb and 45,000.01 lb: Unfittable, on no truck, reported", "45,000 lb ships"});
 }
 
 TEST_CASE("R-2 one reserved truck: group B's 20 P0 beat A's 1 P0 + 29 P11" * doctest::test_suite("m5")) {

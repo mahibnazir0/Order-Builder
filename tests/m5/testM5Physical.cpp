@@ -11,13 +11,17 @@
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5LayoutChecker.hpp"
+#include "support/m5StubMethods.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
+#include <memory>
 #include <numeric>
+#include <set>
 
 using namespace std;
 using namespace ob::m5;
@@ -64,6 +68,69 @@ bool hasPattern(const ob::FloorLayout& layout, ob::FloorPatternKind kind) {
 }
 
 }  // namespace
+
+namespace {
+
+// Each row kind M4 offers for `members` of `items` on the default trailer, with the width it fills.
+map<ob::FloorPatternKind, double> offeredWidths(const vector<ob::FloorItem>& items, const vector<size_t>& members) {
+    map<ob::FloorPatternKind, double> widths;
+    for (const ob::FloorRow& row : ob::candidateRows(items, members, trailerOf(kDefaultTrailer), physicalSettings().floor)) {
+        widths[row.pattern] = row.widthIn;
+    }
+    return widths;
+}
+
+}  // namespace
+
+TEST_CASE("U-PB-04/synthetic: wide-wide, wide-narrow, narrow-narrow, three-across and pinwheel are tried where they fit, all M4's" * doctest::test_suite("m5")) {
+    // 48 x 40 in on the 100 in floor, widths by hand: wide-wide 96, wide-narrow 88, narrow-narrow 80 all fit;
+    // three across needs 120 and does not.
+    const vector<ob::FloorItem> displays(3, display("d").floor);
+    const map<ob::FloorPatternKind, double> pairs = offeredWidths(displays, {0, 1});
+    REQUIRE(pairs.count(ob::FloorPatternKind::WideWide) == 1);
+    REQUIRE(pairs.count(ob::FloorPatternKind::WideNarrow) == 1);
+    REQUIRE(pairs.count(ob::FloorPatternKind::NarrowNarrow) == 1);
+    CHECK(pairs.at(ob::FloorPatternKind::WideWide) == 96.0);
+    CHECK(pairs.at(ob::FloorPatternKind::WideNarrow) == 88.0);
+    CHECK(pairs.at(ob::FloorPatternKind::NarrowNarrow) == 80.0);
+    const map<ob::FloorPatternKind, double> threeDisplays = offeredWidths(displays, {0, 1, 2});
+    if (threeDisplays.count(ob::FloorPatternKind::ThreeAcross)) CHECK(threeDisplays.at(ob::FloorPatternKind::ThreeAcross) > 100.0);
+    // 32 x 30 in: three short sides take 90 in, so three across fits.
+    const vector<ob::FloorItem> narrow(3, unitOf("n", "A", 32, 30, 50, 300).floor);
+    const map<ob::FloorPatternKind, double> threeNarrow = offeredWidths(narrow, {0, 1, 2});
+    REQUIRE(threeNarrow.count(ob::FloorPatternKind::ThreeAcross) == 1);
+    CHECK(threeNarrow.at(ob::FloorPatternKind::ThreeAcross) == 90.0);
+    // 56 x 52 in: no two stand side by side in 100 in (112, 108, 104); four interlock as a pinwheel.
+    const vector<ob::FloorItem> squares(4, unitOf("q", "A", 56, 52, 50, 500).floor);
+    const map<ob::FloorPatternKind, double> pairsOfSquares = offeredWidths(squares, {0, 1});
+    for (const auto& [kind, width] : pairsOfSquares) {
+        if (kind != ob::FloorPatternKind::Single) CHECK(width > 100.0);
+    }
+    CHECK(offeredWidths(squares, {0, 1, 2, 3}).count(ob::FloorPatternKind::Pinwheel) == 1);
+
+    // No pattern generator of M5's own: M5's truck check returns exactly M4's arrangeFloor for the same items.
+    for (const vector<ob::FloorItem>* items : {&displays, &narrow, &squares}) {
+        vector<Atom> atoms;
+        for (size_t index = 0; index < 12; ++index) {
+            Atom atom = unitOf("a" + to_string(100 + index), "A", (*items)[0].longSideIn, (*items)[0].shortSideIn, 50, 300);
+            atoms.push_back(atom);
+        }
+        const M5LaneDateInput input = laneWith(atoms, 1);
+        vector<size_t> all(atoms.size());
+        iota(all.begin(), all.end(), size_t{0});
+        const PhysicalCheck check = checkTruck(input, all, kDefaultTrailer, physicalSettings());
+        vector<ob::FloorItem> floors;
+        for (const Atom& atom : atoms) floors.push_back(atom.floor);
+        const ob::FloorLayout m4 = ob::arrangeFloor(floors, trailerOf(kDefaultTrailer), physicalSettings().floor);
+        CHECK(check.fits == m4.fitsLength);
+        CHECK(check.layout.usedLengthIn == m4.usedLengthIn);
+        REQUIRE(check.layout.rows.size() == m4.rows.size());
+        for (size_t row = 0; row < m4.rows.size(); ++row) CHECK(check.layout.rows[row].pattern == m4.rows[row].pattern);
+    }
+    m5Evidence::note("expected", {"48 x 40: WW 96, WN 88, NN 80 fit; three across 120 does not",
+                                  "32 x 30: three across 90", "56 x 52: no pair fits, pinwheel offered",
+                                  "M5's layout = M4 arrangeFloor (rows, kinds, length)"});
+}
 
 TEST_CASE("U-PB-04 patterns come from M4's floorPattern: wide-wide and pinwheel where they fit" * doctest::test_suite("m5")) {
     vector<Atom> small, large;
@@ -213,6 +280,225 @@ TEST_CASE("U-PB-11 R-1c a changed truck loses its proof and its validation" * do
     CHECK_FALSE(candidate.validation.has_value());
     const ValidationReport recheck = validateFinal(candidate, *buildSnapshot(input).snapshot, syntheticProfile(), physicalSettings());
     CHECK_FALSE(recheck.allPassed());
+}
+
+TEST_CASE("U-PB-05/synthetic: TLD and GMA use the layer exactly; PGM and PTL the larger of 48 x 40 and the layer, per side" * doctest::test_suite("m5")) {
+    // Decks as the pallet table gives them: 6 in on PTL and PGM, none on TLD and GMA; all 48 x 40 in.
+    const vector<ob::PalletSpec> pallets{{"PTL", 60.0, 6.0, 48.0, 40.0}, {"PGM", 50.0, 6.0, 48.0, 40.0},
+                                         {"TLD", 0.0, 0.0, 48.0, 40.0}, {"GMA", 0.0, 0.0, 48.0, 40.0}};
+    struct Layer {
+        double length, width;
+    };
+    // Longer on one side, shorter on the other; smaller on both; larger on both.
+    for (const Layer layer : {Layer{49.0, 39.0}, Layer{47.0, 41.0}, Layer{44.0, 36.0}, Layer{52.0, 45.0}}) {
+        ob::ProductRecord product;
+        product.layerLengthIn = layer.length;
+        product.layerWidthIn = layer.width;
+        const double layerLong = max(layer.length, layer.width), layerShort = min(layer.length, layer.width);
+        for (const ob::PalletSpec& pallet : pallets) {
+            INFO(pallet.palletId << " under a " << layer.length << " x " << layer.width << " in layer");
+            const ob::UnitLoadFootprint footprint = ob::unitLoadFootprint(product, pallet, ob::FootprintRule::WrittenRule);
+            const bool realPallet = pallet.palletId == "PTL" || pallet.palletId == "PGM";
+            CHECK(footprint.longSideIn == (realPallet ? max(layerLong, 48.0) : layerLong));
+            CHECK(footprint.shortSideIn == (realPallet ? max(layerShort, 40.0) : layerShort));
+            CHECK_FALSE(footprint.fromPalletOnly);
+        }
+    }
+    m5Evidence::note("expected", {"TLD, GMA: layer exactly", "PTL, PGM: max(layer, 48 x 40) per side",
+                                  "layers 49x39, 47x41, 44x36, 52x45"});
+}
+
+TEST_CASE("U-PB-06/synthetic: the deck is 6 in for PTL and PGM, 0 for TLD and GMA, counted once per pallet" * doctest::test_suite("m5")) {
+    ob::M2Params params;
+    params.floorDeckHeight = ob::DeckHeightRule::Included;
+    ob::ProductRecord product;
+    product.height_in = 10.0;
+    product.layers_unit_load = 4;
+    const vector<pair<ob::PalletSpec, double>> decks{{{"PTL", 60.0, 6.0, 48.0, 40.0}, 6.0}, {{"PGM", 50.0, 6.0, 48.0, 40.0}, 6.0},
+                                                     {{"TLD", 0.0, 0.0, 48.0, 40.0}, 0.0}, {{"GMA", 0.0, 0.0, 48.0, 40.0}, 0.0}};
+    for (const auto& [pallet, deck] : decks) {
+        INFO(pallet.palletId);
+        // Four 10 in layers on one pallet: one deck, never one per layer (4 x 6 = 24).
+        CHECK(ob::unitLoadHeightIn(product, pallet, params) == 40.0 + deck);
+    }
+    // Two pallets stacked carry two decks: 2 x (51 + 6) = 114 in passes the 108 in ceiling, 2 x 51 = 102 does not.
+    product.height_in = 51.0;
+    product.layers_unit_load = 1;
+    CHECK(2 * ob::unitLoadHeightIn(product, decks[0].first, params) == 114.0);
+    CHECK(2 * ob::unitLoadHeightIn(product, decks[2].first, params) == 102.0);
+    const M5LaneDateInput input = laneWith({unitOf("tld", "A", 48, 40, 102, 500), unitOf("ptl", "A", 48, 40, 114, 500)}, 1);
+    CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
+    CHECK_FALSE(checkTruck(input, {1}, kDefaultTrailer, physicalSettings()).fits);
+    m5Evidence::note("expected", {"4 layers of 10 in: PTL/PGM 46, TLD/GMA 40", "two 51 in PTL: 114 > 108 refused; two TLD 102 fit"});
+}
+
+TEST_CASE("U-PB-07/synthetic: stacks stand as high as M4 built them (2, 3, 4 high); a non-stackable unit is never stacked" * doctest::test_suite("m5")) {
+    // M4 built stacks of 2, 3 and 4 levels of 25 in (50, 75, 100 in, under 108): M5 places each as it is.
+    vector<Atom> stacks{stackOfLevels("two", 48, 40, 25, 2, 300), stackOfLevels("three", 48, 40, 25, 3, 300),
+                        stackOfLevels("four", 48, 40, 25, 4, 300)};
+    const M5LaneDateInput stacked = laneWith(stacks, 1);
+    const M5LaneOutcome placed = plan(stacked, syntheticProfile());
+    REQUIRE(placed.selected);
+    REQUIRE(placed.selected->trucks.size() == 1);
+    CHECK(placed.selected->trucks.front().layout.positions == 3);
+    double unitLoads = 0.0;
+    for (const size_t atom : placed.selected->trucks.front().atoms) unitLoads += stacked.atoms[atom].unitLoads;
+    CHECK(unitLoads == 9.0);
+    // 32 non-stackable units 20 x 100 x 50 in, 100 lb: two would stand 100 in high, but M5 never stacks
+    // what M4 left single, so 31 rows of 20 in fill 630 in and one is left.
+    vector<Atom> singles;
+    for (int unit = 0; unit < 32; ++unit) singles.push_back(unitOf("s" + to_string(100 + unit), "A", 100, 20, 50, 100));
+    const M5LaneDateInput flat = laneWith(singles, 1);
+    const M5LaneOutcome outcome = plan(flat, syntheticProfile());
+    REQUIRE(outcome.selected);
+    CHECK(shippedCount(outcome) == 630 / 20);
+    CHECK(outcome.selected->trucks.front().layout.positions == 31);
+    CHECK(outcome.leftOver.size() == 1);
+    for (const Atom& atom : flat.atoms) CHECK(atom.floor.levels == 1);
+    m5Evidence::note("expected", {"stacks of 2, 3, 4 levels: 3 positions, 9 unit loads", "32 non-stackable 50 in units: 31 ship single, 1 left"});
+}
+
+TEST_CASE("U-PB-08/synthetic: a weight-bound product's pattern stops at the payload, not the floor" * doctest::test_suite("m5")) {
+    // 48 x 40 in, 2,000 lb: the floor holds 30 (15 wide-wide rows of 40 in), the payload floor(45,000 / 2,000) = 22.
+    const M5LaneDateInput input = laneWith(vector<Atom>(1, unitOf("h", "A", 48, 40, 50, 2000)), 1);
+    CHECK(bestSingleClassLoad(input, 0, kDefaultTrailer, physicalSettings(), 100) == 45000 / 2000);
+    CHECK(bestSingleClassLoad(laneWith({display("light")}, 1), 0, kDefaultTrailer, physicalSettings(), 100) == 30);
+    vector<Atom> heavy;
+    for (int unit = 0; unit < 50; ++unit) heavy.push_back(unitOf("h" + to_string(100 + unit), "A", 48, 40, 50, 2000));
+    const M5LaneDateInput lane = laneWith(heavy, 2);
+    const M5LaneOutcome outcome = plan(lane, syntheticProfile());
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->trucks.size() == 2);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() == 22);
+        CHECK(truck.layout.positions == 22);
+        CHECK(truck.atoms.size() * 2000.0 <= 45000.0);
+    }
+    CHECK(count_if(outcome.leftOver.begin(), outcome.leftOver.end(),
+                   [](const LeftOver& left) { return left.cause == LeftOverCause::OverReservation; }) == 6);
+    m5Evidence::note("expected", {"pattern 22 = floor(45,000 / 2,000), not the floor's 30", "50 on 2: 22 + 22, 6 left"});
+}
+
+TEST_CASE("U-PB-11/synthetic: a pattern is judged best on its final contents; without proof it is labelled not proven" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 50), 2);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    REQUIRE(outcome.selected);
+    CandidatePlan candidate = *outcome.selected;
+    REQUIRE(candidate.trucks.size() == 2);
+    REQUIRE(candidate.validation);
+    const uint64_t built = candidate.revision;
+    // A legal trim (one unit moved from the fuller truck to the other): the proof and the validation both
+    // go with the change; checked again on the final contents it passes, but stays not proven.
+    const size_t fuller = candidate.trucks[0].atoms.size() >= candidate.trucks[1].atoms.size() ? 0 : 1;
+    CandidateEditor(candidate).moveAtom(fuller, 1 - fuller, candidate.trucks[fuller].atoms.back());
+    storeRows(candidate, input);
+    CHECK(candidate.revision > built);
+    CHECK(candidate.evidence.proof == ProofStatus::Unproven);
+    CHECK_FALSE(candidate.validation.has_value());
+    const ValidationReport recheck = validateFinal(candidate, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(recheck.allPassed());
+    CHECK(recheck.revision == candidate.revision);
+    CHECK(candidate.evidence.proof == ProofStatus::Unproven);
+    // An illegal change (31 on one truck, 46,500 lb) is caught on the final contents.
+    CandidatePlan overfull = *outcome.selected;
+    while (overfull.trucks[1 - fuller].atoms.size() > 19) {
+        CandidateEditor(overfull).moveAtom(1 - fuller, fuller, overfull.trucks[1 - fuller].atoms.back());
+    }
+    storeRows(overfull, input);
+    CHECK(overfull.trucks[fuller].atoms.size() == 31);
+    CHECK_FALSE(validateFinal(overfull, snapshot, syntheticProfile(), physicalSettings()).allPassed());
+    m5Evidence::note("expected", {"legal trim: proof Unproven, validation dropped, recheck passes, still Unproven",
+                                  "31 on a truck: final-contents recheck fails"});
+}
+
+namespace {
+
+// FX-30's cube, 100 x 20 x 108 in, in cubic feet: 125.
+constexpr double kFx30CubeCuFt = 100.0 * 20.0 * 108.0 / 1728.0;
+
+M5LaneOutcome planFixed(const M5LaneDateInput& input, const M5PolicyProfile& profile, const ob::m5::GroupTrucks& trucks) {
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, trucks)};
+    return planLaneDate(input, profile, physicalSettings(), services);
+}
+
+vector<size_t> firstAtoms(size_t count) {
+    vector<size_t> atoms(count);
+    iota(atoms.begin(), atoms.end(), size_t{0});
+    return atoms;
+}
+
+// 28 of 29 available FX-30: 42,000 lb, 3,500 cu ft, rear 70 in, the 29th still fits -> NOT FULL. With the
+// optional x = 40,000 / y = 3,000 it is accepted; with acceptance OFF it ships all the same.
+void requireBelowFull(const M5PolicyProfile& profile) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 29), 1);
+    CHECK(28 * 1500.0 == 42000.0);
+    CHECK(28 * kFx30CubeCuFt == 3500.0);
+    const FullnessLabel label = labelOf(input, firstAtoms(28), profile);
+    CHECK(label.state == FullnessState::NotFull);
+    CHECK(label.rearInches == 70.0);
+    CHECK(label.fitStatus == RemainingFitStatus::Fits);
+    CHECK_FALSE(label.byWeight);
+    const M5LaneOutcome outcome = planFixed(input, profile, {firstAtoms(28)});
+    REQUIRE(outcome.selected);
+    CHECK(shippedCount(outcome) == 28);
+    CHECK(none_of(outcome.leftOver.begin(), outcome.leftOver.end(),
+                  [](const LeftOver& left) { return left.cause == LeftOverCause::AcceptanceWithheld; }));
+    REQUIRE(outcome.fullness.size() == 1);
+    CHECK(outcome.fullness.front().state == FullnessState::NotFull);
+    CHECK(outcome.fullness.front().bucket == FullnessBucket::GoodsRemain);
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == (profile.acceptance ? SectionStatus::Pass : SectionStatus::NotApplicable));
+}
+
+// 30 FX-30: 45,000 lb, FULL by weight. Under x = 50,000 / y = 4,000 both strict branches fail (45,000 and
+// 3,750 cu ft): withheld whatever its label. With acceptance OFF it ships, FULL.
+void requireFullTruck(const M5PolicyProfile& profile) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1);
+    const FullnessLabel label = labelOf(input, firstAtoms(30), profile);
+    CHECK(label.state == FullnessState::Full);
+    CHECK(label.byWeight);
+    const M5LaneOutcome outcome = plan(input, profile);
+    REQUIRE(outcome.fullness.size() == (profile.acceptance ? 0u : 1u));
+    if (profile.acceptance) {
+        const AcceptanceDecision decision = evaluateAcceptance(45000.0, 30 * 216000.0, *profile.acceptance);
+        CHECK_FALSE(decision.byWeight);
+        CHECK_FALSE(decision.byCube);
+        CHECK(shippedCount(outcome) == 0);
+        CHECK(outcome.leftOver.size() == 30);
+        for (const LeftOver& left : outcome.leftOver) CHECK(left.cause == LeftOverCause::AcceptanceWithheld);
+    } else {
+        CHECK(shippedCount(outcome) == 30);
+        CHECK(outcome.fullness.front().state == FullnessState::Full);
+        CHECK(outcome.leftOver.empty());
+    }
+}
+
+}  // namespace
+
+TEST_CASE("U-RM-04/belowFullAccepted: 28 of 29 FX-30 pass optional x = 40,000 / y = 3,000 yet are NOT FULL; the truck ships" * doctest::test_suite("m5")) {
+    requireBelowFull(withAcceptance(syntheticProfile(), 40000.0, 3000.0));
+    m5Evidence::note("expected", {"42,000 lb, 3,500 cu ft, rear 70 in, 29th fits: NOT FULL", "accepted (strict OR), ships 28"});
+}
+
+TEST_CASE("U-RM-04/fullButWithheld: 30 FX-30 are FULL by weight but fail x = 50,000 / y = 4,000 and are withheld" * doctest::test_suite("m5")) {
+    requireFullTruck(withAcceptance(syntheticProfile(), 50000.0, 4000.0));
+    m5Evidence::note("expected", {"FULL by weight (45,000 lb)", "45,000 <= 50,000 and 3,750 <= 4,000: withheld, 30 left"});
+}
+
+TEST_CASE("U-RM-04/synthetic: both optional-policy controls: FULL never stands in for acceptance, nor acceptance for FULL" * doctest::test_suite("m5")) {
+    requireBelowFull(withAcceptance(syntheticProfile(), 40000.0, 3000.0));
+    requireFullTruck(withAcceptance(syntheticProfile(), 50000.0, 4000.0));
+    m5Evidence::note("expected", {"below-full accepted truck ships NOT FULL", "FULL truck failing the policy is withheld"});
+}
+
+TEST_CASE("U-RM-04/productionProfile: acceptance OFF: the below-full truck and the FULL truck both ship with their labels" * doctest::test_suite("m5")) {
+    REQUIRE_FALSE(syntheticProfile().acceptance.has_value());
+    requireBelowFull(syntheticProfile());
+    requireFullTruck(syntheticProfile());
+    m5Evidence::note("expected", {"28 ship NOT FULL, goods remain", "30 ship FULL by weight", "acceptance not applicable"});
 }
 
 TEST_CASE("U-AC-05/productionProfile: the U-FL-04 display truck ships; FULL by floor limit only with its no-fit witness" * doctest::test_suite("m5")) {
@@ -409,21 +695,6 @@ TEST_CASE("U-FL-10 rear comes from the farthest occupied extent of the supplied 
     CHECK_FALSE(measureSuppliedWitness({{0, 0, 500, 50}, {31, 50, 600, 50}}, kDefaultTrailer).valid);
     CHECK_FALSE(measureSuppliedWitness({{0, 0, 500, 60}, {0, 50, 600, 50}}, kDefaultTrailer).valid);
     CHECK_FALSE(measureSuppliedWitness({{numeric_limits<double>::quiet_NaN(), 0, 500, 50}}, kDefaultTrailer).valid);
-}
-
-TEST_CASE("U-RM-04 fullness and the optional acceptance are independent" * doctest::test_suite("m5")) {
-    const M5LaneDateInput input = laneWith(fx30Units("u", 29), 1);
-    vector<size_t> twentyEight(28);
-    for (size_t index = 0; index < 28; ++index) twentyEight[index] = index;
-    const FullnessLabel label = labelOf(input, twentyEight);
-    CHECK(label.state == FullnessState::NotFull);
-    CHECK(label.rearInches == 70.0);
-    CHECK(evaluateAcceptance(42000.0, 28 * 216000.0, {40000.0, 3000.0}).accepted);
-    const M5LaneDateInput thirty = laneWith(fx30Units("u", 30), 1);
-    vector<size_t> all(30);
-    for (size_t index = 0; index < 30; ++index) all[index] = index;
-    CHECK(labelOf(thirty, all).state == FullnessState::Full);
-    CHECK_FALSE(evaluateAcceptance(45000.0, 30 * 216000.0, {50000.0, 4000.0}).accepted);
 }
 
 TEST_CASE("U-DA-05/adapterSeam: the physical adapter sizes a slot by its own capability, overriding the run's default trailer" * doctest::test_suite("m5")) {
