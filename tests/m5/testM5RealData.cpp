@@ -144,8 +144,9 @@ TEST_CASE("RD-01/realData RD-02/realData ACC-2/production7Aug ACC-2/productionPr
     CHECK(lane.destination == "2574");
     CHECK(lane.shipDate == kLargeLaneDate);
     CHECK(lane.planned);
-    size_t requiredStacks = 0, built = 0;
-    double requiredUnitLoads = 0.0;
+    size_t requiredStacks = 0, built = 0, canGoStacks = 0;
+    double requiredUnitLoads = 0.0, canGoUnitLoads = 0.0;
+    map<string, double> unitLoadsBySegregant;  // the three groups of the hand-over: S01, S03, S45
     for (size_t routeIndex = 0; routeIndex < run.laneClassification.routes.size(); ++routeIndex) {
         const LaneRoute& route = run.laneClassification.routes[routeIndex];
         if (route.method != SolveMethod::M5) continue;
@@ -155,15 +156,29 @@ TEST_CASE("RD-01/realData RD-02/realData ACC-2/production7Aug ACC-2/productionPr
         built += static_cast<size_t>(run.selectionPlan.routes[routeIndex].trucksBuilt);
         for (const size_t index : route.itemIndices) {
             const SelectionItem& item = run.selectionItems.items[index];
-            if (item.shipDate > route.shipDate) continue;
+            if (item.shipDate > route.shipDate) {
+                ++canGoStacks;
+                canGoUnitLoads += item.unitLoads;
+                continue;
+            }
             ++requiredStacks;
             requiredUnitLoads += item.unitLoads;
+            unitLoadsBySegregant[run.segregation.groups[route.groupIndex].key.segregant] += item.unitLoads;
         }
     }
     CHECK(requiredStacks == 747);
     CHECK(requiredUnitLoads == doctest::Approx(763.0));
     CHECK(built == 21);
-    m5Evidence::note("notCovered", "RD-02: the split of the 763 unit loads by stack class and the can-go count are not asserted; only the 747 stacks and 763 unit loads"); 
+    // RD-02: the 763 unit loads split S01 = 506, S03 = 210, S45 = 47 (reproduced at 7cef94e, e51d9c4, f9d9945).
+    CHECK(unitLoadsBySegregant.size() == 3);
+    CHECK(unitLoadsBySegregant["S01"] == doctest::Approx(506.0));
+    CHECK(unitLoadsBySegregant["S03"] == doctest::Approx(210.0));
+    CHECK(unitLoadsBySegregant["S45"] == doctest::Approx(47.0));
+    // The can-go goods the hand-over gains with can-go fill on are recorded apart from the 763.
+    m5Evidence::note("actual", {{"stacks", requiredStacks}, {"unitLoads", requiredUnitLoads}, {"unitLoadsBySegregant", unitLoadsBySegregant},
+                                {"canGoStacks", canGoStacks}, {"canGoUnitLoads", canGoUnitLoads}});
+    MESSAGE("RD-02 split " << unitLoadsBySegregant["S01"] << " / " << unitLoadsBySegregant["S03"] << " / " << unitLoadsBySegregant["S45"]
+                           << "; can-go " << canGoStacks << " stacks, " << canGoUnitLoads << " unit loads");
     CHECK(run.selectionViolations.empty());
     for (const LeftOverItem& left : run.selectionPlan.leftOver) {
         CHECK(left.reason != LeftOverReason::EscalatedToM5);
@@ -502,7 +517,8 @@ TEST_CASE("X-REPORT-03/realRun the report never calls the lane infeasible withou
 
 // ---------------------------------------------------------------------------------------- reference file
 // Tom's figures (chart ranges, client cube, the most-ever-seen cube line, the client's historical loads and truck
-// counts) are never written into a test: they are read from a local, git-ignored file, and a missing file fails by name.
+// counts) are never written into a test: they are read from a local, git-ignored file; a test that needs it is skipped
+// by name, and recorded BLOCKED with the reason, when the file is missing.
 
 TEST_CASE("U-RP-07/realData Aug5 7 Aug: bucket averages are printed beside Tom's chart ranges and the client's cube, as context and not pass or fail"
           * doctest::skip()) {
