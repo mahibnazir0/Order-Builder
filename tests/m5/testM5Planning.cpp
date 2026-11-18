@@ -2,6 +2,7 @@
 #include "doctest.h"
 #include "m5Commit.hpp"
 #include "m5FloorSearch.hpp"
+#include "m5Integration.hpp"
 #include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
@@ -47,6 +48,8 @@ size_t countCause(const M5LaneOutcome& outcome, LeftOverCause cause) {
     return static_cast<size_t>(count_if(outcome.leftOver.begin(), outcome.leftOver.end(),
                                         [&](const LeftOver& left) { return left.cause == cause; }));
 }
+
+size_t shippedWithPrefix(const set<string>& shipped, const string& prefix);
 
 CandidatePlan oneTruck(const M5LaneDateInput& input, size_t carried) {
     CandidatePlan plan;
@@ -425,6 +428,49 @@ TEST_CASE("R-4a R-4b R-4c U-RS-06 U-RS-07 X-DATE-08 overdue P11 against current 
     set<string> prefixes;
     for (const string& id : shippedIds(outcome, defaulted)) prefixes.insert(id.substr(0, id.find('-')));
     CHECK(prefixes == set<string>{"old"});
+}
+
+namespace {
+LinkedDateBenchmark date08Linked(ob::PastDueOrder order) {
+    M5LaneDateInput first = laneWith(fx30Units("old-", 30, "A", 11), 0);
+    M5LaneDateInput later = laneWith(fx30Units("now-", 30, "A", 0, dayAfter(4)), 1);
+    later.departure = dayAfter(4);
+    later.pastDueOrder = order;
+    for (Atom& atom : later.atoms) atom.components[0].offerKind = OfferKind::Required;
+    FakeClock clock;
+    return benchmarkLinkedDates({first, later}, syntheticProfile(), physicalSettings(), clock);
+}
+}  // namespace
+
+TEST_CASE("X-DATE-08/ageFirst: carried overdue P11 keeps its age and takes the D+4 truck" * doctest::test_suite("m5")) {
+    const LinkedDateBenchmark linked = date08Linked(ob::PastDueOrder::AgeFirst);
+    REQUIRE(linked.outcomes.size() == 2);
+    CHECK(linked.outcomes[0].reservedTrucks == 0);
+    CHECK(linked.inputs[1].atoms.size() == 60);
+    const set<string> shipped = shippedIds(linked.outcomes[1], linked.inputs[1]);
+    CHECK(shippedWithPrefix(shipped, "old-") == 30);
+    CHECK(shippedWithPrefix(shipped, "now-") == 0);
+    CHECK(linked.outcomes[1].leftOver.size() == 30);
+    for (const Atom& atom : linked.inputs[1].atoms) {
+        if (atom.id.rfind("old-", 0) == 0) {
+            CHECK(atom.components[0].dueDate == kD);
+            CHECK(atom.components[0].priority == 11);
+        }
+    }
+    m5Evidence::note("expected", {"30 P11 carried D to D+4 with age intact", "AgeFirst ships P11, leaves new P0"});
+}
+
+TEST_CASE("X-DATE-08/priorityFirst: current P0 beats carried overdue P11 on D+4" * doctest::test_suite("m5")) {
+    const LinkedDateBenchmark linked = date08Linked(ob::PastDueOrder::PriorityFirst);
+    REQUIRE(linked.outcomes.size() == 2);
+    const set<string> shipped = shippedIds(linked.outcomes[1], linked.inputs[1]);
+    CHECK(shippedWithPrefix(shipped, "old-") == 0);
+    CHECK(shippedWithPrefix(shipped, "now-") == 30);
+    CHECK(linked.outcomes[1].leftOver.size() == 30);
+    for (const Atom& atom : linked.inputs[1].atoms) {
+        if (atom.id.rfind("old-", 0) == 0) CHECK(atom.components[0].dueDate == kD);
+    }
+    m5Evidence::note("expected", {"30 P11 carried D to D+4 with age intact", "PriorityFirst ships new P0, leaves P11"});
 }
 
 TEST_CASE("X-RES-06 two reserved, priority first: C and B ship, A is left" * doctest::test_suite("m5")) {
@@ -1379,6 +1425,26 @@ TEST_CASE("U-CF-02/synthetic: X-DATE-01 the can-go window is the configured pull
     m5Evidence::note("expected", {"window 10: D+10 ships, D+11 and unavailable stay (15)", "window 11: D+11 ships", "window 9: D+10 stays"});
 }
 
+TEST_CASE("X-DATE-01/synthetic: D, D+9 and D+10 fill one truck; D+11 stays out" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = fx30Units("d0-", 10);
+    atoms = concat(atoms, fx30Units("d9-", 10, "A", 0, dayAfter(9)));
+    atoms = concat(atoms, fx30Units("d10-", 10, "A", 0, dayAfter(10)));
+    atoms = concat(atoms, fx30Units("d11-", 10, "A", 0, dayAfter(11)));
+    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
+    CHECK(input.dates.maxDaysPulledForward == 10);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    const set<string> shipped = shippedIds(outcome, input);
+    CHECK(shipped.size() == 30);
+    for (size_t atom = 0; atom < atoms.size(); ++atom) {
+        CHECK(shipped.count(atoms[atom].id) == (atom < 30 ? 1 : 0));
+    }
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 10);
+    m5Evidence::note("expected", {"D, D+9, D+10: 10 each on one truck", "D+11: all 10 left, each source once"});
+}
+
 TEST_CASE("U-CF-04/methodA: Method A ships all 31 required units; B's 30 future units remain" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = cf04Lane(2);
     requireRequiredWinsTwoSlots(plan(input, profileWithMethod(MethodPolicy::PatternOnly)), input, "A");
@@ -1857,6 +1923,51 @@ TEST_CASE("X-DATE-06 every component's date is checked, inside a mixed stack too
     CHECK(atomEligibility(stack, kD, on).eligible);
 }
 
+namespace {
+bool date06Recheck(bool pull) {
+    Atom stack = unitOf("mixed", "A", 100, 20, 100, 3000);
+    stack.floor.levels = 2;
+    stack.unitLoads = 2.0;
+    stack.components[0].source = "line-d";
+    Component later = stack.components[0];
+    later.source = "line-d1";
+    later.dueDate = dayAfter(1);
+    later.offerKind = OfferKind::CanGo;
+    stack.components.push_back(later);
+    const M5LaneDateInput input = laneWith({stack}, 1, kDefaultTrailer, pull);
+    CHECK(input.dates.maxDaysPulledForward == 10);
+    CHECK(input.atoms[0].floor.heightIn == 100.0);
+    CHECK(input.atoms[0].weightLb == 3000.0);
+    CHECK(checkTruck(input, {0}, kDefaultTrailer, physicalSettings()).fits);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan work = oneTruck(input, 0);
+    CHECK(reconcile(snapshot, work).balanced);
+    // Remainder/repair mutation: the mixed stack moves from left over onto the one truck.
+    work.trucks[0].atoms.push_back(0);
+    work.leftOver.clear();
+    ++work.revision;
+    work.validation.reset();
+    storeRows(work, input);
+    CHECK(reconcile(snapshot, work).balanced);
+    const ValidationReport checked = validateFinal(work, snapshot, syntheticProfile(), physicalSettings());
+    if (!pull) {
+        CHECK(atomEligibility(stack, kD, input.dates).failingComponents == vector<size_t>{1});
+        CHECK(checked.eligibility == SectionStatus::Fail);
+    }
+    return checked.allPassed();
+}
+}  // namespace
+
+TEST_CASE("X-DATE-06/pullOff: a post-repair mixed stack cannot hide its D+1 component" * doctest::test_suite("m5")) {
+    CHECK_FALSE(date06Recheck(false));
+    m5Evidence::note("expected", {"two-high 100 in, 3000 lb stack fits physically", "pull off: D+1 component fails date validation"});
+}
+
+TEST_CASE("X-DATE-06/pullOn: a post-repair mixed stack passes both component dates within ten days" * doctest::test_suite("m5")) {
+    CHECK(date06Recheck(true));
+    m5Evidence::note("expected", {"two-high 100 in, 3000 lb stack fits physically", "pull on: both components date-eligible"});
+}
+
 TEST_CASE("X-DATE-09 eligibility depends on the departure: D+17 is out on D, in on D+7" * doctest::test_suite("m5")) {
     Component component;
     component.dueDate = "2026-08-24";
@@ -1865,6 +1976,39 @@ TEST_CASE("X-DATE-09 eligibility depends on the departure: D+17 is out on D, in 
     CHECK_FALSE(componentEligibility(component, kD, rules).eligible);
     CHECK(componentEligibility(component, "2026-08-14", rules).eligible);
     CHECK_FALSE(componentEligibility(component, kD, rules).eligible);
+}
+
+namespace {
+void date09Snapshots(bool reverseOrder) {
+    const vector<string> dates = reverseOrder ? vector<string>{dayAfter(7), kD} : vector<string>{kD, dayAfter(7)};
+    map<string, bool> eligible;
+    map<string, SnapshotId> identities;
+    for (const string& date : dates) {
+        M5LaneDateInput input = laneWith(fx30Units("future-", 30, "A", 0, dayAfter(17)), 1, kDefaultTrailer, true);
+        input.departure = date;
+        REQUIRE(input.dates.maxDaysPulledForward == 10);
+        const SnapshotBuild built = buildSnapshot(input);
+        REQUIRE(built.snapshot);
+        CHECK(built.snapshot->input.pool.slots.size() == 1);
+        CHECK(built.snapshot->eligibility.size() == 30);
+        eligible[date] = built.snapshot->eligibility[0].eligible;
+        identities[date] = built.snapshot->id;
+        for (const Eligibility& unit : built.snapshot->eligibility) CHECK(unit.eligible == (date == dayAfter(7)));
+    }
+    CHECK_FALSE(eligible.at(kD));
+    CHECK(eligible.at(dayAfter(7)));
+    CHECK(identities.at(kD) != identities.at(dayAfter(7)));
+}
+}  // namespace
+
+TEST_CASE("X-DATE-09/orderDthenD7: fresh snapshots apply the pull window separately to D and D+7" * doctest::test_suite("m5")) {
+    date09Snapshots(false);
+    m5Evidence::note("expected", {"D: D+17 outside ten-day pull", "D+7: D+17 within ten days", "distinct snapshot identities"});
+}
+
+TEST_CASE("X-DATE-09/orderD7thenD: reversing evaluation order leaves both date eligibilities intact" * doctest::test_suite("m5")) {
+    date09Snapshots(true);
+    m5Evidence::note("expected", {"D+7 first eligible", "D second ineligible", "distinct snapshot identities"});
 }
 
 TEST_CASE("U-RS-05 X-DATA-13 X-DATA-11 bad input is refused before planning" * doctest::test_suite("m5")) {

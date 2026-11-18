@@ -477,6 +477,44 @@ TEST_CASE("X-DATE-11 X-DATE-12 lanes never borrow each other's trucks; M5 makes 
     CHECK(trucksOf[1] == 1);
 }
 
+TEST_CASE("X-DATE-11/synthetic: same-product lanes to different destinations use only their own reservations" * doctest::test_suite("m5")) {
+    Day day = dayOf({groupOn("2027", "2528", "TL"), groupOn("2027", "2600", "TL")}, 80,
+                    join(itemsOf(0, 60, 0), itemsOf(1, 20, 60)),
+                    {reservedOn("2027", "2528", "TL", 21), reservedOn("2027", "2600", "TL", 21)});
+    for (STRRecord& line : day.run.demand.str) line.matnr = "SAME";
+    day.classification = classifyLanes(day.run, day.book, day.items, kRouting);
+    const SelectionPlan selected = plan(day, withPlanner());
+    REQUIRE(selected.largeLanes.size() == 2);
+    map<size_t, size_t> trucks;
+    for (const PlannedTruck& truck : selected.trucks) {
+        ++trucks[truck.groupIndex];
+        for (const size_t index : truck.items) CHECK(day.items.items[index].groupIndex == truck.groupIndex);
+    }
+    CHECK(trucks[0] > 0);
+    CHECK(trucks[1] > 0);
+    CHECK(trucks[0] <= 21);
+    CHECK(trucks[1] <= 21);
+    CHECK(accountedOnce(selected, day.items.items.size()));
+    m5Evidence::note("expected", {"same product and origin, destinations 2528 and 2600", "each uses only its 21-slot pool"});
+}
+
+TEST_CASE("X-DATE-12/synthetic: data beyond M4's period cannot create a new M5 departure" * doctest::test_suite("m5")) {
+    const Day day = dayOf({group("2027")}, 40,
+                          join(itemsOf(0, 30, 0, "2026-08-06"), itemsOf(0, 10, 30, "2026-08-08")),
+                          {reserved("2027", 21, "2026-08-06"), reserved("2027", 21, "2026-08-08")});
+    CHECK(day.book.window.lastShipDate == "2026-08-07");
+    CHECK(findReservation(day.book, "2027", "2528", "TL", "2026-08-08") == nullptr);
+    const SelectionPlan selected = plan(day, withPlanner());
+    for (const PlannedTruck& truck : selected.trucks) CHECK(truck.shipDate != "2026-08-08");
+    for (const LargeLaneReport& lane : selected.largeLanes) CHECK(lane.shipDate != "2026-08-08");
+    CHECK(selected.leftOver.size() == 10);
+    for (const LeftOverItem& left : selected.leftOver) CHECK(day.items.items[left.itemIndex].shipDate == "2026-08-08");
+    const m5::Atom beyondPull = m5Fixtures::fx30("beyond", "A", 0, m5Fixtures::dayAfter(11));
+    CHECK_FALSE(m5::atomEligibility(beyondPull, m5Fixtures::kD, m5::DateRules{true, 10}).eligible);
+    CHECK(accountedOnce(selected, day.items.items.size()));
+    m5Evidence::note("expected", {"M4 period ends 7 Aug", "8 Aug reservation skipped", "no M5 truck or lane-date on 8 Aug"});
+}
+
 TEST_CASE("X-STATE-03 an M4 lane plans the same with an unrelated M5 lane beside it" * doctest::test_suite("m5")) {
     const Day day = dayOf({group("2027"), group("2028")}, 60, join(itemsOf(0, 30, 0), itemsOf(1, 30, 30)),
                           {reserved("2027", 20), reserved("2028", 21)});

@@ -2236,6 +2236,34 @@ TEST_CASE("X-DATE-02 X-DATE-03 U-RS-09 U-RS-10 U-RS-11 date rules on the departu
     CHECK(all_of(shipped.begin(), shipped.end(), [](const string& id) { return id.rfind("d9-", 0) == 0; }));
 }
 
+TEST_CASE("X-DATE-02/synthetic: goods available D+1 cannot ship D despite pull-forward" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(concat(fx30Units("now-", 30),
+                                                    fx30Units("later-", 30, "A", 0, dayAfter(5), dayAfter(1))),
+                                            2, kDefaultTrailer, true);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedWithIdPrefix(outcome, input, "now-") == 30);
+    CHECK(shippedWithIdPrefix(outcome, input, "later-") == 0);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 30);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    m5Evidence::note("expected", {"30 due D ship on one of two reservations", "30 due D+5 but available D+1 stay"});
+}
+
+TEST_CASE("X-DATE-03/synthetic: pull off keeps the same product's D+1 goods from making a second copy" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(concat(fx30Units("now-", 30), fx30Units("later-", 30, "A", 0, dayAfter(1))), 2);
+    CHECK(input.atoms[0].components[0].product == input.atoms[30].components[0].product);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK_FALSE(input.dates.pullForward);
+    CHECK(shippedWithIdPrefix(outcome, input, "now-") == 30);
+    CHECK(shippedWithIdPrefix(outcome, input, "later-") == 0);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 30);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    m5Evidence::note("expected", {"same product: 30 due D, 30 due D+1", "pull off: one copy on one truck, D+1 stays"});
+}
+
 TEST_CASE("U-RS-08/synthetic: carry forward on: goods not taken move once to the lane's next reserved date; with no next date they are left over" * doctest::test_suite("m5")) {
     M5LaneDateInput first = laneWith(fx30Units("u", 60, "A", 3), 1);
     M5LaneDateInput fourLater = laneWith({}, 1);
@@ -2336,6 +2364,42 @@ TEST_CASE("X-DATE-04 X-DATE-05 U-RS-08 carry: 30 ship on D, 30 move once to D+4 
     CHECK(countCause(last.outcomes[0], LeftOverCause::OverReservation) == 30);
 }
 
+TEST_CASE("X-DATE-04/synthetic: carry moves the unshipped 30 to D+4 with due date and priority intact" * doctest::test_suite("m5")) {
+    const M5LaneDateInput first = laneWith(fx30Units("u", 60, "A", 3), 1);
+    M5LaneDateInput later = laneWith({}, 1);
+    later.departure = dayAfter(4);
+    FakeClock clock;
+    const LinkedDateBenchmark linked = benchmarkLinkedDates({first, later}, syntheticProfile(), physicalSettings(), clock);
+    REQUIRE(linked.outcomes.size() == 2);
+    CHECK(shippedCount(linked.outcomes[0]) == 30);
+    CHECK(shippedCount(linked.outcomes[1]) == 30);
+    CHECK(linked.inputs[1].atoms.size() == 30);
+    const set<string> onD = shippedIds(linked.outcomes[0], linked.inputs[0]);
+    const set<string> onD4 = shippedIds(linked.outcomes[1], linked.inputs[1]);
+    for (const string& id : onD4) CHECK(onD.count(id) == 0);
+    for (const Atom& atom : linked.inputs[1].atoms) {
+        CHECK(atom.components[0].dueDate == kD);
+        CHECK(atom.components[0].priority == 3);
+    }
+    CHECK(onD.size() + onD4.size() == 60);
+    CHECK(linked.outcomes[1].leftOver.empty());
+    m5Evidence::note("expected", {"30 ship D", "the other 30 ship D+4 once", "their due D and priority 3 persist"});
+}
+
+TEST_CASE("X-DATE-05/synthetic: the last reservation ships 30 and leaves 30 without inventing a date" * doctest::test_suite("m5")) {
+    const M5LaneDateInput last = laneWith(fx30Units("u", 60), 1);
+    FakeClock clock;
+    const LinkedDateBenchmark linked = benchmarkLinkedDates({last}, syntheticProfile(), physicalSettings(), clock);
+    REQUIRE(linked.outcomes.size() == 1);
+    REQUIRE(linked.inputs.size() == 1);
+    CHECK(linked.inputs[0].departure == kD);
+    CHECK(shippedCount(linked.outcomes[0]) == 30);
+    CHECK(countCause(linked.outcomes[0], LeftOverCause::OverReservation) == 30);
+    CHECK(linked.outcomes[0].reservedTrucks == 1);
+    requireInvariants(linked.outcomes[0], linked.inputs[0]);
+    m5Evidence::note("expected", {"one final reserved date", "30 ship, 30 left once", "no later date created"});
+}
+
 TEST_CASE("X-DATE-07 U-CF-06 carry and pull never hold the same goods twice across two dates" * doctest::test_suite("m5")) {
     const vector<Atom> required = fx30Units("r", 10), future = fx30Units("f", 20, "A", 0, dayAfter(1));
     M5LaneDateInput today = laneWith(concat(required, future), 21, kDefaultTrailer, true);
@@ -2356,6 +2420,26 @@ TEST_CASE("X-DATE-07 U-CF-06 carry and pull never hold the same goods twice acro
         for (const string& id : shippedIds(control.outcomes[date], control.inputs[date])) CHECK(everShipped.insert(id).second);
     }
     CHECK(everShipped.size() == 30);
+}
+
+TEST_CASE("X-DATE-07/synthetic: pull and carry on two dates never duplicate a source" * doctest::test_suite("m5")) {
+    const vector<Atom> todayGoods = concat(fx30Units("now-", 10), fx30Units("future-", 20, "A", 0, dayAfter(1)));
+    const M5LaneDateInput today = laneWith(todayGoods, 1, kDefaultTrailer, true);
+    M5LaneDateInput tomorrow = laneWith(fx30Units("future-", 20, "A", 0, dayAfter(1)), 1, kDefaultTrailer, true);
+    tomorrow.departure = dayAfter(1);
+    FakeClock clock;
+    const LinkedDateBenchmark linked = benchmarkLinkedDates({today, tomorrow}, syntheticProfile(), physicalSettings(), clock);
+    REQUIRE(linked.outcomes.size() == 2);
+    const set<string> first = shippedIds(linked.outcomes[0], linked.inputs[0]);
+    const set<string> second = shippedIds(linked.outcomes[1], linked.inputs[1]);
+    set<string> all = first;
+    all.insert(second.begin(), second.end());
+    CHECK(all.size() == 30);
+    CHECK(first.size() + second.size() == 30);
+    CHECK(linked.inputs[1].atoms.empty());
+    CHECK(linked.outcomes[0].leftOver.empty());
+    CHECK(linked.outcomes[1].leftOver.empty());
+    m5Evidence::note("expected", {"carry and pull enabled", "30 source units ship across two dates once", "none left or copied"});
 }
 
 TEST_CASE("X-DATE-07/reversedInputDates: reversing the source rows leaves each date's allocation unchanged" * doctest::test_suite("m5")) {
@@ -2384,7 +2468,7 @@ TEST_CASE("X-DATE-07/reversedInputDates: reversing the source rows leaves each d
     m5Evidence::note("expected", {"15 on D", "5 on D+1", "same IDs in both row orders"});
 }
 
-TEST_CASE("X-DATE-10 date arithmetic crosses months, years and leap days with M4's helper" * doctest::test_suite("m5")) {
+TEST_CASE("X-DATE-10/synthetic: date arithmetic crosses months, years and leap days with M4's helper" * doctest::test_suite("m5")) {
     CHECK(ob::addDays("2026-12-25", 10) == "2027-01-04");
     CHECK(ob::addDays("2028-02-20", 10) == "2028-03-01");
     Component component;
