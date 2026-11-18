@@ -1404,6 +1404,125 @@ TEST_CASE("X-PAT-18 with pallets that cannot turn, a stored turned footprint fai
     m5Evidence::note("expected", {{"unturnedNoTurning", "pass"}, {"turnedTurningSite", "pass"}, {"turnedNoTurning", "fail"}});
 }
 
+TEST_CASE("PR-10e a stored row's 0.01 in rounding slack matches depths only: a load 0.01 in too long or too wide fails, exactly at the limit passes"
+          * doctest::test_suite("m5")) {
+    // One row, the long side along the trailer: 630.00 x 100.00 fills the floor exactly.
+    const auto singleRowVerdict = [](double longSide, double shortSide) {
+        const M5LaneDateInput input = laneWith({unitOf("a", "A", longSide, shortSide, 50, 1000)}, 1);
+        const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+        CandidatePlan plan = truckOf(input, {0});
+        plan.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::Single, {{0, true}}, longSide, shortSide)};
+        return validateFinal(plan, snapshot, syntheticProfile(), physicalSettings());
+    };
+    CHECK(singleRowVerdict(630.00, 100.00).physical == SectionStatus::Pass);
+    const ValidationReport tooLong = singleRowVerdict(630.01, 100.00);
+    CHECK(tooLong.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(tooLong, "outside the trailer floor"));
+    const ValidationReport tooWide = singleRowVerdict(630.00, 100.01);
+    CHECK(tooWide.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(tooWide, "outside the trailer floor"));
+
+    // A single row plus a pinwheel of four 60 x 40 stacks: 530 + 100 = 630 in exactly, 100 in wide.
+    const auto pinwheelVerdict = [](double pinwheelLong, double storedDepth) {
+        vector<Atom> atoms{unitOf("row", "A", 530.00, 100.00, 50, 1000)};
+        for (int unit = 0; unit < 4; ++unit) atoms.push_back(unitOf("p" + to_string(unit), "A", pinwheelLong, 40.00, 50, 1000));
+        const M5LaneDateInput input = laneWith(atoms, 1);
+        const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+        CandidatePlan plan = truckOf(input, {0, 1, 2, 3, 4});
+        plan.trucks[0].layout.rows = {storedRow(ob::FloorPatternKind::Single, {{0, true}}, 530.00, 100.00),
+                                      storedRow(ob::FloorPatternKind::Pinwheel, {{1, false}, {2, true}, {3, true}, {4, false}}, storedDepth,
+                                                pinwheelLong + 40.00)};
+        return validateFinal(plan, snapshot, syntheticProfile(), physicalSettings());
+    };
+    CHECK(pinwheelVerdict(60.00, 100.00).physical == SectionStatus::Pass);
+    // The converter lets a pinwheel's stored depth be one hundredth under its members'; that never lets a longer or wider load through.
+    const ValidationReport slackDepth = pinwheelVerdict(60.01, 100.00);
+    CHECK(slackDepth.physical == SectionStatus::Fail);
+    CHECK(pinwheelVerdict(60.01, 100.01).physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(slackDepth, "outside the trailer floor"));
+    m5Evidence::note("expected", {"630.00 x 100.00 passes", "630.01 long fails", "100.01 wide fails", "a pinwheel 0.01 too big fails with or without the stored-depth slack"});
+}
+
+TEST_CASE("PR-10e stored rows that do not cover exactly the truck's atoms are refused by name: missing, duplicate, extra, and stale after an edit"
+          * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith({unitOf("a", "A", 48, 40, 50, 1000), unitOf("b", "A", 48, 40, 50, 1000), unitOf("c", "A", 48, 40, 50, 1000),
+                                            unitOf("big", "A", 100, 50, 50, 1000)},
+                                           2);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const CandidatePlan legal = truckOf(input, {0, 1, 2});
+    REQUIRE(validateFinal(legal, snapshot, syntheticProfile(), physicalSettings()).allPassed());
+    const auto judged = [&](const vector<ob::FloorRow>& rows) {
+        CandidatePlan plan = legal;
+        plan.trucks[0].layout.rows = rows;
+        return validateFinal(plan, snapshot, syntheticProfile(), physicalSettings());
+    };
+    // Missing: the third stack is on no row.
+    const ValidationReport missing = judged({storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {1, false}}, 40, 96)});
+    CHECK(missing.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(missing, "leaves atom c off the floor"));
+    CHECK_FALSE(missing.allPassed());
+    // Duplicate: the first stack is on two rows.
+    const ValidationReport duplicate = judged({storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {1, false}}, 40, 96),
+                                               storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {2, false}}, 40, 96)});
+    CHECK(duplicate.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(duplicate, "places atom a twice"));
+    // Extra: a row places a position the truck does not carry.
+    const ValidationReport extra = judged({storedRow(ob::FloorPatternKind::WideWide, {{0, false}, {1, false}}, 40, 96),
+                                           storedRow(ob::FloorPatternKind::Single, {{2, false}}, 40, 48),
+                                           storedRow(ob::FloorPatternKind::Single, {{3, false}}, 40, 48)});
+    CHECK(extra.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(extra, "which the truck does not carry"));
+    // Stale after a CandidateEditor edit without a refresh: one stack removed, the rows still describe three.
+    CandidatePlan removed = legal;
+    CandidateEditor(removed).removeToLeftOver(0, 2, LeftOverCause::OverReservation);
+    const ValidationReport afterRemoval = validateFinal(removed, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(afterRemoval.physical == SectionStatus::Fail);
+    CHECK(physicalFindingHas(afterRemoval, "which the truck does not carry"));
+    // Stale after a move that keeps the count: a different stack now stands where the rows expect a 48 x 40.
+    CandidatePlan swapped = truckOf(input, {0, 1, 2});
+    swapped.trucks[0].atoms = {0, 1, 3};
+    const ValidationReport afterSwap = validateFinal(swapped, snapshot, syntheticProfile(), physicalSettings());
+    CHECK(afterSwap.physical == SectionStatus::Fail);
+    CHECK_FALSE(afterSwap.allPassed());
+    // The refreshed rows of the edited truck pass again.
+    storeRows(removed, input);
+    CHECK(validateFinal(removed, snapshot, syntheticProfile(), physicalSettings()).physical == SectionStatus::Pass);
+    m5Evidence::note("expected", {"missing, duplicate, extra and stale rows each fail with their own reason", "refreshed rows pass"});
+}
+
+TEST_CASE("PR-10e every rule the old checkTruck judged is judged again on the stored rows by final validation" * doctest::test_suite("m5")) {
+    vector<Atom> base{unitOf("a", "A", 48, 40, 50, 1000), unitOf("b", "A", 48, 40, 50, 1000), unitOf("c", "A", 48, 40, 50, 1000)};
+    const M5LaneDateInput baseInput = laneWith(base, 1);
+    const CandidatePlan legal = truckOf(baseInput, {0, 1, 2});
+    REQUIRE(validateFinal(legal, *buildSnapshot(baseInput).snapshot, syntheticProfile(), physicalSettings()).physical == SectionStatus::Pass);
+    // The same stored rows, judged against an input whose figures break one rule.
+    const auto verdict = [&](const M5LaneDateInput& input, const PhysicalSettings& settings = physicalSettings()) {
+        CandidatePlan plan = legal;
+        plan.trucks[0].layout = legal.trucks[0].layout;
+        return validateFinal(plan, *buildSnapshot(input).snapshot, syntheticProfile(), settings);
+    };
+    CHECK(verdict(baseInput).physical == SectionStatus::Pass);
+
+    vector<Atom> tall = base;
+    tall[0].floor.heightIn = 108.01;
+    CHECK(physicalFindingHas(verdict(laneWith(tall, 1)), "above the slot's ceiling"));
+    vector<Atom> heavy = base;
+    for (Atom& atom : heavy) atom.weightLb = 15000.0;
+    heavy[0].weightLb = 15000.01;
+    CHECK(physicalFindingHas(verdict(laneWith(heavy, 1)), "over the slot's payload"));
+    const TrailerCapability twoLoads{630.0, 100.0, 108.0, 45000.0, 2};
+    CHECK(physicalFindingHas(verdict(laneWith(base, 1, twoLoads)), "over the cap of 2"));
+    vector<Atom> huge = base;
+    huge[2].floor.longSideIn = 120.0;
+    huge[2].floor.shortSideIn = 110.0;
+    CHECK(verdict(laneWith(huge, 1)).physical == SectionStatus::Fail);
+    PhysicalSettings noWideWide = physicalSettings();
+    noWideWide.floor.allowedPatterns = {ob::FloorPatternKind::Single};
+    CHECK(physicalFindingHas(verdict(baseInput, noWideWide), "do not allow"));
+    m5Evidence::note("expected", {"stack over the ceiling, load over the payload, over the unit-load cap, a stack that fits no orientation, a pattern the site does not allow: each fails the stored rows",
+                                  "rows too long, too wide, missing, duplicate, extra, stale, over the position cap, turned without rotation: the tests above and X-PAT-18"});
+}
+
 TEST_CASE("D3 a witness's edges are judged in whole hundredths: 629.995 in reaches 630.00, 630.001 in reaches 630.01"
           * doctest::test_suite("m5")) {
     CHECK(measureSuppliedWitness({{0, 0, 629.995, 100}}, kDefaultTrailer).valid);
