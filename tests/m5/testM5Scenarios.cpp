@@ -460,6 +460,143 @@ TEST_CASE("X-RUN-07/afterPartialCommit: after a partial commit the retry plans t
     m5Evidence::note("expected", {"38 committed once, replay suppressed", "full original again: conflict, nothing consumed", "residual: one unit, last slot; 39 and 39 in the end"});
 }
 
+TEST_CASE("X-E2E-05/keepValidated: blocks stopped in block 3's repair: the checked 38 trucks stand with one item left; never a 39-truck success; the deadline is not renewed" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 100.0;
+    services.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) clock.advance(1000.0);
+    };
+    const M5LaneOutcome keep = planLaneDate(input, blocksOnly(), physicalSettings(), services);
+    requireInvariants(keep, input);
+    CHECK(keep.kind == OutcomeKind::TimeoutWithIncumbent);
+    REQUIRE(keep.selected);
+    CHECK(keep.selected->trucks.size() == 38);
+    CHECK(keep.selected->trucks.size() != 39);
+    CHECK(keep.leftOver.size() == 1);
+    CHECK(keep.allowanceSeconds == 100.0);
+    REQUIRE(keep.selected->validation.has_value());
+    CHECK(keep.selected->validation->allPassed());
+    CHECK(keep.selected->validation->physical == SectionStatus::Pass);
+    CHECK(keep.finalValidationPassed);
+    set<size_t> seen;
+    for (const TruckPlan& truck : keep.selected->trucks) {
+        for (const size_t atom : truck.atoms) CHECK(seen.insert(atom).second);
+    }
+    CHECK(seen.size() == 38);
+    // The rollback variant returns no candidate; the original input still reaches 39 only by a fresh, unstopped run.
+    FakeClock rollbackClock;
+    M5RunServices rollbackServices(rollbackClock);
+    rollbackServices.allowanceSeconds = 100.0;
+    rollbackServices.wholeLaneRollback = true;
+    rollbackServices.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) rollbackClock.advance(1000.0);
+    };
+    const M5LaneOutcome rolled = planLaneDate(input, blocksOnly(), physicalSettings(), rollbackServices);
+    CHECK_FALSE(rolled.selected.has_value());
+    CHECK(countCause(rolled, LeftOverCause::NoResult) == 39);
+    CHECK(shippedCount(plan(input, blocksOnly())) == 39);
+    m5Evidence::note("expected", {"keep variant (the CL-10 contract chosen here): 38 checked trucks, 1 left, timeout, allowance 100", "rollback variant: no candidate, 39 NoResult", "never a 39-truck success from the stopped run"});
+}
+
+TEST_CASE("X-E2E-02/synthetic X-E2E-02/productionProfile priority after repair: B wins valid; with B's truck over the payload the winner is decided again by brute force; removed goods return once; no old proof is kept" * doctest::test_suite("m5")) {
+    // R-2: A has 1 P0 + 29 P11, B has 20 P0; one reservation. Both valid: B wins.
+    vector<Atom> atoms{fx30("a0", "A", 0)};
+    atoms = concat(atoms, fx30Units("a11-", 29, "A", 11));
+    atoms = concat(atoms, fx30Units("b0-", 20, "B", 0));
+    const M5LaneDateInput valid = laneWith(atoms, 1);
+    const M5LaneOutcome first = plan(valid, withAcceptance(syntheticProfile(), 40000.0, 2400.0));
+    requireInvariants(first, valid);
+    CHECK(shippedOfGroup(first, valid, "B") == 20);
+    CHECK(shippedOfGroup(first, valid, "A") == 0);
+    CHECK(shippedOfGroup(plan(valid, syntheticProfile()), valid, "B") == 20);
+
+    // B's layout turns invalid: its units now weigh 2,500 lb, so 20 are 50,000 lb on a 45,000 lb payload.
+    vector<Atom> heavy = atoms;
+    for (Atom& atom : heavy) {
+        if (atom.group == "B") atom.weightLb = 2500.0;
+    }
+    const M5LaneDateInput invalid = laneWith(heavy, 1);
+    vector<size_t> allOfB;
+    for (size_t atom = 0; atom < invalid.atoms.size(); ++atom) {
+        if (invalid.atoms[atom].group == "B") allOfB.push_back(atom);
+    }
+    CHECK_FALSE(checkTruck(invalid, allOfB, kDefaultTrailer, physicalSettings()).fits);
+    // Brute force over every legal single-group truck by M4's rule (P0 units first, then P11): B takes 18.
+    int bestP0 = 0;
+    string bestGroup;
+    for (const string group : {"A", "B"}) {
+        vector<size_t> members;
+        for (size_t atom = 0; atom < invalid.atoms.size(); ++atom) {
+            if (invalid.atoms[atom].group == group) members.push_back(atom);
+        }
+        sort(members.begin(), members.end(), [&](size_t left, size_t right) { return invalid.atoms[left].components[0].priority < invalid.atoms[right].components[0].priority; });
+        double weight = 0.0;
+        int p0 = 0;
+        for (size_t position = 0; position < members.size() && position < 30; ++position) {
+            const Atom& atom = invalid.atoms[members[position]];
+            if (weight + atom.weightLb > 45000.0) break;
+            weight += atom.weightLb;
+            if (atom.components[0].priority == 0) ++p0;
+        }
+        if (p0 > bestP0) {
+            bestP0 = p0;
+            bestGroup = group;
+        }
+    }
+    CHECK(bestGroup == "B");
+    CHECK(bestP0 == 18);
+    const M5LaneOutcome decided = plan(invalid, syntheticProfile());
+    requireInvariants(decided, invalid);
+    REQUIRE(decided.selected);
+    CHECK(decided.selected->trucks.size() == 1);
+    CHECK(shippedOfGroup(decided, invalid, "B") == 18);
+    CHECK(shippedOfGroup(decided, invalid, "A") == 0);
+    size_t bLeft = 0;
+    for (const LeftOver& left : decided.leftOver) bLeft += invalid.atoms[left.atom].group == "B" ? 1 : 0;
+    CHECK(bLeft == 2);
+    set<size_t> seen;
+    for (const TruckPlan& truck : decided.selected->trucks) {
+        for (const size_t atom : truck.atoms) CHECK(seen.insert(atom).second);
+    }
+    for (const LeftOver& left : decided.leftOver) CHECK(seen.insert(left.atom).second);
+    CHECK(seen.size() == invalid.atoms.size());
+
+    // A repaired truck keeps no old proof or validation.
+    const M5LaneOutcome original = plan(valid, syntheticProfile());
+    REQUIRE(original.selected);
+    CandidatePlan repaired = *original.selected;
+    CandidateEditor(repaired).removeToLeftOver(0, repaired.trucks[0].atoms.back(), LeftOverCause::OverReservation);
+    CHECK(repaired.evidence.proof != ProofStatus::ProvenOptimal);
+    CHECK_FALSE(repaired.validation.has_value());
+    m5Evidence::note("expected", {"valid: group B ships (R-2), also with the production profile", "B over the payload: decided again, B 18 P0 beats A, one truck", "the two removed goods are left over once; no old proof or validation"});
+}
+
+TEST_CASE("X-E2E-06/synthetic: a pattern that fits only the big trailer, saved under master V1, is never used on the small trailer or under V2" * doctest::test_suite("m5")) {
+    const TrailerCapability small{630.0, 100.0, 108.0, 30000.0, kFixtureUnitLoadCap};
+    const M5LaneDateInput v1 = laneWith(fx30Units("u", 50), 2);
+    // The big trailer holds the 30-unit pattern, the small one only 20: the pattern does not fit it.
+    CHECK(bestSingleClassLoad(v1, 0, kDefaultTrailer, physicalSettings(), 100) == 30);
+    CHECK(bestSingleClassLoad(v1, 0, small, physicalSettings(), 100) == 20);
+    vector<size_t> thirty(30);
+    iota(thirty.begin(), thirty.end(), size_t{0});
+    CHECK(checkTruck(v1, thirty, kDefaultTrailer, physicalSettings()).fits);
+    CHECK_FALSE(checkTruck(v1, thirty, small, physicalSettings()).fits);
+    // Master V2: heavier units. The V1 class signature differs, so a V1-only load is not reused: 28 at most.
+    vector<Atom> heavier = fx30Units("u", 50);
+    for (Atom& atom : heavier) atom.weightLb = 1600.0;
+    const M5LaneDateInput v2 = laneWith(heavier, 2);
+    CHECK(classSignatureOf(v1.atoms[0]) != classSignatureOf(v2.atoms[0]));
+    CHECK(bestSingleClassLoad(v2, 0, kDefaultTrailer, physicalSettings(), 100) == 28);
+    CHECK_FALSE(checkTruck(v2, thirty, kDefaultTrailer, physicalSettings()).fits);
+    const M5LaneOutcome outcome = plan(v2, syntheticProfile());
+    requireInvariants(outcome, v2);
+    for (const TruckPlan& truck : outcome.selected->trucks) CHECK(truck.atoms.size() <= 28);
+    m5Evidence::note("expected", {"30-unit pattern: big trailer yes, small trailer no", "V2 weight: 28 at most, the V1 30 never reused"});
+    m5Evidence::note("notCovered", "the report naming the master and the trailers: the product-master identity is passed to the M5 run header only after the feature/m4 merge (U-RP-01, PR-13)");
+}
+
 // ------------------------------------------------------------------- repair and final contents
 
 TEST_CASE("R-1c X-REB-05 X-RES-09 X-RES-11 X-E2E-02 a broken truck is repaired on a copy; goods return once" * doctest::test_suite("m5")) {
@@ -3603,9 +3740,17 @@ TEST_CASE("U-RP-05/synthetic: the summary prints elapsed, dispatched trucks, the
                                   "no truck: N/A", "benchmark labelled apart"});
 }
 
-TEST_CASE("X-E2E-08 a comparison mixing bases is flagged: 1,440 - 1,308 is 132, not 154" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-08/synthetic a comparison mixing bases is flagged: 1,440 - 1,308 is 132, not 154; a valid plan does not make it right" * doctest::test_suite("m5")) {
+    // A valid plan: the figures are about the comparison, not the plan.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 2);
+    const M5LaneOutcome valid = plan(input, syntheticProfile());
+    requireInvariants(valid, input);
+    CHECK(valid.finalValidationPassed);
+    CHECK(shippedCount(valid) == 60);
     REQUIRE(unusedComparisonMismatch(1440, 1308, 154).has_value());
     CHECK(unusedComparisonMismatch(1440, 1308, 154)->find("132") != string::npos);
+    CHECK(unusedComparisonMismatch(1440, 1308, 154)->find("154") != string::npos);
+    CHECK(valid.finalValidationPassed);
     CHECK_FALSE(unusedComparisonMismatch(1440, 1286, 154).has_value());
     CHECK_FALSE(unusedComparisonMismatch(1440, 1342, 98).has_value());
 }
@@ -3657,7 +3802,7 @@ TEST_CASE("U-SP-04/synthetic: a group of one unit load gets a clear outcome: shi
     m5Evidence::note("expected", {"room: B's one unit ships", "one slot, B later: left over the reservation", "130 in tall: rejected as unfittable"});
 }
 
-TEST_CASE("X-E2E-03 patterns with pull-forward and unavailable stock" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-03/pullOff X-E2E-03/pullOn patterns with pull-forward and unavailable stock" * doctest::test_suite("m5")) {
     auto units = [](const string& prefix, size_t count, const string& due, const string& available) {
         vector<Atom> atoms;
         for (size_t unit = 0; unit < count; ++unit) atoms.push_back(unitOf(prefix + to_string(100 + unit), "A", 100, 63, 108, 4500, 0, due, available));
@@ -3670,14 +3815,25 @@ TEST_CASE("X-E2E-03 patterns with pull-forward and unavailable stock" * doctest:
     const M5PolicyProfile policy = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
     const M5LaneDateInput off = laneWith(atoms, 8, kDefaultTrailer, false);
     const M5LaneOutcome withoutPull = plan(off, policy);
+    requireInvariants(withoutPull, off);
     CHECK(withoutPull.selected->trucks.size() == 3);
     CHECK(shippedCount(withoutPull) == 30);
+    for (const string& id : shippedIds(withoutPull, off)) CHECK(id[0] == 'a');
+    for (const TruckPlan& truck : withoutPull.selected->trucks) {
+        CHECK(truck.atoms.size() == 10);
+        CHECK(truck.layout.positions > 0);
+    }
     const M5LaneDateInput on = laneWith(atoms, 8, kDefaultTrailer, true);
     const M5LaneOutcome withPull = plan(on, policy);
+    requireInvariants(withPull, on);
     CHECK(withPull.selected->trucks.size() == 5);
     CHECK(shippedCount(withPull) == 50);
+    CHECK(withPull.finalValidationPassed);
     for (const string& id : shippedIds(withPull, on)) CHECK((id[0] == 'a' || id[0] == 'b'));
+    for (const string& id : shippedIds(withPull, on)) CHECK((id[0] != 'c' && id[0] != 'e'));
     for (const TruckPlan& truck : withPull.selected->trucks) {
+        CHECK(truck.atoms.size() == 10);
+        CHECK(truck.layout.positions > 0);
         double weight = 0.0, cube = 0.0;
         for (const size_t atom : truck.atoms) {
             weight += on.atoms[atom].weightLb;

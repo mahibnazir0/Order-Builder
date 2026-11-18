@@ -14803,7 +14803,7 @@
         "M-RPT"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Physical.cpp",
+      "testFile": "tests/m5/testM5Physical.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "Big/small trailers + master V1/V2",
       "localOverrides": "",
       "entryPoint": "DIRECT",

@@ -489,7 +489,7 @@ TEST_CASE("X-RES-06 two reserved, priority first: C and B ship, A is left" * doc
     CHECK(shippedOfGroup(outcome, input, "C") == 30);
 }
 
-TEST_CASE("X-E2E-07 choosing across groups is independent of input order" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-07/inputOrderABC X-E2E-07/inputOrderPermuted: two reserved, groups A, B, C: B + C win by brute force, whatever the input order" * doctest::test_suite("m5")) {
     vector<Atom> atoms{fx30("a0", "A", 0)};
     atoms = concat(atoms, fx30Units("a11-", 29, "A", 11));
     atoms = concat(atoms, fx30Units("b0-", 20, "B", 0));
@@ -498,12 +498,44 @@ TEST_CASE("X-E2E-07 choosing across groups is independent of input order" * doct
     atoms = concat(atoms, fx30Units("c11-", 11, "C", 11));
     const M5LaneDateInput input = laneWith(atoms, 2);
     const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
     CHECK(shippedOfGroup(outcome, input, "B") == 30);
     CHECK(shippedOfGroup(outcome, input, "C") == 30);
+    CHECK(shippedOfGroup(outcome, input, "A") == 0);
+
+    // Brute force over every pair of groups: P0 units first, then P11 units (M4's priority rule).
+    const map<string, pair<int, int>> byGroup{{"A", {1, 29}}, {"B", {20, 10}}, {"C", {19, 11}}};
+    pair<int, int> best{0, 0};
+    set<string> bestPair;
+    for (const string first : {"A", "B", "C"}) {
+        for (const string second : {"A", "B", "C"}) {
+            if (first >= second) continue;
+            const pair<int, int> total{byGroup.at(first).first + byGroup.at(second).first, byGroup.at(first).second + byGroup.at(second).second};
+            if (total > best) {
+                best = total;
+                bestPair = {first, second};
+            }
+        }
+    }
+    CHECK(bestPair == set<string>{"B", "C"});
+    CHECK(best.first == 39);
+    CHECK(best.second == 21);
+    int p0 = 0, p11 = 0;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        for (const size_t atom : truck.atoms) (input.atoms[atom].components[0].priority == 0 ? p0 : p11) += 1;
+    }
+    CHECK(p0 == 39);
+    CHECK(p11 == 21);
 
     vector<Atom> reversed(atoms.rbegin(), atoms.rend());
     const M5LaneDateInput permuted = laneWith(reversed, 2);
-    CHECK(shippedIds(plan(permuted, syntheticProfile()), permuted) == shippedIds(outcome, input));
+    const M5LaneOutcome permutedOutcome = plan(permuted, syntheticProfile());
+    CHECK(shippedIds(permutedOutcome, permuted) == shippedIds(outcome, input));
+    vector<Atom> rotated(atoms.begin() + 30, atoms.end());
+    rotated.insert(rotated.end(), atoms.begin(), atoms.begin() + 30);
+    const M5LaneDateInput rotatedInput = laneWith(rotated, 2);
+    CHECK(shippedIds(plan(rotatedInput, syntheticProfile()), rotatedInput) == shippedIds(outcome, input));
+    m5Evidence::note("expected", {"A 1 P0 + 29 P11, B 20 P0 + 10 P11, C 19 P0 + 11 P11", "B + C win: 39 P0 + 21 P11", "reversed and rotated group order: the same goods"});
 }
 
 TEST_CASE("X-RUN-05/synthetic: an early low-priority block cannot starve urgent goods" * doctest::test_suite("m5")) {

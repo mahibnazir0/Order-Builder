@@ -4,6 +4,7 @@
 #include "m5Ledger.hpp"
 #include "m5Methods.hpp"
 #include "m5Repair.hpp"
+#include "m5Report.hpp"
 #include "m5UnitLoads.hpp"
 #include "m5Validation.hpp"
 #include "paramsTypes.hpp"
@@ -11,6 +12,7 @@
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5LayoutChecker.hpp"
+#include "support/m5Oracles.hpp"
 #include "support/m5StubMethods.hpp"
 
 #include <algorithm>
@@ -28,6 +30,12 @@ using namespace ob::m5;
 using namespace m5Fixtures;
 
 namespace {
+
+void requireInvariants(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    const vector<string> violations = m5Oracles::invariantViolations(outcome, input, physicalSettings().floor);
+    for (const string& violation : violations) INFO(violation);
+    REQUIRE(violations.empty());
+}
 
 CandidatePlan truckOf(const M5LaneDateInput& input, const vector<size_t>& atoms, size_t slot = 0) {
     CandidatePlan plan;
@@ -668,28 +676,103 @@ TEST_CASE("U-AC-05/synthetic: 30 floor-full displays below x/y are withheld; flo
     m5Evidence::note("expected", {"withheld", "30 positions, 600 in", "24,000 lb", "1,666.67 cu ft"});
 }
 
-TEST_CASE("X-E2E-09 30 displays: exact cube 5000/3 cu ft; y = 3,000 withholds, y = 1,000 dispatches" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-09/y3000 X-E2E-09/y1000 30 displays: exact cube 5000/3 cu ft; y = 3,000 withholds with the floor and the reason, y = 1,000 dispatches the same checked load" * doctest::test_suite("m5")) {
     vector<Atom> displays;
     for (int unit = 0; unit < 30; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
     const M5LaneDateInput input = laneWith(displays, 1);
-    double cube = 0.0;
-    for (const Atom& atom : input.atoms) cube += atom.floor.cubeCubicIn;
+    double cube = 0.0, weight = 0.0;
+    for (const Atom& atom : input.atoms) {
+        cube += atom.floor.cubeCubicIn;
+        weight += atom.weightLb;
+        CHECK(atom.floor.levels == 1);
+        CHECK(atom.floor.cubeCubicIn / 1728.0 == doctest::Approx(500.0 / 9.0));
+    }
     CHECK(cube == 2'880'000.0);
     CHECK(cube / 1728.0 == doctest::Approx(5000.0 / 3.0));
-    CHECK(shippedCount(plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0))) == 0);
+    CHECK(weight == 24000.0);
+
+    // The selected witness: 30 positions in 15 rows, 600 of the 630 inches used, nothing stacked.
+    vector<size_t> all(input.atoms.size());
+    iota(all.begin(), all.end(), size_t{0});
+    const PhysicalCheck witness = checkTruck(input, all, kDefaultTrailer, physicalSettings());
+    REQUIRE(witness.fits);
+    CHECK(witness.layout.positions == 30);
+    CHECK(witness.layout.usedLengthIn == doctest::Approx(600.0));
+
+    const M5LaneOutcome withheld = plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0));
+    requireInvariants(withheld, input);
+    CHECK(shippedCount(withheld) == 0);
+    CHECK(withheld.leftOver.size() == 30);
+    for (const LeftOver& left : withheld.leftOver) CHECK(left.cause == LeftOverCause::AcceptanceWithheld);
+    const AcceptanceDecision below = evaluateAcceptance(weight, cube, NumericAcceptance{40000.0, 3000.0});
+    CHECK_FALSE(below.accepted);
+    const string text = renderAscii(buildReportData(withheld, input, nullptr, {}));
+    CHECK(text.find("left: withheld by minimum-load policy: 30.00 unit loads") != string::npos);
+
     const M5LaneOutcome dispatched = plan(input, withAcceptance(syntheticProfile(), 40000.0, 1000.0));
+    requireInvariants(dispatched, input);
     CHECK(shippedCount(dispatched) == 30);
     CHECK(dispatched.selected->trucks.front().layout.positions == 30);
+    CHECK(dispatched.selected->trucks.front().layout.usedLengthIn == doctest::Approx(600.0));
+    CHECK(evaluateAcceptance(weight, cube, NumericAcceptance{40000.0, 1000.0}).byCube);
+    m5Evidence::note("expected", {"30 positions on 600 in, 24,000 lb, 1,666.67 cu ft, none stacked", "y = 3,000: all 30 withheld, reason named", "y = 1,000: the same checked load ships"});
 }
 
-TEST_CASE("X-E2E-04 acceptance applies to each truck on its own, whatever its group" * doctest::test_suite("m5")) {
+TEST_CASE("X-E2E-09/productionProfile: 31 displays, 30 in the selected witness and one left: the truck ships whatever x/y say; FULL by floor only on the no-fit witness; all 31 reconcile" * doctest::test_suite("m5")) {
+    vector<Atom> displays;
+    for (int unit = 0; unit < 31; ++unit) displays.push_back(display("d" + to_string(100 + unit)));
+    const M5LaneDateInput input = laneWith(displays, 1);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    CHECK(shippedCount(outcome) == 30);
+    CHECK(outcome.leftOver.size() == 1);
+    CHECK(outcome.leftOver.front().cause == LeftOverCause::OverReservation);
+    REQUIRE(outcome.fullness.size() == 1);
+    const FullnessLabel& label = outcome.fullness.front();
+    CHECK(label.fitStatus == RemainingFitStatus::ProvenNoFit);
+    CHECK(label.byFloorLimit);
+    CHECK(label.state == FullnessState::Full);
+    CHECK(label.rearInches == doctest::Approx(30.0));
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CandidatePlan accounted = *outcome.selected;
+    accounted.leftOver = outcome.leftOver;
+    CHECK(reconcile(snapshot, accounted).balanced);
+    // With only the original 30 and no other evidence, stock exhaustion alone is not a floor limit.
+    const M5LaneDateInput exact = laneWith(vector<Atom>(displays.begin(), displays.begin() + 30), 1);
+    const M5LaneOutcome exhausted = plan(exact, syntheticProfile());
+    REQUIRE(exhausted.fullness.size() == 1);
+    CHECK_FALSE(exhausted.fullness.front().byFloorLimit);
+    CHECK(shippedCount(exhausted) == 30);
+    m5Evidence::note("expected", {"production profile: no numeric minimum, the 30 ship", "FULL by floor limit only with the proven no-fit of the 31st", "30 sources only: no floor-limit claim"});
+}
+
+TEST_CASE("X-E2E-04/y2000 X-E2E-04/y2800 X-E2E-04/productionProfile acceptance applies to each truck on its own, whatever its group; a penalty never allows mixing or a failing truck" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith({unitOf("a", "A", 378, 100, 108, 10000), unitOf("b", "B", 378, 100, 108, 10000)}, 2);
     CHECK(input.atoms[0].floor.cubeCubicIn / 1728.0 == doctest::Approx(2362.5));
-    CHECK(shippedCount(plan(input, withAcceptance(syntheticProfile(), 40000.0, 2000.0))) == 2);
-    CHECK(shippedCount(plan(input, withAcceptance(syntheticProfile(), 40000.0, 2800.0))) == 0);
+    CHECK(input.atoms[0].floor.levels == 1);
+    const M5LaneOutcome accepted = plan(input, withAcceptance(syntheticProfile(), 40000.0, 2000.0));
+    requireInvariants(accepted, input);
+    CHECK(shippedCount(accepted) == 2);
+    REQUIRE(accepted.selected);
+    CHECK(accepted.selected->trucks.size() == 2);
+    for (const TruckPlan& truck : accepted.selected->trucks) CHECK(truck.atoms.size() == 1);
+    M5PolicyProfile penalised = withAcceptance(syntheticProfile(), 40000.0, 2800.0);
+    penalised.penaltyPerUnusedTruck = 1000.0;
+    const M5LaneOutcome rejected = plan(input, penalised);
+    requireInvariants(rejected, input);
+    CHECK(shippedCount(rejected) == 0);
+    CHECK(count_if(rejected.leftOver.begin(), rejected.leftOver.end(), [](const LeftOver& left) { return left.cause == LeftOverCause::AcceptanceWithheld; }) == 2);
+    const M5ReportData report = buildReportData(rejected, input, &penalised, {});
+    CHECK(report.unusedReservations == 2);
+    CHECK(*report.penaltyAmount == 2000.0);
     const M5LaneOutcome production = plan(input, syntheticProfile());
+    requireInvariants(production, input);
     CHECK(shippedCount(production) == 2);
     for (const FullnessLabel& label : production.fullness) CHECK(label.bucket == FullnessBucket::NoGoodsRemain);
+    for (const TruckPlan& truck : production.selected->trucks) CHECK(truck.atoms.size() == 1);
+    m5Evidence::note("expected", {"y = 2,000: both 60%-cube trucks ship", "y = 2,800: neither ships, a penalty never forces one", "production profile: both ship, bucket no goods remain"});
 }
 
 TEST_CASE("U-FL-05 buckets come from the final residual, whatever the truck order" * doctest::test_suite("m5")) {
