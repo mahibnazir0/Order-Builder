@@ -167,6 +167,38 @@ TEST_CASE("X-REB-04 no scalar truck passes the policy: zero dispatched, all good
     CHECK(result.partialCube == 0.0);
 }
 
+TEST_CASE("X-REB-04/synthetic: three cube-8 items, V = W = 10, x = 10, y = 8.4: no truck passes, zero dispatched, all kept" * doctest::test_suite("m5")) {
+    AcceptedModel model;
+    model.cube = {8, 8, 8};
+    model.weight = {1, 1, 1};
+    model.cubeCapacity = 10;
+    model.weightCapacity = 10;
+    model.xWeight = 10;
+    model.yCube = 8.4;
+    model.bins = 3;
+    // By hand: two items need cube 16 > 10, so a truck holds one: cube 8 <= 8.4 and weight 1 <= 10, never accepted.
+    CHECK(8 + 8 > 10);
+    CHECK_FALSE(8.0 > 8.4);
+    CHECK_FALSE(1.0 > 10.0);
+    const AcceptedResult result = solveAccepted(model);
+    CHECK(result.allGoods == ProofStatus::ProvenInfeasible);
+    CHECK_FALSE(result.allGoodsPacking.has_value());
+    CHECK(result.partial.bins.empty());
+    CHECK(result.partialCube == 0.0);
+    m5Evidence::note("expected", {"no truck passes (8 <= 8.4, 1 <= 10)", "zero dispatched, 3 items kept", "all-goods proven infeasible"});
+}
+
+TEST_CASE("X-REB-04/productionProfile: acceptance OFF: all three scalar bins ship, every item once; no physical labels invented" * doctest::test_suite("m5")) {
+    const ScalarModel model = modelOf({8, 8, 8});
+    const ScalarResult result = solveCuttingStock(model, ScalarLimits());
+    REQUIRE(result.packing);
+    CHECK(result.packing->bins.size() == 3);
+    CHECK(m5Oracles::packingValid(model, *result.packing, {}));
+    CHECK(m5Oracles::bruteForceBins({8, 8, 8}, 10) == 3);
+    // The scalar model has no trailer layout: its result carries bins only, no fullness, rear inches or bucket.
+    m5Evidence::note("expected", {"3 bins of one item each", "items conserved", "physical labels NOT_APPLICABLE (scalar model)"});
+}
+
 namespace {
 
 // FX-GAP on a scalar model: F from first-fit decreasing, B from the scalar bound, which the brute-force

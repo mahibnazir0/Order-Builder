@@ -420,6 +420,33 @@ TEST_CASE("X-BLK-07 a slice never extends the lane-date's deadline" * doctest::t
     CHECK(budget.pastSlice(end));
 }
 
+TEST_CASE("X-BLK-07/synthetic: allowance 100; block 1 ends at 60, repair at 85: only 15 remain, and nothing resets or extends it" * doctest::test_suite("m5")) {
+    class StepClock final : public Clock {
+    public:
+        double nowSeconds() const override { return now; }
+        double now = 0.0;
+    } clock;
+    Budget budget({100.0, nullopt, "FX-CLOCK"}, clock);
+    budget.startPhase("block1");
+    clock.now = 60.0;
+    budget.startPhase("repair");
+    clock.now = 85.0;
+    CHECK(budget.remainingSeconds() == 15.0);
+    // Every later slice (block, method, repair, final checks) ends at the lane-date deadline, never past it.
+    for (const double share : {0.5, 1.0, 2.0}) CHECK(budget.sliceEnd(share) <= 100.0);
+    budget.startPhase("finalChecks");
+    CHECK(budget.remainingSeconds() == 15.0);
+    clock.now = 99.999;
+    CHECK_FALSE(budget.exhausted());
+    clock.now = 100.0;
+    CHECK(budget.exhausted());
+    CHECK(budget.remainingSeconds() <= 0.0);
+    // Production's allowance is secondsPerLoad x the frozen reserved count (CL-05), not a work count.
+    const M5LaneOutcome outcome = m5Fixtures::plan(m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 30), 7), m5Fixtures::syntheticProfile());
+    CHECK(outcome.allowanceSeconds == 10.0 * 7);
+    m5Evidence::note("expected", {"60 + 25 used, 15 left", "slices never past 100", "exhausted at 100", "production: 10 s x 7 reserved = 70 s"});
+}
+
 TEST_CASE("U-AC-04/zeroAndRange: x and y must be above zero and at most 1,000,000 lb and 100,000 cu ft" * doctest::test_suite("m5")) {
     json block = productionBlock();
     const auto readsAs = [&](const json& x, const json& y) {

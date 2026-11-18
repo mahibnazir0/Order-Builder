@@ -612,6 +612,432 @@ TEST_CASE("X-REB-07 priority never authorises an unaccepted shipment" * doctest:
     CHECK(shippedIds(plan(input, syntheticProfile()), input) == set<string>{"p0"});
 }
 
+namespace {
+
+// A hand-built plan of `trucks` (truck t on slot t), its rows stored and validated on its own revision.
+CandidatePlan checkedPlanOf(const M5LaneDateInput& input, const DemandSnapshot& snapshot, const GroupTrucks& trucks) {
+    CandidatePlan plan;
+    vector<char> used(input.atoms.size(), 0);
+    for (size_t truck = 0; truck < trucks.size(); ++truck) {
+        TruckPlan placed;
+        placed.slot = truck;
+        placed.group = input.atoms[trucks[truck].front()].group;
+        placed.atoms = trucks[truck];
+        for (const size_t atom : placed.atoms) used[atom] = 1;
+        plan.trucks.push_back(placed);
+    }
+    for (size_t atom = 0; atom < input.atoms.size(); ++atom) {
+        if (!used[atom]) plan.leftOver.push_back({atom, LeftOverCause::OverReservation});
+    }
+    storeRows(plan, input);
+    plan.validation = validateFinal(plan, snapshot, syntheticProfile(), physicalSettings());
+    return plan;
+}
+
+// Every atom of the input ends exactly once: on one truck or left over.
+bool eachAtomOnce(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    vector<int> ends(input.atoms.size(), 0);
+    if (outcome.selected) {
+        for (const TruckPlan& truck : outcome.selected->trucks) {
+            for (const size_t atom : truck.atoms) ++ends[atom];
+        }
+    }
+    for (const LeftOver& left : outcome.leftOver) ++ends[left.atom];
+    return all_of(ends.begin(), ends.end(), [](int end) { return end == 1; });
+}
+
+bool singleGroupTrucks(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    if (!outcome.selected) return true;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        for (const size_t atom : truck.atoms) {
+            if (input.atoms[atom].group != truck.group) return false;
+        }
+    }
+    return true;
+}
+
+// X-REB scalar sizes on the 630 in floor: size s stands 63 s in long and 100 in wide, 1,000 lb.
+Atom sized(const string& id, const string& group, int size, const string& available = kD) {
+    return unitOf(id, group, 63.0 * size, 100, 108, 1000, 0, kD, available);
+}
+
+}  // namespace
+
+TEST_CASE("X-REB-01/synthetic: two A of 6 and two B of 4 on capacity 10 fill two bins [6,4], not three single-product bins" * doctest::test_suite("m5")) {
+    const vector<long long> sizes{6, 6, 4, 4};
+    CHECK(m5Oracles::bruteForceBins(sizes, 10) == 2);
+    // Single-product patterns first: one 6 per bin (12 > 10), two 4s in one: 3 bins.
+    CHECK(2 + (4 + 4 <= 10 ? 1 : 2) == 3);
+    const ScalarModel model = scalarModel(sizes, 10);
+    const ScalarResult solved = solveCuttingStock(model, ScalarLimits());
+    REQUIRE(solved.packing);
+    CHECK(m5Oracles::packingValid(model, *solved.packing, {}));
+    REQUIRE(solved.packing->bins.size() == 2);
+    for (const auto& bin : solved.packing->bins) {
+        long long fill = 0;
+        for (const size_t item : bin) fill += sizes[item];
+        CHECK(fill == 10);
+    }
+    // On the floor: 6 -> 378 in, 4 -> 252 in; two trucks of 630 in, each one A and one B, all four ship.
+    const M5LaneDateInput input = laneWith({sized("a1", "A", 6), sized("a2", "A", 6), sized("b1", "A", 4), sized("b2", "A", 4)}, 2);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 2);
+    CHECK(shippedCount(outcome) == 4);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() == 2);
+        CHECK(truck.layout.usedLengthIn == 630.0);
+    }
+    m5Evidence::note("expected", {"brute force 2 bins", "single-product first 3", "solver 2 bins of 10", "floor: 2 trucks [378 + 252]"});
+}
+
+TEST_CASE("X-REB-02/synthetic: A and B in different groups never mix; B not yet available is left; the run ends" * doctest::test_suite("m5")) {
+    // Separate groups on two reserved: A needs 2 trucks (6 + 6 > 10), B 1; only 2 slots, so 3 trucks cannot be had.
+    const M5LaneDateInput apart = laneWith({sized("a1", "A", 6), sized("a2", "A", 6), sized("b1", "B", 4), sized("b2", "B", 4)}, 2);
+    const M5LaneOutcome outcome = plan(apart, syntheticProfile());
+    requireInvariants(outcome, apart);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.stop == StopReason::Completed);
+    CHECK(singleGroupTrucks(outcome, apart));
+    CHECK(outcome.selected->trucks.size() == 2);
+    CHECK(eachAtomOnce(outcome, apart));
+    CHECK(shippedCount(outcome) + countCause(outcome, LeftOverCause::OverReservation) == 4);
+    CHECK(shippedCount(outcome) < 4);
+    // B available only tomorrow: B is left as not eligible; A's two ship on their own trucks.
+    const M5LaneDateInput later = laneWith({sized("a1", "A", 6), sized("a2", "A", 6), sized("b1", "B", 4, dayAfter(1)),
+                                            sized("b2", "B", 4, dayAfter(1))},
+                                           2);
+    const M5LaneOutcome waiting = plan(later, syntheticProfile());
+    requireInvariants(waiting, later);
+    CHECK(shippedIds(waiting, later) == set<string>{"a1", "a2"});
+    CHECK(countCause(waiting, LeftOverCause::NotEligible) == 2);
+    CHECK(waiting.stop == StopReason::Completed);
+    m5Evidence::note("expected", {"groups apart: 2 trucks, no truck mixes A and B, rest over the reservation",
+                                  "B not available: a1, a2 ship, b1, b2 not eligible", "completed, no loop"});
+}
+
+TEST_CASE("X-REB-03/synthetic: copies use up all goods with no extra truck; an ineligible remainder takes no truck" * doctest::test_suite("m5")) {
+    const M5LaneDateInput exact = laneWith(fx30Units("u", 60), 3);
+    const M5LaneOutcome copies = plan(exact, syntheticProfile());
+    requireInvariants(copies, exact);
+    CHECK(copies.selected->trucks.size() == 2);
+    CHECK(copies.leftOver.empty());
+    const M5LaneDateInput input = laneWith(concat(fx30Units("now", 30), fx30Units("later", 5, "A", 0, dayAfter(1))), 3);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 5);
+    for (int unit = 0; unit < 5; ++unit) CHECK(shippedIds(outcome, input).count("later" + to_string(100 + unit)) == 0);
+    const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+    CHECK(text.find("unused reservations: 2") != string::npos);
+    CHECK(text.find("left: not eligible on this date: 5.00 unit loads") != string::npos);
+    m5Evidence::note("expected", {"60 on 3: 2 trucks", "5 due D+1 (pull off): no truck, 2 unused, reported not eligible"});
+}
+
+TEST_CASE("X-REB-05/synthetic: removing goods from a proven truck clears its proof; the goods come back once and the choice is made again" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 2);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    REQUIRE(outcome.selected);
+    CandidatePlan candidate = *outcome.selected;
+    CHECK(candidate.evidence.proof == ProofStatus::ProvenOptimal);
+    const size_t removed = candidate.trucks[0].atoms.back();
+    CandidateEditor(candidate).removeToLeftOver(0, removed, LeftOverCause::OverReservation);
+    storeRows(candidate, input);
+    CHECK(candidate.evidence.proof == ProofStatus::Unproven);
+    CHECK_FALSE(candidate.validation.has_value());
+    CHECK(count_if(candidate.leftOver.begin(), candidate.leftOver.end(), [&](const LeftOver& left) { return left.atom == removed; }) == 1);
+    CHECK(reconcile(snapshot, candidate).balanced);
+    // Checked again on its contents, the trimmed plan is legal; planned afresh, the better plan ships all 60.
+    CHECK(validateFinal(candidate, snapshot, syntheticProfile(), physicalSettings()).allPassed());
+    const M5LaneOutcome again = plan(input, syntheticProfile());
+    CHECK(again.finalValidationPassed);
+    CHECK(shippedCount(again) == 60);
+    m5Evidence::note("expected", {"proof ProvenOptimal -> Unproven, validation cleared", "removed unit left once, ledger balanced",
+                                  "trimmed plan rechecked", "fresh choice ships 60"});
+}
+
+TEST_CASE("X-REB-06/synthetic: a rebalance making a mixed-date stack with pull-forward off is refused; the later line never ships early" * doctest::test_suite("m5")) {
+    Atom stack = unitOf("mixed", "A", 100, 20, 100, 3000);
+    stack.unitLoads = 2.0;
+    Component later = stack.components[0];
+    later.source = "line-later";
+    later.dueDate = dayAfter(1);
+    later.offerKind = OfferKind::CanGo;
+    stack.components.push_back(later);
+    const M5LaneDateInput off = laneWith({fx30("now"), stack}, 1);
+    const DemandSnapshot snapshot = *buildSnapshot(off).snapshot;
+    // A move that puts the mixed stack on the truck: each unit's date is checked again, and it fails.
+    const CandidatePlan moved = checkedPlanOf(off, snapshot, {{0, 1}});
+    REQUIRE(moved.validation);
+    CHECK(moved.validation->eligibility == SectionStatus::Fail);
+    CHECK_FALSE(moved.validation->allPassed());
+    const M5LaneOutcome outcome = plan(off, syntheticProfile());
+    requireInvariants(outcome, off);
+    CHECK(shippedIds(outcome, off) == set<string>{"now"});
+    CHECK(causeOf(outcome, off, "mixed") == LeftOverCause::NotEligible);
+    m5Evidence::note("expected", {"mixed-date stack on a truck: eligibility fails", "planner: only 'now' ships, the stack not eligible"});
+}
+
+namespace {
+
+// X-REB-07: P0 cube 8 and P11 cube 9 (each 400 in long, so never together on 630 in), one reservation.
+M5LaneDateInput priorityPair() {
+    Atom urgent = unitOf("p0", "A", 400, 100, 1, 1);
+    urgent.floor.cubeCubicIn = 8.0 * 1728.0;
+    Atom later = unitOf("p11", "A", 400, 100, 1, 1, 11);
+    later.floor.cubeCubicIn = 9.0 * 1728.0;
+    M5LaneDateInput input = laneWith({urgent, later}, 1);
+    input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
+    return input;
+}
+
+}  // namespace
+
+TEST_CASE("X-REB-07/variantA: y = 7.9: both trucks would be accepted; P0 wins and is not replaced for fill" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = priorityPair();
+    CHECK_FALSE(checkTruck(input, {0, 1}, kDefaultTrailer, physicalSettings()).fits);
+    const NumericAcceptance rule{10.0, 7.9};
+    CHECK(evaluateAcceptance(1.0, 8.0 * 1728.0, rule).accepted);
+    CHECK(evaluateAcceptance(1.0, 9.0 * 1728.0, rule).accepted);
+    const M5LaneOutcome outcome = plan(input, withAcceptance(syntheticProfile(), 10.0, 7.9));
+    requireInvariants(outcome, input);
+    CHECK(shippedIds(outcome, input) == set<string>{"p0"});
+    CHECK(causeOf(outcome, input, "p11") == LeftOverCause::OverReservation);
+    m5Evidence::note("expected", {"cannot fit together", "both accepted at y 7.9", "P0 ships, P11 over the reservation"});
+}
+
+TEST_CASE("X-REB-07/variantB: y = 8: the P0 truck fails on equality; the accepted P11 truck ships" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = priorityPair();
+    const NumericAcceptance rule{10.0, 8.0};
+    CHECK_FALSE(evaluateAcceptance(1.0, 8.0 * 1728.0, rule).accepted);
+    CHECK(evaluateAcceptance(1.0, 9.0 * 1728.0, rule).accepted);
+    const M5LaneOutcome outcome = plan(input, withAcceptance(syntheticProfile(), 10.0, 8.0));
+    requireInvariants(outcome, input);
+    CHECK(shippedIds(outcome, input) == set<string>{"p11"});
+    CHECK(causeOf(outcome, input, "p0").has_value());
+    REQUIRE(outcome.selected);
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == SectionStatus::Pass);
+    m5Evidence::note("expected", {"8 is not > 8: P0 truck fails", "P11 truck accepted and ships", "priority never ships an unaccepted truck"});
+}
+
+TEST_CASE("X-REB-07/productionProfile: acceptance OFF: choice by CL-02, the P0 truck" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = priorityPair();
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedIds(outcome, input) == set<string>{"p0"});
+    CHECK(causeOf(outcome, input, "p11") == LeftOverCause::OverReservation);
+    REQUIRE(outcome.selected->validation);
+    CHECK(outcome.selected->validation->acceptance == SectionStatus::NotApplicable);
+    m5Evidence::note("expected", {"P0 ships", "acceptance not applicable"});
+}
+
+TEST_CASE("X-REB-08/synthetic: moving B (W 7) onto A (W 4) breaks W = 10 at 11; the move is refused and fully undone" * doctest::test_suite("m5")) {
+    // V as floor length (6 -> 378 in, 4 -> 252 in of 630), W in thousands of lb on a 10,000 lb trailer.
+    const TrailerCapability tenThousand{630.0, 100.0, 108.0, 10000.0, kFixtureUnitLoadCap};
+    const M5LaneDateInput input = laneWith({unitOf("a", "A", 378, 100, 50, 4000), unitOf("b", "A", 252, 100, 50, 7000)}, 2, tenThousand);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CHECK_FALSE(checkTruck(input, {0, 1}, tenThousand, physicalSettings()).fits);
+    const CandidatePlan start = checkedPlanOf(input, snapshot, {{0}, {1}});
+    REQUIRE(start.validation->allPassed());
+    const unique_ptr<AllocationComparator> comparator = makeComparator(ComparatorKind::M4Urgency, tieOrderFor(snapshot));
+    const UrgencyDomain domain(snapshot);
+    const RepairProposal merge = [&](CandidatePlan& work, size_t iteration) {
+        if (iteration > 0) return false;
+        CandidateEditor(work).moveAtom(1, 0, 1);
+        storeRows(work, input);
+        return true;
+    };
+    const RepairRun run = runRepair(start, snapshot, syntheticProfile(), physicalSettings(), *comparator, domain, merge, 3, StopCheck());
+    REQUIRE(run.incumbent);
+    CHECK(run.incumbent->revision == start.revision);
+    REQUIRE(run.incumbent->trucks.size() == 2);
+    CHECK(run.incumbent->trucks[0].atoms == vector<size_t>{0});
+    CHECK(run.incumbent->trucks[1].atoms == vector<size_t>{1});
+    CHECK(run.checkedRevisions.size() == 1);
+    // The planner never puts them together either: two trucks, each under 10,000 lb.
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(outcome.selected->trucks.size() == 2);
+    m5Evidence::note("expected", {"4,000 + 7,000 = 11,000 > 10,000: refused", "incumbent unchanged (same revision, same trucks)",
+                                  "planner: 2 trucks"});
+}
+
+TEST_CASE("X-BLK-01/synthetic: block 19 over 0, 1, 18, 19, 20, 37, 38, 39 trucks of goods: no empty block, each good once" * doctest::test_suite("m5")) {
+    const vector<pair<size_t, vector<size_t>>> expected{{0, {}},       {1, {1}},       {18, {18}},     {19, {19}},
+                                                        {20, {19, 1}}, {37, {19, 18}}, {38, {19, 19}}, {39, {19, 19, 1}}};
+    for (const auto& [goods, sizes] : expected) {
+        INFO(goods << " trucks of goods");
+        const M5LaneDateInput input = laneWith(blocks(goods), 39);
+        const vector<size_t> built = blockSizes(input);
+        CHECK(built == sizes);
+        for (const size_t size : built) CHECK(size > 0);
+        const M5LaneOutcome outcome = plan(input, blocksOnly());
+        if (goods == 0) {
+            CHECK(shippedCount(outcome) == 0);
+            CHECK(outcome.leftOver.empty());
+        } else {
+            requireEachBlockOnce(outcome, input, goods);
+        }
+    }
+    m5Evidence::note("expected", {"[] [1] [18] [19] [19,1] [19,18] [19,19] [19,19,1]", "no empty block", "every good once"});
+}
+
+TEST_CASE("X-BLK-02/synthetic: 40 trucks of goods on 38 reserved: 19 + 19, 2 left; no third block; priority picks the 2" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = blocks(38);
+    atoms.push_back(fxBlock("late1", "A", 11));
+    atoms.push_back(fxBlock("late2", "A", 11));
+    const M5LaneDateInput input = laneWith(atoms, 38);
+    CHECK(blockSizes(input) == vector<size_t>{19, 19});
+    const M5LaneOutcome outcome = plan(input, blocksOnly());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 38);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 2);
+    CHECK(causeOf(outcome, input, "late1") == LeftOverCause::OverReservation);
+    CHECK(causeOf(outcome, input, "late2") == LeftOverCause::OverReservation);
+    m5Evidence::note("expected", {"blocks 19 + 19", "38 trucks", "the two P11 left over the reservation"});
+}
+
+TEST_CASE("X-BLK-03/synthetic: 30 trucks of goods on 38 reserved: 19 + 11, 8 unused reported, no empty truck" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(30), 38);
+    CHECK(blockSizes(input) == vector<size_t>{19, 11});
+    const M5LaneOutcome outcome = plan(input, blocksOnly());
+    requireEachBlockOnce(outcome, input, 30);
+    const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+    CHECK(text.find("reserved: 38\n") != string::npos);
+    CHECK(text.find("trucks loaded: 30\n") != string::npos);
+    CHECK(text.find("unused reservations: 8,") != string::npos);
+    m5Evidence::note("expected", {"blocks 19 + 11", "30 trucks, none empty", "8 unused reported"});
+}
+
+TEST_CASE("X-BLK-04/synthetic: groups share the 21 reserved: a first block of 19 leaves 2 for all else, never 21 each" * doctest::test_suite("m5")) {
+    vector<Atom> atoms = blocks(19, "A");
+    for (Atom& atom : blocks(5, "B")) {
+        for (Component& component : atom.components) component.priority = 5;
+        atoms.push_back(atom);
+    }
+    const M5LaneDateInput input = laneWith(atoms, 21);
+    const M5LaneOutcome outcome = plan(input, blocksOnly());
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 21);
+    CHECK(shippedOfGroup(outcome, input, "A") == 19);
+    CHECK(shippedOfGroup(outcome, input, "B") == 2);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 3);
+    CHECK(singleGroupTrucks(outcome, input));
+    m5Evidence::note("expected", {"21 trucks in all", "A's 19 P0, then B's 2 P5", "3 of B over the reservation"});
+}
+
+TEST_CASE("X-BLK-05/synthetic: A with fewer trucks but one failing its floor cannot win; B valid wins; both invalid is no plan" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 61), 3);
+    auto planWith = [&](GroupTrucks first, GroupTrucks second) {
+        return planWithServices(input, syntheticProfile(), [&](M5RunServices& services) {
+            services.methods = {make_shared<FixedMethod>(MethodId::PatternRepeat, first),
+                                make_shared<FixedMethod>(MethodId::RollingBlocks, second)};
+        });
+    };
+    Truck overfull;
+    for (size_t atom = 0; atom < 31; ++atom) overfull.push_back(atom);
+    Truck rest;
+    for (size_t atom = 31; atom < 61; ++atom) rest.push_back(atom);
+    const Truck first30(overfull.begin(), overfull.begin() + 30);
+    CHECK_FALSE(checkTruck(input, overfull, kDefaultTrailer, physicalSettings()).fits);
+    const M5LaneOutcome valid = planWith({overfull}, {first30, rest});
+    requireInvariants(valid, input);
+    REQUIRE(valid.selected);
+    CHECK(valid.selected->method == MethodId::RollingBlocks);
+    CHECK(shippedCount(valid) == 60);
+    CHECK(eachAtomOnce(valid, input));
+    REQUIRE(valid.methods.size() == 2);
+    CHECK_FALSE(valid.methods[0].selected);
+    const M5LaneOutcome neither = planWith({overfull}, {overfull});
+    requireInvariants(neither, input);
+    CHECK_FALSE(neither.hasCandidate);
+    CHECK((!neither.selected || neither.selected->trucks.empty()));
+    CHECK(shippedCount(neither) == 0);
+    CHECK(neither.leftOver.size() == 61);
+    CHECK(eachAtomOnce(neither, input));
+    m5Evidence::note("expected", {"A (1 overfull truck) not selected", "B ships 60", "both invalid: no plan, 61 kept"});
+}
+
+TEST_CASE("X-BLK-06/synthetic: A ships 30 P0 in three, B 20 in two; both pass acceptance; A wins, fewer trucks is not better" * doctest::test_suite("m5")) {
+    vector<Atom> atoms;
+    for (int unit = 0; unit < 30; ++unit) atoms.push_back(unitOf("t" + to_string(100 + unit), "A", 100, 63, 108, 4500));
+    const M5LaneDateInput input = laneWith(atoms, 3);
+    M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    profile.comparator = ComparatorKind::FxPriority;
+    // Ten of 63 in fill 630 in; 10 x 4,500 = 45,000 lb > 40,000: each truck of either candidate is accepted.
+    CHECK(checkTruck(input, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, kDefaultTrailer, physicalSettings()).fits);
+    CHECK(evaluateAcceptance(45000.0, 10 * 100.0 * 63.0 * 108.0, *profile.acceptance).accepted);
+    const M5LaneOutcome outcome = planWithServices(input, profile, [&](M5RunServices& services) {
+        services.methods = {make_shared<FixedMethod>(MethodId::PatternRepeat, 3, 10), make_shared<FixedMethod>(MethodId::RollingBlocks, 2, 10)};
+    });
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->method == MethodId::PatternRepeat);
+    CHECK(shippedCount(outcome) == 30);
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK(outcome.methods[0].unitLoads == 30.0);
+    CHECK(outcome.methods[1].unitLoads == 20.0);
+    CHECK(outcome.methods[0].validated);
+    CHECK(outcome.methods[1].validated);
+    CHECK(eachAtomOnce(outcome, input));
+    m5Evidence::note("expected", {"both candidates accepted", "A: 30 in 3, B: 20 in 2", "A selected", "same 30 source units accounted"});
+}
+
+namespace {
+
+// 39 FX-BLOCK on 39: blocks 1 and 2 (38 trucks) finish; the clock passes the allowance inside block 3.
+M5LaneOutcome stoppedInThirdBlock(const M5LaneDateInput& input, bool rollback) {
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 100.0;
+    services.wholeLaneRollback = rollback;
+    services.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) clock.advance(1000.0);
+    };
+    return planLaneDate(input, blocksOnly(), physicalSettings(), services);
+}
+
+}  // namespace
+
+TEST_CASE("X-BLK-08/keepValidated: the failing block is undone; only the checked blocks return, labelled partial; nothing is consumed" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    const M5LaneOutcome keep = stoppedInThirdBlock(input, false);
+    requireInvariants(keep, input);
+    CHECK(keep.kind == OutcomeKind::TimeoutWithIncumbent);
+    REQUIRE(keep.selected);
+    CHECK(keep.selected->trucks.size() == 38);
+    CHECK(keep.finalValidationPassed);
+    CHECK(keep.proof != ProofStatus::ProvenOptimal);
+    CHECK(keep.leftOver.size() == 1);
+    CHECK(eachAtomOnce(keep, input));
+    // Validation alone consumes nothing: the operational state moves only when the delta is applied.
+    REQUIRE(keep.delta);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 39};
+    CHECK(state.consumedAtoms.empty());
+    REQUIRE(ledger.applyIfCurrent(*keep.delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 38);
+    m5Evidence::note("expected", {"timeout with incumbent: 38 checked trucks, 1 left", "not proven", "nothing consumed before commit"});
+}
+
+TEST_CASE("X-BLK-08/wholeLaneRollback: the same stop under whole-lane rollback returns no candidate; every good kept" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    const M5LaneOutcome rollback = stoppedInThirdBlock(input, true);
+    requireInvariants(rollback, input);
+    CHECK_FALSE(rollback.selected.has_value());
+    CHECK_FALSE(rollback.delta.has_value());
+    CHECK(countCause(rollback, LeftOverCause::NoResult) == 39);
+    CHECK(eachAtomOnce(rollback, input));
+    m5Evidence::note("expected", {"no candidate, no delta", "39 left as no checked plan"});
+}
+
 TEST_CASE("U-AC-02 a failing second truck of five is withheld, the others ship" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 130), 5);
     const M5LaneOutcome outcome = plan(input, withAcceptance(syntheticProfile(), 40000.0, 3000.0));
