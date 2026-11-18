@@ -4,6 +4,7 @@
 // ledger, fake-clock trace and rectangle checks; they never call production code.
 #include "doctest.h"
 #include "m5FloorSearch.hpp"
+#include "floorPattern.hpp"
 #include "m5Physical.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <set>
 #include <string>
 #include <thread>
@@ -472,4 +474,46 @@ TEST_CASE("X-PAT-18 a supplied witness is judged by the site's turning rule: a t
     fixedShort.fixedOrientation = ob::FixedOrientation::ShortSideAcross;
     CHECK(validateSuppliedWitness(input, firstAtoms(2), shortSideAcross, kSlot, fixedShort).valid);
     CHECK(turnedFinding(validateSuppliedWitness(input, firstAtoms(2), longSideAcross, kSlot, fixedShort)));
+}
+
+TEST_CASE("PR-10e the row work of assembled and repaired trucks draws on the lane-date's route budget" * doctest::test_suite("m5")) {
+    // A load that the sorted arrangement cannot fit but a search over row groupings can: its rows cost states.
+    const vector<pair<double, double>> shapes{{72, 60}, {80, 48}, {120, 48}, {48, 48}, {96, 40}, {60, 60}, {40, 33}, {100, 50}, {110, 40}, {90, 55}, {80, 60}, {100, 60}};
+    mt19937 generator(20261125);
+    vector<Atom> found;
+    for (int attempt = 0; attempt < 4000 && found.empty(); ++attempt) {
+        vector<Atom> atoms;
+        for (size_t stack = 0; stack < 12; ++stack) {
+            const auto shape = shapes[uniform_int_distribution<size_t>(0, shapes.size() - 1)(generator)];
+            atoms.push_back(unitOf("s" + to_string(100 + stack), "A", shape.first, shape.second, 50.0, 1000.0));
+        }
+        vector<ob::FloorItem> floors;
+        for (const Atom& atom : atoms) floors.push_back(atom.floor);
+        const ob::TrailerSpec trailer = trailerOf(kDefaultTrailer);
+        const ob::FloorLayout sorted = ob::arrangeFloorSorted(floors, trailer, physicalSettings().floor);
+        if (sorted.fitsLength) continue;
+        const ob::FloorLayout searched = ob::arrangeFloor(floors, trailer, physicalSettings().floor);
+        if (searched.fitsLength && searched.unplaceableItems.empty()) found = atoms;
+    }
+    REQUIRE_FALSE(found.empty());
+    const M5LaneDateInput lane = laneWith(found, 1);
+    const M5LaneOutcome normal = plan(lane, syntheticProfile());
+    REQUIRE(normal.selected);
+    size_t shipped = 0;
+    for (const TruckPlan& truck : normal.selected->trucks) shipped += truck.atoms.size();
+    CHECK(shipped >= 1);
+    // The rows stored for the assembled trucks are part of the count: 251 states before PR-10e, 325 once they join the route.
+    CHECK(normal.floorSearch.statesCharged > 251);
+    CHECK(normal.floorSearch.statesCharged <= normal.floorSearch.routeStates);
+
+    // A route of one state: no search spends more than that, the assembled trucks' rows included.
+    PhysicalSettings starved = physicalSettings();
+    starved.floor.routeSearchStateLimit = 1;
+    starved.floor.searchStateLimit = 1;
+    FakeClock clock;
+    const M5RunServices services(clock);
+    const M5LaneOutcome limited = planLaneDate(lane, syntheticProfile(), starved, services);
+    CHECK(limited.floorSearch.routeStates == 1);
+    CHECK(limited.floorSearch.statesCharged <= 1);
+    m5Evidence::note("expected", {"a load that needs a grouping search charges states in a normal run", "a one-state route never spends more than one"});
 }

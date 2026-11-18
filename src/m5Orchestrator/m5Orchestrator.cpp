@@ -69,7 +69,10 @@ CandidatePlan assemble(const DemandSnapshot& snapshot, MethodId method, const Al
         truck.slot = sameCap || rank >= slotOrder.size() ? rank : slotOrder[rank];
         truck.group = snapshot.groups[groupOfTruck[truckOrder[rank]]];
         truck.atoms = chosenTrucks[truckOrder[rank]];
-        if (truck.slot < slots.size()) truck.layout = checkTruck(snapshot.input, truck.atoms, slots[truck.slot], physical).layout;
+        // The truck's rows are floor work of this lane-date: drawn from its route budget like every other search.
+        if (truck.slot < slots.size()) {
+            truck.layout = checkTruckInRoute(snapshot.input, truck.atoms, slots[truck.slot], physical, physical.floor.searchStateLimit).layout;
+        }
         for (const size_t atom : truck.atoms) shipped[atom] = 1;
         plan.trucks.push_back(std::move(truck));
     }

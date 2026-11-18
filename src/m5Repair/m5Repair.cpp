@@ -90,7 +90,10 @@ RepairRun runRepair(const CandidatePlan& start, const DemandSnapshot& snapshot, 
         // A moved good makes the stored floor no witness of its truck any more.
         for (TruckPlan& truck : work.trucks) {
             if (truck.slot < snapshot.input.pool.slots.size()) {
-                truck.layout = checkTruck(snapshot.input, truck.atoms, snapshot.input.pool.slots[truck.slot], physical).layout;
+                // A repaired truck's rows draw on the route budget as every other search does.
+                truck.layout = checkTruckInRoute(snapshot.input, truck.atoms, snapshot.input.pool.slots[truck.slot], physical,
+                                                 physical.floor.searchStateLimit)
+                                   .layout;
             }
         }
         work.validation = validateFinal(work, snapshot, profile, physical, stop);
