@@ -687,7 +687,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 (R-4 explicit comparison)",
       "localOverrides": "30 P11 due D-1 vs 30 P0 due D; carry on",
       "entryPoint": "DIRECT",
@@ -737,7 +737,7 @@
         "M-LED"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 (R-4 explicit comparison)",
       "localOverrides": "30 P11 due D-1 vs 30 P0 due D; carry on",
       "entryPoint": "DIRECT",
@@ -4656,7 +4656,7 @@
         "M-VAL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + FX-PRIORITY",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4705,7 +4705,7 @@
         "M-M4"
       ],
       "workPackage": "WP1",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Routing.cpp",
       "fixture": "Input-validation fixture",
       "localOverrides": "-1, 12, 99, empty, text, 1.5",
       "entryPoint": "DIRECT",
@@ -4753,7 +4753,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 (R-4 setup)",
       "localOverrides": "",
       "entryPoint": "DIRECT",
@@ -4799,7 +4799,7 @@
         "M-POL"
       ],
       "workPackage": "WP5",
-      "testFile": "tests/m5/testM5Planning.cpp",
+      "testFile": "tests/m5/testM5Planning.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 (R-4 setup)",
       "localOverrides": "",
       "entryPoint": "DIRECT",

@@ -317,6 +317,39 @@ TEST_CASE("X-RUN-01 U-PF-03 the same input plans the same at 1, 2 and 8 threads"
     }
 }
 
+TEST_CASE("U-RS-05/synthetic: a priority of -1, 12, 99, empty, text or 1.5 is refused and reported, never clamped" * doctest::test_suite("m5")) {
+    // Through the importer and selection: each bad TPRIO is counted and its goods never ship.
+    const vector<nlohmann::json> badPriorities{-1, 12, 99, "", "x", 1.5};
+    string extraLines;
+    int lineNumber = 20;
+    for (const nlohmann::json& priority : badPriorities) {
+        nlohmann::json line = m4SmallDay::SmallDay::lineJson("OTHER", 8, "TL");
+        line["TPRIO"] = priority;
+        line["BNFPO"] = lineNumber++;
+        extraLines += "," + line.dump();
+    }
+    const m4SmallDay::SmallDay base("uRs05Base");
+    const m4SmallDay::SmallDay bad("uRs05Bad", extraLines);
+    const PipelineResult before = Pipeline::run(base.inputs);
+    const PipelineResult after = Pipeline::run(bad.inputs);
+    CHECK(after.validation.unreadablePriority == 6);
+    size_t refused = 0;
+    for (const RejectedItem& rejected : after.selectionItems.rejected) refused += rejected.reason == ItemRejection::UnreadablePriority ? 1 : 0;
+    CHECK(refused >= 1);
+    CHECK(after.selectionPlan.trucks.size() == before.selectionPlan.trucks.size());
+    double shippedBefore = 0.0, shippedAfter = 0.0;
+    for (const PlannedTruck& truck : before.selectionPlan.trucks) shippedBefore += truck.unitLoads;
+    for (const PlannedTruck& truck : after.selectionPlan.trucks) shippedAfter += truck.unitLoads;
+    CHECK(shippedAfter == shippedBefore);
+    // At M5's own boundary an out-of-range priority refuses the lane-date's input.
+    for (const int priority : {-1, 12, 99}) {
+        m5::M5LaneDateInput input = m5Fixtures::laneWith(m5Fixtures::fx30Units("u", 3), 1);
+        input.atoms[1].components[0].priority = priority;
+        CHECK(m5Fixtures::plan(input, m5Fixtures::syntheticProfile()).kind == m5::OutcomeKind::InvalidInput);
+    }
+    m5Evidence::note("expected", {"6 bad TPRIO lines counted unreadable", "their goods rejected, plan unchanged", "M5: -1, 12, 99 refused"});
+}
+
 TEST_CASE("U-DA-06/synthetic: a combo lane stops the run with a clear message (multi-stop and temperature class not covered)" * doctest::test_suite("m5")) {
     const m4SmallDay::SmallDay combo("uDa06Combo", "," + m4SmallDay::SmallDay::line("GOOD", 16, "TF"));
     string message;

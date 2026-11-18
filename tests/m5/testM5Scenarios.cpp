@@ -387,13 +387,107 @@ TEST_CASE("X-RES-08 unavailable or oversized P0 stays with its reason; P11 ships
     CHECK(countCause(second, LeftOverCause::Unfittable) == 30);
 }
 
-TEST_CASE("U-RS-01 trucks never exceed the reserved count, whatever the goods" * doctest::test_suite("m5")) {
-    for (const size_t slots : {size_t{1}, size_t{2}, size_t{5}}) {
-        const M5LaneDateInput input = laneWith(fx30Units("u", 200), slots);
+TEST_CASE("U-RS-01/synthetic: trucks used never exceed the reserved count of the lane-date, whatever the goods" * doctest::test_suite("m5")) {
+    for (const size_t slots : {size_t{1}, size_t{2}, size_t{5}, size_t{21}}) {
+        INFO(slots << " reserved, 1,000 units");
+        const M5LaneDateInput input = laneWith(fx30Units("u", 1000), slots);
         const M5LaneOutcome outcome = plan(input, syntheticProfile());
-        CHECK(outcome.selected->trucks.size() == slots);
         requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(outcome.selected->trucks.size() == slots);
+        CHECK(shippedCount(outcome) == 30 * slots);
+        CHECK(countCause(outcome, LeftOverCause::OverReservation) == 1000 - 30 * slots);
+        set<size_t> slotsUsed;
+        for (const TruckPlan& truck : outcome.selected->trucks) slotsUsed.insert(truck.slot);
+        CHECK(slotsUsed.size() == outcome.selected->trucks.size());
+        CHECK(*slotsUsed.rbegin() < slots);
     }
+    // Few goods: fewer trucks than reserved, never more.
+    const M5LaneDateInput few = laneWith(fx30Units("v", 10), 5);
+    const M5LaneOutcome fewOutcome = plan(few, syntheticProfile());
+    requireInvariants(fewOutcome, few);
+    CHECK(fewOutcome.selected->trucks.size() == 1);
+    m5Evidence::note("expected", {"1/2/5/21 reserved: exactly that many trucks of 30, each slot once", "10 units on 5 reserved: 1 truck"});
+}
+
+TEST_CASE("U-RS-03/synthetic: fewer trucks than goods: full priority decides across groups" * doctest::test_suite("m5")) {
+    // One truck: B's P0 beat A's P5 and C's P11, whatever the group order.
+    const vector<Atom> atoms = concat(concat(fx30Units("a", 30, "A", 5), fx30Units("b", 30, "B", 0)), fx30Units("c", 30, "C", 11));
+    const M5LaneDateInput one = laneWith(atoms, 1);
+    const M5LaneOutcome first = plan(one, syntheticProfile());
+    requireInvariants(first, one);
+    CHECK(shippedOfGroup(first, one, "B") == 30);
+    CHECK(shippedCount(first) == 30);
+    // Two trucks: P0 then P5; P11 is left over the reservation.
+    const M5LaneDateInput two = laneWith(atoms, 2);
+    const M5LaneOutcome second = plan(two, syntheticProfile());
+    requireInvariants(second, two);
+    CHECK(shippedOfGroup(second, two, "B") == 30);
+    CHECK(shippedOfGroup(second, two, "A") == 30);
+    CHECK(shippedOfGroup(second, two, "C") == 0);
+    CHECK(countCause(second, LeftOverCause::OverReservation) == 30);
+    // Reversed input order: the same goods ship.
+    const vector<Atom> reversed(atoms.rbegin(), atoms.rend());
+    const M5LaneDateInput backward = laneWith(reversed, 2);
+    CHECK(shippedIds(plan(backward, syntheticProfile()), backward) == shippedIds(second, two));
+    m5Evidence::note("expected", {"1 truck: B's 30 P0", "2 trucks: B P0 and A P5, C P11 left", "input order irrelevant"});
+}
+
+TEST_CASE("U-RS-04/synthetic: a priority tie is broken the same way every run" * doctest::test_suite("m5")) {
+    // Two groups of equal class compete for one truck.
+    const M5LaneDateInput input = laneWith(concat(fx30Units("a", 40, "A", 3), fx30Units("b", 40, "B", 3)), 1);
+    const M5LaneOutcome first = plan(input, syntheticProfile());
+    requireInvariants(first, input);
+    REQUIRE(first.selected);
+    CHECK(first.selected->trucks.size() == 1);
+    CHECK(shippedCount(first) == 30);
+    CHECK((shippedOfGroup(first, input, "A") == 30) != (shippedOfGroup(first, input, "B") == 30));
+    for (int run = 0; run < 5; ++run) {
+        const M5LaneOutcome again = plan(input, syntheticProfile());
+        REQUIRE(again.selected);
+        REQUIRE(again.selected->trucks.size() == first.selected->trucks.size());
+        for (size_t truck = 0; truck < first.selected->trucks.size(); ++truck) {
+            CHECK(again.selected->trucks[truck].atoms == first.selected->trucks[truck].atoms);
+            CHECK(again.selected->trucks[truck].slot == first.selected->trucks[truck].slot);
+        }
+    }
+    m5Evidence::note("expected", {"equal classes, one truck: one group's 30 ship", "same trucks and slots in 6 runs"});
+}
+
+namespace {
+
+// R-4 setup: 30 overdue P11 (due and available the day before) against 30 current P0, one truck.
+M5LaneDateInput r4Lane(ob::PastDueOrder order) {
+    M5LaneDateInput input = laneWith(concat(fx30Units("old-", 30, "A", 11, kDayBefore, kDayBefore), fx30Units("now-", 30, "A", 0)), 1);
+    input.pastDueOrder = order;
+    return input;
+}
+
+size_t shippedWithIdPrefix(const M5LaneOutcome& outcome, const M5LaneDateInput& input, const string& prefix) {
+    const set<string> shipped = shippedIds(outcome, input);
+    return static_cast<size_t>(count_if(shipped.begin(), shipped.end(), [&](const string& id) { return id.rfind(prefix, 0) == 0; }));
+}
+
+}  // namespace
+
+TEST_CASE("U-RS-06/synthetic: order setting ship date first: the older goods ship first (R-4a)" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = r4Lane(ob::PastDueOrder::AgeFirst);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedWithIdPrefix(outcome, input, "old-") == 30);
+    CHECK(shippedWithIdPrefix(outcome, input, "now-") == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 30);
+    m5Evidence::note("expected", {"AgeFirst: 30 overdue P11 ship", "30 current P0 left over the reservation"});
+}
+
+TEST_CASE("U-RS-07/synthetic: order setting priority first: the urgent goods ship first (R-4b)" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = r4Lane(ob::PastDueOrder::PriorityFirst);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedWithIdPrefix(outcome, input, "now-") == 30);
+    CHECK(shippedWithIdPrefix(outcome, input, "old-") == 0);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 30);
+    m5Evidence::note("expected", {"PriorityFirst: 30 current P0 ship", "30 overdue P11 left over the reservation"});
 }
 
 TEST_CASE("U-RS-01/hundredAndOneReserved: one unit on 101 reservations ships on one truck, 100 unused, no empty loads" * doctest::test_suite("m5")) {
@@ -503,6 +597,33 @@ TEST_CASE("U-PF-07/wallClockShift: wall-clock jumps neither extend nor cut a 10-
     CHECK(stopped.kind == OutcomeKind::TimeoutWithIncumbent);
     requireInvariants(stopped, input);
     m5Evidence::note("expected", {"remaining 7 after 3 s and +/-24 h", "exhausted at 10 monotonic s"});
+}
+
+TEST_CASE("U-RS-02/synthetic: unused reservations are reserved minus used per lane-date; the penalty applies once; a missing rate is unknown, not zero" * doctest::test_suite("m5")) {
+    M5PolicyProfile five = syntheticProfile(), unknown = syntheticProfile();
+    five.penaltyPerUnusedTruck = 5.0;
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 3);
+    const M5LaneOutcome outcome = plan(input, five);
+    requireInvariants(outcome, input);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 1);
+    const M5ReportData data = buildReportData(outcome, input, &five, {});
+    CHECK(data.reservedTrucks == 3);
+    CHECK(data.loadedTrucks == 1);
+    CHECK(data.unusedReservations == 2);
+    REQUIRE(data.penaltyAmount);
+    CHECK(*data.penaltyAmount == 10.0);
+    const string text = renderAscii(data);
+    CHECK(text.find("unused reservations: 2, penalty 5.00 per unused truck = 10.00\n") != string::npos);
+    // Once: the amount is on one line only, not repeated per truck or per method.
+    CHECK(text.find("= 10.00") == text.rfind("= 10.00"));
+    const M5ReportData missing = buildReportData(plan(input, unknown), input, &unknown, {});
+    CHECK(missing.unusedReservations == 2);
+    CHECK_FALSE(missing.penaltyAmount.has_value());
+    const string missingText = renderAscii(missing);
+    CHECK(missingText.find("unused reservations: 2, penalty unknown\n") != string::npos);
+    CHECK(missingText.find("= 0.00") == string::npos);
+    m5Evidence::note("expected", {"3 reserved - 1 used = 2 unused", "penalty 5 x 2 = 10, once", "no rate: unknown, no amount"});
 }
 
 TEST_CASE("U-RS-02 X-RES-10 unused reservations and their penalty: known rates add, missing is unknown" * doctest::test_suite("m5")) {
@@ -1041,6 +1162,87 @@ TEST_CASE("X-DATE-02 X-DATE-03 U-RS-09 U-RS-10 U-RS-11 date rules on the departu
     const set<string> shipped = shippedIds(plan(window, syntheticProfile()), window);
     CHECK(shipped.size() == 10);
     CHECK(all_of(shipped.begin(), shipped.end(), [](const string& id) { return id.rfind("d9-", 0) == 0; }));
+}
+
+TEST_CASE("U-RS-08/synthetic: carry forward on: goods not taken move once to the lane's next reserved date; with no next date they are left over" * doctest::test_suite("m5")) {
+    M5LaneDateInput first = laneWith(fx30Units("u", 60, "A", 3), 1);
+    M5LaneDateInput fourLater = laneWith({}, 1);
+    fourLater.departure = dayAfter(4);
+    FakeClock clock;
+    const LinkedDateBenchmark carried = benchmarkLinkedDates({first, fourLater}, syntheticProfile(), physicalSettings(), clock);
+    REQUIRE(carried.outcomes.size() == 2);
+    const set<string> onD = shippedIds(carried.outcomes[0], carried.inputs[0]);
+    const set<string> onLater = shippedIds(carried.outcomes[1], carried.inputs[1]);
+    CHECK(onD.size() == 30);
+    CHECK(onLater.size() == 30);
+    // Moved, not copied: exactly the 30 not taken on D, each once, none shipped twice.
+    CHECK(carried.inputs[1].atoms.size() == 30);
+    for (const string& id : onLater) CHECK(onD.count(id) == 0);
+    set<string> all(onD);
+    all.insert(onLater.begin(), onLater.end());
+    CHECK(all.size() == 60);
+    CHECK(carried.outcomes[1].leftOver.empty());
+    // The last reserved date: no date is made up; what does not fit is left over.
+    const LinkedDateBenchmark last = benchmarkLinkedDates({first}, syntheticProfile(), physicalSettings(), clock);
+    REQUIRE(last.outcomes.size() == 1);
+    CHECK(shippedCount(last.outcomes[0]) == 30);
+    CHECK(countCause(last.outcomes[0], LeftOverCause::OverReservation) == 30);
+    m5Evidence::note("expected", {"D: 30 ship", "D+4: the other 30 ship, moved once", "no next date: 30 left over"});
+}
+
+TEST_CASE("U-RS-09/synthetic: pull forward on, 10 days: due D+9 and D+10 come in, D+11 does not; AVAIL_DATE still applies" * doctest::test_suite("m5")) {
+    const vector<Atom> atoms = concat(concat(fx30Units("d9-", 5, "A", 0, dayAfter(9)), fx30Units("d10-", 5, "A", 0, dayAfter(10))),
+                                      concat(fx30Units("d11-", 5, "A", 0, dayAfter(11)), fx30Units("late-", 5, "A", 0, dayAfter(10), dayAfter(1))));
+    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, true);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedWithIdPrefix(outcome, input, "d9-") == 5);
+    CHECK(shippedWithIdPrefix(outcome, input, "d10-") == 5);
+    CHECK(shippedWithIdPrefix(outcome, input, "d11-") == 0);
+    CHECK(shippedWithIdPrefix(outcome, input, "late-") == 0);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 10);
+    const DateRules rules{true, 10};
+    CHECK(atomEligibility(input.atoms[10], kD, rules).reason == EligibilityReason::DueBeyondPullWindow);
+    CHECK(atomEligibility(input.atoms[15], kD, rules).reason == EligibilityReason::NotAvailable);
+    m5Evidence::note("expected", {"D+9 and D+10 ship", "D+11 beyond the window", "available D+1: not on D"});
+}
+
+TEST_CASE("U-RS-10/synthetic: pull forward off: nothing ships early, a mixed-date stack included (R-3a)" * doctest::test_suite("m5")) {
+    Atom mixed = unitOf("mixed", "A", 100, 20, 108, 1500);
+    mixed.unitLoads = 2.0;
+    Component later = mixed.components[0];
+    later.source = mixed.components[0].source + "-later";
+    later.dueDate = dayAfter(1);
+    later.offerKind = OfferKind::CanGo;
+    mixed.components.push_back(later);
+    const vector<Atom> atoms = concat(concat(fx30Units("d", 10), fx30Units("d1-", 10, "A", 0, dayAfter(1))), {mixed});
+    const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, false);
+    const M5LaneOutcome outcome = plan(input, syntheticProfile());
+    requireInvariants(outcome, input);
+    CHECK(shippedWithIdPrefix(outcome, input, "d1-") == 0);
+    CHECK(shippedIds(outcome, input).count("mixed") == 0);
+    CHECK(shippedCount(outcome) == 10);
+    CHECK(countCause(outcome, LeftOverCause::NotEligible) == 11);
+    CHECK(atomEligibility(mixed, kD, DateRules{false, 10}).failingComponents == vector<size_t>{1});
+    m5Evidence::note("expected", {"10 due D ship", "10 due D+1 and the mixed stack not eligible"});
+}
+
+TEST_CASE("U-RS-11/synthetic: goods available after the ship date are not shipped on that date" * doctest::test_suite("m5")) {
+    const vector<Atom> atoms = concat(fx30Units("now-", 10), fx30Units("late-", 10, "A", 0, kD, dayAfter(1)));
+    for (const bool pull : {false, true}) {
+        INFO("pull forward " << pull);
+        const M5LaneDateInput input = laneWith(atoms, 1, kDefaultTrailer, pull);
+        const M5LaneOutcome outcome = plan(input, syntheticProfile());
+        requireInvariants(outcome, input);
+        CHECK(shippedWithIdPrefix(outcome, input, "now-") == 10);
+        CHECK(shippedWithIdPrefix(outcome, input, "late-") == 0);
+        CHECK(countCause(outcome, LeftOverCause::NotEligible) == 10);
+    }
+    // The same goods leave on D+1, the day they are available.
+    M5LaneDateInput next = laneWith(fx30Units("late-", 10, "A", 0, kD, dayAfter(1)), 1);
+    next.departure = dayAfter(1);
+    CHECK(shippedCount(plan(next, syntheticProfile())) == 10);
+    m5Evidence::note("expected", {"available D+1: not shipped on D, pull on or off", "shipped on D+1"});
 }
 
 TEST_CASE("X-DATE-04 X-DATE-05 U-RS-08 carry: 30 ship on D, 30 move once to D+4 keeping their age" * doctest::test_suite("m5")) {
