@@ -13152,7 +13152,7 @@
         "M-ALC"
       ],
       "workPackage": "WP7",
-      "testFile": "tests/m5/testM5Routing.cpp",
+      "testFile": "tests/m5/testM5Routing.cpp + tests/m5/testM5Scenarios.cpp",
       "fixture": "FX-30 + work-count stop",
       "localOverrides": "",
       "entryPoint": "DIRECT",

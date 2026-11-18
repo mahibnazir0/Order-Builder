@@ -27,6 +27,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <thread>
 #include <tuple>
 
 using namespace std;
@@ -237,6 +238,226 @@ TEST_CASE("X-RUN-07 retry before commit plans the original; after a partial comm
     CHECK(shippedCount(retry) == 1);
     CHECK(ledger.applyIfCurrent(*partial.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
     CHECK(state.consumedAtoms.size() == 38);
+}
+
+TEST_CASE("X-RUN-01/workCount: the same input stopped by a work count gives the same plan on 1, 2 and 8 threads" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
+    const auto runOnce = [&](long long work) {
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.workAllowance = work;
+        return planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    };
+    for (const long long work : {1LL, 3LL, 25LL, 1'000'000LL}) {
+        INFO("work allowance " << work);
+        const M5LaneOutcome reference = runOnce(work);
+        requireInvariants(reference, input);
+        for (const size_t threads : {size_t{1}, size_t{2}, size_t{8}}) {
+            vector<M5LaneOutcome> outcomes(threads);
+            vector<thread> workers;
+            for (size_t index = 0; index < threads; ++index) workers.emplace_back([&, index] { outcomes[index] = runOnce(work); });
+            for (thread& worker : workers) worker.join();
+            for (const M5LaneOutcome& outcome : outcomes) {
+                CHECK(outcome.kind == reference.kind);
+                CHECK(outcome.stop == reference.stop);
+                CHECK(outcome.leftOver.size() == reference.leftOver.size());
+                REQUIRE(outcome.selected.has_value() == reference.selected.has_value());
+                if (!outcome.selected) continue;
+                REQUIRE(outcome.selected->trucks.size() == reference.selected->trucks.size());
+                for (size_t truck = 0; truck < reference.selected->trucks.size(); ++truck) {
+                    CHECK(outcome.selected->trucks[truck].atoms == reference.selected->trucks[truck].atoms);
+                }
+            }
+        }
+    }
+    m5Evidence::note("expected", {"work allowances 1, 3, 25 and 1,000,000: each gives one plan whatever the thread count"});
+}
+
+TEST_CASE("X-RUN-01/wallClock: a run stopped by the clock is valid and honestly labelled, never a completed run" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 90), 3);
+    for (const double allowance : {0.5, 5.0, 50.0}) {
+        INFO("allowance " << allowance);
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.allowanceSeconds = allowance;
+        services.methods = {make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
+        services.beforeMethod = [&](MethodId) { clock.advance(3.0); };
+        const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+        requireInvariants(outcome, input);
+        const bool stopped = outcome.stop == StopReason::BudgetExhausted;
+        if (stopped) {
+            CHECK((outcome.kind == OutcomeKind::TimeoutWithIncumbent || outcome.kind == OutcomeKind::TimeoutNoIncumbent));
+            CHECK(outcome.kind != OutcomeKind::CompletedWithDispatch);
+            CHECK(outcome.kind != OutcomeKind::CompletedZeroDispatch);
+        } else {
+            CHECK(outcome.kind == OutcomeKind::CompletedWithDispatch);
+        }
+        if (outcome.selected) {
+            CHECK(outcome.finalValidationPassed);
+            REQUIRE(outcome.selected->validation.has_value());
+            CHECK(outcome.selected->validation->allPassed());
+        }
+        const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+        CHECK(text.find(stopped ? "(allowance spent)" : "(completed)") != string::npos);
+    }
+    m5Evidence::note("expected", {"a clock stop is a timeout kind with a checked plan or none", "never labelled completed", "valid plans only"});
+}
+
+TEST_CASE("X-RUN-03/keepValidated: time runs out while a later method's candidate is being repaired; only checked candidates stand, never half-repaired contents" * doctest::test_suite("m5")) {
+    // A is valid (two trucks of 30). B offers an overfull truck that repair must drop; the allowance is spent as B starts.
+    const M5LaneDateInput input = laneWith(fx30Units("u", 61), 3);
+    Truck firstThirty, secondThirty, overfull, lastThirty;
+    for (size_t atom = 0; atom < 30; ++atom) firstThirty.push_back(atom);
+    for (size_t atom = 30; atom < 60; ++atom) secondThirty.push_back(atom);
+    for (size_t atom = 0; atom < 31; ++atom) overfull.push_back(atom);
+    for (size_t atom = 31; atom < 61; ++atom) lastThirty.push_back(atom);
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 10.0;
+    services.methods = {make_shared<FixedMethod>(MethodId::PatternRepeat, GroupTrucks{firstThirty, secondThirty}),
+                        make_shared<FixedMethod>(MethodId::RollingBlocks, GroupTrucks{overfull, lastThirty})};
+    services.beforeMethod = [&](MethodId method) {
+        if (method == MethodId::RollingBlocks) clock.advance(100.0);
+    };
+    const M5LaneOutcome outcome = planLaneDate(input, syntheticProfile(), physicalSettings(), services);
+    requireInvariants(outcome, input);
+    CHECK(outcome.kind == OutcomeKind::TimeoutWithIncumbent);
+    CHECK(outcome.stop == StopReason::BudgetExhausted);
+    REQUIRE(outcome.selected);
+    CHECK(outcome.selected->trucks.size() == 2);
+    CHECK(shippedCount(outcome) == 60);
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        CHECK(truck.atoms.size() <= 30);
+        CHECK(truck.atoms.size() > 0);
+    }
+    REQUIRE(outcome.selected->validation.has_value());
+    CHECK(outcome.selected->validation->allPassed());
+    CHECK(outcome.finalValidationPassed);
+    CHECK(outcome.selected->evidence.proof != ProofStatus::ProvenOptimal);
+    CHECK(outcome.proof != ProofStatus::ProvenOptimal);
+    REQUIRE(outcome.delta.has_value());
+    CHECK(outcome.delta->trucks.size() == 2);
+    // Isolated until selected and committed: nothing is consumed by planning alone.
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 3};
+    CHECK(state.consumedAtoms.empty());
+    CommitLedger ledger;
+    CHECK(ledger.applyIfCurrent(*outcome.delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 60);
+    // The whole-lane-rollback variant is not the one selected here: the checked candidate is kept.
+    CHECK_FALSE(services.wholeLaneRollback);
+    m5Evidence::note("expected", {"A's two checked trucks of 30 stand", "B's overfull truck is never part of the result", "timeout status, unproven, committed only once selected"});
+}
+
+TEST_CASE("X-RUN-07/beforeCommit: a failure after provisional claims but before any commit releases them once; the retry plans the full original" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 100.0;
+    services.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) clock.advance(1000.0);
+    };
+    const M5LaneOutcome interrupted = planLaneDate(input, blocksOnly(), physicalSettings(), services);
+    REQUIRE(interrupted.delta);
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 39};
+    // The failure: the delta is never applied. Nothing was consumed, no slot was used, no claim is left.
+    CHECK(state.consumedAtoms.empty());
+    CHECK(state.slotsUsed == 0);
+    // Retry from the full original: all 39 ship, and the earlier partial delta cannot be applied after it.
+    const M5LaneOutcome retry = plan(input, blocksOnly());
+    REQUIRE(retry.delta);
+    CHECK(shippedCount(retry) == 39);
+    CHECK(ledger.applyIfCurrent(*retry.delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 39);
+    CHECK(state.slotsUsed == 39);
+    CHECK(ledger.applyIfCurrent(*interrupted.delta, snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms.size() == 39);
+    CHECK(state.slotsUsed == 39);
+    CHECK(ledger.applyIfCurrent(*retry.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+    m5Evidence::note("expected", {"before commit nothing is consumed", "retry from the full original ships 39", "the abandoned partial delta is a conflict, never a second claim"});
+}
+
+TEST_CASE("X-RUN-07/retainedBlocks: validated earlier blocks stay isolated until they are selected and committed" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 100.0;
+    services.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) clock.advance(1000.0);
+    };
+    const M5LaneOutcome partial = planLaneDate(input, blocksOnly(), physicalSettings(), services);
+    requireInvariants(partial, input);
+    REQUIRE(partial.selected);
+    REQUIRE(partial.delta);
+    CHECK(partial.selected->trucks.size() == 38);
+    REQUIRE(partial.selected->validation.has_value());
+    CHECK(partial.selected->validation->allPassed());
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 39};
+    // Selected but not committed: the retained blocks claim nothing.
+    CHECK(state.consumedAtoms.empty());
+    CHECK(state.slotsUsed == 0);
+    CHECK(ledger.applyIfCurrent(*partial.delta, snapshot, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 38);
+    CHECK(state.slotsUsed == 38);
+    const DemandSnapshot residual = residualAfter(snapshot, *partial.delta);
+    const M5LaneOutcome rest = plan(residual.input, blocksOnly());
+    REQUIRE(rest.delta);
+    CHECK(shippedCount(rest) == 1);
+    state.snapshot = residual.id;
+    CHECK(ledger.applyIfCurrent(*rest.delta, residual, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 39);
+    CHECK(state.slotsUsed == 39);
+    CHECK(state.slotsUsed <= state.slotsReserved);
+    m5Evidence::note("expected", {"38 validated blocks retained, nothing claimed until applied", "then the one remaining unit on the last slot", "39 shipped, 39 slots used, none twice"});
+}
+
+TEST_CASE("X-RUN-07/afterPartialCommit: after a partial commit the retry plans the reconciled residual; a fresh shipment of the full original is refused" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(blocks(39), 39);
+    const DemandSnapshot snapshot = *buildSnapshot(input).snapshot;
+    FakeClock clock;
+    M5RunServices services(clock);
+    services.allowanceSeconds = 100.0;
+    services.afterBlock = [&](size_t trucks) {
+        if (trucks >= 38) clock.advance(1000.0);
+    };
+    const M5LaneOutcome partial = planLaneDate(input, blocksOnly(), physicalSettings(), services);
+    REQUIRE(partial.delta);
+    CommitLedger ledger;
+    OperationalState state{snapshot.id, snapshot.input.pool.version, {}, 0, 39};
+    REQUIRE(ledger.applyIfCurrent(*partial.delta, snapshot, state) == ApplyStatus::Applied);
+    const set<string> committed = state.consumedAtoms;
+    const size_t slotsAfterPartial = state.slotsUsed;
+    // Idempotent suppression: replaying the committed partial changes nothing.
+    CHECK(ledger.applyIfCurrent(*partial.delta, snapshot, state) == ApplyStatus::AlreadyApplied);
+    CHECK(state.consumedAtoms == committed);
+    // A fresh shipment of the full original (all 39 units again) cannot be committed.
+    const M5LaneOutcome full = plan(input, blocksOnly());
+    REQUIRE(full.delta);
+    CHECK(shippedCount(full) == 39);
+    CHECK(ledger.applyIfCurrent(*full.delta, snapshot, state) == ApplyStatus::PayloadConflict);
+    CHECK(state.consumedAtoms == committed);
+    CHECK(state.slotsUsed == slotsAfterPartial);
+    // The retry from the reconciled residual ships only the one unit left, on the last slot.
+    const DemandSnapshot residual = residualAfter(snapshot, *partial.delta);
+    CHECK(residual.input.atoms.size() == 1);
+    CHECK(residual.input.pool.slots.size() == 1);
+    const M5LaneOutcome retry = plan(residual.input, blocksOnly());
+    REQUIRE(retry.delta);
+    CHECK(shippedCount(retry) == 1);
+    state.snapshot = residual.id;
+    CHECK(ledger.applyIfCurrent(*retry.delta, residual, state) == ApplyStatus::Applied);
+    CHECK(state.consumedAtoms.size() == 39);
+    CHECK(state.slotsUsed == 39);
+    // No stale acceptance or proof survives: the residual's plan carries its own validation context.
+    REQUIRE(retry.selected);
+    REQUIRE(retry.selected->validation.has_value());
+    CHECK(retry.selected->validation->sourceSnapshot == residual.id);
+    CHECK(partial.selected->validation->sourceSnapshot == snapshot.id);
+    m5Evidence::note("expected", {"38 committed once, replay suppressed", "full original again: conflict, nothing consumed", "residual: one unit, last slot; 39 and 39 in the end"});
 }
 
 // ------------------------------------------------------------------- repair and final contents

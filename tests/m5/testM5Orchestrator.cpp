@@ -5,6 +5,7 @@
 #include "m5Validation.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
+#include "support/m5Oracles.hpp"
 #include "support/m5StubMethods.hpp"
 
 #include <algorithm>
@@ -22,6 +23,12 @@ size_t countCause(const M5LaneOutcome& outcome, LeftOverCause cause) {
                                         [&](const LeftOver& left) { return left.cause == cause; }));
 }
 
+void requireInvariants(const M5LaneOutcome& outcome, const M5LaneDateInput& input) {
+    const vector<string> violations = m5Oracles::invariantViolations(outcome, input, physicalSettings().floor);
+    for (const string& violation : violations) INFO(violation);
+    REQUIRE(violations.empty());
+}
+
 M5LaneOutcome planWith(const M5LaneDateInput& input, const M5PolicyProfile& profile, FakeClock& clock, optional<double> allowance,
                        vector<shared_ptr<const MethodPlanner>> methods, function<void(MethodId)> beforeMethod) {
     M5RunServices services(clock);
@@ -33,15 +40,25 @@ M5LaneOutcome planWith(const M5LaneDateInput& input, const M5PolicyProfile& prof
 
 }  // namespace
 
-TEST_CASE("X-RUN-02 X-CG-12 time out before any result: no result, every good kept" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-02/synthetic X-CG-12 time out before any result: no result, every good kept, not a zero-truck success" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 40), 2);
     FakeClock clock;
     const M5LaneOutcome outcome =
         planWith(input, syntheticProfile(), clock, 10.0, {}, [&](MethodId) { clock.advance(11.0); });
     CHECK(outcome.kind == OutcomeKind::TimeoutNoIncumbent);
+    CHECK(outcome.kind != OutcomeKind::CompletedZeroDispatch);
     CHECK(outcome.stop == StopReason::BudgetExhausted);
     CHECK_FALSE(outcome.hasCandidate);
+    CHECK_FALSE(outcome.selected.has_value());
+    CHECK_FALSE(outcome.delta.has_value());
+    CHECK(outcome.proof != ProofStatus::ProvenInfeasible);
     CHECK(countCause(outcome, LeftOverCause::NoResult) == 40);
+    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 0);
+    CHECK(outcome.leftOver.size() == 40);
+    const string text = renderAscii(buildReportData(outcome, input, nullptr, {}));
+    CHECK(text.find("outcome: timed out: no checked result") != string::npos);
+    CHECK(text.find("impossible") == string::npos);
+    m5Evidence::note("expected", {"TimeoutNoIncumbent, all 40 kept as NoResult", "no delta, no proof of impossibility"});
 }
 
 TEST_CASE("X-CG-12/synthetic: stopped before any result: no result found, every good kept; not a zero-truck success, not impossible" * doctest::test_suite("m5")) {
@@ -69,7 +86,7 @@ TEST_CASE("X-CG-12/synthetic: stopped before any result: no result found, every 
     m5Evidence::note("expected", {"TimeoutNoIncumbent, 40 left NoResult", "scalar: no packing, Budget, not proven"});
 }
 
-TEST_CASE("X-RUN-04 the careful method gets only what the quick one left" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-04/synthetic: the careful method gets only what the quick one left; no fresh deadline; only a checked result" * doctest::test_suite("m5")) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 40), 2);
     FakeClock clock;
     vector<shared_ptr<const MethodPlanner>> methods{make_shared<PatternPlanner>(), make_shared<BlockPlanner>()};
@@ -83,9 +100,27 @@ TEST_CASE("X-RUN-04 the careful method gets only what the quick one left" * doct
     CHECK(outcome.selected->method == MethodId::PatternRepeat);
     CHECK(shippedCount(outcome) == 40);
     CHECK(outcome.timing.elapsedSeconds == doctest::Approx(105.0));
+    // The allowance is the one declared up front (100), whatever B needed, and the plan that stands is checked.
+    CHECK(outcome.timing.elapsedSeconds > outcome.allowanceSeconds);
+    CHECK(outcome.finalValidationPassed);
+    REQUIRE(outcome.selected->validation.has_value());
+    CHECK(outcome.selected->validation->allPassed());
+    REQUIRE(outcome.methods.size() == 2);
+    CHECK(outcome.methods[0].selected);
+    CHECK_FALSE(outcome.methods[1].selected);
+    const M5ReportData report = buildReportData(outcome, input, nullptr, {});
+    const string text = renderAscii(report);
+    CHECK(text.find("time: 105.000 s of 100.00 s allowed") != string::npos);
+    CHECK(report.loadedTrucks == 2);
+    CHECK(report.secondsPerLoadedTruck.has_value());
+    // With no accepted truck the average is N/A.
+    const M5LaneOutcome none = planWith(input, withAcceptance(syntheticProfile(), 400000.0, 90000.0), clock, 100.0, {}, {});
+    CHECK(none.kind == OutcomeKind::CompletedZeroDispatch);
+    CHECK(renderAscii(buildReportData(none, input, nullptr, {})).find("seconds per loaded truck: N/A") != string::npos);
+    m5Evidence::note("expected", {"A used 85 of 100; B stopped at the same deadline, A's checked plan stands", "allowance 100, never renewed", "total time printed; N/A average for zero trucks"});
 }
 
-TEST_CASE("X-RUN-11 per-load maximum and amortised average are different figures" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-11/synthetic: per-load maximum and amortised average are different figures; CL-05 judges the lane on total time within its allowance" * doctest::test_suite("m5")) {
     vector<double> loads(9, 1.0);
     loads.push_back(11.0);
     const LoadTimeSummary summary = summarizeLoadTimes(loads);
@@ -95,6 +130,19 @@ TEST_CASE("X-RUN-11 per-load maximum and amortised average are different figures
     CHECK(*summary.maximumSeconds == 11.0);
     CHECK_FALSE(*summary.maximumSeconds <= 10.0);
     CHECK(*summary.averageSeconds <= 10.0);
+    // CL-05: the allowance is 10 s per load x 10 reserved trucks = 100 s; 20 s of total time passes it, and
+    // the 11 s maximum is reported but is not the verdict.
+    string error;
+    const optional<double> allowance = laneAllowanceSeconds(10.0, 10, &error);
+    REQUIRE(allowance.has_value());
+    CHECK(*allowance == 100.0);
+    CHECK(summary.totalSeconds <= *allowance);
+    CHECK(*summary.maximumSeconds > 10.0);
+    CHECK(*summary.averageSeconds != *summary.maximumSeconds);
+    M5PolicyProfile profile = syntheticProfile();
+    profile.secondsPerLoad = 10.0;
+    CHECK(plan(laneWith(fx30Units("u", 10), 10), profile).allowanceSeconds == 100.0);
+    m5Evidence::note("expected", {"total 20 s, 10 loads, average 2 s, maximum 11 s", "max <= 10 false, average <= 10 true", "CL-05: 20 s within 10 s x 10 = 100 s passes"});
     CHECK_FALSE(summarizeLoadTimes({}).averageSeconds.has_value());
 }
 
@@ -135,6 +183,133 @@ TEST_CASE("X-RUN-13 the budget is frozen and only the chosen result counts" * do
     CHECK(report.loadedTrucks == 2);
     CHECK(*report.secondsPerLoadedTruck == doctest::Approx(report.elapsedSeconds / 2.0));
     CHECK(report.unitLoadsShipped == 60.0);
+}
+
+TEST_CASE("X-RUN-12/noGoods: no goods and a completed run is a completed empty result that uses no reservation" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith({}, 1);
+    const M5PolicyProfile profile = syntheticProfile();
+    const M5LaneOutcome outcome = plan(input, profile);
+    CHECK(outcome.kind == OutcomeKind::CompletedNoEligibleInput);
+    CHECK(outcome.stop == StopReason::Completed);
+    CHECK_FALSE(outcome.selected.has_value());
+    CHECK_FALSE(outcome.delta.has_value());
+    CHECK(outcome.leftOver.empty());
+    const M5ReportData report = buildReportData(outcome, input, &profile, {});
+    CHECK(report.loadedTrucks == 0);
+    CHECK(report.unusedReservations == 1);
+    CHECK_FALSE(report.secondsPerLoadedTruck.has_value());
+    const string text = renderAscii(report);
+    CHECK(text.find("seconds per loaded truck: N/A") != string::npos);
+    CHECK(text.find("nan") == string::npos);
+    CHECK(text.find("inf") == string::npos);
+    CHECK(text.find("time: 0.000 s") != string::npos);
+    m5Evidence::note("expected", {"completed, no eligible goods, no truck, no reservation used", "seconds per loaded truck N/A, total time printed"});
+}
+
+TEST_CASE("X-RUN-12/completedZeroDispatch: twenty units under x = 40,000 and y = 3,000 complete as zero dispatch with all 20 accounted for and the acceptance reason" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 20), 1);
+    const M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 3000.0);
+    const M5LaneOutcome outcome = plan(input, profile);
+    requireInvariants(outcome, input);
+    CHECK(outcome.kind == OutcomeKind::CompletedZeroDispatch);
+    CHECK(outcome.stop == StopReason::Completed);
+    CHECK(outcome.leftOver.size() == 20);
+    CHECK(countCause(outcome, LeftOverCause::AcceptanceWithheld) == 20);
+    CHECK(countCause(outcome, LeftOverCause::Unfittable) == 0);
+    CHECK(countCause(outcome, LeftOverCause::NoResult) == 0);
+    CHECK(outcome.proof != ProofStatus::ProvenInfeasible);
+    const M5ReportData report = buildReportData(outcome, input, &profile, {});
+    CHECK(report.loadedTrucks == 0);
+    CHECK(report.unitLoadsLeftByCause.at("withheld by minimum-load policy") == 20.0);
+    CHECK_FALSE(report.secondsPerLoadedTruck.has_value());
+    const string text = renderAscii(report);
+    CHECK(text.find("outcome: completed: no truck dispatched") != string::npos);
+    CHECK(text.find("seconds per loaded truck: N/A") != string::npos);
+    CHECK(text.find("nan") == string::npos);
+    CHECK(text.find("inf") == string::npos);
+    m5Evidence::note("expected", {"completed zero dispatch under the policy", "20 withheld by minimum-load policy, none unfittable or unknown", "N/A seconds per accepted load"});
+}
+
+TEST_CASE("X-RUN-12/timeoutNoIncumbent: eligible goods and a timeout before any checked result is a timeout, never an empty success or proven infeasibility" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1);
+    const M5PolicyProfile profile = syntheticProfile();
+    FakeClock clock;
+    const M5LaneOutcome outcome = planWith(input, profile, clock, 5.0, {}, [&](MethodId) { clock.advance(6.0); });
+    requireInvariants(outcome, input);
+    CHECK(outcome.kind == OutcomeKind::TimeoutNoIncumbent);
+    CHECK(outcome.kind != OutcomeKind::CompletedZeroDispatch);
+    CHECK(outcome.kind != OutcomeKind::CompletedNoEligibleInput);
+    CHECK(outcome.stop == StopReason::BudgetExhausted);
+    CHECK(outcome.proof != ProofStatus::ProvenInfeasible);
+    CHECK(countCause(outcome, LeftOverCause::NoResult) == 30);
+    const M5ReportData report = buildReportData(outcome, input, &profile, {});
+    CHECK_FALSE(report.secondsPerLoadedTruck.has_value());
+    CHECK(report.elapsedSeconds >= 6.0);
+    const string text = renderAscii(report);
+    CHECK(text.find("outcome: timed out: no checked result") != string::npos);
+    CHECK(text.find("seconds per loaded truck: N/A") != string::npos);
+    CHECK(text.find("infeasible") == string::npos);
+    m5Evidence::note("expected", {"timed out, no checked result, 30 kept as NoResult", "not a zero-dispatch success, no infeasibility claim", "total time printed, average N/A"});
+}
+
+TEST_CASE("X-RUN-13/synthetic: the frozen 20 s allowance counts A, B, reselection and final validation; only the chosen B is counted; 20 / 2 = 10 s per load, not 20 / 5" * doctest::test_suite("m5")) {
+    const M5LaneDateInput input = laneWith(fx30Units("u", 60), 3);
+    M5PolicyProfile profile = withAcceptance(syntheticProfile(), 40000.0, 2000.0);
+    profile.comparator = ComparatorKind::FxPriority;
+    const auto run = [&](double extraSeconds) {
+        FakeClock clock;
+        M5RunServices services(clock);
+        services.allowanceSeconds = 20.0;
+        services.methods = {make_shared<m5Stubs::FixedMethod>(MethodId::PatternRepeat, 3, 20),
+                            make_shared<m5Stubs::FixedMethod>(MethodId::RollingBlocks, 2, 30)};
+        services.beforeMethod = [&](MethodId method) { clock.advance(method == MethodId::PatternRepeat ? 8.0 : 7.0); };
+        // Reselection (3 s) and final validation (2 s) land after B, inside the same interval.
+        services.afterMethod = [&](MethodId method) {
+            if (method == MethodId::RollingBlocks) clock.advance(5.0 + extraSeconds);
+        };
+        return planLaneDate(input, profile, physicalSettings(), services);
+    };
+    const M5LaneOutcome exact = run(0.0);
+    requireInvariants(exact, input);
+    CHECK(exact.allowanceSeconds == 20.0);
+    CHECK(exact.timing.elapsedSeconds == doctest::Approx(20.0));
+    REQUIRE(exact.selected);
+    CHECK(exact.selected->method == MethodId::RollingBlocks);
+    CHECK(exact.selected->trucks.size() == 2);
+    REQUIRE(exact.delta);
+    CHECK(exact.delta->trucks.size() == 2);
+    CHECK(shippedCount(exact) == 60);
+    const M5ReportData report = buildReportData(exact, input, &profile, {});
+    CHECK(report.loadedTrucks == 2);
+    CHECK(report.unitLoadsShipped == 60.0);
+    REQUIRE(report.secondsPerLoadedTruck.has_value());
+    CHECK(*report.secondsPerLoadedTruck == doctest::Approx(10.0));
+    CHECK(*report.secondsPerLoadedTruck != doctest::Approx(4.0));
+    // The three A candidates are in no production figure: the methods list shows them, the totals do not.
+    REQUIRE(exact.methods.size() == 2);
+    CHECK(exact.methods[0].trucks == 3);
+    CHECK(exact.methods[1].trucks == 2);
+    CHECK_FALSE(exact.methods[0].selected);
+    CHECK(exact.methods[1].selected);
+
+    // Over the allowance: the deadline is the same 20 s, the real stop is shown, and only a checked result stands.
+    const M5LaneOutcome over = run(5.0);
+    CHECK(over.allowanceSeconds == 20.0);
+    CHECK(over.stop == StopReason::BudgetExhausted);
+    CHECK(over.timing.elapsedSeconds == doctest::Approx(25.0));
+    if (over.selected) {
+        REQUIRE(over.selected->validation.has_value());
+        CHECK(over.selected->validation->allPassed());
+        CHECK(over.kind == OutcomeKind::TimeoutWithIncumbent);
+    } else {
+        CHECK(over.kind == OutcomeKind::TimeoutNoIncumbent);
+    }
+    const M5ReportData overReport = buildReportData(over, input, &profile, {});
+    if (overReport.loadedTrucks > 0) {
+        REQUIRE(overReport.secondsPerLoadedTruck.has_value());
+        CHECK(*overReport.secondsPerLoadedTruck == doctest::Approx(overReport.elapsedSeconds / static_cast<double>(overReport.loadedTrucks)));
+    }
+    m5Evidence::note("expected", {"A 8 s, B 7 s, reselection 3 s, final validation 2 s = 20 s of a frozen 20 s", "B selected: 2 trucks, 60 units; A's 3 trucks not counted", "10 s per accepted load, not 4", "25 s: same 20 s deadline, real stop, checked result only"});
 }
 
 TEST_CASE("U-PF-08 each lane-date declares its own allowance" * doctest::test_suite("m5")) {

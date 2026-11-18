@@ -506,7 +506,7 @@ TEST_CASE("X-E2E-07 choosing across groups is independent of input order" * doct
     CHECK(shippedIds(plan(permuted, syntheticProfile()), permuted) == shippedIds(outcome, input));
 }
 
-TEST_CASE("X-RUN-05 an early low-priority block cannot starve urgent goods" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-05/synthetic: an early low-priority block cannot starve urgent goods" * doctest::test_suite("m5")) {
     const vector<Atom> atoms = concat(fx30Units("a", 600, "A", 11), fx30Units("b", 60, "B", 0));
     M5LaneDateInput input = laneWith(atoms, 21);
     input.pastDueOrder = ob::PastDueOrder::PriorityFirst;
@@ -518,6 +518,15 @@ TEST_CASE("X-RUN-05 an early low-priority block cannot starve urgent goods" * do
     CHECK(shippedOfGroup(outcome, input, "B") == 60);
     CHECK(shippedOfGroup(outcome, input, "A") == 19 * 30);
     CHECK(outcome.selected->trucks.size() == 21);
+    // Both P0 trucks ship, and the P11 trucks are at most 19.
+    size_t p0Trucks = 0, p11Trucks = 0;
+    for (const TruckPlan& truck : outcome.selected->trucks) {
+        (truck.group == "B" ? p0Trucks : p11Trucks) += 1;
+    }
+    CHECK(p0Trucks == 2);
+    CHECK(p11Trucks <= 19);
+    CHECK(countCause(outcome, LeftOverCause::OverReservation) == 30);
+    m5Evidence::note("expected", {"21 reserved; A 20 trucks of P11 listed first, B 2 trucks of P0", "both P0 trucks ship, at most 19 P11", "the first block does not lock out urgent goods"});
 }
 
 TEST_CASE("X-RES-01 X-ROUTE-02 groups share one pool: never two pools of the same size" * doctest::test_suite("m5")) {
@@ -2380,15 +2389,25 @@ TEST_CASE("U-RT-06 forced M5 with zero reservations: zero dispatch, no capacity 
     CHECK(countCause(outcome, LeftOverCause::OverReservation) == 10);
 }
 
-TEST_CASE("X-RUN-06 no goods, or only impossible goods: a clean stop, no empty truck" * doctest::test_suite("m5")) {
+TEST_CASE("X-RUN-06/synthetic: Method B with 100 reserved and no goods, or only impossible goods, stops at once with a reason: no empty truck, no wait for the timeout" * doctest::test_suite("m5")) {
     M5PolicyProfile blocks = syntheticProfile();
     blocks.method = MethodPolicy::BlocksOnly;
     const M5LaneOutcome empty = plan(laneWith({}, 100), blocks);
     CHECK(empty.kind == OutcomeKind::CompletedNoEligibleInput);
+    CHECK(empty.stop == StopReason::Completed);
+    CHECK_FALSE(empty.selected.has_value());
+    CHECK_FALSE(empty.delta.has_value());
+    CHECK(empty.timing.elapsedSeconds == 0.0);
     const M5LaneDateInput impossible = laneWith({unitOf("tall", "A", 48, 40, 130, 500)}, 100);
     const M5LaneOutcome outcome = plan(impossible, blocks);
     CHECK(outcome.kind == OutcomeKind::CompletedZeroDispatch);
+    CHECK(outcome.stop == StopReason::Completed);
     CHECK(countCause(outcome, LeftOverCause::Unfittable) == 1);
+    CHECK(shippedCount(outcome) == 0);
+    CHECK((!outcome.selected.has_value() || outcome.selected->trucks.empty()));
+    CHECK(outcome.timing.elapsedSeconds == 0.0);
+    CHECK(outcome.floorSearch.statesCharged < 1000);
+    m5Evidence::note("expected", {"no goods: completed, no eligible input, no trucks", "only an impossible good: completed, zero dispatch, the good Unfittable", "fake clock never advanced: no loop until the allowance"});
 }
 
 TEST_CASE("U-RB-02 X-BLK-02 X-BLK-03 rolling blocks never pad and never exceed the pool" * doctest::test_suite("m5")) {

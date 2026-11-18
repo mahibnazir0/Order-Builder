@@ -610,9 +610,21 @@ TEST_CASE("U-DA-06/synthetic: a combo lane stops the run with a clear message (m
     m5Evidence::note("notCovered", "multi-stop and temperature class: no input field carries them today, so they cannot be fed in");
 }
 
-TEST_CASE("U-DA-06 X-RUN-08 a combo lane stops the run before any plan is published" * doctest::test_suite("m5")) {
+TEST_CASE("U-DA-06 X-RUN-08/synthetic a parked feature found after other goods were processed stops the run; no earlier truck is published" * doctest::test_suite("m5")) {
+    // The parked TF row is the last line: every TL line before it is already read and joined.
     const m4SmallDay::SmallDay day("comboLane", "," + m4SmallDay::SmallDay::line("GOOD", 16, "TF"));
+    bool published = false;
+    try {
+        const PipelineResult result = Pipeline::run(day.inputs);
+        published = !result.selectionPlan.trucks.empty();
+    } catch (const runtime_error& error) {
+        CHECK(string(error.what()).find("combo") != string::npos);
+    }
+    CHECK_FALSE(published);
     CHECK_THROWS_AS(Pipeline::run(day.inputs), runtime_error);
+    const m4SmallDay::SmallDay plain("comboLanePlain");
+    CHECK_FALSE(Pipeline::run(plain.inputs).selectionPlan.trucks.empty());
+    m5Evidence::note("expected", {"parked feature after ordinary goods: the run throws, no plan is returned", "the same day without it plans"});
 }
 
 TEST_CASE("U-DA-01/synthetic X-DATA-08: CS, DIS and PAL all divide by Cases_Unit_Load; a DIS is never one whole unit load" * doctest::test_suite("m5")) {
