@@ -385,7 +385,7 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
         if (outcome.offeredService == ServiceLevel::Full) {
             outcome.proof = ProofStatus::ProvenOptimal;
             outcome.proofScope = "service: every eligible good that fits a reserved trailer ships, so no allocation ships "
-                                 "more of any urgency class; an equal-service tie is decided by ED-21 (rotated group order, then canonical records)";
+                                 "more of any urgency class; an equal-service tie compares binding-limit fill, then ED-21 (rotated group order, then canonical records)";
         } else {
             outcome.proof = ProofStatus::Unproven;
             outcome.proofScope = "service: best of the plans methods A and B supplied, not proven best of every allocation";

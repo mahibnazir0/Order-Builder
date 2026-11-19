@@ -2135,3 +2135,12 @@ The lane-date report charges `(reserved - used) * rate` once for the selected pl
 The penalty is a report figure and does not change acceptance or ranking. An explicit `null` keeps
 the rate unknown; an explicit zero reports a known zero charge. `U-RS-02/realRate` checks the
 shipped profile and a numeric override on the same synthetic lane-date.
+
+Tom's 19 Nov tie update (after v12): compare the urgency class vector, then
+average fill per loaded truck on the lane's binding limit, then the existing
+ED-21 rotation and canonical records. The binding limit is weight when eligible
+must-go weight divided by reserved payload exceeds eligible must-go cube divided
+by reserved interior volume; otherwise cube. With no eligible must-go goods,
+use all eligible goods to identify the limit. This later decision supersedes
+earlier equal-service wording in this architecture; the v12 source spec remains
+preserved.

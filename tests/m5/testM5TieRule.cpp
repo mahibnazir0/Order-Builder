@@ -797,3 +797,32 @@ TEST_CASE("X-STATE-10/changedValidationContext: a validation made under another 
     CHECK(state.slotsUsed == 1);
     m5Evidence::note("expected", {"revised policy, new thresholds, changed pool: validation stale, no delta", "revalidated plan builds a delta", "an idempotent read of the committed result dispatches nothing"});
 }
+
+TEST_CASE("Tom item 4: equal urgency chooses the fuller binding measure before group rotation" * doctest::test_suite("m5")) {
+    for (const bool weightBound : {false, true}) {
+        M5LaneDateInput input = tieLane(kLaneA, kAug7, groupsOf({"A", "B"}));
+        const TieOrder initial = tieOrderFor(snapshotOf(input));
+        REQUIRE(initial.groups.size() == 2);
+        const size_t preferred = input.atoms[0].group == initial.groups.front() ? 0 : 3;
+        const size_t other = preferred == 0 ? 3 : 0;
+        for (size_t index = 0; index < input.atoms.size(); ++index) {
+            input.atoms[index].weightLb = weightBound && input.atoms[index].group == input.atoms[other].group ? 20000.0 : 100.0;
+            input.atoms[index].floor.heightIn = !weightBound && input.atoms[index].group == input.atoms[other].group ? 90.0 : 60.0;
+            input.atoms[index].floor.cubeCubicIn = 48.0 * 36.0 * input.atoms[index].floor.heightIn;
+        }
+        const DemandSnapshot snapshot = snapshotOf(input);
+        const UrgencyDomain domain(snapshot);
+        const TieOrder ties = tieOrderFor(snapshot);
+        CHECK(ties.bindingLimit == (weightBound ? TieOrder::BindingLimit::Weight : TieOrder::BindingLimit::Cube));
+        const AllocationKey low = keyOf(snapshot, domain, {{preferred}});
+        const AllocationKey high = keyOf(snapshot, domain, {{other}});
+        REQUIRE(low.shippedByClass == high.shippedByClass);
+        const auto comparator = makeComparator(ComparatorKind::M4Urgency, ties);
+        CHECK(comparator->better(high, low));
+        CHECK_FALSE(comparator->better(low, high));
+        AllocationKey sameCargoSpread = high;
+        sameCargoSpread.loadedTrucks = 2;
+        CHECK(comparator->better(high, sameCargoSpread));
+        CHECK_FALSE(comparator->better(sameCargoSpread, high));
+    }
+}

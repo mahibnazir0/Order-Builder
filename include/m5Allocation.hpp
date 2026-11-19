@@ -17,11 +17,11 @@
 // goods, which rank at their own later dates. More goods shipped of a class
 // ranks higher, so using spare trucks raises the key; there is no preference
 // for fewer trucks. Equal service is broken by ED-21 (Tom, 14 and 16 Nov 2026):
-// T1 shipped unit loads per group in the lane-date's rotated group order
+// Better fill on the lane's binding limit (cube or weight), then T1 shipped
+// unit loads per group in the lane-date's rotated group order
 // (TieOrder), then T2 the canonical records (stable source-line ID, then atom
 // ID), then truck membership, so the result never depends on input order and
-// a tie does not always go to the same group. Fill, rear space, weight and
-// truck count never break a tie.
+// a tie does not always go to the same group.
 //
 // The key is additive over groups and compared lexicographically, which adding
 // the same group plans to two partial allocations never reverses, so the
@@ -74,6 +74,8 @@ struct AllocationKey {
     std::vector<long long> shippedByClass;     // thousandths of a unit load per class
     std::vector<long long> shippedByPriority;  // per priority 0..kMaxPriority (FX-PRIORITY)
     long long loadedTrucks = 0;
+    long double shippedWeightLb = 0.0L;
+    long double shippedCubeCubicIn = 0.0L;
     std::map<GroupId, long long> shippedByGroup;  // thousandths of a unit load (ED-21 T1)
     // ED-21 T2: every shipped component as (stable source-line ID, atom ID), sorted.
     std::vector<std::pair<SourceLineId, std::string>> records;
@@ -97,6 +99,8 @@ public:
 // ED-21 T1's group order for one lane-date: the groups with eligible demand by stable ID (bytewise),
 // started at r = (laneKey mod g + dayNumber mod g) mod g and wrapped around.
 struct TieOrder {
+    enum class BindingLimit { Cube, Weight };
+    BindingLimit bindingLimit = BindingLimit::Cube;
     std::uint32_t laneKey = 0;
     long long dayNumber = 0;       // whole days from 1970-01-01 to the ship date
     std::size_t rotation = 0;      // r

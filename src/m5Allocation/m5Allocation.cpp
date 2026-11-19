@@ -54,6 +54,8 @@ AllocationKey keyOf(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
         vector<string> sources;
         for (const size_t index : truck) {
             const Atom& atom = snapshot.input.atoms[index];
+            key.shippedWeightLb += atom.weightLb;
+            key.shippedCubeCubicIn += atom.floor.cubeCubicIn;
             for (const Component& component : atom.components) {
                 const long long thousandths = llround(component.unitLoads * 1000.0);
                 key.shippedByClass[domain.indexOf(component)] += thousandths;
@@ -93,6 +95,8 @@ void addTo(AllocationKey& total, const AllocationKey& part) {
         total.shippedByPriority[index] += part.shippedByPriority[index];
     }
     total.loadedTrucks += part.loadedTrucks;
+    total.shippedWeightLb += part.shippedWeightLb;
+    total.shippedCubeCubicIn += part.shippedCubeCubicIn;
     for (const auto& [group, thousandths] : part.shippedByGroup) total.shippedByGroup[group] += thousandths;
     const auto middle = static_cast<ptrdiff_t>(total.records.size());
     total.records.insert(total.records.end(), part.records.begin(), part.records.end());
@@ -112,6 +116,13 @@ public:
     explicit M4UrgencyComparator(TieOrder ties) : ties_(std::move(ties)) {}
     bool better(const AllocationKey& left, const AllocationKey& right) const override {
         if (left.shippedByClass != right.shippedByClass) return left.shippedByClass > right.shippedByClass;
+        const long double leftAmount = ties_.bindingLimit == TieOrder::BindingLimit::Weight
+                                           ? left.shippedWeightLb : left.shippedCubeCubicIn;
+        const long double rightAmount = ties_.bindingLimit == TieOrder::BindingLimit::Weight
+                                            ? right.shippedWeightLb : right.shippedCubeCubicIn;
+        const long double leftFill = left.loadedTrucks ? leftAmount / left.loadedTrucks : 0.0L;
+        const long double rightFill = right.loadedTrucks ? rightAmount / right.loadedTrucks : 0.0L;
+        if (leftFill != rightFill) return leftFill > rightFill;
         for (const GroupId& group : ties_.groups) {
             const long long leftShipped = shippedOf(left, group), rightShipped = shippedOf(right, group);
             if (leftShipped != rightShipped) return leftShipped > rightShipped;
@@ -120,7 +131,9 @@ public:
         return left.membership < right.membership;
     }
     string id() const override {
-        return "ED-02 urgency classes (rank date, priority, ship date), then ED-21 (rotated group order r=" + to_string(ties_.rotation)
+        return "ED-02 urgency classes (rank date, priority, ship date), then better fill by "
+               + string(ties_.bindingLimit == TieOrder::BindingLimit::Weight ? "weight" : "cube")
+               + ", then ED-21 (rotated group order r=" + to_string(ties_.rotation)
                + " of " + to_string(ties_.groups.size()) + ", then canonical records)";
     }
 
@@ -158,6 +171,31 @@ string tieLaneText(const LaneKey& lane) { return lane.origin + "|" + lane.destin
 
 TieOrder tieOrderFor(const DemandSnapshot& snapshot) {
     TieOrder order;
+    long double mustWeight = 0.0L, mustCube = 0.0L, allWeight = 0.0L, allCube = 0.0L;
+    for (size_t index = 0; index < snapshot.input.atoms.size(); ++index) {
+        if (!snapshot.eligibility[index].eligible) continue;
+        const Atom& atom = snapshot.input.atoms[index];
+        allWeight += atom.weightLb;
+        allCube += atom.floor.cubeCubicIn;
+        if (any_of(atom.components.begin(), atom.components.end(),
+                   [](const Component& component) { return component.offerKind == OfferKind::Required; })) {
+            mustWeight += atom.weightLb;
+            mustCube += atom.floor.cubeCubicIn;
+        }
+    }
+    if (mustWeight == 0.0L && mustCube == 0.0L) {
+        mustWeight = allWeight;
+        mustCube = allCube;
+    }
+    long double weightCapacity = 0.0L, cubeCapacity = 0.0L;
+    for (const TrailerCapability& slot : snapshot.input.pool.slots) {
+        weightCapacity += slot.maxWeightLb;
+        cubeCapacity += static_cast<long double>(slot.lengthIn) * slot.widthIn * slot.heightIn;
+    }
+    if (weightCapacity > 0.0L && cubeCapacity > 0.0L
+        && mustWeight / weightCapacity > mustCube / cubeCapacity) {
+        order.bindingLimit = TieOrder::BindingLimit::Weight;
+    }
     order.laneKey = fnv1a32(tieLaneText(snapshot.input.lane));
     order.dayNumber = daysBetween("1970-01-01", snapshot.input.departure);
     for (size_t atom = 0; atom < snapshot.input.atoms.size(); ++atom) {

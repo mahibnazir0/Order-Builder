@@ -489,6 +489,14 @@ target alone does not establish FULL. A truck with space and no goods left is
 labelled "not full - no goods left" pending confirmation. This decision updates
 M5 validation and report tests without changing the preserved v12 source spec.
 
+### Tom's 19 Nov tie decision
+
+After comparing the urgency class vector, M5 compares average fill per loaded
+truck by the lane's binding limit (cube or weight), then uses ED-21 for a
+remaining tie. The binding limit comes from eligible must-go volume divided by
+reserved capacity; if no must-go goods are eligible, all eligible volume is
+used. The preserved v12 source spec is unchanged.
+
 - M5_Edge_Cases_and_Tests_v7.md: requirements, preserved cases, corrected fixtures and new cases.
 - m5ModularArchitecture.md: revision-4 contracts, ownership, policies, evidence and dependencies.
 - m5DeveloperHandover.md: revision-4 work packages and execution/acceptance gates.
