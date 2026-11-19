@@ -129,12 +129,19 @@ LargeLaneReport reportShell(const LargeLaneRequest& request) {
 
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
                                const DateRules& dates, const optional<double>& penaltyPerUnusedTruck, double maxUnitLoadsPerTruck,
-                               const map<string, TrailerCapability>& trailerTypes) {
+                               const map<string, TrailerCapability>& trailerTypes,
+                               const map<string, set<string>>& separateBuildings) {
     M5LaneDateInput input;
     input.lane = {request.origin, request.destination, request.shipCondition};
     input.departure = request.shipDate;
     input.dates = dates;
     input.pastDueOrder = request.pastDueOrder;
+    const auto named = separateBuildings.find(request.origin + "|" + request.destination + "|" + request.shipCondition);
+    input.separateBuildings = named != separateBuildings.end() && request.groupIndices.size() > 1
+        && all_of(request.groupIndices.begin(), request.groupIndices.end(), [&](size_t group) {
+               const GroupKey& key = run.segregation.groups[group].key;
+               return key.isSegregated && named->second.count(key.segregant) != 0;
+           });
     set<size_t> offered;
     set<size_t> groups(request.groupIndices.begin(), request.groupIndices.end());
     for (const vector<size_t>& itemIndices : request.itemIndicesByRoute) {
@@ -274,7 +281,8 @@ LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const 
     try {
         const M5LaneDateInput input =
             gatherLaneDate(request, run, items, dates_, profile_ ? profile_->penaltyPerUnusedTruck : nullopt,
-                           settings.maxUnitLoadsPerTruck, profile_ ? profile_->trailerTypes : map<string, TrailerCapability>{});
+                           settings.maxUnitLoadsPerTruck, profile_ ? profile_->trailerTypes : map<string, TrailerCapability>{},
+                           profile_ ? profile_->separateBuildings : map<string, set<string>>{});
         const PhysicalSettings physical = physicalSettingsOf(settings);
         const FunctionClock clock(settings.clock);
         const M5RunServices services(clock);

@@ -211,8 +211,124 @@ TieOrder tieOrderFor(const DemandSnapshot& snapshot) {
     return order;
 }
 
+map<GroupId, size_t> buildingTruckTargets(const vector<BuildingEstimate>& estimates, size_t reserved, double percent) {
+    struct Rounded {
+        BuildingEstimate estimate;
+        size_t target = 0;
+        long double fraction = 0.0L;
+    };
+    vector<Rounded> rounded;
+    rounded.reserve(estimates.size());
+    size_t total = 0;
+    for (const BuildingEstimate& estimate : estimates) {
+        const long double bounded = max(0.0L, min(estimate.trucks, static_cast<long double>(reserved)));
+        const long double whole = floor(bounded);
+        const long double fraction = bounded - whole;
+        const size_t target = static_cast<size_t>(whole) + (fraction > 0.0L && 100.0L * fraction >= percent ? 1u : 0u);
+        rounded.push_back({estimate, target, fraction});
+        total += target;
+    }
+    // Priority decides a disputed reservation. Within one urgency rank the
+    // smaller fractional claim yields first; stable group ID breaks equality.
+    vector<size_t> order(rounded.size());
+    for (size_t index = 0; index < order.size(); ++index) order[index] = index;
+    sort(order.begin(), order.end(), [&](size_t left, size_t right) {
+        const Rounded& a = rounded[left], &b = rounded[right];
+        return tie(a.estimate.urgencyRank, a.fraction, a.estimate.group)
+             < tie(b.estimate.urgencyRank, b.fraction, b.estimate.group);
+    });
+    while (total > reserved) {
+        bool removed = false;
+        for (auto at = order.rbegin(); at != order.rend(); ++at) {
+            if (rounded[*at].target == 0) continue;
+            --rounded[*at].target;
+            --total;
+            removed = true;
+            break;
+        }
+        if (!removed) break;
+    }
+    while (total < reserved) {
+        bool added = false;
+        for (const size_t index : order) {
+            if (rounded[index].target == 0 || rounded[index].estimate.trucks <= 0.0L) continue;
+            ++rounded[index].target;
+            ++total;
+            added = true;
+            break;
+        }
+        if (!added) break;
+    }
+    map<GroupId, size_t> result;
+    for (const Rounded& entry : rounded) result[entry.estimate.group] = entry.target;
+    return result;
+}
+
+map<GroupId, size_t> buildingTruckTargets(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
+                                          const TieOrder& ties, double percent) {
+    const size_t reserved = snapshot.input.pool.slots.size();
+    if (reserved == 0) return {};
+    long double totalCapacity = 0.0L;
+    for (const TrailerCapability& slot : snapshot.input.pool.slots) {
+        totalCapacity += ties.bindingLimit == TieOrder::BindingLimit::Weight
+                             ? slot.maxWeightLb
+                             : static_cast<long double>(slot.lengthIn) * slot.widthIn * slot.heightIn;
+    }
+    if (totalCapacity <= 0.0L) return {};
+    const long double oneTruck = totalCapacity / reserved;
+    struct Claim {
+        size_t rank;
+        SourceLineId source;
+        GroupId group;
+        string atom;
+        long double volume;
+    };
+    vector<Claim> line;
+    for (size_t index = 0; index < snapshot.input.atoms.size(); ++index) {
+        if (!snapshot.eligibility[index].eligible) continue;
+        const Atom& atom = snapshot.input.atoms[index];
+        if (atom.unitLoads <= 0.0) continue;
+        const long double atomVolume = ties.bindingLimit == TieOrder::BindingLimit::Weight
+                                           ? atom.weightLb : atom.floor.cubeCubicIn;
+        for (const Component& component : atom.components) {
+            if (component.unitLoads <= 0.0) continue;
+            line.push_back({domain.indexOf(component), component.source, atom.group, atom.id,
+                            atomVolume * component.unitLoads / atom.unitLoads});
+        }
+    }
+    // The lane's full priority line is shared by every building. The cut at
+    // reserved binding-limit capacity includes a fraction of the boundary line.
+    sort(line.begin(), line.end(), [](const Claim& left, const Claim& right) {
+        return tie(left.rank, left.source, left.group, left.atom)
+             < tie(right.rank, right.source, right.group, right.atom);
+    });
+    map<GroupId, BuildingEstimate> byGroup;
+    for (const GroupId& group : snapshot.groups) byGroup[group] = {group, 0.0L, domain.size()};
+    long double left = totalCapacity;
+    for (const Claim& claim : line) {
+        if (left <= 0.0L) break;
+        const long double aboveCut = min(claim.volume, left);
+        if (aboveCut <= 0.0L) continue;
+        BuildingEstimate& entry = byGroup[claim.group];
+        entry.trucks += aboveCut / oneTruck;
+        entry.urgencyRank = min(entry.urgencyRank, claim.rank);
+        left -= aboveCut;
+    }
+    vector<BuildingEstimate> estimates;
+    for (const auto& [group, entry] : byGroup) estimates.push_back(entry);
+    bool hasSmallBuilding = false;
+    for (const BuildingEstimate& estimate : estimates) {
+        hasSmallBuilding = hasSmallBuilding
+            || (estimate.trucks > 0.0L && 100.0L * estimate.trucks < percent);
+    }
+    // If all available goods fit and every building clears the setting, no
+    // truck needs transferring; the planner can use spare trucks to fill.
+    if (left > 0.0L && !hasSmallBuilding) return {};
+    return buildingTruckTargets(estimates, reserved, percent);
+}
+
 AllocationResult allocate(const DemandSnapshot& snapshot, const UrgencyDomain& domain, const vector<GroupSupply>& supplies,
-                          size_t slots, const AllocationComparator& comparator) {
+                          size_t slots, const AllocationComparator& comparator, const map<GroupId, size_t>* buildingTargets) {
     struct State {
         AllocationKey key;
         vector<size_t> planOfGroup;
@@ -232,6 +348,10 @@ AllocationResult allocate(const DemandSnapshot& snapshot, const UrgencyDomain& d
             for (size_t plan = 0; plan < supply.plans.size(); ++plan) {
                 const size_t after = used + static_cast<size_t>(planKeys[plan].loadedTrucks);
                 if (after > slots) continue;
+                if (buildingTargets) {
+                    const auto limit = buildingTargets->find(supply.group);
+                    if (limit != buildingTargets->end() && static_cast<size_t>(planKeys[plan].loadedTrucks) > limit->second) continue;
+                }
                 State candidate = *best[used];
                 addTo(candidate.key, planKeys[plan]);
                 candidate.planOfGroup.push_back(plan);

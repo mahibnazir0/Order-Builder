@@ -107,6 +107,19 @@ struct TieOrder {
     std::vector<GroupId> groups;   // rotated; empty when no group has eligible demand
 };
 
+struct BuildingEstimate {
+    GroupId group;
+    long double trucks = 0.0L;  // volume above the lane's priority cut / one binding-limit trailer
+    std::size_t urgencyRank = 0;
+};
+
+// Round each building's priority-cut estimate at the user percentage. When the
+// rounded total exceeds reservations, the more urgent building keeps its truck.
+std::map<GroupId, std::size_t> buildingTruckTargets(const std::vector<BuildingEstimate>& estimates,
+                                                    std::size_t reserved, double percent);
+std::map<GroupId, std::size_t> buildingTruckTargets(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
+                                                    const TieOrder& ties, double percent);
+
 // 32-bit FNV-1a (offset basis 2166136261, prime 16777619, arithmetic mod 2^32).
 std::uint32_t fnv1a32(const std::string& text);
 // "origin|destination|mode" from the lane codes as M4 normalises them.
@@ -132,7 +145,8 @@ struct AllocationResult {
 
 AllocationResult allocate(const DemandSnapshot& snapshot, const UrgencyDomain& domain,
                           const std::vector<GroupSupply>& supplies, std::size_t slots,
-                          const AllocationComparator& comparator);
+                          const AllocationComparator& comparator,
+                          const std::map<GroupId, std::size_t>* buildingTargets = nullptr);
 
 } // namespace m5
 } // namespace ob

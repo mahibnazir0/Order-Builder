@@ -826,3 +826,47 @@ TEST_CASE("Tom item 4: equal urgency chooses the fuller binding measure before g
         CHECK_FALSE(comparator->better(sameCargoSpread, high));
     }
 }
+
+TEST_CASE("Tom item 5: building estimates round at fifty percent before M5 allocation" * doctest::test_suite("m5")) {
+    const auto target = [](long double first, long double second, size_t firstRank = 0, size_t secondRank = 0) {
+        return buildingTruckTargets({{"first", first, firstRank}, {"second", second, secondRank}}, 21, 50.0);
+    };
+    CHECK(target(17.7L, 3.3L).at("first") == 18);
+    CHECK(target(17.7L, 3.3L).at("second") == 3);
+    CHECK(target(17.4L, 3.6L).at("first") == 17);
+    CHECK(target(17.4L, 3.6L).at("second") == 4);
+    CHECK(target(21.0L, 3.0L, 0, 1).at("first") == 21);
+    CHECK(target(21.0L, 3.0L, 0, 1).at("second") == 0);
+    CHECK(target(20.4L, 0.4L).at("first") == 21);
+    CHECK(target(20.4L, 0.4L).at("second") == 0);
+    CHECK(buildingTruckTargets({{"first", 17.7L, 1}, {"second", 3.3L, 0}}, 21, 75.0).at("first") == 17);
+    CHECK(buildingTruckTargets({{"first", 17.7L, 1}, {"second", 3.3L, 0}}, 21, 75.0).at("second") == 4);
+}
+
+TEST_CASE("Tom item 5: three-group priority cut uses trailer cube before building estimates" * doctest::test_suite("m5")) {
+    // Synthetic three-group version of the linked-date conflict: two high-priority
+    // groups and one lower-priority group compete for two physical trailers.
+    M5LaneDateInput input = tieLane(kLaneA, kAug7, groupsOf({"A", "B", "C"}));
+    input.pool.slots.front() = {100.0, 100.0, 100.0, 45000.0, 6};
+    input.pool.slots.push_back(input.pool.slots.front());
+    input.pool.declaredTrucks = 2;
+    for (Atom& atom : input.atoms) {
+        const bool small = atom.group == "C";
+        atom.floor.longSideIn = 100.0;
+        atom.floor.shortSideIn = 100.0;
+        atom.floor.heightIn = small ? 40.0 / 3.0 : 140.0 / 3.0;
+        atom.floor.cubeCubicIn = 10000.0 * atom.floor.heightIn;
+        atom.weightLb = 100.0;
+        for (Component& component : atom.components) component.priority = atom.group == "B" ? 11 : 0;
+    }
+    const DemandSnapshot snapshot = snapshotOf(input);
+    const UrgencyDomain domain(snapshot);
+    const TieOrder ties = tieOrderFor(snapshot);
+    REQUIRE(ties.bindingLimit == TieOrder::BindingLimit::Cube);
+    // A=1.4, C=0.4, then only 0.2 of B is above the two-trailer cut.
+    // The 50% rule gives the spare truck to A; counting all B goods would not.
+    const auto targets = buildingTruckTargets(snapshot, domain, ties, 50.0);
+    CHECK(targets.at("A") == 2);
+    CHECK(targets.at("B") == 0);
+    CHECK(targets.at("C") == 0);
+}

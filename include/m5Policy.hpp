@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace ob {
@@ -65,6 +66,10 @@ struct M5PolicyProfile {
     // reserved slot is the run's own trailer with selection.maxUnitLoadsPerTruck, as before.
     std::map<std::string, TrailerCapability> trailerTypes;
     FullnessRule fullness;
+    double buildingRoundPercent = 50.0;          // M5 lanes with separate buildings
+    // Lane key "origin|destination|shipCondition" -> planner groups confirmed as
+    // distinct physical buildings. No entry means the rule is off for that lane.
+    std::map<std::string, std::set<std::string>> separateBuildings;
     double secondsPerLoad = 0.0;                  // user setting; no default
     PastDueOrder order = PastDueOrder::AgeFirst;
     bool canGoFill = true;

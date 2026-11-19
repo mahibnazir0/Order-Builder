@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,8 @@ namespace m5 {
 // trailer with maxUnitLoadsPerTruck.
 M5LaneDateInput gatherLaneDate(const LargeLaneRequest& request, const PipelineResult& run, const SelectionItems& items,
                                const DateRules& dates, const std::optional<double>& penaltyPerUnusedTruck,
-                               double maxUnitLoadsPerTruck, const std::map<std::string, TrailerCapability>& trailerTypes = {});
+                               double maxUnitLoadsPerTruck, const std::map<std::string, TrailerCapability>& trailerTypes = {},
+                               const std::map<std::string, std::set<std::string>>& separateBuildings = {});
 
 PhysicalSettings physicalSettingsOf(const SelectorSettings& settings);
 

@@ -106,6 +106,40 @@ M5PolicyProfile loadProfile(const json& block) {
     }
 
     profile.secondsPerLoad = readQuantity(requiredField(block, "secondsPerLoad", name), name + ".secondsPerLoad");
+    readOptional(block, "buildingRoundPercent", [&](const json& value, const string& key) {
+        profile.buildingRoundPercent = readQuantity(value, key);
+        if (profile.buildingRoundPercent > 100.0) throw runtime_error("params: m5.buildingRoundPercent must be at most 100");
+    });
+    readOptional(block, "separateBuildings", [&](const json& value, const string& key) {
+        if (!value.is_array()) throw runtime_error("params: " + key + " must be an array");
+        for (size_t index = 0; index < value.size(); ++index) {
+            const json& entry = value[index];
+            const string name = key + "[" + to_string(index) + "]";
+            if (!entry.is_object()) throw runtime_error("params: " + name + " must be an object");
+            const string origin = readString(requiredField(entry, "origin", name), name + ".origin");
+            const string destination = readString(requiredField(entry, "destination", name), name + ".destination");
+            const string mode = readString(requiredField(entry, "shipCondition", name), name + ".shipCondition");
+            if (origin.empty() || destination.empty() || mode.empty()
+                || origin.find('|') != string::npos || destination.find('|') != string::npos || mode.find('|') != string::npos) {
+                throw runtime_error("params: " + name + " needs nonblank lane codes without '|'");
+            }
+            const json& groups = requiredField(entry, "groups", name);
+            if (!groups.is_array() || groups.size() < 2) {
+                throw runtime_error("params: " + name + ".groups needs at least two planner groups");
+            }
+            set<string> named;
+            for (size_t group = 0; group < groups.size(); ++group) {
+                const string valueName = name + ".groups[" + to_string(group) + "]";
+                const string planner = readString(groups[group], valueName);
+                if (planner.empty() || !named.insert(planner).second) {
+                    throw runtime_error("params: " + valueName + " must name a distinct nonblank planner group");
+                }
+            }
+            if (!profile.separateBuildings.emplace(origin + "|" + destination + "|" + mode, std::move(named)).second) {
+                throw runtime_error("params: " + name + " lists a lane twice");
+            }
+        }
+    });
     string allowanceError;
     if (!laneAllowanceSeconds(profile.secondsPerLoad, 1, &allowanceError)) {
         throw runtime_error("params: m5.secondsPerLoad " + allowanceError);

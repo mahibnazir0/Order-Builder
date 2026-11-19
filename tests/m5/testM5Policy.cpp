@@ -89,6 +89,19 @@ TEST_CASE("U-AC-01/productionProfile: no acceptance block is valid and OFF; a ma
     m5Evidence::note("expected", {"absent block valid, policy OFF", "malformed block refused", "16 of 16 ship"});
 }
 
+TEST_CASE("Tom item 5: physical buildings require an explicit lane and group setting" * doctest::test_suite("m5")) {
+    json block = productionBlock();
+    CHECK(loadProfile(block).separateBuildings.empty());
+    block["separateBuildings"] = json::array({
+        {{"origin", "9001"}, {"destination", "9004"}, {"shipCondition", "TL"}, {"groups", {"A", "B", "C"}}}
+    });
+    const auto named = loadProfile(block).separateBuildings;
+    REQUIRE(named.size() == 1);
+    CHECK(named.at("9001|9004|TL") == (set<string>{"A", "B", "C"}));
+    block["separateBuildings"][0]["groups"] = json::array({"A", "A"});
+    CHECK_THROWS_AS(loadProfile(block), runtime_error);
+}
+
 TEST_CASE("U-AC-04/valuesAndMalformed: x and y are read, change the verdict, and bad values are errors" * doctest::test_suite("m5")) {
     json block = productionBlock();
     const auto acceptanceOf = [&](double x, double y) {

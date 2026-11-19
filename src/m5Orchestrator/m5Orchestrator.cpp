@@ -201,9 +201,13 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
     M5LaneOutcome outcome;
     outcome.reservedTrucks = static_cast<long long>(slotCount);
     outcome.allowanceSeconds = *allowance;
-    const unique_ptr<AllocationComparator> comparator = makeComparator(profile.comparator, tieOrderFor(snapshot));
+    const TieOrder ties = tieOrderFor(snapshot);
+    const unique_ptr<AllocationComparator> comparator = makeComparator(profile.comparator, ties);
     outcome.comparator = comparator->id();
     const UrgencyDomain domain(snapshot);
+    const map<GroupId, size_t> buildingTargets = input.separateBuildings && snapshot.groups.size() > 1
+                                                     ? buildingTruckTargets(snapshot, domain, ties, profile.buildingRoundPercent)
+                                                     : map<GroupId, size_t>{};
 
     vector<char> unfittable(input.atoms.size(), 0);
     size_t eligibleFitting = 0, requiredFitting = 0;
@@ -284,7 +288,8 @@ M5LaneOutcome planLaneDate(const M5LaneDateInput& input, const M5PolicyProfile& 
                                     services.afterBlock};
         vector<GroupSupply> supplies;
         for (const GroupId& group : snapshot.groups) supplies.push_back(method.supplyForGroup(context, group));
-        const AllocationResult allocation = allocate(snapshot, domain, supplies, slotCount, *comparator);
+        const AllocationResult allocation = allocate(snapshot, domain, supplies, slotCount, *comparator,
+                                                     buildingTargets.empty() ? nullptr : &buildingTargets);
         // A method cut short with nothing built has no result: its empty plan is not a checked
         // zero-dispatch answer (X-RUN-02).
         const bool cutShort = stop();

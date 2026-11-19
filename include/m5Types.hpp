@@ -114,6 +114,7 @@ struct M5LaneDateInput {
     LaneKey lane;
     std::string departure;  // the lane-date's ship date, YYYY-MM-DD
     std::vector<Atom> atoms;
+    bool separateBuildings = false;  // true only when every group was named as a physical building
     std::vector<ExcludedSource> excluded;
     // The declared universe for fullness buckets is complete: atoms plus excluded hold every
     // source of the lane's groups this departure could see.
