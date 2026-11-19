@@ -1184,7 +1184,7 @@ Rear waste and weight are reported for every truck but do not break an equal-ser
 production preference for fewer trucks. Do not infer a positive truck-count tie-break merely from that
 absence, or treat a minimum-count packing certificate as proof of this comparator.
 Corrected M4 deals short reservations by each group's best feasible truck (`dealByBestTruck`, B18); M5's
-supply DP is the multi-truck form of the same principle, and R-6 binds both. Penalty is excluded until CL-06 is sourced. Fixture comparators (FX-PRIORITY, R-4's explicit
+supply DP is the multi-truck form of the same principle, and R-6 binds both. The CL-06 penalty is reported separately from ranking (Section 22.11). Fixture comparators (FX-PRIORITY, R-4's explicit
 comparison, X-RUN-13's synthetic comparator) are separate implementations selected by test contexts only.
 
 An unproven priority incumbent may commit in production (ED-02b) if it passes final validation; it is labelled
@@ -1677,7 +1677,7 @@ retries through the same `CommitLedger`.
 |---|---|---|---|---|
 | ED-02 (CL-02) | Production comparator: shipped unit loads per M4 urgency class (rank date, priority, ship date; rank date per the lane's past-due order), lexicographic (can-go goods count in their later classes); then the ED-21 equal-service tie rule; no fewer-trucks preference or synthetic fallback. Penalty excluded until sourced | Recovered from corrected M4 (B6: laneClassifier.cpp:95-135, selectionItem.cpp:57-60/280-294, knapsack.cpp:97-100/239-241) | R-2, R-4, U-RS-03/04/06/07, X-RES-*, X-STATE-07/08, X-E2E-07, U-RB-05 | P7 finds a different rule |
 | ED-02b | An unproven priority incumbent may commit if it passes final validation; labelled Unproven | Larger cases may remain unproven within the budget; v9 INV-11 permits it under a declared contract | INV-11, X-RUN-03 | Customer requires proof |
-| ED-06 (CL-06) | Penalty rate/unit/source optional in config; missing = unknown (printed "unknown"), excluded from ranking; zero printed as zero | v9 CL-06 | U-RS-02, X-RES-10, X-STATE-02, U-RM-05 | Rate sourced |
+| ED-06 (CL-06) | Configurable penalty in dollars per unused reserved truck. Tom set the initial rate to $200; null is reported as unknown, zero as zero. Excluded from ranking | Tom's 19 Nov 2026 decision | U-RS-02, X-RES-10, X-STATE-02, U-RM-05 | Section 22.11 |
 | ED-07 (CL-07) | Packing atom is the M4 stack (`SelectionItem`); M5 never splits a stack or adds single-pallet filler; components inside a stack keep identity | M2/M4 design; v9 CL-07 | U-PB-*, X-PAT-*, X-DATE-06, X-DATA-* | M4 atom differs at head (P7/WP0) |
 | ED-08 (CL-08) | Routing: reserved trucks per lane-date > T (existing rule 4); T in config; demand-count and per-lane modes rejected; production T chosen from the U-PF-02 benchmark using actual per-lane-date reserved counts and the final timing contract | Q1; REPORTED rule 4 | U-RT-*, X-ROUTE-*, U-PF-02, RD-01/05 | Benchmark evidence |
 | ED-09 (CL-09) | Production uses the configured wall-clock secondsPerLoad x reserved allowance; deterministic work-count stops are explicit test/benchmark modes. Completed and deterministic runs use canonical output; wall-clock runs promise validity and honest status, not identical cargo across machine/thread changes | CL-05/09; selector parallelises lane-dates (REPORTED) | INV-12, U-PF-03, X-RUN-01, X-RUN-11/13 | Measurement or stop contract changes |
@@ -2126,3 +2126,12 @@ M5-on August results are unchanged. `ReservationPool::slotEquipment` of another 
 refused by `slotIdentityErrors`. Tests: `tests/m5/testM5Physical.cpp` (stored rows: illegal rows with a legal
 alternative, two pinwheels by their hand-worked rectangles, a turned footprint without turning, edges in
 whole hundredths), `tests/m5/testM5Planning.cpp` (slot-equipment length).
+
+### 22.11 CL-06 unused reserved truck penalty (19 November 2026)
+
+Tom confirmed a configurable penalty and set the initial rate to $200 per unused reserved truck.
+The shipped M5 profile sets `m5.penaltyPerUnusedTruck` in `config/orderBuilderParams.json`.
+The lane-date report charges `(reserved - used) * rate` once for the selected plan.
+The penalty is a report figure and does not change acceptance or ranking. An explicit `null` keeps
+the rate unknown; an explicit zero reports a known zero charge. `U-RS-02/realRate` checks the
+shipped profile and a numeric override on the same synthetic lane-date.

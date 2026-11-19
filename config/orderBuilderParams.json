@@ -54,6 +54,6 @@
     "gapTrucks": 1,
     "canGoFill": true,
     "repair": { "maxRounds": 8, "maxMovesPerTruck": 64 },
-    "penaltyPerUnusedTruck": null
+    "penaltyPerUnusedTruck": 200
   }
 }

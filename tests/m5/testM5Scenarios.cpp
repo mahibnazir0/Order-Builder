@@ -10,6 +10,7 @@
 #include "m5Report.hpp"
 #include "m5Solver.hpp"
 #include "m5Validation.hpp"
+#include "paramsFields.hpp"
 #include "support/m5Evidence.hpp"
 #include "support/m5Fixtures.hpp"
 #include "support/m5Oracles.hpp"
@@ -2442,6 +2443,29 @@ TEST_CASE("U-RS-02/synthetic: unused reservations are reserved minus used per la
     CHECK(missingText.find("unused reservations: 2, penalty unknown\n") != string::npos);
     CHECK(missingText.find("= 0.00") == string::npos);
     m5Evidence::note("expected", {"3 reserved - 1 used = 2 unused", "penalty 5 x 2 = 10, once", "no rate: unknown, no amount"});
+}
+
+TEST_CASE("U-RS-02/realRate: the shipped rate and a configured override reach the report once" * doctest::test_suite("m5")) {
+    auto block = ob::readParamsFile("config/orderBuilderParams.json").at("m5");
+    const M5LaneDateInput input = laneWith(fx30Units("rate", 30), 3);
+    const auto checkReport = [&](const M5PolicyProfile& profile, double amount, const string& line) {
+        const M5LaneOutcome outcome = plan(input, profile);
+        requireInvariants(outcome, input);
+        REQUIRE(outcome.selected);
+        CHECK(outcome.selected->trucks.size() == 1);
+        const M5ReportData data = buildReportData(outcome, input, &profile, {});
+        CHECK(data.unusedReservations == 2);
+        REQUIRE(data.penaltyAmount);
+        CHECK(*data.penaltyAmount == amount);
+        const string report = renderAscii(data);
+        const size_t at = report.find(line);
+        REQUIRE(at != string::npos);
+        CHECK(report.rfind(line) == at);
+    };
+    checkReport(loadProfile(block), 400.0, "unused reservations: 2, penalty 200.00 per unused truck = 400.00\n");
+    block["penaltyPerUnusedTruck"] = 125.0;
+    checkReport(loadProfile(block), 250.0, "unused reservations: 2, penalty 125.00 per unused truck = 250.00\n");
+    m5Evidence::note("expected", {"3 reserved - 1 used = 2 unused", "2 x 200 = 400", "override: 2 x 125 = 250"});
 }
 
 TEST_CASE("U-RS-02 X-RES-10 unused reservations and their penalty: known rates add, missing is unknown" * doctest::test_suite("m5")) {

@@ -4583,13 +4583,16 @@
         {
           "variant": "realRate",
           "requirement": "conditional",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "BLOCKED until CL-06 source/rate recorded",
+          "note": "Use the shipped M5 rate on FX-30, then override the rate and check the report again.",
           "evidenceScope": "SYNTHETIC",
-          "blocker": "BLOCKED until CL-06 source/rate recorded",
-          "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection. BLOCKED until CL-06 source/rate recorded",
-          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source."
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Tom confirmed a configurable penalty for unused reserved trucks and set the initial rate to $200 per truck.",
+          "selectionDecisionRef": "Tom's post-delivery CL-06 decision (19 Nov 2026); architecture Section 22.11.",
+          "activationCondition": "The sourced rate is set in config/orderBuilderParams.json at m5.penaltyPerUnusedTruck.",
+          "expectedBehavior": "Report reserved minus used per lane-date and apply the configured rate once. The shipped rate and an override give the expected totals.",
+          "fixtureOverrides": "Three reservations, one loaded truck. Use the shipped rate, then a synthetic override of $125 per unused truck. The synthetic variant checks the unknown-rate case."
         }
       ],
       "evidenceRequired": "v12 Section 26 fields; current requirement/profile and variant-selection identity; build identity; exact fixture/probe/config identities; expected and actual source quantities; independent validation; proof scope/certificate and stop reason",
