@@ -919,6 +919,12 @@ The final gate must distinguish a recorded intentional deferral from a required 
 
 ## 12. Clarifications raised against v5 (PC-1..PC-9) and their v6 status (PC-10)
 
+Tom's 19 Nov decision supersedes the v12 FULL threshold wording for M5: FULL
+requires evidence that no other allowed item fits. The 14 in setting remains a
+separate rear-space target. With space but no goods left, the display says
+"not full - no goods left" pending Tom's confirmation. U-FL-01/02/06/09 and
+the affected report tests retain their IDs and check this later decision.
+
 | Ref | v5 text | Observation | Proposed resolution | Impact |
 |---|---|---|---|---|
 | PC-1 | U-RM-01 "M4's normal small-lane path is used" | Taken literally, a full M4 route could re-escalate into M5 (recursion) | Read as the M4 packer layer (knapsack/binPacker/patternPacker + truck check), not selector routing. Assert no selector re-entry | Test asserts packer reuse and no recursion; expectation unchanged |

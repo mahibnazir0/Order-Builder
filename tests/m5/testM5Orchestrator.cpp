@@ -534,7 +534,7 @@ TEST_CASE("U-RP-01 X-REPORT-04 the header names the export check and the fullnes
     M5PolicyProfile profile = syntheticProfile();
     const string production = renderAscii(buildReportData(plan(input, profile), input, &profile, {"PRODUCTION", 20, "fixture"}));
     CHECK(production.find("minimum-load check: at export, after M5") != string::npos);
-    CHECK(production.find("98.0% of the trailer's weight, or rear inches <= 14.0 (default") != string::npos);
+    CHECK(production.find("FULL when no other allowed item fits; rear-space target 14.0 in (default)") != string::npos);
     CHECK(production.find("reserved trucks per lane and ship date > 20") != string::npos);
     CHECK(production.find("3A Run") != string::npos);
     CHECK(production.find("3E Summary") != string::npos);
@@ -555,7 +555,7 @@ TEST_CASE("U-RP-01/productionProfile: acceptance OFF: the run header prints the 
     REQUIRE(lane != string::npos);
     const string run = text.substr(header, lane - header);
     CHECK(run.find("  minimum-load check: at export, after M5\n") != string::npos);
-    CHECK(run.find("  fullness rule: 98.0% of the trailer's weight, or rear inches <= 14.0 (default, stated to Tom), or floor-limited on evidence\n")
+    CHECK(run.find("  fullness rule: FULL when no other allowed item fits; rear-space target 14.0 in (default)\n")
           != string::npos);
     CHECK(run.find("  scope: PRODUCTION\n") != string::npos);
     CHECK(run.find("  run: run-17\n") != string::npos);
@@ -572,7 +572,7 @@ TEST_CASE("U-RP-01/productionProfile: acceptance OFF: the run header prints the 
     userRear.fullness.rearInchLimit = 20.0;
     userRear.fullness.rearInchLimitDefaulted = false;
     const string userText = renderAscii(buildReportData(plan(input, userRear), input, &userRear, {"PRODUCTION", 20, "run-17"}));
-    CHECK(userText.find("rear inches <= 20.0 (user setting)") != string::npos);
+    CHECK(userText.find("rear-space target 20.0 in (user setting)") != string::npos);
     // Missing x/y is valid (loading an m5 block without one: U-AC-01/productionProfile): the header prints no thresholds.
     m5Evidence::note("expected", {"export note and fullness rule printed", "identity, scope, routing, order, can-go, secondsPerLoad, allowance",
                                   "user rear limit marked user setting", "no x/y printed"});

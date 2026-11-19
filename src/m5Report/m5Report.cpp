@@ -13,6 +13,7 @@ namespace {
 string orNotAvailable(const optional<double>& value, int places) { return value ? fixed(*value, places) : "N/A"; }
 
 string reasonsOf(const FullnessLabel& label) {
+    if (label.state != FullnessState::Full) return "-";
     string reasons;
     auto add = [&](bool on, const char* reason) {
         if (on) reasons += (reasons.empty() ? "" : ", ") + string(reason);
@@ -76,10 +77,9 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
                                ? "optional policy ON: weight > " + fixed(profile->acceptance->weightLb, 1) + " lb OR cube > "
                                      + fixed(profile->acceptance->cubeCuFt, 1) + " cu ft (strict)"
                                : "at export, after M5";
-        data.fullnessRule = fixed(profile->fullness.weightFullPercent, 1) + "% of the trailer's weight, or rear inches <= "
+        data.fullnessRule = "FULL when no other allowed item fits; rear-space target "
                             + fixed(profile->fullness.rearInchLimit, 1)
-                            + (profile->fullness.rearInchLimitDefaulted ? " (default, stated to Tom)" : " (user setting)")
-                            + ", or floor-limited on evidence";
+                            + (profile->fullness.rearInchLimitDefaulted ? " in (default)" : " in (user setting)");
         data.methodPolicy = methodPolicyName(profile->method);
         data.penalty = profile->penaltyPerUnusedTruck ? fixed(*profile->penaltyPerUnusedTruck, 2) + " per unused truck" : "unknown";
     } else {
@@ -114,13 +114,14 @@ M5ReportData buildReportData(const M5LaneOutcome& outcome, const M5LaneDateInput
                 const FullnessLabel& label = *found->second;
                 row.weightPercent = label.weightPercent;
                 row.rearInches = label.rearInches;
-                row.fullness = fullnessStateName(label.state);
+                row.fullness = label.state == FullnessState::NotFull && label.bucket == FullnessBucket::NoGoodsRemain
+                                   ? "not full - no goods left" : fullnessStateName(label.state);
                 row.reasons = reasonsOf(label);
                 row.fit = remainingFitName(label.fitStatus);
                 row.bucket = label.bucket ? fullnessBucketName(*label.bucket) : "not established (source scope incomplete)";
                 if (label.state == FullnessState::Full) ++data.fullTrucks;
-                data.fullByWeight += label.byWeight ? 1 : 0;
-                data.fullByRear += label.byRearInches ? 1 : 0;
+                data.fullByWeight += label.state == FullnessState::Full && label.byWeight ? 1 : 0;
+                data.fullByRear += label.state == FullnessState::Full && label.byRearInches ? 1 : 0;
                 data.fullByFloor += label.byFloorLimit ? 1 : 0;
             }
             data.trucks.push_back(std::move(row));

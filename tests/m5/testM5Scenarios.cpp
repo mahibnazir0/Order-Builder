@@ -4415,7 +4415,8 @@ TEST_CASE("U-RP-02/synthetic: the lane report prints lane, groups, shared reserv
     CHECK(text.find("reserved: 3\n", lane) != string::npos);
     CHECK(text.find("trucks loaded: 3\n", lane) != string::npos);
     CHECK(text.find("unused reservations: 0, penalty 5.00 per unused truck = 0.00\n", lane) != string::npos);
-    CHECK(text.find("truck group stacks unit loads can-go weight % rear in fullness reasons", lane) != string::npos);
+    CHECK(text.find("truck group stacks unit loads can-go weight % rear in fullness", lane) != string::npos);
+    CHECK(text.find("reasons fit check", lane) != string::npos);
     // One row per finally checked truck, carrying its own label, reasons, rear inches and bucket.
     REQUIRE(data.trucks.size() == outcome.selected->trucks.size());
     REQUIRE(outcome.fullness.size() == data.trucks.size());
@@ -4427,7 +4428,9 @@ TEST_CASE("U-RP-02/synthetic: the lane report prints lane, groups, shared reserv
         CHECK(data.trucks[truck].group == planned.group);
         CHECK(data.trucks[truck].stacks == planned.atoms.size());
         CHECK(data.trucks[truck].rearInches == label->rearInches);
-        CHECK(data.trucks[truck].fullness == fullnessStateName(label->state));
+        const string expectedFullness = label->state == FullnessState::NotFull && label->bucket == FullnessBucket::NoGoodsRemain
+                                            ? "not full - no goods left" : fullnessStateName(label->state);
+        CHECK(data.trucks[truck].fullness == expectedFullness);
         CHECK(data.trucks[truck].bucket == fullnessBucketName(*label->bucket));
         CHECK(data.trucks[truck].reasons != "");
     }

@@ -1,5 +1,6 @@
 {
   "schemaVersion": 2,
+  "tomDecision19Nov": "After v12: FULL means no other allowed item fits. The 14 in rear-space setting is a separate target, not a FULL threshold. A truck with space and no goods left is not full - no goods left (pending Tom). U-FL-01/02/06/09 and related report expectations are interpreted under this later decision; the v12 source text is retained unchanged.",
   "source": "M5_Edge_Cases_and_Tests_v12.md (17 November 2026; reviewed against v11)",
   "answerSource": "Revision 3 preview answers (6 Nov) plus Tom's follow-up replies, forwarded review notes, M4 re-reviews at 3da08ab and e6dbb0f (with his reproduction files); M4 baseline f9d9945; Tom's 14 Nov reply on OPEN-COMP and C9; Tom's 16 Nov email (engineer review: exact R-1/R-5a inputs, lane-and-date rotation, C9 conditions, container)",
   "repositoryEvidence": "No direct repository access for the document author; REPORTED facts from read-only tool reports at 7cef94e (m4BaselineForM5.txt), e51d9c4 (m4FixVerification.txt) and f9d9945 (m4Fix2Verification.txt, 14 Nov; e6dbb0f itself was not available there)",

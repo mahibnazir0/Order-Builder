@@ -197,7 +197,9 @@ vector<FullnessLabel> evaluateFullness(const CandidatePlan& plan, const DemandSn
             }
         }
         label.byFloorLimit = label.fitStatus == RemainingFitStatus::ProvenNoFit;
-        if (label.byWeight || label.byRearInches || label.byFloorLimit) {
+        // Thresholds remain useful measurements, but only a complete check of
+        // the eligible remainder establishes that this truck cannot take more.
+        if (label.byFloorLimit || weight >= capability.maxWeightLb) {
             label.state = FullnessState::Full;
         } else {
             label.state = label.fitStatus == RemainingFitStatus::Unknown ? FullnessState::Undetermined : FullnessState::NotFull;

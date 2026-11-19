@@ -481,6 +481,14 @@ build, fixture/configuration and requirement identities.
 
 ## Files in the package
 
+### Tom's 19 Nov FULL decision
+
+Tom defined FULL as no other allowed item fitting. Weight percentage and the
+14 in rear-space setting remain measured and reported, but crossing either
+target alone does not establish FULL. A truck with space and no goods left is
+labelled "not full - no goods left" pending confirmation. This decision updates
+M5 validation and report tests without changing the preserved v12 source spec.
+
 - M5_Edge_Cases_and_Tests_v7.md: requirements, preserved cases, corrected fixtures and new cases.
 - m5ModularArchitecture.md: revision-4 contracts, ownership, policies, evidence and dependencies.
 - m5DeveloperHandover.md: revision-4 work packages and execution/acceptance gates.

@@ -568,8 +568,8 @@ void requireBelowFull(const M5PolicyProfile& profile) {
     CHECK(outcome.selected->validation->acceptance == (profile.acceptance ? SectionStatus::Pass : SectionStatus::NotApplicable));
 }
 
-// 30 FX-30: 45,000 lb, FULL by weight. Under x = 50,000 / y = 4,000 both strict branches fail (45,000 and
-// 3,750 cu ft): withheld whatever its label. With acceptance OFF it ships, FULL.
+// 30 FX-30: 45,000 lb, no more weight capacity. Under x = 50,000 / y = 4,000 both strict branches fail (45,000 and
+// 3,750 cu ft): withheld whatever its label. With acceptance OFF it ships, FULL at the physical limit.
 void requireFullTruck(const M5PolicyProfile& profile) {
     const M5LaneDateInput input = laneWith(fx30Units("u", 30), 1);
     const FullnessLabel label = labelOf(input, firstAtoms(30), profile);
@@ -598,7 +598,7 @@ TEST_CASE("U-RM-04/belowFullAccepted: 28 of 29 FX-30 pass optional x = 40,000 / 
     m5Evidence::note("expected", {"42,000 lb, 3,500 cu ft, rear 70 in, 29th fits: NOT FULL", "accepted (strict OR), ships 28"});
 }
 
-TEST_CASE("U-RM-04/fullButWithheld: 30 FX-30 are FULL by weight but fail x = 50,000 / y = 4,000 and are withheld" * doctest::test_suite("m5")) {
+TEST_CASE("U-RM-04/fullButWithheld: 30 FX-30 reach the physical weight limit but fail x = 50,000 / y = 4,000 and are withheld" * doctest::test_suite("m5")) {
     requireFullTruck(withAcceptance(syntheticProfile(), 50000.0, 4000.0));
     m5Evidence::note("expected", {"FULL by weight (45,000 lb)", "45,000 <= 50,000 and 3,750 <= 4,000: withheld, 30 left"});
 }
@@ -815,7 +815,7 @@ TEST_CASE("U-FL-05/synthetic buckets come from the final residual, whatever the 
     m5Evidence::note("expected", {"A: empty residual, NoGoodsRemain", "B: only a date-excluded unit left, RuleLimited", "eligible residual: GoodsRemain", "reversed truck order: the same buckets", "empty bucket N/A"});
 }
 
-TEST_CASE("U-FL-06/weightBelow U-FL-06/weightEqual U-FL-06/weightAbove U-FL-06/smallTrailer U-FL-06/largeTrailer U-FL-06/rearAboveLimit U-FL-06/rearEqualLimit U-FL-06/rearBelowLimit exact 98% weight and 14 in rear boundaries, on the slot's own limit" * doctest::test_suite("m5")) {
+TEST_CASE("U-FL-06/weightBelow U-FL-06/weightEqual U-FL-06/weightAbove U-FL-06/smallTrailer U-FL-06/largeTrailer U-FL-06/rearAboveLimit U-FL-06/rearEqualLimit U-FL-06/rearBelowLimit exact 98% weight and 14 in rear measurements do not override a fitting leftover" * doctest::test_suite("m5")) {
     for (const auto& [weight, full] : vector<pair<double, bool>>{{44099.999, false}, {44100.0, true}, {44100.001, true}}) {
         const M5LaneDateInput input = laneWith({unitOf("load", "A", 200, 100, 108, weight), unitOf("left", "A", 100, 20, 108, 1)}, 1);
         const FullnessLabel label = labelOf(input, {0});
@@ -825,7 +825,7 @@ TEST_CASE("U-FL-06/weightBelow U-FL-06/weightEqual U-FL-06/weightAbove U-FL-06/s
         // Rear space and the fitting leftover do not mask the weight comparison.
         CHECK_FALSE(label.byRearInches);
         CHECK_FALSE(label.byFloorLimit);
-        CHECK(label.state == (full ? FullnessState::Full : FullnessState::NotFull));
+        CHECK(label.state == FullnessState::NotFull);
     }
     const TrailerCapability light{630.0, 100.0, 108.0, 30000.0, kFixtureUnitLoadCap};
     const M5LaneDateInput onLight = laneWith({unitOf("load", "A", 200, 100, 108, 29400), unitOf("left", "A", 100, 20, 108, 1)}, 1, light);
@@ -845,7 +845,7 @@ TEST_CASE("U-FL-06/weightBelow U-FL-06/weightEqual U-FL-06/weightAbove U-FL-06/s
         CHECK(fabs(label.rearInches - 14.0) < 0.001);
         if (!full) CHECK(label.rearInches != 14.0);
     }
-    m5Evidence::note("expected", {"44,099.999 / 44,100 / 44,100.001 lb: false / true / true", "29,400 lb: FULL on a 30,000 lb slot, not on 45,000", "rear 14.00006103515625 / 14 / 13.99993896484375 at limit 14: false / true / true"});
+    m5Evidence::note("expected", {"98% weight measurements false / true / true, yet a fitting good keeps all three NOT FULL", "29,400 lb crosses 98% on a 30,000 lb slot only", "rear target measurements false / true / true, independent of FULL"});
 }
 
 TEST_CASE("U-FL-07/threeHigh U-FL-07/twoHigh U-FL-07/nonstackable U-FL-07/staleLabel rear space is measured after M2's legal stacking; old labels do not carry" * doctest::test_suite("m5")) {
