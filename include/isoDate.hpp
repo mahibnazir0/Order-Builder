@@ -18,4 +18,7 @@ const char* weekdayName(int weekday);
 // The date `days` after a date isIsoDate accepts, as YYYY-MM-DD; negative goes back.
 std::string addDays(const std::string& isoDate, int days);
 
+// Calendar days from `from` to `to`, both dates isIsoDate accepts; negative when `to` is earlier.
+long long daysBetween(const std::string& from, const std::string& to);
+
 } // namespace ob

@@ -81,4 +81,8 @@ string addDays(const string& isoDate, int days) {
     return to_string(year) + "-" + twoDigits(month) + "-" + twoDigits(day);
 }
 
+long long daysBetween(const string& from, const string& to) {
+    return daysFromIsoDate(to) - daysFromIsoDate(from);
+}
+
 } // namespace ob

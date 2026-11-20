@@ -68,7 +68,8 @@ double unitLoadHeightIn(const ProductRecord& product, const PalletSpec& pallet,
         + (params.floorDeckHeight == DeckHeightRule::Included ? pallet.addedHeightIn : 0.0);
 }
 
-UnitLoadFootprint unitLoadFootprint(const ProductRecord& product, const PalletSpec& pallet) noexcept {
+UnitLoadFootprint unitLoadFootprint(const ProductRecord& product, const PalletSpec& pallet,
+                                    FootprintRule rule) noexcept {
     const double palletLongIn = max(pallet.footprintLengthIn, pallet.footprintWidthIn);
     const double palletShortIn = min(pallet.footprintLengthIn, pallet.footprintWidthIn);
     if (!product.layerLengthIn || !product.layerWidthIn) {
@@ -78,7 +79,7 @@ UnitLoadFootprint unitLoadFootprint(const ProductRecord& product, const PalletSp
     const double layerShortIn = min(*product.layerLengthIn, *product.layerWidthIn);
     // resolvePalletSpec has already read the placeholder deck as 0, so a positive deck is a
     // real pallet the layer sits on.
-    if (pallet.addedHeightIn <= 0.0) return {layerLongIn, layerShortIn, false};
+    if (pallet.addedHeightIn <= 0.0 || rule == FootprintRule::LayerOnly) return {layerLongIn, layerShortIn, false};
     return {max(layerLongIn, palletLongIn), max(layerShortIn, palletShortIn), false};
 }
 
@@ -104,7 +105,7 @@ UnitLoad buildUnitLoad(const JoinedLine& line, const M2Params& params,
         return load;
     }
 
-    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet);
+    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet, params.footprintRule);
     load.footprintLengthIn = footprint.longSideIn;
     load.footprintWidthIn = footprint.shortSideIn;
     load.heightIn = unitLoadHeightIn(product, *pallet, params);

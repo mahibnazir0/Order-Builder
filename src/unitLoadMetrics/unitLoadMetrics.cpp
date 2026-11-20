@@ -68,7 +68,7 @@ UnitLoadMetrics unitLoadMetricsFor(const JoinedLine& line, const M2Params& param
         * (product.weight_lb * product.cases_unit_load + pallet->addedWeightLb);
     metrics.unitLoadHeightIn = unitLoadHeightIn(product, *pallet, params);
     metrics.stackedInches = metrics.unitLoads * metrics.unitLoadHeightIn;
-    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet);
+    const UnitLoadFootprint footprint = unitLoadFootprint(product, *pallet, params.footprintRule);
     metrics.footprintFromPalletOnly = footprint.fromPalletOnly;
     metrics.floorAreaSqIn = metrics.unitLoads * footprint.longSideIn * footprint.shortSideIn;
     metrics.cargoCubicIn = metrics.floorAreaSqIn * metrics.unitLoadHeightIn;

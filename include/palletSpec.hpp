@@ -21,6 +21,11 @@ struct PalletSpec {
 // must still state which reading runs (floorDeckHeight).
 enum class DeckHeightRule { Excluded, Included };
 
+// What a PTL or PGM unit load covers (Rev 8 question 4, open): the customer's written rule, the
+// larger of the pallet and the layer on each side, or the layer alone, which is what the product
+// file's Effective_Layer columns hold. TLD and GMA cover their layer under either.
+enum class FootprintRule { WrittenRule, LayerOnly };
+
 // The fallback pallet figures for a master that carries no pallet columns and a run given no
 // pallet table (the 17 August master has neither). The product row and the supplied pallet
 // table always win over these, in Milestone 1 as in Milestone 2 and the floor.

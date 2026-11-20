@@ -5,6 +5,7 @@
 #include "reportFormat.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <unordered_set>
 
@@ -52,6 +53,15 @@ bool is_allowed(const string& value, const vector<string>& allowed) {
     return find(allowed.begin(), allowed.end(), value) != allowed.end();
 }
 
+bool isPaddedCode(const string& code) {
+    return !code.empty()
+           && (isspace(static_cast<unsigned char>(code.front())) || isspace(static_cast<unsigned char>(code.back())));
+}
+
+string quotedLane(const string& origin, const string& destination, const string& shipCondition) {
+    return "'" + origin + "' -> '" + destination + "' '" + shipCondition + "'";
+}
+
 // "336 CS; GMA 84, TLD 168 per unit load": what the client needs to settle the pallet type.
 string palletTypeQuantities(const JoinedLine& line) {
     const double quantity = line.str->trans;
@@ -67,6 +77,10 @@ string palletTypeQuantities(const JoinedLine& line) {
 }
 
 } // anonymous namespace
+
+bool hasPaddedLaneCode(const string& origin, const string& destination, const string& shipCondition) {
+    return isPaddedCode(origin) || isPaddedCode(destination) || isPaddedCode(shipCondition);
+}
 
 ValidationReport Validator::validate(const JoinResult& join,
                                      const vector<double>& pallets_per_line,
@@ -91,6 +105,17 @@ ValidationReport Validator::validate(const JoinResult& join,
             add(rep, ValidationIssue::Severity::Error, "missing_fields",
                 "Demand line is missing a mandatory field", s.matnr, idx);
             continue;   // nothing further is meaningful for this line
+        }
+
+        // ── Lane codes ──────────────────────────────────────────────────────
+        // A padded code would match no placeholder and leave the line unreserved, which the
+        // plan reads as normal.
+        if (hasPaddedLaneCode(s.locfrno, s.loctono, s.ship_cond)) {
+            ++rep.paddedLaneCode;
+            add(rep, ValidationIssue::Severity::Error, "padded_lane_code",
+                "Demand line's lane " + quotedLane(s.locfrno, s.loctono, s.ship_cond)
+                    + " has a code with leading or trailing spaces",
+                s.matnr, idx);
         }
 
         // ── Ship window ─────────────────────────────────────────────────────
@@ -334,6 +359,14 @@ void Validator::validate_placeholders(const vector<PlaceholderRecord>& placehold
             add(rep, ValidationIssue::Severity::Warning, "unknown_ship_cond",
                 "Ship condition '" + p.ship_cond + "' is outside the expected set for lane "
                     + p.locfrno + "->" + p.loctono, "", -1, idx);
+        }
+
+        if (hasPaddedLaneCode(p.locfrno, p.loctono, p.ship_cond)) {
+            ++rep.paddedLaneCode;
+            add(rep, ValidationIssue::Severity::Error, "padded_lane_code",
+                "Placeholder lane " + quotedLane(p.locfrno, p.loctono, p.ship_cond)
+                    + " has a code with leading or trailing spaces",
+                "", -1, idx);
         }
 
         if (!is_blank(p.zzna_equip_size) && !is_allowed(p.zzna_equip_size, config.allowedEquipSizes)) {

@@ -1,0 +1,60 @@
+name: PR checks
+
+# Every push and every pull request is built and tested on the client's toolchain (VS2022 / MSVC
+# x64 on Windows Server 2022, /W4 /WX) and on Ubuntu with GCC and Clang (-Wall -Wextra -Wpedantic
+# -Werror), all in Release. CMakeLists.txt sets the warning flags, so any warning fails a build.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+# The confidential client fixtures are gitignored, so no check has them. The tests that read them
+# skip themselves, and their guards report "skipped (data not present)" instead of failing; on our
+# own machines OB_CUSTOMER_DATA is unset and the same guards fail without the data.
+env:
+  OB_CUSTOMER_DATA: optional
+
+jobs:
+  msvc:
+    name: Windows VS2022 MSVC x64 Release
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      # The benchmark needs the client's data and runs for minutes, so it is left to our machines.
+      - name: Test
+        run: ctest --test-dir build -C Release -E m4Benchmark --output-on-failure
+
+  linux:
+    name: Ubuntu ${{ matrix.compiler.name }} Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { name: GCC, cc: gcc, cxx: g++ }
+          - { name: Clang, cc: clang, cxx: clang++ }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=${{ matrix.compiler.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }}
+      # Unbounded make -j runs every test file through GCC at once, which exhausts the runner's
+      # memory and gets the job killed (exit 143); the runner has 4 cores.
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test
+        run: ctest --test-dir build -E m4Benchmark --output-on-failure

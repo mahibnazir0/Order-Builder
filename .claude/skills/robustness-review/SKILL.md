@@ -1,6 +1,6 @@
 ---
 name: robustness-review
-description: Audit Order Builder changes for the defect classes past reviews and the customer design documents exposed — bad external input read as absent or unvalidated, lines or pallets lost while the run exits 0, copy-unsafe pointer structs, hard-coded limits, invalid truck floors, unbounded or silently-exhausted loops, hard rules not held end to end, Truck Builder or Pallet Builder failures read as approval, repairs that worsen a load or oscillate, planner/Truck Builder coupling, non-deterministic or non-replayable runs, solver guarantees, date/key/platform input quirks, acceptance figures not pinned by tests, and PRs missing the team's required plan, self-critique and explanation or whose code drifts from that plan. Runs the build and test suite. Use before merging any change under src/, include/, config/, tests/ or CMakeLists.txt.
+description: Audit Order Builder changes for the defect classes past reviews and the customer design documents exposed — bad external input read as absent or unvalidated, lines or pallets lost while the run exits 0, copy-unsafe pointer structs, hard-coded limits, invalid truck floors, unbounded or silently-exhausted loops, hard rules not held end to end, proofs resting on a step that is not exact, Truck Builder or Pallet Builder failures read as approval, repairs that worsen a load or oscillate, planner/Truck Builder coupling, non-deterministic or non-replayable runs, solver guarantees, date/key/platform input quirks, acceptance figures not pinned by tests, and PRs missing the team's required plan, self-critique and explanation or whose code drifts from that plan. Runs the build and test suite. Use before merging any change under src/, include/, config/, tests/ or CMakeLists.txt.
 allowed-tools: Read, Grep, Glob, Bash(grep *), Bash(git diff *), Bash(git log *), Bash(git show *), Bash(gh pr view *), Bash(cmake --build *), Bash(ctest *)
 ---
 
@@ -1826,6 +1826,66 @@ Confirm, for a change in either area:
 **Fails if:** an architecture or security change has no named human
 decision owner; a credential appears in source, config, fixtures or replay
 records; or a failed authentication is not reported as an error.
+
+## Check 39 — a "proven" or "exact" label rests only on exact steps, end to end
+
+M4 is paid when every single-truck lane is solved exactly (Four and a Half
+Month Plan), so a route's `proven` flag is an acceptance claim, not a
+diagnostic. Every M4 finding the client's engineer raised from 4 to 16 Nov
+2026 was one defect class: the label rested on a step that was not exact.
+
+- 4 Nov: proven on floor area while the rows then trimmed the truck.
+- 10 Nov: the search pruned on a row check, and rows are not monotone (a
+  load the rows refuse can hold one they accept) — 22 unit loads proven
+  where 23 fit. The non-monotonicity had been measured on 4 Nov (1 in
+  620,738) and left open.
+- 12 Nov: above ten stacks the sorted rows' heuristic "does not fit" backed
+  a proof — eleven stacks proven at ten.
+- 16 Nov: 28 one-reservation lanes unproven at the shipped limits; the
+  relaxed-row cuts had spent the route's whole floor-state budget before the
+  proof's last refusal could run.
+
+Each fix closed the reported instance; the next round found its neighbour.
+So for any change that touches what a `proven`, `optimal`, `exact` or
+`provenOptimal` flag depends on (knapsack, floorPattern, selector, packers,
+budgets):
+
+- **Trace every refusal and every cut behind the flag.** Each must be exact
+  (a proof that no load holding it fits) or turn the flag off
+  (`TruckFit::Undecided`, `fitUnproven`). A heuristic, a sort order, a
+  sample, a cache keyed coarser than the verdict, or a pruning rule that
+  assumes monotonicity the check does not have must never reach a proof.
+- **Test the composed claim against an independent oracle**, through the
+  real selector, not each part against its own: "proven ⇒ equals
+  `bestLoadValue`" (testSelector.cpp) over random days whose sizes straddle
+  every switch threshold (`kExactFloorItems` and one to four above it), on
+  footprint families drawn from the real extracts (many near-48 x 40 sizes,
+  near-square pallets that pinwheel, pallets narrow enough for three
+  across), not only on round synthetic sizes.
+- **Starve every budget to one.** With `nodeLimit`, `searchStateLimit` and
+  `routeSearchStateLimit` at 1 the route must come back unproven with the
+  limit named, never proven. Budgets an optional cut draws on must not be the
+  ones a decisive check needs.
+- **Mutate the new bound or rule** (make it a hair too strong; make its
+  validity check always pass) and confirm a test fails. A bound that no test
+  can catch being wrong is untested.
+- **Measure the gate itself.** The benchmark pins proof coverage of the
+  one-reservation lane-dates and writes `m4ProofCoverage.txt`, each unproven
+  route with its reason and the client's load beside it. A change that
+  proves fewer fails by name; "provisional, correctly labelled" is reported,
+  never counted as solved.
+- **Close measured risks before replying.** A known non-monotonicity,
+  heuristic or budget interaction listed as "open" is the next finding.
+
+```bash
+grep -rn 'proven\|Proven\|Undecided\|fitUnproven\|StateLimit\|nodeLimit\|mayStillFit\|quickFits' src include
+```
+
+**Fails if:** a refusal or cut behind a proof is heuristic, a proof is not
+checked against a brute-force oracle through the selector at sizes above
+every exact/heuristic threshold and on real-shaped footprints, a budget of
+one can yield a proven route, a new bound survives its own mutation, or the
+proof-coverage figures are not pinned.
 
 ## Reporting
 

@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "../customerData.hpp"
 #include "../importer/crossDayFixtures.hpp"
 #include "acceptanceHarness.hpp"
 #include "paramsLoader.hpp"
@@ -102,7 +103,7 @@ string load(const string& loadId, const string& shipDate, const string& linesJso
 }
 
 string solutionWithLoads(const string& loadsJson, const string& shipCondition = "TL") {
-    return R"({"REQUEST_ID":"R1","LANES":[{"LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
+    return R"({"REQUEST_ID":"R1","LANES":[{"ID":"7","LOCFRNO":"2027","LOCTONO":"2500","SHIP_COND":")"
         + shipCondition + R"(","LOADS":[)" + loadsJson + "]}]}";
 }
 
@@ -127,7 +128,7 @@ string readErrorMessage(const string& solutionJson) {
 // The solved-day tests are skipped without the solution folders, so this one fails instead.
 TEST_CASE("acceptanceHarness: the Truck Builder solution fixtures are present, so the validity tests ran") {
     for (const string& problem : missingSolutionFolders()) {
-        FAIL_CHECK(problem << " (confidential and gitignored; see README, Test data)");
+        customerData::reportMissing(problem + " (confidential and gitignored; see README, Test data)");
     }
 }
 
@@ -398,7 +399,7 @@ TEST_SUITE("augustAcceptance") {
 // The August tests are skipped without the files, so this one fails instead, naming each.
 TEST_CASE("acceptanceHarness: the August acceptance files are present, so the August tests ran") {
     for (const string& path : missingAugustFiles()) {
-        FAIL_CHECK(path << " not found (confidential and gitignored; see README, August acceptance)");
+        customerData::reportMissing(path + " not found (confidential and gitignored; see README, August acceptance)");
     }
 }
 

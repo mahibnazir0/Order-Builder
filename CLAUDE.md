@@ -182,3 +182,27 @@ test coverage, not just a manual check that it works.
   `0`), check whether the same code path has other bad-input cases that share
   the root cause (negative, NaN, wrong type) and cover those in the same
   change — don't fix only the specific value that was reported.
+
+## Claims of exactness
+
+A flag that claims a result is proven, optimal or exact (`proven`,
+`provenOptimal`, `fitsLength` as a refusal) is an acceptance claim: the
+client pays on it. Every finding on M4 from 4 to 16 Nov 2026 was a label
+resting on a step that was not exact - a heuristic refusal, pruning on a
+check that is not monotone, a budget an optional cut spent first. So when
+code feeds such a flag:
+
+- Every refusal or cut behind it is either exact or turns the flag off.
+  Never let a sort order, sample, heuristic or coarser cache decide it.
+- State any property you rely on (monotone, dominance, a bound) in a
+  comment, and prove it there or test it - an argument you cannot write
+  down is an assumption.
+- Test the composed claim through the real entry point against a
+  brute-force oracle, on sizes straddling every exact/heuristic threshold
+  and on shapes from the real extracts, not only round synthetic sizes.
+- Starve each budget to 1 and require the result unproven, naming the
+  limit; keep the budget of an optional cut apart from the decisive check's.
+- Mutate a new bound or rule (slightly too strong; validity always true)
+  and confirm a test fails before calling it tested.
+- A risk you measured and left "open" is the next review finding: close it
+  or report it as a limit of the claim, before the client finds it.

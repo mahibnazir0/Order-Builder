@@ -1,10 +1,12 @@
 #include "stackBuilder.hpp"
 
+#include "isoDate.hpp"
 #include "stackRules.hpp"
 #include "tolerance.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -20,6 +22,7 @@ struct Item {
     size_t lineIndex = 0;
     UnitLoad load;
     double quantity = 0.0;
+    string shipDate;  // its line's DATFR_TA
 };
 
 using Order = vector<size_t>;
@@ -30,6 +33,21 @@ struct Context {
     double ceilingIn;
     optional<int> maxStackDepth;
 };
+
+// Whether `top` keeps every line of the chain within the ship-date limit of the others. A date
+// that is not a real one cannot be measured, so it stacks only with lines due the same day.
+bool withinShipDateLimit(const Context& context, const Order& chain, const Item& top) {
+    const optional<long long>& limit = context.params.maxDaysBetweenShipDatesInStack;
+    if (!limit) return true;
+    for (const size_t member : chain) {
+        const string& date = context.items[member].shipDate;
+        if (date == top.shipDate) continue;
+        if (!isIsoDate(date) || !isIsoDate(top.shipDate) || llabs(daysBetween(date, top.shipDate)) > *limit) {
+            return false;
+        }
+    }
+    return true;
+}
 
 Order naturalOrder(size_t count) {
     Order order(count);
@@ -125,6 +143,7 @@ StackSet buildWithOrders(const Context& context, StackMethod method,
                 extended = false;
                 for (const size_t top : topOrder) {
                     if (hasPalletForAnotherLevel(context, chain, top, remaining)
+                        && withinShipDateLimit(context, chain, items[top])
                         && canExtendChain(context, chain, items[top].load)) {
                         chain.push_back(top);
                         chainHeightIn += items[top].load.heightIn;
@@ -299,7 +318,8 @@ StackingResult buildStacks(const SegregationResult& segregation,
                 continue;
             }
             if (exceedsOwnCri(load, params)) result.ownCriExceededLines.push_back(lineIndex);
-            items.push_back(Item{lineIndex, std::move(load), stackedQuantity});
+            const string shipDate = lines[lineIndex].str ? lines[lineIndex].str->datfr_ta : string();
+            items.push_back(Item{lineIndex, std::move(load), stackedQuantity, shipDate});
         }
 
         const Context context{items, params, trailer.stackHeightCeilingIn, trailer.maxStackDepth};

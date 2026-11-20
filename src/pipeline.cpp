@@ -8,7 +8,11 @@
 #include "segregation.hpp"
 #include "stackRules.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
@@ -251,6 +255,109 @@ void runFloor(const DemandSelector& selector, PipelineResult& result) {
     result.ranFloor = true;
 }
 
+// The inputs and params copied into one folder with a manifest naming each file's role, so the
+// solve can be run again from what was recorded.
+void recordInputs(const PipelineInputs& inputs) {
+    const filesystem::path directory(inputs.recordDirectory);
+    error_code failure;
+    filesystem::create_directories(directory, failure);
+    if (failure) throw runtime_error("cannot create record folder " + inputs.recordDirectory + ": " + failure.message());
+    ofstream manifest(directory / "record.txt");
+    const vector<pair<string, string>> files{
+        {"product", inputs.product_path}, {"demand", inputs.demand_path},
+        {"placeholder", inputs.placeholder_path}, {"params", inputs.paramsPath},
+        {"pallets", inputs.palletPath}, {"layerSizes", inputs.layerSizePath}};
+    for (const auto& [role, path] : files) {
+        if (path.empty()) continue;
+        const string copied = role + "-" + filesystem::path(path).filename().string();
+        filesystem::copy_file(path, directory / copied, filesystem::copy_options::overwrite_existing, failure);
+        if (failure) throw runtime_error("cannot record " + path + ": " + failure.message());
+        manifest << role << " " << copied << "\n";
+    }
+    if (!manifest) throw runtime_error("cannot write " + (directory / "record.txt").string());
+}
+
+// A grain coarser than an item would round it into grains it does not fill, and one so fine the
+// trailer's floor or payload counts past kMaxGrains cannot be counted, so either way every lane's
+// method would throw and fall back. Checked once against the real items and trailer instead.
+void requireGrainsFitItems(const SelectionParams& params, const SelectionItems& items, const TrailerSpec& trailer) {
+    double lightest = 0.0, smallest = 0.0;
+    for (const SelectionItem& item : items.items) {
+        const double area = item.footprintLongIn * item.footprintShortIn;
+        if (item.weightLb > 0.0 && (lightest == 0.0 || item.weightLb < lightest)) lightest = item.weightLb;
+        if (area > 0.0 && (smallest == 0.0 || area < smallest)) smallest = area;
+    }
+    const SelectorSettings& selector = params.selector;
+    const vector<pair<string, pair<double, double>>> grains{
+        {"knapsack", {selector.knapsack.weightGrainLb, selector.knapsack.areaGrainSqIn}},
+        {"patternPacker", {selector.patternPacker.weightGrainLb, selector.patternPacker.areaGrainSqIn}},
+        {"binPacker", {selector.binPacker.weightGrainLb, selector.binPacker.areaGrainSqIn}}};
+    for (const auto& [method, grain] : grains) {
+        if (lightest > 0.0 && grain.first > lightest) {
+            throw runtime_error("params: selection." + method + ".weightGrainLb is coarser than the lightest stack ("
+                                + to_string(lightest) + " lb)");
+        }
+        if (smallest > 0.0 && grain.second > smallest) {
+            throw runtime_error("params: selection." + method + ".areaGrainSqIn is coarser than the smallest stack ("
+                                + to_string(smallest) + " sq in)");
+        }
+        try {
+            prepareKnapsack({}, capacityOf(trailer), {grain.first, grain.second, 1});
+        } catch (const invalid_argument& error) {
+            throw runtime_error("params: selection." + method + ".weightGrainLb or areaGrainSqIn is too fine for trailer "
+                                + trailer.trailerCode + ": " + error.what());
+        }
+    }
+}
+
+// Lanes with demand under more than one ship condition on the same two sites. The client's
+// specification tops up spare truckload space from them, which M4 does not do, so Rev 8 section
+// 5 has the run stop and name them rather than plan them wrongly. None appears in the extracts
+// held.
+void requireNoComboLanes(const SegregationResult& segregation) {
+    map<pair<string, string>, set<string>> conditions;
+    for (const SegregatedGroup& group : segregation.groups) {
+        conditions[{group.key.locationFrom, group.key.locationTo}].insert(group.key.shipCondition);
+    }
+    string named;
+    for (const auto& [sites, shipConditions] : conditions) {
+        if (shipConditions.size() < 2) continue;
+        string listed;
+        for (const string& condition : shipConditions) listed += (listed.empty() ? "" : " and ") + condition;
+        named += (named.empty() ? "" : "; ") + sites.first + " -> " + sites.second + " under " + listed;
+    }
+    if (!named.empty()) {
+        throw runtime_error("M4 does not plan combo lanes, and the demand has some: " + named);
+    }
+}
+
+void runSelection(PipelineResult& result) {
+    requireNoComboLanes(result.segregation);
+    const string planDate = planDateFromRequestId(result.demand.request_id);
+    result.reservationBook = buildReservationBook(result.placeholders.placeholders, result.demand.ctl, planDate,
+                                                  result.selectionParams.reservations);
+    result.selectionItems = buildSelectionItems(result, result.reservationBook.window,
+                                                result.selectionParams.priorityZeroIsMostUrgent,
+                                                result.selectionParams.daysPulledForwardAllowed());
+    requireGrainsFitItems(result.selectionParams, result.selectionItems, result.trailer);
+    ShipDatePlan planned = planShipDates(result, result.reservationBook, result.selectionItems,
+                                         result.selectionParams.routing, result.selectionParams.selector,
+                                         result.selectionParams.shipDates,
+                                         result.selectionParams.maxDaysPulledForward);
+    result.laneClassification = std::move(planned.classification);
+    result.selectionPlan = std::move(planned.plan);
+    result.selectionViolations = checkInvariants(result, result.reservationBook, result.selectionItems,
+                                                 result.selectionPlan, result.selectionParams.selector.maxUnitLoadsPerTruck);
+    result.reservationCoverage = matchDemand(result.reservationBook, result.demand.str);
+    for (const InvariantViolation& violation : result.selectionViolations) {
+        LOG_ERROR("M4 " + violation.invariant + ": " + violation.detail);
+    }
+    LOG_INFO("M4: " + to_string(result.selectionPlan.trucks.size()) + " trucks against "
+             + to_string(result.reservationBook.reservedTrucks) + " reserved, "
+             + to_string(result.selectionPlan.penaltyExposureTrucks) + " unused");
+    result.ranSelection = true;
+}
+
 } // namespace
 
 RunOutcome runOutcome(const PipelineResult& result) {
@@ -261,7 +368,152 @@ RunOutcome runOutcome(const PipelineResult& result) {
         return RunOutcome::FloorIncomplete;
     }
     if (selectsNothing(result)) return RunOutcome::NothingSelected;
+    if (!selectionShortfalls(result).empty()) return RunOutcome::SelectionIncomplete;
+    if (!selectionProvisional(result).empty()) return RunOutcome::SelectionProvisional;
     return RunOutcome::Complete;
+}
+
+vector<string> selectionProvisional(const PipelineResult& result) {
+    vector<string> provisional;
+    if (!result.ranSelection) return provisional;
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    const vector<SegregatedGroup>& groups = result.segregation.groups;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (!route.methodUsed || route.routeIndex >= lanes.size()) continue;
+        string threw;
+        for (const MethodAttempt& attempt : route.attempts) {
+            if (attempt.outcome != AttemptOutcome::Threw) continue;
+            threw += (threw.empty() ? "" : " and ") + string(packingMethodName(attempt.method));
+        }
+        if (route.unprovenBecause.empty() && threw.empty()) continue;
+        string why = route.unprovenBecause;
+        if (!threw.empty()) {
+            why += (why.empty() ? "" : "; ") + string(packingMethodName(*route.methodUsed)) + " kept after " + threw
+                   + " threw";
+        }
+        const LaneRoute& lane = lanes[route.routeIndex];
+        if (lane.groupIndex >= groups.size()) continue;
+        const GroupKey& key = groups[lane.groupIndex].key;
+        provisional.push_back(key.locationFrom + " -> " + key.locationTo + " " + key.shipCondition
+                              + (key.isSegregated ? " group " + key.segregant : "") + ", " + lane.shipDate + ": "
+                              + why);
+    }
+    return provisional;
+}
+
+vector<string> selectionShortfalls(const PipelineResult& result) {
+    vector<string> shortfalls;
+    if (!result.ranSelection) return shortfalls;
+    auto add = [&](size_t count, const string& what) {
+        if (count > 0) shortfalls.push_back(to_string(count) + " " + what);
+    };
+    add(result.selectionViolations.size(), "invariant violations");
+
+    size_t unsolved = 0, overBudget = 0, lpCapped = 0;
+    for (const RouteOutcome& route : result.selectionPlan.routes) {
+        if (route.status == RouteStatus::Unsolved) ++unsolved;
+        if (route.overBudget) ++overBudget;
+        if (route.lpIterationCapHit) ++lpCapped;
+    }
+    add(unsolved, "routes where every method threw");
+    add(overBudget, "routes whose method overran the time budget");
+    add(lpCapped, "routes whose LP stopped at its simplex iteration cap");
+
+    // Room is judged where a good ended: a good carried on or pulled forward was offered to
+    // other dates too, and their room is not what left it.
+    const vector<LaneRoute>& lanes = result.laneClassification.routes;
+    const vector<RouteOutcome>& outcomes = result.selectionPlan.routes;
+    const vector<optional<size_t>> finalRoute =
+        finalRouteOfItems(result.laneClassification, result.selectionPlan, result.selectionItems.items.size());
+    auto endedOn = [&](size_t itemIndex) -> optional<size_t> {
+        if (itemIndex >= finalRoute.size() || !finalRoute[itemIndex] || *finalRoute[itemIndex] >= lanes.size()
+            || *finalRoute[itemIndex] >= outcomes.size()) {
+            return nullopt;
+        }
+        return finalRoute[itemIndex];
+    };
+    // A floor or unit-load-cap eviction on a route that built every truck it was allowed is
+    // overflow, as OverReservation is; only one on a route with trucks still unbuilt is goods lost.
+    auto routeHasRoom = [&](size_t itemIndex) {
+        const optional<size_t> route = endedOn(itemIndex);
+        return route && outcomes[*route].trucksBuilt < outcomes[*route].trucksAllowed;
+    };
+    // The groups of a lane-date share its reservation, so room is judged on the lane-date too:
+    // goods left over while a sibling group left a reserved truck unbuilt are goods lost.
+    using LaneDate = tuple<string, string, string, string>;
+    const vector<SegregatedGroup>& groups = result.segregation.groups;
+    auto laneDateOf = [&](const LaneRoute& lane) {
+        const GroupKey& key = groups[lane.groupIndex].key;
+        return LaneDate{key.locationFrom, key.locationTo, key.shipCondition, lane.shipDate};
+    };
+    map<LaneDate, pair<long long, long long>> builtAndReservedByLaneDate;
+    for (const RouteOutcome& route : outcomes) {
+        if (route.routeIndex >= lanes.size() || route.status == RouteStatus::Escalated) continue;
+        const LaneRoute& lane = lanes[route.routeIndex];
+        if (lane.groupIndex >= groups.size()) continue;
+        auto& [built, reserved] = builtAndReservedByLaneDate[laneDateOf(lane)];
+        built += route.trucksBuilt;
+        reserved = lane.reservedTrucks;
+    }
+    auto laneDateHasRoom = [&](size_t itemIndex) {
+        const optional<size_t> route = endedOn(itemIndex);
+        if (!route || lanes[*route].groupIndex >= groups.size()) return false;
+        const auto found = builtAndReservedByLaneDate.find(laneDateOf(lanes[*route]));
+        return found != builtAndReservedByLaneDate.end() && found->second.first < found->second.second;
+    };
+    map<LeftOverReason, size_t> droppedByReason;
+    size_t leftWithLaneDateRoom = 0;
+    for (const LeftOverItem& left : result.selectionPlan.leftOver) {
+        switch (left.reason) {
+        case LeftOverReason::FloorEviction:
+        case LeftOverReason::UnitLoadCap:
+            if (routeHasRoom(left.itemIndex)) {
+                ++droppedByReason[left.reason];
+            } else if (laneDateHasRoom(left.itemIndex)) {
+                ++leftWithLaneDateRoom;
+            }
+            break;
+        case LeftOverReason::OverReservation:
+            if (laneDateHasRoom(left.itemIndex)) ++leftWithLaneDateRoom;
+            break;
+        case LeftOverReason::EscalatedToM5:
+        case LeftOverReason::Unfittable:
+        case LeftOverReason::LaneUnsolved: ++droppedByReason[left.reason]; break;
+        case LeftOverReason::AfterWindow:
+        case LeftOverReason::UnavailableInWindow:
+        case LeftOverReason::NoReservation: break;
+        }
+    }
+    for (const auto& [reason, stacks] : droppedByReason) {
+        add(stacks, string("stacks left over: ") + leftOverReasonName(reason));
+    }
+    add(leftWithLaneDateRoom, "stacks left over while the lane-date had reserved trucks unbuilt");
+
+    size_t pulledTooFar = 0;
+    for (const RejectedItem& rejected : result.selectionItems.rejected) {
+        if (rejected.reason == ItemRejection::PullForwardBeyondLimit) ++pulledTooFar;
+    }
+    add(result.selectionItems.rejected.size() - pulledTooFar, "stacks rejected for bad line data");
+    add(pulledTooFar, "stacks rejected for pulling lines forward beyond the limit");
+    add(result.selectionItems.linesNotFullyStacked.size(), "lines not fully stacked");
+
+    size_t badPlaceholders = 0;
+    for (const SkippedPlaceholder& skipped : result.reservationBook.skipped) {
+        switch (skipped.reason) {
+        case PlaceholderSkipReason::ZeroLoads:
+        case PlaceholderSkipReason::BeforeWindow:
+        case PlaceholderSkipReason::AfterWindow: break;
+        case PlaceholderSkipReason::MissingLane:
+        case PlaceholderSkipReason::PaddedLaneCode:
+        case PlaceholderSkipReason::DuplicateLaneDate:
+        case PlaceholderSkipReason::InvalidShipDate:
+        case PlaceholderSkipReason::InvalidDeliveryDate:
+        case PlaceholderSkipReason::InvalidLoadCount:
+        case PlaceholderSkipReason::UnknownEquipment: ++badPlaceholders; break;
+        }
+    }
+    add(badPlaceholders, "placeholder rows skipped for bad data");
+    return shortfalls;
 }
 
 PipelineResult Pipeline::run(const PipelineInputs& inputs) {
@@ -269,7 +521,11 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         throw runtime_error("a demand rule needs a params file: the floor is planned against "
                             "its trailer");
     }
+    if (inputs.runSelection && inputs.paramsPath.empty()) {
+        throw runtime_error("selection needs a params file: its settings are the params file's 'selection' block");
+    }
     requireDistinctDemandAndPlaceholder(inputs);
+    if (!inputs.recordDirectory.empty()) recordInputs(inputs);
     PipelineResult result;
 
     // ── 1. Read the three input files ───────────────────────────────────────
@@ -294,6 +550,10 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
         result.params = loadParams(inputs.paramsPath);
         if (!inputs.palletPath.empty()) {
             result.params.pallets = ProductImporter::loadPalletTable(inputs.palletPath);
+        }
+        if (inputs.runSelection) {
+            result.selectionParams = loadSelectionParams(inputs.paramsPath);
+            result.params.maxDaysBetweenShipDatesInStack = result.selectionParams.daysPulledForwardAllowed();
         }
     }
 
@@ -347,6 +607,9 @@ PipelineResult Pipeline::run(const PipelineInputs& inputs) {
 
     // ── 7. Milestone 3: a floor per ship date ───────────────────────────────
     if (inputs.demandSelector) runFloor(*inputs.demandSelector, result);
+
+    // ── 8. M4: select each reserved truck's load ────────────────────────────
+    if (inputs.runSelection) runSelection(result);
 
     // Logged only now so the count includes the warnings Milestone 2 adds and matches the report.
     LOG_INFO("Validation: " + to_string(result.validation.errors) + " errors, "

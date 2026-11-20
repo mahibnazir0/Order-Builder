@@ -19,6 +19,7 @@
 // ============================================================================
 
 #include "pipeline.hpp"
+#include "selectionItem.hpp"
 #include "trailerSpec.hpp"
 
 #include <cstddef>
@@ -35,6 +36,7 @@ struct AchievedLaneDay {
     std::string shipCondition;
     std::string shipDate;
     std::size_t loads = 0;
+    std::vector<std::size_t> truckIndices; // its loads, into AchievedRequest::trucks
 };
 
 struct ShippedLine {
@@ -49,6 +51,8 @@ struct AchievedRequest {
     std::size_t solutionFiles = 0;
     std::vector<AchievedLaneDay> laneDays; // acceptance-set lanes and ship dates with a load
     std::unordered_map<std::string, ShippedLine> shippedByIdpr;
+    // Every load read, on any ship condition, as it was loaded: what the plausibility gate checks.
+    std::vector<ob::InputTruck> trucks;
     // The acceptance set is chosen by ship condition; these count where a populated
     // LOAD_OPT_SCORE would have chosen differently.
     std::size_t scoredLoadsOutsideSet = 0;
