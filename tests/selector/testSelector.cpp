@@ -1063,3 +1063,44 @@ TEST_CASE("selector: a group estimated at both trucks keeps one, by knapsack, wh
     CHECK(shipped == doctest::Approx(25.0));
 }
 
+
+namespace {
+
+// Tom Moore's five stacks (19 Nov 2026) at this trailer's payload: two light and three heavy, all
+// due the same day at the same priority, two trailer-wide stacks to a truck, and a light and a
+// heavy exactly a payload. `heavyPriority` sets the heavy ones' priority.
+Day twoLightThreeHeavyOnTwoTrucks(int heavyPriority = 0) {
+    vector<SelectionItem> items;
+    for (size_t index = 0; index < 5; ++index) {
+        const bool light = index < 2;
+        items.push_back(item(0, index, light ? 9000.0 : 36000.0, light ? 0 : heavyPriority, 300.0, 100.0));
+    }
+    return dayOf({group("2027")}, 5, items, {reserved("2027", 2)});
+}
+
+} // anonymous namespace
+
+TEST_CASE("selector: two light and three heavy stacks on two trucks of two ship four, a light and a heavy on each") {
+    const Day day = twoLightThreeHeavyOnTwoTrucks();
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE(selection.routes[0].methodUsed == PackingMethod::Knapsack);
+    REQUIRE(selection.trucks.size() == 2);
+    for (const PlannedTruck& truck : selection.trucks) {
+        CHECK(truck.items.size() == 2);
+        CHECK(truck.weightLb == doctest::Approx(kTrailer.weightLimitLb));
+    }
+    CHECK(selection.leftOver.size() == 1);
+}
+
+TEST_CASE("selector: two light stacks more urgent than three heavy ones still ship together on the first truck") {
+    const Day day = twoLightThreeHeavyOnTwoTrucks(11);
+    const SelectionPlan selection = plan(day);
+    checkPlan(day, selection);
+    REQUIRE_FALSE(selection.trucks.empty());
+    size_t urgentShipped = 0;
+    for (const PlannedTruck& truck : selection.trucks) {
+        for (const size_t index : truck.items) urgentShipped += day.items.items[index].priority == 0 ? 1 : 0;
+    }
+    CHECK(urgentShipped == 2);
+}

@@ -9,9 +9,11 @@
 #include <chrono>
 #include <functional>
 #include <limits>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace std;
@@ -642,4 +644,195 @@ TEST_CASE("knapsack: the next truck is chosen from the goods remaining, named as
     CHECK(next.chosen == vector<size_t>{3});
     CHECK(next.leftOver == vector<size_t>{1});
     CHECK_THROWS_AS(selectNextTruck(items, {1, 4}, kTruck, kFine), invalid_argument);
+}
+
+namespace {
+
+const KnapsackCapacity kTwoStacksOf10000Lb{63000.0, 10000.0, 108.0};
+
+// No truck holds more than `stacks` of the goods: a stand-in for rows that take two fixed stacks.
+TruckLimits stacksPerTruck(size_t itemCount, double stacks) { return {{}, {{vector<double>(itemCount, 1.0), stacks}}, {}, {}}; }
+
+// Unit loads at priority 0, then at 1, then floor, over every truck of the lane.
+KnapsackValue laneValue(const vector<KnapsackItem>& items, const vector<vector<size_t>>& trucks) {
+    KnapsackValue total(3, 0);
+    for (const vector<size_t>& truck : trucks) {
+        for (const size_t index : truck) {
+            total[static_cast<size_t>(items[index].priority)] += llround(items[index].unitLoads);
+            total.back() += llround(items[index].areaSqIn);
+        }
+    }
+    return total;
+}
+
+// The trucks filled in turn by selectForTruck alone, each taking the lightest of goods alike, as
+// indices into `items`.
+vector<vector<size_t>> lightestFirstTrucks(const vector<KnapsackItem>& items, int trucks, double stacks) {
+    vector<vector<size_t>> filled;
+    vector<size_t> remaining(items.size());
+    iota(remaining.begin(), remaining.end(), size_t{0});
+    for (int truck = 0; truck < trucks; ++truck) {
+        vector<KnapsackItem> pool;
+        for (const size_t index : remaining) pool.push_back(items[index]);
+        KnapsackSelection selection = selectForTruck(pool, kTwoStacksOf10000Lb, kFine, stacksPerTruck(pool.size(), stacks));
+        vector<size_t>& chosen = filled.emplace_back();
+        for (const size_t index : selection.chosen) chosen.push_back(remaining[index]);
+        vector<size_t> left;
+        for (const size_t index : selection.leftOver) left.push_back(remaining[index]);
+        remaining = std::move(left);
+    }
+    return filled;
+}
+
+} // anonymous namespace
+
+TEST_CASE("knapsack: Tom's 2,000, 2,000 and three 8,000 lb stacks ship four on two 10,000 lb trucks of two stacks") {
+    const vector<KnapsackItem> items{stackItem(48, 40, 2000), stackItem(48, 40, 2000), stackItem(48, 40, 8000),
+                                     stackItem(48, 40, 8000), stackItem(48, 40, 8000)};
+    const LaneSelection lane = selectForTrucks(items, kTwoStacksOf10000Lb, kFine, 2, stacksPerTruck(items.size(), 2.0));
+    REQUIRE(lane.trucks.size() == 2);
+    for (const KnapsackSelection& truck : lane.trucks) {
+        CHECK(truck.chosen.size() == 2);
+        CHECK(truck.weightUsedLb == doctest::Approx(10000.0));
+        CHECK(truck.proven);
+    }
+    CHECK(lane.leftOver.size() == 1);
+}
+
+TEST_CASE("knapsack: a lane's first truck keeps the value and proof of the best single truck") {
+    mt19937 random(20112026);
+    for (int trial = 0; trial < 300; ++trial) {
+        vector<KnapsackItem> items;
+        const size_t count = 3 + random() % 10;
+        for (size_t index = 0; index < count; ++index) {
+            items.push_back(stackItem(48, random() % 2 == 0 ? 40.0 : 36.0, static_cast<double>(500 + random() % 9500)));
+            items.back().priority = static_cast<int>(random() % 2);
+        }
+        const double stacks = static_cast<double>(1 + random() % 3);
+        const KnapsackSelection alone = selectForTruck(items, kTwoStacksOf10000Lb, kFine, stacksPerTruck(count, stacks));
+        const LaneSelection lane = selectForTrucks(items, kTwoStacksOf10000Lb, kFine, 2, stacksPerTruck(count, stacks));
+        CAPTURE(trial);
+        for (const KnapsackSelection& truck : lane.trucks) checkWithinCapacity(items, truck, kTwoStacksOf10000Lb);
+        REQUIRE(lane.trucks[0].value == alone.value);
+        REQUIRE(lane.trucks[0].proven == alone.proven);
+    }
+}
+
+TEST_CASE("knapsack: a more urgent light good is never traded for a heavier less urgent one") {
+    vector<KnapsackItem> items{stackItem(48, 40, 2000), stackItem(48, 40, 2000), stackItem(48, 40, 8000),
+                               stackItem(48, 40, 8000), stackItem(48, 40, 8000)};
+    for (size_t heavy = 2; heavy < items.size(); ++heavy) items[heavy].priority = 11;
+    const LaneSelection lane = selectForTrucks(items, kTwoStacksOf10000Lb, kFine, 2, stacksPerTruck(items.size(), 2.0));
+    REQUIRE(lane.trucks.size() == 2);
+    CHECK(lane.trucks[0].chosen == vector<size_t>{0, 1});
+}
+
+TEST_CASE("knapsack: trucks filled in turn ship no less of any class than lightest-first on random lanes") {
+    mt19937 random(19112026);
+    int shippedMore = 0;
+    for (int trial = 0; trial < 400; ++trial) {
+        vector<KnapsackItem> items;
+        const size_t count = 4 + random() % 6;
+        for (size_t index = 0; index < count; ++index) {
+            items.push_back(stackItem(48, 40, static_cast<double>(500 + random() % 9500)));
+            items.back().priority = static_cast<int>(random() % 2);
+        }
+        const int trucks = 2 + static_cast<int>(random() % 2);
+        const double stacks = static_cast<double>(2 + random() % 2);
+        const LaneSelection lane = selectForTrucks(items, kTwoStacksOf10000Lb, kFine, trucks, stacksPerTruck(count, stacks));
+        vector<vector<size_t>> chosen;
+        for (const KnapsackSelection& truck : lane.trucks) chosen.push_back(truck.chosen);
+        const KnapsackValue before = laneValue(items, lightestFirstTrucks(items, trucks, stacks));
+        const KnapsackValue after = laneValue(items, chosen);
+        CAPTURE(trial);
+        REQUIRE_FALSE(after < before);
+        if (before < after) ++shippedMore;
+        for (const KnapsackSelection& truck : lane.trucks) checkWithinCapacity(items, truck, kTwoStacksOf10000Lb);
+    }
+    CHECK(shippedMore > 0);
+}
+
+TEST_CASE("knapsack: no load within the floor, payload and limits carries more unit loads than the upper bound (oracle)") {
+    mt19937 random(21112026);
+    for (int trial = 0; trial < 300; ++trial) {
+        const size_t count = 3 + random() % 10;
+        vector<KnapsackItem> items;
+        vector<double> rowShares;
+        for (size_t index = 0; index < count; ++index) {
+            items.push_back(stackItem(48, 40, static_cast<double>(500 + random() % 9500), static_cast<double>(1 + random() % 3)));
+            items.back().areaSqIn = static_cast<double>(1000 + random() % 9000);
+            rowShares.push_back(static_cast<double>(20 + random() % 100));
+        }
+        vector<double> unitLoadShares;
+        for (const KnapsackItem& item : items) unitLoadShares.push_back(item.unitLoads);
+        const KnapsackCapacity capacity{static_cast<double>(10000 + random() % 30000), static_cast<double>(5000 + random() % 30000), 108.0};
+        const vector<ItemLimit> limits{{unitLoadShares, static_cast<double>(2 + random() % 10)}, {rowShares, 300.0}};
+        const double bound = unitLoadUpperBound(items, capacity, limits);
+        double best = 0.0;
+        for (size_t mask = 0; mask < (size_t{1} << count); ++mask) {
+            double area = 0.0, weight = 0.0, unitLoads = 0.0, rowLength = 0.0;
+            for (size_t index = 0; index < count; ++index) {
+                if (!(mask >> index & 1)) continue;
+                area += items[index].areaSqIn;
+                weight += items[index].weightLb;
+                unitLoads += items[index].unitLoads;
+                rowLength += rowShares[index];
+            }
+            if (area <= capacity.floorAreaSqIn && weight <= capacity.weightLb && unitLoads <= limits[0].capacity
+                && rowLength <= limits[1].capacity) {
+                best = max(best, unitLoads);
+            }
+        }
+        CAPTURE(trial);
+        REQUIRE(best <= bound + kQuantityEpsilon);
+    }
+}
+
+TEST_CASE("knapsack: the upper bound is the payload's share when only the payload binds") {
+    const vector<KnapsackItem> items(10, stackItem(48, 40, 1000));
+    CHECK(unitLoadUpperBound(items, {63000.0, 7000.0, 108.0}, {}) == doctest::Approx(7.0));
+    CHECK(unitLoadUpperBound(items, {63000.0, 7500.0, 108.0}, {}) == doctest::Approx(7.5));
+}
+
+TEST_CASE("knapsack: the upper bound leaves out goods over the ceiling or over a limit alone") {
+    vector<KnapsackItem> items(3, stackItem(48, 40, 1000));
+    items[0].heightIn = 200.0;
+    const double infinity = numeric_limits<double>::infinity();
+    CHECK(unitLoadUpperBound(items, kTruck, {{{1.0, infinity, 1.0}, 10.0}}) == doctest::Approx(1.0));
+}
+
+TEST_CASE("knapsack: the upper bound rejects a negative or non-finite figure, item or limit") {
+    const double nan = numeric_limits<double>::quiet_NaN();
+    const double infinity = numeric_limits<double>::infinity();
+    for (const double bad : {nan, infinity, -1.0}) {
+        CHECK_THROWS_AS(unitLoadUpperBound({load(1920, 1000, bad)}, kTruck, {}), invalid_argument);
+        CHECK_THROWS_AS(unitLoadUpperBound({load(bad, 1000)}, kTruck, {}), invalid_argument);
+        CHECK_THROWS_AS(unitLoadUpperBound({load(1920, bad)}, kTruck, {}), invalid_argument);
+        CHECK_THROWS_AS(unitLoadUpperBound({load(1920, 1000)}, {bad, 45000.0, 108.0}, {}), invalid_argument);
+        CHECK_THROWS_AS(unitLoadUpperBound({load(1920, 1000)}, kTruck, {{{1.0}, bad}}), invalid_argument);
+    }
+    for (const double bad : {nan, -1.0}) {
+        CHECK_THROWS_AS(unitLoadUpperBound({load(1920, 1000)}, kTruck, {{{bad}, 10.0}}), invalid_argument);
+    }
+}
+
+TEST_CASE("knapsack: where carrying the heaviest copies costs a later truck, the lane keeps the lightest-first fill") {
+    const vector<tuple<double, double, int>> stacks{{48, 3491, 1}, {60, 8823, 0}, {60, 2726, 0}, {48, 915, 0}, {60, 4553, 0},
+                                                    {48, 7419, 1}, {60, 9073, 1}, {48, 1880, 0}, {48, 6728, 0}};
+    vector<KnapsackItem> items;
+    for (const auto& [longSide, weight, priority] : stacks) {
+        items.push_back(stackItem(longSide, 40, weight, longSide == 60 ? 2.0 : 1.0));
+        items.back().priority = priority;
+    }
+    // Rows that refuse some mixes of the two footprints, judging copies alike whatever they weigh.
+    TruckLimits rows = stacksPerTruck(items.size(), 3.0);
+    rows.fits = [&items](const vector<size_t>& chosen) {
+        const long long wide = count_if(chosen.begin(), chosen.end(), [&](size_t index) { return items[index].levels == 2; });
+        const long long narrow = static_cast<long long>(chosen.size()) - wide;
+        return (wide * 7 + narrow * 3 + 2) % 5 != 0 ? TruckFit::Fits : TruckFit::DoesNotFit;
+    };
+    const LaneSelection lane = selectForTrucks(items, kTwoStacksOf10000Lb, kFine, 3, rows);
+    vector<vector<size_t>> chosen;
+    for (const KnapsackSelection& truck : lane.trucks) chosen.push_back(truck.chosen);
+    CHECK(laneValue(items, chosen)[0] == 9);
 }

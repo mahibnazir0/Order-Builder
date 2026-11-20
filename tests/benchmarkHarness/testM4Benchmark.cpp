@@ -779,6 +779,104 @@ vector<string> ruleCostRow(const string& label, const HeldDay& day, const Select
             violations == 0 ? string("none") : grouped(violations)};
 }
 
+// How far an unproven one-truck route can be from the best load, by a valid ceiling: the unit
+// loads its truck carries beside unitLoadUpperBound's for any load of its goods, and the same on
+// its most urgent class it leaves goods of. A load better than ours by the knapsack's measure
+// carries every good of the classes before that one, as ours does, so that class's ceiling is
+// taken on the floor, payload and limits those goods leave.
+struct ServiceGap {
+    double ours = 0.0;
+    double bound = 0.0;
+    string shortClass;  // empty when ours carries every good
+    double oursInClass = 0.0;
+    double boundInClass = 0.0;
+};
+
+ServiceGap serviceGapOf(const HeldDay& day, size_t route) {
+    const LaneRoute& lane = day.classification.routes[route];
+    const SelectorSettings settings = realDataSettings();
+    const TrailerSpec& trailer = day.run->trailer;
+    const size_t count = lane.itemIndices.size();
+    vector<KnapsackItem> items;
+    vector<FloorItem> floorItems;
+    vector<double> unitLoadShares;
+    unordered_map<size_t, size_t> positionOf;
+    items.reserve(count);
+    floorItems.reserve(count);
+    unitLoadShares.reserve(count);
+    for (size_t position = 0; position < count; ++position) {
+        const SelectionItem& item = day.items.items[lane.itemIndices[position]];
+        items.push_back(knapsackItemFrom(item));
+        items.back().rankDate = rankDateOf(item.shipDate, lane.shipDate, day.classification.pastDueOrder);
+        floorItems.push_back(floorItemFrom(item));
+        unitLoadShares.push_back(item.unitLoads);
+        positionOf.emplace(lane.itemIndices[position], position);
+    }
+    vector<ItemLimit> limits{{unitLoadShares, settings.maxUnitLoadsPerTruck},
+                             {rowLengthShares(floorItems, trailer, settings.floor), trailer.interiorLengthIn}};
+    if (settings.floor.maxPositions) limits.push_back({vector<double>(count, 1.0), static_cast<double>(*settings.floor.maxPositions)});
+    KnapsackCapacity capacity = capacityOf(trailer);
+
+    vector<char> carried(count, 0);
+    ServiceGap gap;
+    for (const PlannedTruck& truck : day.plan.trucks) {
+        if (truck.routeIndex != route) continue;
+        for (const size_t index : truck.items) {
+            const auto found = positionOf.find(index);
+            if (found == positionOf.end()) continue;
+            carried[found->second] = 1;
+            gap.ours += items[found->second].unitLoads;
+        }
+    }
+    gap.bound = unitLoadUpperBound(items, capacity, limits);
+
+    map<tuple<string, int, string>, vector<size_t>> positionsByClass;
+    for (size_t position = 0; position < count; ++position) {
+        const KnapsackItem& item = items[position];
+        positionsByClass[{item.rankDate.empty() ? item.shipDate : item.rankDate, item.priority, item.shipDate}].push_back(position);
+    }
+    for (const auto& [urgency, positions] : positionsByClass) {
+        double held = 0.0, ours = 0.0;
+        for (const size_t position : positions) {
+            held += items[position].unitLoads;
+            if (carried[position]) ours += items[position].unitLoads;
+        }
+        if (ours >= held - kQuantityEpsilon) {
+            for (const size_t position : positions) {
+                capacity.floorAreaSqIn = max(0.0, capacity.floorAreaSqIn - items[position].areaSqIn);
+                capacity.weightLb = max(0.0, capacity.weightLb - items[position].weightLb);
+                for (ItemLimit& limit : limits) limit.capacity = max(0.0, limit.capacity - limit.perItem[position]);
+            }
+            continue;
+        }
+        vector<KnapsackItem> classItems;
+        vector<ItemLimit> classLimits;
+        for (const ItemLimit& limit : limits) classLimits.push_back({{}, limit.capacity});
+        for (const size_t position : positions) {
+            classItems.push_back(items[position]);
+            for (size_t limit = 0; limit < limits.size(); ++limit) classLimits[limit].perItem.push_back(limits[limit].perItem[position]);
+        }
+        gap.shortClass = get<0>(urgency) + " priority " + to_string(get<1>(urgency)) + " due " + get<2>(urgency);
+        gap.oursInClass = ours;
+        gap.boundInClass = unitLoadUpperBound(classItems, capacity, classLimits);
+        break;
+    }
+    return gap;
+}
+
+string serviceGapText(const ServiceGap& gap) {
+    ostringstream text;
+    text << fixed << setprecision(1) << "ours " << gap.ours << " unit loads, any load at most " << gap.bound
+         << " (gap at most " << max(0.0, gap.bound - gap.ours) << ")";
+    if (gap.shortClass.empty()) {
+        text << "; ours carries every good";
+    } else {
+        text << "; most urgent class left short, " << gap.shortClass << ": ours " << gap.oursInClass << ", at most "
+             << gap.boundInClass << " (gap at most " << max(0.0, gap.boundInClass - gap.oursInClass) << ")";
+    }
+    return text.str();
+}
+
 } // anonymous namespace
 
 // Run with: ./build/ob_tests -ts=m4Benchmark --no-skip, or ctest (its m4Benchmark entry). Every
@@ -993,7 +1091,9 @@ TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their row
                                     Proven{{144, 153}, {133, 141}}};
     string text = "M4 proof coverage: the knapsack routes allocated one truck, and those on a lane-date that\n"
                   "reserved one, with each of the latter left unproven beside the client's loads that lane-date.\n"
-                  "Cube is the average share of a truck's interior its cargo fills.\n";
+                  "Cube is the average share of a truck's interior its cargo fills. Each bound is a ceiling no\n"
+                  "load of the route's goods can pass on the floor, payload, unit-load cap and row lengths, each\n"
+                  "relaxed alone (unitLoadUpperBound), so the gap is the most the unproven truck can be short.\n";
     for (size_t run = 0; run < measured.size(); ++run) {
         const HeldDay& day = augustDay(run);
         CAPTURE(day.label);
@@ -1022,7 +1122,8 @@ TEST_CASE("m4Benchmark: August one-truck knapsack routes are proven on their row
             line << "  " << key.locationFrom << " -> " << key.locationTo << " " << key.shipCondition << " " << lane.shipDate
                  << ", " << lane.itemIndices.size() << " stacks: ours " << laneDay.ourTrucks << " truck(s) at "
                  << fixed << setprecision(0) << 100.0 * laneDay.ourCube << "% cube, the client's " << laneDay.clientLoads
-                 << " load(s) at " << 100.0 * laneDay.clientCube << "%; " << outcome.unprovenBecause << "\n";
+                 << " load(s) at " << 100.0 * laneDay.clientCube << "%; " << outcome.unprovenBecause << "\n"
+                 << "    bound: " << serviceGapText(serviceGapOf(day, route)) << "\n";
             unproven += line.str();
         }
         CHECK(counted.ofAllocatedOne == measured[run].ofAllocatedOne);

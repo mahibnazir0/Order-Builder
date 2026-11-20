@@ -200,6 +200,73 @@ bool withinLimits(const CandidateLimits& limits, const vector<double>& left, siz
     return true;
 }
 
+// Whether two candidates are copies of one good to the search and every check: the same class,
+// unit loads, floor, footprint, levels and limit shares, whatever each weighs.
+bool alikeButWeight(const KnapsackProblem& problem, const vector<KnapsackItem>& items, const CandidateLimits& limits,
+                    size_t left, size_t right) {
+    const KnapsackItem& leftItem = items[problem.candidates[left]];
+    const KnapsackItem& rightItem = items[problem.candidates[right]];
+    if (problem.classOf[left] != problem.classOf[right] || problem.amount[left] != problem.amount[right]
+        || problem.areaGrains[left] != problem.areaGrains[right] || leftItem.longSideIn != rightItem.longSideIn
+        || leftItem.shortSideIn != rightItem.shortSideIn || leftItem.levels != rightItem.levels) {
+        return false;
+    }
+    for (const vector<double>& share : limits.share) {
+        if (share[left] != share[right]) return false;
+    }
+    return true;
+}
+
+// The search takes the lightest of goods alike but for weight, which is right for one truck and
+// wrong for the trucks after it: a first truck with payload to spare leaves only heavy copies, and
+// a later one weighs out (Tom Moore, 19 Nov 2026: 2,000, 2,000 and three 8,000 lb stacks, two
+// 10,000 lb trucks of two stacks each, shipped 3 where 4 fit). So, most urgent kind first, each
+// copy taken, lightest first, is traded for the heaviest copy left that the payload still allows.
+// The load's value, floor, limits and rows are unchanged, since every check judges copies alike
+// whatever they weigh (TruckLimits), so neither is its proof; only what it leaves is lighter.
+void carryHeaviestCopies(const KnapsackProblem& problem, const vector<KnapsackItem>& items,
+                         const CandidateLimits& limits, vector<char>& taken) {
+    const size_t count = problem.candidates.size();
+    long long weightLeft = problem.weightCapacity;
+    for (size_t position = 0; position < count; ++position) {
+        if (taken[position]) weightLeft -= problem.weightGrains[position];
+    }
+    vector<size_t> takenCopies;
+    multimap<long long, size_t> leftCopies;  // by weight grains
+    // prepareKnapsack stands each kind's copies together, so a kind is a run of positions.
+    for (size_t start = 0; start < count && weightLeft > 0;) {
+        size_t end = start + 1;
+        while (end < count && alikeButWeight(problem, items, limits, start, end)) ++end;
+        takenCopies.clear();
+        leftCopies.clear();
+        for (size_t position = start; position < end; ++position) {
+            if (taken[position]) {
+                takenCopies.push_back(position);
+            } else {
+                leftCopies.emplace(problem.weightGrains[position], position);
+            }
+        }
+        if (!takenCopies.empty() && !leftCopies.empty()) {
+            stable_sort(takenCopies.begin(), takenCopies.end(), [&](size_t left, size_t right) {
+                return problem.weightGrains[left] < problem.weightGrains[right];
+            });
+            for (const size_t light : takenCopies) {
+                const long long lightWeight = problem.weightGrains[light];
+                auto heaviestAllowed = leftCopies.upper_bound(lightWeight + weightLeft);
+                if (heaviestAllowed == leftCopies.begin()) continue;
+                --heaviestAllowed;
+                if (heaviestAllowed->first <= lightWeight) continue;
+                taken[light] = 0;
+                taken[heaviestAllowed->second] = 1;
+                weightLeft -= heaviestAllowed->first - lightWeight;
+                leftCopies.erase(heaviestAllowed);
+                leftCopies.emplace(lightWeight, light);
+            }
+        }
+        start = end;
+    }
+}
+
 // Whether the truck takes the load by its cheaper check, or by `fits` when it has none.
 bool quicklyFits(const TruckLimits& truck, const vector<size_t>& chosen) {
     if (truck.quickFits) return truck.quickFits(chosen);
@@ -405,14 +472,83 @@ KnapsackProblem prepareKnapsack(const vector<KnapsackItem>& items, const Knapsac
     return problem;
 }
 
+double unitLoadUpperBound(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                          const vector<ItemLimit>& limits) {
+    // Grains play no part in the bound, so the finest checks the items alone.
+    const double finest = numeric_limits<double>::min();
+    validate(items, capacity, {finest, finest, 1});
+    validateLimits(limits, items.size());
+
+    vector<vector<double>> shares;  // per relaxation, parallel to items
+    vector<double> capacities;
+    shares.reserve(limits.size() + 2);
+    capacities.reserve(limits.size() + 2);
+    shares.emplace_back();
+    shares.emplace_back();
+    for (const KnapsackItem& item : items) {
+        shares[0].push_back(item.areaSqIn);
+        shares[1].push_back(item.weightLb);
+    }
+    capacities.push_back(capacity.floorAreaSqIn);
+    capacities.push_back(capacity.weightLb);
+    for (const ItemLimit& limit : limits) {
+        shares.push_back(limit.perItem);
+        capacities.push_back(limit.capacity);
+    }
+
+    vector<size_t> counted;
+    counted.reserve(items.size());
+    double held = 0.0;
+    for (size_t index = 0; index < items.size(); ++index) {
+        bool fitsAlone = items[index].heightIn <= capacity.ceilingIn + kQuantityEpsilon;
+        for (size_t relaxation = 0; relaxation < shares.size() && fitsAlone; ++relaxation) {
+            fitsAlone = shares[relaxation][index] <= capacities[relaxation] + kQuantityEpsilon;
+        }
+        if (!fitsAlone) continue;
+        counted.push_back(index);
+        held += items[index].unitLoads;
+    }
+
+    double bound = held;
+    vector<size_t> byDensity;
+    for (size_t relaxation = 0; relaxation < shares.size(); ++relaxation) {
+        const vector<double>& share = shares[relaxation];
+        double carried = 0.0, room = capacities[relaxation];
+        byDensity.clear();
+        for (const size_t index : counted) {
+            if (share[index] <= 0.0) {
+                carried += items[index].unitLoads;
+            } else {
+                byDensity.push_back(index);
+            }
+        }
+        sort(byDensity.begin(), byDensity.end(), [&](size_t left, size_t right) {
+            return items[left].unitLoads * share[right] > items[right].unitLoads * share[left];
+        });
+        for (const size_t index : byDensity) {
+            if (share[index] <= room) {
+                carried += items[index].unitLoads;
+                room -= share[index];
+                continue;
+            }
+            carried += items[index].unitLoads * room / share[index];
+            break;
+        }
+        bound = min(bound, carried);
+    }
+    return bound;
+}
+
 KnapsackSelection selectGreedy(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
                                const KnapsackSettings& settings) {
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     return assemble(items, capacity, problem, greedyTaken(problem, CandidateLimits(), TruckLimits()));
 }
 
-KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
-                                 const KnapsackSettings& settings, const TruckLimits& truck) {
+namespace {
+
+KnapsackSelection searchTruck(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                              const KnapsackSettings& settings, const TruckLimits& truck, bool trucksFollow) {
     const KnapsackProblem problem = prepareKnapsack(items, capacity, settings);
     validateLimits(truck.limits, items.size());
     const CandidateLimits limits = candidateLimits(problem, truck.limits);
@@ -445,19 +581,8 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
     KnapsackValue bestUndecided;
 
     auto sameItem = [&](size_t left, size_t right) {
-        const KnapsackItem& leftItem = items[problem.candidates[left]];
-        const KnapsackItem& rightItem = items[problem.candidates[right]];
-        if (problem.classOf[left] != problem.classOf[right] || problem.amount[left] != problem.amount[right]
-            || problem.areaGrains[left] != problem.areaGrains[right]
-            || problem.weightGrains[left] > problem.weightGrains[right]
-            || leftItem.longSideIn != rightItem.longSideIn || leftItem.shortSideIn != rightItem.shortSideIn
-            || leftItem.levels != rightItem.levels) {
-            return false;
-        }
-        for (const vector<double>& share : limits.share) {
-            if (share[left] != share[right]) return false;
-        }
-        return true;
+        return problem.weightGrains[left] <= problem.weightGrains[right]
+               && alikeButWeight(problem, items, limits, left, right);
     };
     // Where the run of goods alike at each position ends.
     vector<size_t> runEnd(count + 1, count);
@@ -567,12 +692,20 @@ KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const Knapsa
         finished = search(false);
     }
 
+    if (trucksFollow) carryHeaviestCopies(problem, items, limits, bestTaken);
     KnapsackSelection selection = assemble(items, capacity, problem, bestTaken);
     selection.stoppedAtNodeLimit = !finished;
     selection.betterLoadUndecided = best < bestUndecided;
     selection.proven = finished && !selection.betterLoadUndecided;
     selection.nodes = nodes;
     return selection;
+}
+
+} // anonymous namespace
+
+KnapsackSelection selectForTruck(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                                 const KnapsackSettings& settings, const TruckLimits& truck) {
+    return searchTruck(items, capacity, settings, truck, false);
 }
 
 KnapsackSelection selectByTable(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
@@ -630,9 +763,11 @@ KnapsackSelection selectByTable(const vector<KnapsackItem>& items, const Knapsac
     return assemble(items, capacity, problem, taken);
 }
 
-KnapsackSelection selectNextTruck(const vector<KnapsackItem>& items, const vector<size_t>& remaining,
-                                  const KnapsackCapacity& capacity, const KnapsackSettings& settings,
-                                  const TruckLimits& truck) {
+namespace {
+
+KnapsackSelection nextTruck(const vector<KnapsackItem>& items, const vector<size_t>& remaining,
+                            const KnapsackCapacity& capacity, const KnapsackSettings& settings,
+                            const TruckLimits& truck, bool carryHeaviest) {
     validateLimits(truck.limits, items.size());
     // The truck is searched over what is left, so its choices are mapped back to the caller's items.
     vector<KnapsackItem> pool;
@@ -667,10 +802,54 @@ KnapsackSelection selectNextTruck(const vector<KnapsackItem>& items, const vecto
         shares.perItem.reserve(remaining.size());
         for (const size_t index : remaining) shares.perItem.push_back(limit.perItem[index]);
     }
-    KnapsackSelection selection = selectForTruck(pool, capacity, settings, pooled);
+    KnapsackSelection selection = searchTruck(pool, capacity, settings, pooled, carryHeaviest);
     for (size_t& index : selection.chosen) index = remaining[index];
     for (size_t& index : selection.leftOver) index = remaining[index];
     return selection;
+}
+
+LaneSelection fillInTurn(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                         const KnapsackSettings& settings, int trucks, const TruckLimits& truck, bool carryHeaviest) {
+    LaneSelection lane;
+    vector<size_t> remaining(items.size());
+    iota(remaining.begin(), remaining.end(), size_t{0});
+    lane.trucks.reserve(static_cast<size_t>(trucks));
+    for (int built = 0; built < trucks; ++built) {
+        KnapsackSelection selection = nextTruck(items, remaining, capacity, settings, truck, carryHeaviest);
+        remaining = selection.leftOver;
+        lane.proven = lane.proven && selection.proven;
+        lane.trucks.push_back(std::move(selection));
+    }
+    lane.leftOver = std::move(remaining);
+    return lane;
+}
+
+// Unit loads per urgency class of the whole lane, most urgent first, then floor grains: each
+// truck's own value counts classes of its own pool, so trucks are compared on the lane's classes.
+KnapsackValue laneValueOf(const vector<KnapsackItem>& items, const KnapsackSettings& settings, const LaneSelection& lane) {
+    vector<tuple<string, int, string>> classes;
+    classes.reserve(items.size());
+    for (const KnapsackItem& item : items) classes.emplace_back(urgencyClassOf(item));
+    sort(classes.begin(), classes.end());
+    classes.erase(unique(classes.begin(), classes.end()), classes.end());
+    KnapsackValue value(classes.size() + 1, 0);
+    for (const KnapsackSelection& truck : lane.trucks) {
+        for (const size_t index : truck.chosen) {
+            const tuple<string, int, string> urgency = urgencyClassOf(items[index]);
+            const auto found = lower_bound(classes.begin(), classes.end(), urgency);
+            value[static_cast<size_t>(found - classes.begin())] += llround(items[index].unitLoads * 1000.0);
+            value.back() += static_cast<long long>(grainsUp(items[index].areaSqIn, settings.areaGrainSqIn));
+        }
+    }
+    return value;
+}
+
+} // anonymous namespace
+
+KnapsackSelection selectNextTruck(const vector<KnapsackItem>& items, const vector<size_t>& remaining,
+                                  const KnapsackCapacity& capacity, const KnapsackSettings& settings,
+                                  const TruckLimits& truck) {
+    return nextTruck(items, remaining, capacity, settings, truck, false);
 }
 
 LaneSelection selectForTrucks(const vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
@@ -678,18 +857,15 @@ LaneSelection selectForTrucks(const vector<KnapsackItem>& items, const KnapsackC
     if (trucks < 0) throw invalid_argument("Knapsack: truck count " + to_string(trucks) + " is negative");
     validate(items, capacity, settings);
     validateLimits(truck.limits, items.size());
-    LaneSelection lane;
-    vector<size_t> remaining(items.size());
-    iota(remaining.begin(), remaining.end(), size_t{0});
-    lane.trucks.reserve(static_cast<size_t>(trucks));
-    for (int built = 0; built < trucks; ++built) {
-        KnapsackSelection selection = selectNextTruck(items, remaining, capacity, settings, truck);
-        remaining = selection.leftOver;
-        lane.proven = lane.proven && selection.proven;
-        lane.trucks.push_back(std::move(selection));
-    }
-    lane.leftOver = std::move(remaining);
-    return lane;
+    LaneSelection lightestCarried = fillInTurn(items, capacity, settings, trucks, truck, false);
+    if (trucks < 2) return lightestCarried;
+    // Filling trucks in turn is greedy, so leaving later trucks the lightest copies can still lead
+    // one into a load that costs the next more, and heavier trucks leave the fill pass less payload.
+    // So the heaviest-carried fill is kept only where it ships more of the lane's most urgent goods,
+    // class by class: no lane ships less of them than lightest-first, and an equal one is unchanged.
+    LaneSelection heaviestCarried = fillInTurn(items, capacity, settings, trucks, truck, true);
+    if (laneValueOf(items, settings, lightestCarried) < laneValueOf(items, settings, heaviestCarried)) return heaviestCarried;
+    return lightestCarried;
 }
 
 const char* bindingLimitName(BindingLimit limit) {

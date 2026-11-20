@@ -207,6 +207,16 @@ KnapsackSelection selectForTruck(const std::vector<KnapsackItem>& items,
 KnapsackSelection selectByTable(const std::vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
                                 const KnapsackSettings& settings, long long maxTableCells);
 
+// The most unit loads one truck could carry of `items`, on any rows: the least of what the items
+// hold and of each limit relaxed alone - floor area, payload, every ItemLimit - filled with the
+// items carrying most unit loads per share first, and a fraction of the last. Every load within
+// the limits is within each relaxation, so it bounds a truck the search left unproven. Items over
+// the ceiling, or over the floor, payload or a limit alone, are not counted. Throws
+// std::invalid_argument, as prepareKnapsack does, for an item or capacity out of range, and as
+// selectForTruck does for a limit.
+double unitLoadUpperBound(const std::vector<KnapsackItem>& items, const KnapsackCapacity& capacity,
+                          const std::vector<ItemLimit>& limits);
+
 // Takes items in solve order while they fit. The warm start, and the baseline the exact
 // methods are measured against.
 KnapsackSelection selectGreedy(const std::vector<KnapsackItem>& items,
@@ -227,7 +237,10 @@ KnapsackSelection selectNextTruck(const std::vector<KnapsackItem>& items, const 
                                   const TruckLimits& truck = TruckLimits());
 
 // Fills `trucks` trucks one after another, each by selectNextTruck from what the trucks before it
-// left, every one judged by `truck`. Exact per truck, not across them.
+// left, every one judged by `truck`. Exact per truck, not across them. With more than one truck,
+// the lane is filled again with each truck carrying the heaviest copies of goods alike but for
+// weight its payload allows, at the same value and proof, so later trucks are left the lightest;
+// that fill is kept only where it ships more of the lane's most urgent goods, class by class.
 LaneSelection selectForTrucks(const std::vector<KnapsackItem>& items,
                               const KnapsackCapacity& capacity, const KnapsackSettings& settings,
                               int trucks, const TruckLimits& truck = TruckLimits());
