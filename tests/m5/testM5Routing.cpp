@@ -353,7 +353,7 @@ TEST_CASE("X-ROUTE-05/synthetic: a repeated reservation record never doubles ava
     }
     CHECK(string(describeSkipReason(twice.skipped[0].reason)) == "duplicate lane and ship date");
     m5Evidence::note("expected", {"one row reserves 21", "repeated row reserves 0, never 42", "both rows named duplicate lane and ship date"});
-    m5Evidence::note("notCovered", "two genuine equal reservations cannot be distinguished from a repeated record: the placeholder feed has no reservation identity");
+    m5Evidence::note("notCovered", "the placeholder feed has no reservation identity to distinguish two genuine equal reservations; the engineering decision keeps M4 exclusion and reporting for repeated rows");
 }
 
 TEST_CASE("X-RES-05/synthetic: reserved counts -1, 1.5, NaN, infinity and huge are refused with their row; a real 0 is no trucks" * doctest::test_suite("m5")) {

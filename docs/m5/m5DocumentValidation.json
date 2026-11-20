@@ -1376,13 +1376,13 @@
   "reviewedOutputs": {
     "M5_Edge_Cases_and_Tests_v12.md": "2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53",
     "m5DeveloperHandover.md": "7a82b4a53e3257af84013652a5773aeda59ea3ab93bc6bb4c52dfbd6ade9f6a0",
-    "m5ModularArchitecture.md": "8e030dd0c65c37d39346a5e6408a33afa48e812222021c6a12b4202dbfcf684c",
+    "m5ModularArchitecture.md": "ccb64760d5157c24e40f2ded3831e80c7d4690639d2b4e5f9cc3c02e76671d99",
     "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
     "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
     "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",
-    "m5ReviewAndChanges.md": "a0f8b547f1a01020365c5083a9a58ab365237ce39ae10fb8f8b2671d29d63df7",
-    "m5TestManifest.json": "7c495d61522f1299f3064d1ca6e57ef957185e01ba778177875a3f8e69f9ab1b",
-    "m5TestTraceability.md": "2a27a56206f2df2863eff17f6c870dab7fad439249a2760c9796e7ee67e4a34f"
+    "m5ReviewAndChanges.md": "4b357026bdc467a90c185513c1b14de49b780c9a3929a38ff5620322739b8a48",
+    "m5TestManifest.json": "51eb28120e280844627bae71af710698ceffea11bc102684491232dec77954ce",
+    "m5TestTraceability.md": "cf5eb74e07623b4b15009aa71ef345b378b2d4418059af52ecde1b5863e7f2a8"
   },
   "tomInputsSha256": "c38a9a6c8199141bc3d602eff4af0fd232b2dcda110c35fca7e311d521df2f01",
   "revision91Fixes": {
@@ -1496,7 +1496,7 @@
     "reviewedOutputsBefore": {
       "M5_Edge_Cases_and_Tests_v12.md": "2084b1a999bcc3aea276aa9d525b6d2a6c92df435449bbfb51d27c4f40019a53",
       "m5DeveloperHandover.md": "7a82b4a53e3257af84013652a5773aeda59ea3ab93bc6bb4c52dfbd6ade9f6a0",
-      "m5ModularArchitecture.md": "f30fc08f227648ebc0de4645b4a3c7294589dc8020e86dd9ea4205df60677e0d",
+      "m5ModularArchitecture.md": "8e030dd0c65c37d39346a5e6408a33afa48e812222021c6a12b4202dbfcf684c",
       "m5Phase1V11Reconciliation.csv": "7cc0784a3403e423c6a5a20ea4d6cec85c43cdf9340b7da612864d4f2d862e04",
       "m5Phase1V11Reconciliation.json": "dde7b663b0a8e0ce97d59765c8a9040c61bb516f4b0b62617aadc994d66428af",
       "m5Phase1V11Reconciliation.md": "4555eb25a62afb28f46048ec252926472ca88e199b54d03f6ab42dc1d9a5f9fc",

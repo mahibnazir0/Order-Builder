@@ -1892,8 +1892,9 @@ Documents only. No repository code was read or changed and no application test w
 Later decision, 19 November 2026: the shipped M5 catalogue includes 53F and
 40STD. The container uses the supplied 12,032 x 2,350 mm floor, 45,000 lb
 payload, zero door clearance and an explicit `maxUnitLoads: null` meaning no
-unit-load cap. Its 94 in inside height is an assumption pending Tom's choice of
-standard or high-cube; the original high-cube millimetre conversion tests stay.
+unit-load cap. The 94 in inside height was provisional. Tom confirmed the
+106 in high-cube ceiling in Section 22.12. The equipment key remains
+`40STD`, and the original millimetre conversion fixture still runs.
 A missing `maxUnitLoads` key is still an error. One lane-date uses one type.
 M5's result adapter reports the selected type's floor and rear inches.
 - Tests v11: 301 named tests, 522 variants (515 NOT_RUN, 7 BLOCKED), 24 invariants, 48 EC items, 10 CL rules.
@@ -2184,3 +2185,12 @@ Engineering decision (Tom asked us to decide):
 - Keep the $200 unused-truck penalty in the report. It does not affect a plan.
 - The cost-based pull-forward trade-off belongs in M4's pull-forward step
   as future work.
+
+The whole pipeline chooses a run trailer before M2 builds stacks. Select
+the high-cube as the run trailer through settings to rebuild stacks. The
+M5 catalogue alone changes the slot capabilities, while M5 consumes each
+handed-over stack as a single floor item. The shared M2 rule reads the
+product's Strength as CRI, checks every carrier in the stack, and uses the
+same weight-above rule for both trailers. Shared M2 permits a combined
+height equal to the ceiling. Saif owns any change to strict inequality
+for double stacking.

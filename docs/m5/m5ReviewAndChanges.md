@@ -486,7 +486,7 @@ build, fixture/configuration and requirement identities.
 Tom defined FULL as no other allowed item fitting. Weight percentage and the
 14 in rear-space setting remain measured and reported, but crossing either
 target alone does not establish FULL. A truck with space and no goods left is
-labelled "not full - no goods left" pending confirmation. This decision updates
+labelled "not full - no goods left", confirmed by Tom on 20 Nov. This decision updates
 M5 validation and report tests without changing the preserved v12 source spec.
 
 ### Tom's 19 Nov tie decision

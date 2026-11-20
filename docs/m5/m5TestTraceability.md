@@ -393,7 +393,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 | X-ROUTE-02 | P0 | One lane-date, 21 reserved, two groups needing 11 and 10 trucks | M-INT / M-M4 M-LED | WP8 | FX-ROUTE | ROUTE | STATE | 05 16 17 | 28 | CL-08 | synthetic (required, NOT_RUN) |
 | X-ROUTE-03 | P0 | Lane X: day 1 = 21, day 2 = 20 reserved. Lane Y: day 1 = 20, day 2 = 21 | M-INT / M-M4 M-LED | WP8 | FX-ROUTE | ROUTE | STATE | 05 16 17 | 03 | CL-08 | synthetic (required, NOT_RUN) |
 | X-ROUTE-04 | P0 | Two different lanes (different origin or destination) with the same products, 11 reserved each | M-INT / M-M4 M-LED | WP8 | FX-ROUTE | ROUTE | STATE | 05 16 17 | - | CL-08 | synthetic (required, NOT_RUN) |
-| X-ROUTE-05 | P0 | The same reservation record twice; and two genuinely different reservations with equal values | M-INT / M-M4 M-LED | WP8 | FX-ROUTE | ROUTE | STATE | 05 16 17 | - | CL-08 | synthetic (required, PARTIAL: repeated record never doubles trucks; placeholder feed has no reservation identity, so genuine equal reservations cannot be distinguished; question for Tom); malformedHandoffReservation (required, NOT_RUN) |
+| X-ROUTE-05 | P0 | The same reservation record twice; and two genuinely different reservations with equal values | M-INT / M-M4 M-LED | WP8 | FX-ROUTE | ROUTE | STATE | 05 16 17 | - | CL-08 | synthetic (required, PARTIAL: duplicate lane-date rows are excluded and named; the feed has no reservation identity to distinguish genuine equal rows); malformedHandoffReservation (required, NOT_RUN) |
 | X-ROUTE-06 | P0 | Threshold or block size negative, 0, 1.5, missing, or too large | M-POL / M-INT | WP1 | FX-ROUTE | POLICY | CONFIGERR | 15 23 24 | - | CL-08 | synthetic (required, NOT_RUN) |
 | X-ROUTE-07 | P0 | FX-ROUTE: same reservations, scope and T; vary current goods and historical client built counts. Current goods stay n... | M-INT / M-POL | WP8 | FX-ROUTE | ROUTE + POLICY | STATE + CONFIGERR | 16 17 | - | CL-08 | synthetic (required, NOT_RUN) |
 | X-ROUTE-08 | P0 | One run with TF/TL goods, raw-material rows, and one parked-feature row | M-INT / M-M4 | WP8 | FX-ROUTE + raw + parked rows | ROUTE | STATE + CONFIGERR | 15 16 17 23 24 | - | - | synthetic (required, NOT_RUN) |
@@ -794,7 +794,13 @@ Reusing corrected M4 validation inside M5 is allowed and expected. Every P0 allo
 | DATA:exact August linked-date inputs, master/config and compared baseline lane-date evidence (RD-13/B30) | RD-13 | Verify the exact dependency and its declared scope before execution; unavailable required inputs produce BLOCKED, never invented PASS. |
 | IMPLEMENTED:M4 per-lane pastDueOrder setting on the M5 branch (`selection.pastDueOrderByLane`, off by default), awaiting Tom's confirmation | R-7 | R-7 m4Path/m5Path: conditional, selected by decision D1 (Revision 9.2), NOT_RUN until executed with current evidence. Direct-context isolation remains required and has no dependency on that input adapter. |
 | SOURCE:Tom exact R-1 inputs (received 16 Nov 2026; v11 Section 40) | R-1a, R-1b | Received; commit unchanged under tests/fixtures/tomReview/m5ExactInputs/ and check SHA-256 before running; never substitute Saif's reconstruction |
-| Tom 19 Nov: container payload 45,000 lb and no unit-load limit; standard height 94 in assumed | U-DA-07 | containerRun executes with the later limits and generic footprints; height remains pending Tom's confirmation |
+| Tom confirmed 106 in high-cube, zero door clearance, 45,000 lb and no unit-load limit | U-DA-07/containerRun | 40STD uses the confirmed capability and plans the generic 42 x 42 in, 100 in tall stack |
+| Products unable to carry weight above them use the run trailer's shared M2 Strength/CRI rule | U-PB-07, X-PAT-15 | M5 places rigid stacks. Shared M2 ceiling equality is for Saif to review |
+| Better fill uses the lane's binding limit | X-RES-13 and Tom item 4 in testM5TieRule.cpp | Compare urgency, then binding-limit fill, then ED-21 |
+| Apply the estimate-based building rule at 50 percent for named buildings | Tom item 5 in testM5TieRule.cpp and named settings in testM5Policy.cpp | No building field in the feed. Do-not-mix alone leaves the rule off. Higher priority keeps a disputed truck |
+| Keep M4 duplicate behavior | X-ROUTE-05/synthetic | Exclude and name the duplicate rows. Counting identical copies once is future M4 work |
+| Shipped unused-truck penalty is 200 dollars and report-only | U-RS-02/realRate | Rate and override are reported. Allocation and acceptance are independent of the penalty |
+| Cost-based pull-forward is future work in M4 | R-3b, U-CF-07 | Current date and pull-forward rules apply |
 
 Answered Q6 and production x/y are not blanket blockers. Reported source availability, actual fixture presence, application execution, and current variant selection are separate facts.
 
@@ -922,7 +928,7 @@ The final gate must distinguish a recorded intentional deferral from a required 
 Tom's 19 Nov decision supersedes the v12 FULL threshold wording for M5: FULL
 requires evidence that no other allowed item fits. The 14 in setting remains a
 separate rear-space target. With space but no goods left, the display says
-"not full - no goods left" pending Tom's confirmation. U-FL-01/02/06/09 and
+"not full - no goods left", confirmed by Tom on 20 Nov. U-FL-01/02/06/09 and
 the affected report tests retain their IDs and check this later decision.
 
 Tom's 19 Nov tie decision adds better fill between the class vector and ED-21.
