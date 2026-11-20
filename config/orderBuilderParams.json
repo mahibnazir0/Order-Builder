@@ -48,7 +48,7 @@
     "trailerTypes": [
       { "equipment": "53F", "lengthIn": 630, "widthIn": 100, "heightIn": 108,
         "doorClearanceIn": 0, "payloadLb": 45000, "maxUnitLoads": 64 },
-      { "equipment": "40STD", "lengthMm": 12032, "widthMm": 2350, "heightIn": 94,
+      { "equipment": "40STD", "lengthMm": 12032, "widthMm": 2350, "heightIn": 106,
         "doorClearanceIn": 0, "payloadLb": 45000, "maxUnitLoads": null }
     ],
     "secondsPerLoad": 1,

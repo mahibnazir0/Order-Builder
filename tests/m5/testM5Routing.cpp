@@ -940,13 +940,13 @@ TEST_CASE("U-DA-07/rowPatterns: 48 x 40 stacks in the 92.52 in container: 80 and
     m5Evidence::note("expected", {"80 fits", "88 fits", "96 never"});
 }
 
-TEST_CASE("U-DA-07/containerRun: the standard container plans generic stacks with its own floor and no unit cap" * doctest::test_suite("m5")) {
+TEST_CASE("U-DA-07/containerRun: the high-cube container plans generic stacks with its own floor and no unit cap" * doctest::test_suite("m5")) {
     const m5::M5PolicyProfile shipped = m5::loadProfile(readParamsFile("config/orderBuilderParams.json")["m5"]);
     REQUIRE(shipped.trailerTypes.count("40STD") == 1);
     const m5::TrailerCapability& container = shipped.trailerTypes.at("40STD");
     CHECK(container.lengthIn == 12032.0 / 25.4);
     CHECK(container.widthIn == 2350.0 / 25.4);
-    CHECK(container.heightIn == 94.0);
+    CHECK(container.heightIn == 106.0);
     CHECK(container.maxWeightLb == 45000.0);
     CHECK(container.maxUnitLoads == m5::kUnlimitedUnitLoads);
     Handover handover = handoverOf(30);
@@ -954,6 +954,7 @@ TEST_CASE("U-DA-07/containerRun: the standard container plans generic stacks wit
     SelectionItem& otherFootprint = handover.day.items.items.front();
     otherFootprint.footprintLongIn = 42.0;
     otherFootprint.footprintShortIn = 42.0;
+    otherFootprint.heightIn = 100.0;
     otherFootprint.cubeCubicIn = 42.0 * 42.0 * otherFootprint.heightIn;
     const m5::M5LaneDateInput input = m5::gatherLaneDate(handover.request, handover.day.run, handover.day.items,
                                                          {false, 10}, nullopt, 64.0, shipped.trailerTypes);
@@ -973,8 +974,8 @@ TEST_CASE("U-DA-07/containerRun: the standard container plans generic stacks wit
         for (const FloorRow& row : truck.floor.rows) CHECK(row.widthIn <= container.widthIn);
     }
     CHECK(shippedItems == 30);
-    m5Evidence::note("expected", {"container 473.700787 x 92.519685 x 94 in", "45,000 lb", "no unit-load cap",
-                                  "generic 42 x 42 and 48 x 40 footprints", "container floor and rear inches"});
+    m5Evidence::note("expected", {"container 473.700787 x 92.519685 x 106 in", "45,000 lb", "no unit-load cap",
+                                  "a 100 in tall stack on a 42 x 42 footprint, plus 48 x 40 footprints", "container floor and rear inches"});
 }
 
 TEST_CASE("U-DA-07/missingLimitsRejected: a type without payload or unit-load cap is a named configuration error" * doctest::test_suite("m5")) {
