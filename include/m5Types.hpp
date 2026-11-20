@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
@@ -30,6 +31,8 @@
 
 namespace ob {
 namespace m5 {
+
+constexpr std::int64_t kUnlimitedUnitLoads = std::numeric_limits<std::int64_t>::max();
 
 using SourceLineId = std::string;
 using GroupId = std::string;
@@ -76,7 +79,8 @@ struct TrailerCapability {
     double heightIn = 0.0;
     double maxWeightLb = 0.0;
     // Whole component unit loads this slot may carry (ED-20, R-9): the slot's own limit, never a
-    // universal 64. Zero means none was supplied, which is a configuration error, not "no cap".
+    // universal 64. Zero means none was supplied, which is a configuration error.
+    // kUnlimitedUnitLoads is an explicit no-limit catalogue setting.
     std::int64_t maxUnitLoads = 0;
     std::string signature() const;  // equal capabilities share patterns and supplies
 };

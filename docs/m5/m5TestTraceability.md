@@ -635,7 +635,7 @@ P = priority; Own = owner plus collaborators; INV/EC = checks. Dependencies in t
 
 | ID | P | Title | Own / collab | WP | Fixture | Entry | Oracle | INV | EC | Deps | Variants |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| U-DA-07 | P1 | Single alternate trailer type: 40 ft high-cube container (Tom, 16 Nov) | M-INT / M-PHY M-VAL | WP8 | Container profile 473.700787 x 92.519685 x 106.220472 in (12,032 x 2,350 x 2,698 mm); 48 x 40 in stacks; FX-30 goods; override: One trailer type for the whole run | ROUTE + DIRECT | ARITH + LAYOUT + CONFIGERR | 01 15 18 23 24 | 48 | C9, SOURCE:container payload and unit-load limit (containerRun only) | mmConversion (required, NOT_RUN); rowPatterns (required, NOT_RUN); missingLimitsRejected (required, NOT_RUN); containerRun (required, BLOCKED); unknownTypeNoFallback (required, NOT_RUN) |
+| U-DA-07 | P1 | Single alternate trailer type: 40 ft high-cube container (Tom, 16 Nov) | M-INT / M-PHY M-VAL | WP8 | Container profile 473.700787 x 92.519685 x 106.220472 in (12,032 x 2,350 x 2,698 mm); 48 x 40 in stacks; FX-30 goods; override: One trailer type for the whole run | ROUTE + DIRECT | ARITH + LAYOUT + CONFIGERR | 01 15 18 23 24 | 48 | C9, SOURCE:container payload and unit-load limit (containerRun only) | mmConversion (required, NOT_RUN); rowPatterns (required, NOT_RUN); missingLimitsRejected (required, NOT_RUN); containerRun (required, NOT_RUN); unknownTypeNoFallback (required, NOT_RUN) |
 
 ### Current requirements Section 42.1
 
@@ -794,7 +794,7 @@ Reusing corrected M4 validation inside M5 is allowed and expected. Every P0 allo
 | DATA:exact August linked-date inputs, master/config and compared baseline lane-date evidence (RD-13/B30) | RD-13 | Verify the exact dependency and its declared scope before execution; unavailable required inputs produce BLOCKED, never invented PASS. |
 | IMPLEMENTED:M4 per-lane pastDueOrder setting on the M5 branch (`selection.pastDueOrderByLane`, off by default), awaiting Tom's confirmation | R-7 | R-7 m4Path/m5Path: conditional, selected by decision D1 (Revision 9.2), NOT_RUN until executed with current evidence. Direct-context isolation remains required and has no dependency on that input adapter. |
 | SOURCE:Tom exact R-1 inputs (received 16 Nov 2026; v11 Section 40) | R-1a, R-1b | Received; commit unchanged under tests/fixtures/tomReview/m5ExactInputs/ and check SHA-256 before running; never substitute Saif's reconstruction |
-| SOURCE:container payload and unit-load limit (containerRun only) | U-DA-07 | containerRun BLOCKED until Tom sends them; mmConversion, rowPatterns and missingLimitsRejected run now |
+| Tom 19 Nov: container payload 45,000 lb and no unit-load limit; standard height 94 in assumed | U-DA-07 | containerRun executes with the later limits and generic footprints; height remains pending Tom's confirmation |
 
 Answered Q6 and production x/y are not blanket blockers. Reported source availability, actual fixture presence, application execution, and current variant selection are separate facts.
 

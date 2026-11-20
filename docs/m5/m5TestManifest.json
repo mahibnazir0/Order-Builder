@@ -5388,7 +5388,7 @@
       ],
       "dependencies": [
         "C9",
-        "SOURCE:container payload and unit-load limit (containerRun only)"
+        "Tom 19 Nov: 45,000 lb, no unit-load limit, standard height 94 in pending confirmation (containerRun)"
       ],
       "customerGate": "NOT_EVALUATED",
       "executionStatus": "NOT_RUN",
@@ -5432,13 +5432,18 @@
         {
           "variant": "containerRun",
           "requirement": "required",
-          "executionStatus": "BLOCKED",
+          "executionStatus": "NOT_RUN",
           "customerAcceptance": "NOT_EVALUATED",
-          "note": "Needs the container payload and unit-load limit from Tom (asked 17 Nov 2026)",
+          "note": "Tom supplied 45,000 lb and no unit-load limit on 19 Nov; standard 94 in height is an explicit pending assumption. The later decision overrides this variant's original high-cube height for the current run.",
           "evidenceScope": "SYNTHETIC",
           "expectedBehavior": "Execute the complete current source-case assertions for this variant; see sourceExpectation and sourceSection.",
-          "fixtureOverrides": "Use the parent fixture plus the variant and local overrides specified by the current source.",
-          "blocker": "Needs the container payload and unit-load limit from Tom (asked 17 Nov 2026)"
+          "fixtureOverrides": "Run the 40STD catalogue type at 12,032 x 2,350 mm floor, 94 in inside height, zero door clearance, 45,000 lb payload and explicit unlimited unit loads; include a generic non-48 footprint.",
+          "blocker": "",
+          "selectedForCurrentAcceptance": true,
+          "selectedForCurrentMilestone": true,
+          "selectionReason": "Tom's later container limits make the full run executable",
+          "selectionDecisionRef": "Tom decision, 19 Nov 2026",
+          "activationCondition": "40STD is the only selected trailer type for the lane-date"
         },
         {
           "variant": "unknownTypeNoFallback",

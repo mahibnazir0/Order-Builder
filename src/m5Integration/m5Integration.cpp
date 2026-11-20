@@ -321,7 +321,6 @@ LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const 
         LargeLaneResult result;
         vector<long long> builtOfRoute(request.routeIndices.size(), 0);
         if (outcome.selected) {
-            const TrailerSpec& trailer = run.trailer;
             for (const TruckPlan& truck : outcome.selected->trucks) {
                 PlannedTruck planned;
                 const size_t route = routeOfAtom[truck.atoms.front()];
@@ -338,8 +337,9 @@ LargeLaneResult M5LargeLanePlanner::plan(const LargeLaneRequest& request, const 
                     planned.unitLoads += item.unitLoads;
                     floorItems.push_back(floorItemFrom(item));
                 }
-                planned.weightFull = planned.weightLb >= trailer.weightLimitLb - kQuantityEpsilon;
-                planned.floor = arrangeFloor(floorItems, trailer, settings.floor);
+                const TrailerCapability& capability = input.pool.slots[truck.slot];
+                planned.weightFull = planned.weightLb >= capability.maxWeightLb - kQuantityEpsilon;
+                planned.floor = arrangeFloor(floorItems, trailerOf(capability), settings.floor);
                 ++builtOfRoute[route];
                 result.trucks.push_back(std::move(planned));
             }

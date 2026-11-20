@@ -1888,6 +1888,14 @@ Documents only. No repository code was read or changed and no application test w
 - C9 extended with the engineer's conditions for a future mixed fleet. A single alternate trailer type per
   run is in scope: U-DA-07 tests a 40 ft high-cube container. Its payload and unit-load limit are still
   needed, and a profile without them is a configuration error, never a silent 53F default.
+
+Later decision, 19 November 2026: the shipped M5 catalogue includes 53F and
+40STD. The container uses the supplied 12,032 x 2,350 mm floor, 45,000 lb
+payload, zero door clearance and an explicit `maxUnitLoads: null` meaning no
+unit-load cap. Its 94 in inside height is an assumption pending Tom's choice of
+standard or high-cube; the original high-cube millimetre conversion tests stay.
+A missing `maxUnitLoads` key is still an error. One lane-date uses one type.
+M5's result adapter reports the selected type's floor and rear inches.
 - Tests v11: 301 named tests, 522 variants (515 NOT_RUN, 7 BLOCKED), 24 invariants, 48 EC items, 10 CL rules.
 
 

@@ -197,9 +197,9 @@ TEST_CASE("m5Registry: the committed manifest is the v12 one: requirement hash, 
     }
     CHECK(manifest.variants.size() == 557);
     CHECK(keys.size() == 557);
-    // Decision D1 selected R-7's two conditional integration variants and decision 4 (both 17 Nov 2026)
-    CHECK(byStatus["NOT_RUN"] == 554);
-    CHECK(byStatus["BLOCKED"] == 2);
+    // Later container limits remove U-DA-07/containerRun's source blocker.
+    CHECK(byStatus["NOT_RUN"] == 555);
+    CHECK(byStatus["BLOCKED"] == 1);
     CHECK(byStatus["PARTIAL"] == 1);
     CHECK(byRequirement["required"] == 548);
     CHECK(byRequirement["conditional"] == 9);

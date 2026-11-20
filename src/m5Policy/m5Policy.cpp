@@ -34,8 +34,8 @@ double readDimensionIn(const json& entry, const string& dimension, const string&
     return readQuantity(*millimetres, name + "." + dimension + "Mm") / kMillimetresPerInch;
 }
 
-// U-DA-07: every type states its sizes, payload and unit-load cap; a missing one is an error, never the
-// 53F trailer's 45,000 lb or 64.
+// U-DA-07: every type states its sizes, payload and unit-load cap. Explicit null
+// means no unit-load limit; a missing key is an error, never the 53F default.
 map<string, TrailerCapability> readTrailerTypes(const json& value, const string& key) {
     if (!value.is_array()) throw runtime_error("params: " + key + " must be an array when present");
     map<string, TrailerCapability> types;
@@ -48,8 +48,14 @@ map<string, TrailerCapability> readTrailerTypes(const json& value, const string&
         type.lengthIn = readDimensionIn(entry, "length", name);
         type.widthIn = readDimensionIn(entry, "width", name);
         type.heightIn = readDimensionIn(entry, "height", name);
+        const auto door = entry.find("doorClearanceIn");
+        if (door != entry.end()) {
+            const double clearance = readQuantity(*door, name + ".doorClearanceIn", ZeroAllowed::Yes);
+            if (clearance != 0.0) throw runtime_error("params: " + name + ".doorClearanceIn must be zero for this catalogue");
+        }
         type.maxWeightLb = readQuantity(requiredField(entry, "payloadLb", name), name + ".payloadLb");
-        type.maxUnitLoads = readWholeCount(requiredField(entry, "maxUnitLoads", name), name + ".maxUnitLoads");
+        const json& cap = requiredField(entry, "maxUnitLoads", name);
+        type.maxUnitLoads = cap.is_null() ? kUnlimitedUnitLoads : readWholeCount(cap, name + ".maxUnitLoads");
         if (!types.emplace(equipment, type).second) {
             throw runtime_error("params: " + name + ".equipment '" + equipment + "' is listed twice");
         }
