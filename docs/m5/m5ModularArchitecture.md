@@ -2152,3 +2152,35 @@ by reserved interior volume; otherwise cube. With no eligible must-go goods,
 use all eligible goods to identify the limit. This later decision supersedes
 earlier equal-service wording in this architecture; the v12 source spec remains
 preserved.
+
+### 22.12 M5 close-out decisions (20 November 2026)
+
+Tom decided:
+
+- Use "not full - no goods left" when the truck has space and no allowed goods
+  remain.
+- Use a high-cube container with an inside floor of 12,032 x 2,350 mm (about
+  473.7 x 92.5 in), a 106 in inside height, zero door clearance, a 45,000 lb
+  payload and no unit-load limit. Generic footprints use the normal floor
+  rules. Double stacking must stay below the inside height.
+- Products that cannot take weight on top must never carry another product
+  in either containers or trailers.
+- Measure better fill by the lane's binding limit, cube or weight. Compare
+  urgency first, then binding-limit fill, then ED-21.
+- Apply the building rule to estimated need at the 50% setting. Estimate
+  from the goods above the priority cut at reserved binding-limit capacity.
+  Round a fractional truck down below 50% and up at or above 50%.
+
+Engineering decision (Tom asked us to decide):
+
+- Keep M4's handling of repeated lane-date reservation rows. Exclude each
+  duplicate and report it by name. M5 never counts a repeat twice. Saif can
+  consider counting identical copies once as a future M4 change.
+- The feed has no building field. Keep the building rule off by default and
+  enable it only when the physical buildings are named in
+  `m5.separateBuildings`. Do-not-mix groups alone do not enable it.
+- If rounding assigns more trucks than reserved, the building with the
+  higher-priority goods keeps the disputed truck.
+- Keep the $200 unused-truck penalty in the report. It does not affect a plan.
+- The cost-based pull-forward trade-off belongs in M4's pull-forward step
+  as future work.
